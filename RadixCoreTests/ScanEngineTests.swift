@@ -64,6 +64,19 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(aliasNode.isSymbolicLink)
         XCTAssertFalse(aliasNode.containsChildren)
         XCTAssertEqual(aliasNode.itemKind, "Alias")
+        XCTAssertEqual(aliasNode.descendantFileCount, 0)
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
+    }
+
+    func testScanTargetNormalizesSyntheticRootAliases() {
+        let nofollowTarget = ScanTarget(url: URL(filePath: "/.nofollow/Users/example", directoryHint: .isDirectory))
+        let resolveTarget = ScanTarget(url: URL(filePath: "/.resolve/System/Volumes/Data", directoryHint: .isDirectory))
+        let rootAliasTarget = ScanTarget(url: URL(filePath: "/.nofollow", directoryHint: .isDirectory))
+
+        XCTAssertEqual(nofollowTarget.url.path, "/Users/example")
+        XCTAssertEqual(resolveTarget.url.path, "/System/Volumes/Data")
+        XCTAssertEqual(rootAliasTarget.url.path, "/")
+        XCTAssertEqual(rootAliasTarget.kind, .volume)
     }
 
     func testDirectoryChildrenAreOrderedDeterministically() async throws {

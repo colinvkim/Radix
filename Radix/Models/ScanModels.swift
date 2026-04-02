@@ -32,12 +32,27 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         kind: ScanTargetKind? = nil,
         authorizationState: AuthorizationState = .notEvaluated
     ) {
-        let normalizedURL = url.standardizedFileURL
+        let normalizedURL = ScanTarget.normalizedURL(from: url)
         self.id = normalizedURL.path
         self.url = normalizedURL
         self.displayName = ScanTarget.displayName(for: normalizedURL)
         self.kind = kind ?? (normalizedURL.path == "/" ? .volume : .folder)
         self.authorizationState = authorizationState
+    }
+
+    private static func normalizedURL(from url: URL) -> URL {
+        let standardizedURL = url.standardizedFileURL
+        let path = standardizedURL.path
+
+        for syntheticPrefix in ["/.nofollow", "/.resolve"] {
+            guard path == syntheticPrefix || path.hasPrefix(syntheticPrefix + "/") else { continue }
+
+            let trimmedPath = String(path.dropFirst(syntheticPrefix.count))
+            let normalizedPath = trimmedPath.isEmpty ? "/" : trimmedPath
+            return URL(fileURLWithPath: normalizedPath, isDirectory: standardizedURL.hasDirectoryPath).standardizedFileURL
+        }
+
+        return standardizedURL
     }
 
     private static func displayName(for url: URL) -> String {

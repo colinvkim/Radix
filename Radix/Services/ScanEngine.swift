@@ -115,7 +115,9 @@ actor ScanEngine {
 
         if !shouldTraverseDirectory(metadata: metadata, options: options) {
             let fileNode = makeFileNode(url: target.url, metadata: metadata)
-            metrics.filesVisited += 1
+            if !fileNode.isSymbolicLink {
+                metrics.filesVisited += 1
+            }
             metrics.bytesDiscovered += fileNode.allocatedSize
             metrics.completedItems += 1
             metrics.recalculateProgress()
@@ -261,7 +263,9 @@ actor ScanEngine {
         }
 
         let fileNode = makeFileNode(url: url, metadata: metadata)
-        metrics.filesVisited += 1
+        if !fileNode.isSymbolicLink {
+            metrics.filesVisited += 1
+        }
         metrics.bytesDiscovered += fileNode.allocatedSize
         metrics.completedItems += 1
         metrics.recalculateProgress()
@@ -310,7 +314,12 @@ actor ScanEngine {
             options: options
         )
 
-        return contents
+        return contents.filter { includedChildURL($0, under: url) }
+    }
+
+    private func includedChildURL(_ childURL: URL, under parentURL: URL) -> Bool {
+        guard parentURL.path == "/" else { return true }
+        return ![".nofollow", ".resolve"].contains(childURL.lastPathComponent)
     }
 
     private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNode {
@@ -323,7 +332,7 @@ actor ScanEngine {
             allocatedSize: metadata.allocatedSize,
             logicalSize: metadata.logicalSize,
             children: [],
-            descendantFileCount: metadata.isDirectory ? 0 : 1,
+            descendantFileCount: metadata.isDirectory || metadata.isSymbolicLink ? 0 : 1,
             lastModified: metadata.lastModified,
             isPackage: metadata.isPackage,
             isAccessible: metadata.isReadable
@@ -345,7 +354,11 @@ actor ScanEngine {
             result += child.logicalSize
         }
         let descendantFileCount = sortedChildren.reduce(into: 0) { result, child in
-            result += child.isDirectory ? child.descendantFileCount : 1
+            if child.isDirectory {
+                result += child.descendantFileCount
+            } else if !child.isSymbolicLink {
+                result += 1
+            }
         }
         let isAccessible = metadata.isReadable && sortedChildren.allSatisfy(\.isAccessible)
 
@@ -411,7 +424,7 @@ actor ScanEngine {
         walk(node: root) { node in
             if node.isDirectory {
                 directoryCount += 1
-            } else {
+            } else if !node.isSymbolicLink {
                 fileCount += 1
             }
 
