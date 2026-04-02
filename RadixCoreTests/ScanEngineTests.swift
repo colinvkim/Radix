@@ -92,22 +92,22 @@ final class ScanEngineTests: XCTestCase {
         )
         XCTAssertFalse(
             ScanEngine.includedChildURL(
-                URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
-                under: URL(filePath: "/System", directoryHint: .isDirectory),
+                URL(filePath: "/System/Volumes/Data", directoryHint: .isDirectory),
+                under: URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
                 behavior: startupBehavior
             )
         )
         XCTAssertTrue(
             ScanEngine.includedChildURL(
-                URL(filePath: "/System/Library", directoryHint: .isDirectory),
-                under: URL(filePath: "/System", directoryHint: .isDirectory),
+                URL(filePath: "/System/Volumes/VM", directoryHint: .isDirectory),
+                under: URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
                 behavior: startupBehavior
             )
         )
         XCTAssertTrue(
             ScanEngine.includedChildURL(
-                URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
-                under: URL(filePath: "/System", directoryHint: .isDirectory),
+                URL(filePath: "/System/Volumes/Data", directoryHint: .isDirectory),
+                under: URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
                 behavior: standardBehavior
             )
         )

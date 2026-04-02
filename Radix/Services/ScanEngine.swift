@@ -345,8 +345,8 @@ actor ScanEngine {
         }
 
         if behavior.excludesStartupVolumeInternals &&
-            parentURL.path == "/System" &&
-            childURL.lastPathComponent == "Volumes" {
+            parentURL.path == "/System/Volumes" &&
+            childURL.lastPathComponent == "Data" {
             return false
         }
 
