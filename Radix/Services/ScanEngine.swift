@@ -14,6 +14,13 @@ actor ScanEngine {
         static let standard = ScanBehavior(excludesStartupVolumeInternals: false)
     }
 
+    private struct AtomicDirectorySummary {
+        let allocatedSize: Int64
+        let logicalSize: Int64
+        let descendantFileCount: Int
+        let isAccessible: Bool
+    }
+
     private let fileManager = FileManager.default
     private let scanResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -126,8 +133,11 @@ actor ScanEngine {
         metrics.recalculateProgress()
 
         if !shouldTraverseDirectory(metadata: metadata, options: options) {
-            let fileNode = makeFileNode(url: target.url, metadata: metadata)
-            if !fileNode.isSymbolicLink {
+            let fileNode = makeLeafNode(url: target.url, metadata: metadata, options: options)
+            if fileNode.isDirectory {
+                metrics.directoriesVisited += 1
+                metrics.filesVisited += fileNode.descendantFileCount
+            } else if !fileNode.isSymbolicLink {
                 metrics.filesVisited += 1
             }
             metrics.bytesDiscovered += fileNode.allocatedSize
@@ -287,8 +297,11 @@ actor ScanEngine {
             }
         }
 
-        let fileNode = makeFileNode(url: url, metadata: metadata)
-        if !fileNode.isSymbolicLink {
+        let fileNode = makeLeafNode(url: url, metadata: metadata, options: options)
+        if fileNode.isDirectory {
+            metrics.directoriesVisited += 1
+            metrics.filesVisited += fileNode.descendantFileCount
+        } else if !fileNode.isSymbolicLink {
             metrics.filesVisited += 1
         }
         metrics.bytesDiscovered += fileNode.allocatedSize
@@ -371,6 +384,92 @@ actor ScanEngine {
             isPackage: metadata.isPackage,
             isAccessible: metadata.isReadable,
             isSynthetic: false
+        )
+    }
+
+    private func makeLeafNode(url: URL, metadata: NodeMetadata, options: ScanOptions) -> FileNode {
+        guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
+            return makeFileNode(url: url, metadata: metadata)
+        }
+
+        guard let summary = summarizeAtomicDirectory(at: url) else {
+            return makeFileNode(url: url, metadata: metadata)
+        }
+
+        return FileNode(
+            id: url.path,
+            url: url,
+            name: displayName(for: url),
+            isDirectory: true,
+            isSymbolicLink: false,
+            allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
+            logicalSize: max(metadata.logicalSize, summary.logicalSize),
+            children: [],
+            descendantFileCount: summary.descendantFileCount,
+            lastModified: metadata.lastModified,
+            isPackage: true,
+            isAccessible: metadata.isReadable && summary.isAccessible,
+            isSynthetic: false
+        )
+    }
+
+    private func summarizeAtomicDirectory(at url: URL) -> AtomicDirectorySummary? {
+        let summaryKeys: [URLResourceKey] = [
+            .isDirectoryKey,
+            .isSymbolicLinkKey,
+            .fileAllocatedSizeKey,
+            .fileSizeKey,
+            .isReadableKey
+        ]
+
+        var allocatedSize: Int64 = 0
+        var logicalSize: Int64 = 0
+        var descendantFileCount = 0
+        var isAccessible = true
+
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: summaryKeys,
+            options: [.skipsPackageDescendants],
+            errorHandler: { _, _ in
+                isAccessible = false
+                return true
+            }
+        ) else {
+            return nil
+        }
+
+        if let rootValues = try? url.resourceValues(forKeys: Set(summaryKeys)) {
+            allocatedSize += Int64(rootValues.fileAllocatedSize ?? 0)
+            logicalSize += Int64(rootValues.fileSize ?? 0)
+            isAccessible = isAccessible && (rootValues.isReadable ?? false)
+        }
+
+        for case let childURL as URL in enumerator {
+            guard let values = try? childURL.resourceValues(forKeys: Set(summaryKeys)) else {
+                isAccessible = false
+                continue
+            }
+
+            let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
+            let childLogicalSize = Int64(values.fileSize ?? 0)
+            let isDirectory = values.isDirectory ?? false
+            let isSymbolicLink = values.isSymbolicLink ?? false
+
+            allocatedSize += childAllocatedSize
+            logicalSize += childLogicalSize
+            isAccessible = isAccessible && (values.isReadable ?? false)
+
+            if !isDirectory && !isSymbolicLink {
+                descendantFileCount += 1
+            }
+        }
+
+        return AtomicDirectorySummary(
+            allocatedSize: allocatedSize,
+            logicalSize: logicalSize,
+            descendantFileCount: descendantFileCount,
+            isAccessible: isAccessible
         )
     }
 
@@ -483,6 +582,9 @@ actor ScanEngine {
         walk(node: root) { node in
             if node.isDirectory {
                 directoryCount += 1
+                if node.isPackage && node.children.isEmpty {
+                    fileCount += node.descendantFileCount
+                }
             } else if !node.isSymbolicLink && !node.isSynthetic {
                 fileCount += 1
             }

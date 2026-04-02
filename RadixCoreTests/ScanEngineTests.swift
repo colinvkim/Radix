@@ -21,6 +21,9 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(packageNode.isPackage)
         XCTAssertTrue(packageNode.isDirectory)
         XCTAssertFalse(packageNode.containsChildren)
+        XCTAssertEqual(packageNode.descendantFileCount, 1)
+        XCTAssertGreaterThanOrEqual(packageNode.logicalSize, Int64("binary".utf8.count))
+        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
     }
 
     func testPackagesCanBeExpandedWhenEnabled() async throws {
