@@ -8,6 +8,12 @@
 import Foundation
 
 actor ScanEngine {
+    struct ScanBehavior: Sendable {
+        let excludesStartupVolumeInternals: Bool
+
+        static let standard = ScanBehavior(excludesStartupVolumeInternals: false)
+    }
+
     private let fileManager = FileManager.default
     private let scanResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -65,10 +71,14 @@ actor ScanEngine {
         var metrics = ScanMetrics(startedAt: startedAt)
         var warnings: [ScanWarning] = []
         var emissionState = ScanEmissionState()
+        let behavior = ScanBehavior(
+            excludesStartupVolumeInternals: target.kind == .volume && target.url.path == "/"
+        )
 
         let rootNode = try scanRootNode(
             target: target,
             options: options,
+            behavior: behavior,
             metrics: &metrics,
             warnings: &warnings,
             continuation: continuation,
@@ -99,6 +109,7 @@ actor ScanEngine {
     private func scanRootNode(
         target: ScanTarget,
         options: ScanOptions,
+        behavior: ScanBehavior,
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -130,7 +141,11 @@ actor ScanEngine {
         continuation.yield(.progress(metrics))
 
         do {
-            let childURLs = try contents(of: target.url, includeHiddenFiles: options.includeHiddenFiles)
+            let childURLs = try contents(
+                of: target.url,
+                includeHiddenFiles: options.includeHiddenFiles,
+                behavior: behavior
+            )
             metrics.discoveredItems += childURLs.count
             metrics.recalculateProgress()
             maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
@@ -141,6 +156,7 @@ actor ScanEngine {
                 let child = try scanNode(
                     at: childURL,
                     options: options,
+                    behavior: behavior,
                     metrics: &metrics,
                     warnings: &warnings,
                     continuation: continuation,
@@ -198,6 +214,7 @@ actor ScanEngine {
     private func scanNode(
         at url: URL,
         options: ScanOptions,
+        behavior: ScanBehavior,
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -214,7 +231,11 @@ actor ScanEngine {
             maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
             do {
-                let childURLs = try contents(of: url, includeHiddenFiles: options.includeHiddenFiles)
+                let childURLs = try contents(
+                    of: url,
+                    includeHiddenFiles: options.includeHiddenFiles,
+                    behavior: behavior
+                )
                 metrics.discoveredItems += childURLs.count
                 metrics.recalculateProgress()
                 maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
@@ -224,6 +245,7 @@ actor ScanEngine {
                     let child = try scanNode(
                         at: childURL,
                         options: options,
+                        behavior: behavior,
                         metrics: &metrics,
                         warnings: &warnings,
                         continuation: continuation,
@@ -302,7 +324,7 @@ actor ScanEngine {
         )
     }
 
-    private func contents(of url: URL, includeHiddenFiles: Bool) throws -> [URL] {
+    private func contents(of url: URL, includeHiddenFiles: Bool, behavior: ScanBehavior) throws -> [URL] {
         var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants, .skipsSubdirectoryDescendants]
         if !includeHiddenFiles {
             options.insert(.skipsHiddenFiles)
@@ -314,12 +336,21 @@ actor ScanEngine {
             options: options
         )
 
-        return contents.filter { includedChildURL($0, under: url) }
+        return contents.filter { Self.includedChildURL($0, under: url, behavior: behavior) }
     }
 
-    private func includedChildURL(_ childURL: URL, under parentURL: URL) -> Bool {
-        guard parentURL.path == "/" else { return true }
-        return ![".nofollow", ".resolve"].contains(childURL.lastPathComponent)
+    nonisolated static func includedChildURL(_ childURL: URL, under parentURL: URL, behavior: ScanBehavior) -> Bool {
+        if parentURL.path == "/" && [".nofollow", ".resolve"].contains(childURL.lastPathComponent) {
+            return false
+        }
+
+        if behavior.excludesStartupVolumeInternals &&
+            parentURL.path == "/System" &&
+            childURL.lastPathComponent == "Volumes" {
+            return false
+        }
+
+        return true
     }
 
     private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNode {

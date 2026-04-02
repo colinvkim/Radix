@@ -79,6 +79,40 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(rootAliasTarget.kind, .volume)
     }
 
+    func testStartupVolumeScanExcludesSyntheticAndDuplicateNamespaces() {
+        let startupBehavior = ScanEngine.ScanBehavior(excludesStartupVolumeInternals: true)
+        let standardBehavior = ScanEngine.ScanBehavior.standard
+
+        XCTAssertFalse(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/.nofollow", directoryHint: .isDirectory),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
+                behavior: startupBehavior
+            )
+        )
+        XCTAssertFalse(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                under: URL(filePath: "/System", directoryHint: .isDirectory),
+                behavior: startupBehavior
+            )
+        )
+        XCTAssertTrue(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/System/Library", directoryHint: .isDirectory),
+                under: URL(filePath: "/System", directoryHint: .isDirectory),
+                behavior: startupBehavior
+            )
+        )
+        XCTAssertTrue(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                under: URL(filePath: "/System", directoryHint: .isDirectory),
+                behavior: standardBehavior
+            )
+        )
+    }
+
     func testDirectoryChildrenAreOrderedDeterministically() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
