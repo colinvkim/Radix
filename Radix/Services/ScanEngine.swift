@@ -361,8 +361,8 @@ actor ScanEngine {
         }
 
         if behavior.excludesStartupVolumeInternals &&
-            parentURL.path == "/System/Volumes" &&
-            childURL.lastPathComponent == "Data" {
+            parentURL.path == "/System" &&
+            childURL.lastPathComponent == "Volumes" {
             return false
         }
 
@@ -430,7 +430,7 @@ actor ScanEngine {
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: summaryKeys,
-            options: [.skipsPackageDescendants],
+            options: [],
             errorHandler: { _, _ in
                 isAccessible = false
                 return true

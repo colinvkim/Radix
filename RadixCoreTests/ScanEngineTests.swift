@@ -26,6 +26,27 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
     }
 
+    func testPackageLeafNodesIncludeNestedPackageContents() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Host.app", directoryHint: .isDirectory)
+        let nestedPackageURL = packageURL.appending(path: "Contents/PlugIns/Nested.appex", directoryHint: .isDirectory)
+        let nestedBinaryURL = nestedPackageURL.appending(path: "Contents/MacOS/NestedBinary")
+
+        try FileManager.default.createDirectory(at: nestedBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x5A, count: 2_048).write(to: nestedBinaryURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Host.app" }))
+
+        XCTAssertEqual(packageNode.descendantFileCount, 1)
+        XCTAssertGreaterThanOrEqual(packageNode.logicalSize, 2_048)
+    }
+
     func testPackagesCanBeExpandedWhenEnabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -95,22 +116,22 @@ final class ScanEngineTests: XCTestCase {
         )
         XCTAssertFalse(
             ScanEngine.includedChildURL(
-                URL(filePath: "/System/Volumes/Data", directoryHint: .isDirectory),
-                under: URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                under: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: startupBehavior
             )
         )
         XCTAssertTrue(
             ScanEngine.includedChildURL(
-                URL(filePath: "/System/Volumes/VM", directoryHint: .isDirectory),
-                under: URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                URL(filePath: "/System/Library", directoryHint: .isDirectory),
+                under: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: startupBehavior
             )
         )
         XCTAssertTrue(
             ScanEngine.includedChildURL(
-                URL(filePath: "/System/Volumes/Data", directoryHint: .isDirectory),
-                under: URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
+                under: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: standardBehavior
             )
         )
