@@ -145,15 +145,16 @@ actor ScanEngine {
                     metadata: metadata,
                     children: children
                 )
-                let partialSnapshot = makeSnapshot(
+                maybeEmitPartialSnapshot(
                     target: target,
                     root: partialRoot,
-                    startedAt: startedAt,
-                    finishedAt: nil,
+                    metrics: metrics,
                     warnings: warnings,
-                    isComplete: false
+                    startedAt: startedAt,
+                    continuation: continuation,
+                    emissionState: &emissionState,
+                    isFinalChild: children.count == childURLs.count
                 )
-                continuation.yield(.snapshot(partialSnapshot))
             }
 
             metrics.completedItems += 1
@@ -377,6 +378,24 @@ actor ScanEngine {
         )
     }
 
+    private func makePartialSnapshot(
+        target: ScanTarget,
+        root: FileNode,
+        startedAt: Date,
+        warnings: [ScanWarning],
+        metrics: ScanMetrics
+    ) -> ScanSnapshot {
+        ScanSnapshot(
+            target: target,
+            root: root,
+            startedAt: startedAt,
+            finishedAt: nil,
+            scanWarnings: warnings,
+            aggregateStats: partialAggregateStats(for: root, metrics: metrics),
+            isComplete: false
+        )
+    }
+
     private func aggregateStats(for root: FileNode) -> ScanAggregateStats {
         var fileCount = 0
         var directoryCount = 0
@@ -407,6 +426,20 @@ actor ScanEngine {
         )
     }
 
+    private func partialAggregateStats(for root: FileNode, metrics: ScanMetrics) -> ScanAggregateStats {
+        let visitedItems = metrics.filesVisited + metrics.directoriesVisited
+        let inaccessibleItems = metrics.inaccessibleDirectories
+
+        return ScanAggregateStats(
+            totalAllocatedSize: root.allocatedSize,
+            totalLogicalSize: root.logicalSize,
+            fileCount: metrics.filesVisited,
+            directoryCount: metrics.directoriesVisited,
+            accessibleItemCount: max(visitedItems - inaccessibleItems, 0),
+            inaccessibleItemCount: inaccessibleItems
+        )
+    }
+
     private func walk(node: FileNode, visit: (FileNode) -> Void) {
         visit(node)
         for child in node.children {
@@ -427,6 +460,38 @@ actor ScanEngine {
 
         emissionState.lastProgressEmission = now
         continuation.yield(.progress(metrics))
+    }
+
+    private func maybeEmitPartialSnapshot(
+        target: ScanTarget,
+        root: FileNode,
+        metrics: ScanMetrics,
+        warnings: [ScanWarning],
+        startedAt: Date,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState,
+        isFinalChild: Bool
+    ) {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(emissionState.lastPartialSnapshotEmission)
+        let shouldEmit = isFinalChild ||
+            root.children.count <= 2 ||
+            root.children.count.isMultiple(of: 8) ||
+            elapsed >= 0.25
+        guard shouldEmit else { return }
+
+        emissionState.lastPartialSnapshotEmission = now
+        continuation.yield(
+            .snapshot(
+                makePartialSnapshot(
+                    target: target,
+                    root: root,
+                    startedAt: startedAt,
+                    warnings: warnings,
+                    metrics: metrics
+                )
+            )
+        )
     }
 
     private func displayName(for url: URL) -> String {
@@ -491,8 +556,13 @@ private struct NodeMetadata {
 
 private struct ScanEmissionState: Sendable {
     var lastProgressEmission: Date
+    var lastPartialSnapshotEmission: Date
 
-    nonisolated init(lastProgressEmission: Date = .distantPast) {
+    nonisolated init(
+        lastProgressEmission: Date = .distantPast,
+        lastPartialSnapshotEmission: Date = .distantPast
+    ) {
         self.lastProgressEmission = lastProgressEmission
+        self.lastPartialSnapshotEmission = lastPartialSnapshotEmission
     }
 }
