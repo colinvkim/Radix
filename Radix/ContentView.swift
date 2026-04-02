@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .doubleColumn
+    @State private var selectedSidebarTargetID: String?
 
     private var defaultTargets: [ScanTarget] {
         SystemIntegration.defaultTargets()
@@ -48,13 +49,19 @@ struct ContentView: View {
         } message: {
             Text(appModel.lastErrorMessage ?? "Unknown error")
         }
+        .onAppear {
+            selectedSidebarTargetID = appModel.selectedTarget?.id
+        }
+        .onChange(of: appModel.selectedTarget?.id) { _, newValue in
+            selectedSidebarTargetID = newValue
+        }
     }
 
     private var sidebar: some View {
-        List(selection: sidebarSelection) {
-            Section("Quick Scans") {
+        List(selection: $selectedSidebarTargetID) {
+            Section("Locations") {
                 ForEach(defaultTargets) { target in
-                    sidebarTargetRow(target, subtitle: target.kind == .volume ? "Mounted volume" : "Folder")
+                    sidebarTargetRow(target)
                         .tag(target.id)
                 }
             }
@@ -62,22 +69,28 @@ struct ContentView: View {
             if !appModel.recentTargets.isEmpty {
                 Section("Recent") {
                     ForEach(appModel.recentTargets) { target in
-                        sidebarTargetRow(target, subtitle: target.url.path)
+                        sidebarTargetRow(target)
                             .tag(target.id)
                     }
                 }
             }
+
+            Section {
+                Button {
+                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Label("Choose Folder…", systemImage: "folder.badge.plus")
+                }
+            }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                appModel.presentOpenPanelAndScan()
-            } label: {
-                Label("Choose Folder to Scan", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
+        .onChange(of: selectedSidebarTargetID) { _, newValue in
+            guard let targetID = newValue,
+                  let target = (defaultTargets + appModel.recentTargets).first(where: { $0.id == targetID }),
+                  appModel.selectedTarget?.id != targetID else {
+                return
             }
-            .buttonStyle(.borderedProminent)
-            .padding()
+            appModel.startScan(target)
         }
     }
 
@@ -389,34 +402,13 @@ struct ContentView: View {
         splitViewVisibility = splitViewVisibility == .all ? .doubleColumn : .all
     }
 
-    private func sidebarTargetRow(_ target: ScanTarget, subtitle: String) -> some View {
-        HStack(spacing: 10) {
+    private func sidebarTargetRow(_ target: ScanTarget) -> some View {
+        Label {
+            Text(target.displayName)
+        } icon: {
             Image(systemName: target.kind == .volume ? "externaldrive.fill" : "folder.fill")
-                .foregroundStyle(.tint)
-                .frame(width: 18)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(target.displayName)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var sidebarSelection: Binding<String?> {
-        Binding(
-            get: { appModel.selectedTarget?.id },
-            set: { newValue in
-                guard let targetID = newValue,
-                      let target = (defaultTargets + appModel.recentTargets).first(where: { $0.id == targetID }) else {
-                    return
-                }
-                appModel.startScan(target)
-            }
-        )
+        .help(target.url.path)
     }
 }
 

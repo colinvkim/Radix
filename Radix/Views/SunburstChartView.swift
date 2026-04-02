@@ -99,7 +99,6 @@ struct SunburstChartView: View {
                     HoverCard(segment: hoveredSegment, node: index.node(id: hoveredSegment.nodeID))
                         .padding(18)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .transition(.opacity)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
