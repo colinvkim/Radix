@@ -36,11 +36,22 @@ struct OnboardingView: View {
                 )
             }
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("Full Disk Access Setup")
                     .font(.headline)
 
-                Text("Radix can open the correct Privacy & Security pane and try to get itself listed first. macOS still requires the user to enable the toggle manually.")
+                Text("Radix can scan selected folders without this, but protected locations such as Mail, Messages, Safari, and some Library content remain incomplete until you enable Full Disk Access.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    onboardingStep(number: 1, text: "Click Open Full Disk Access Settings.")
+                    onboardingStep(number: 2, text: "In Privacy & Security > Full Disk Access, find Radix in the list.")
+                    onboardingStep(number: 3, text: "Turn on the toggle for Radix, then return here and continue.")
+                }
+
+                Text("macOS does not let apps enable this permission themselves. Radix can only open the right settings pane and try to get itself listed first.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -54,7 +65,7 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("Set Up Full Disk Access") {
+                Button("Open Full Disk Access Settings") {
                     appModel.prepareAndOpenFullDiskAccessSettings()
                 }
                 .buttonStyle(.bordered)
@@ -84,5 +95,19 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func onboardingStep(number: Int, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 24, height: 24)
+                .background(.thinMaterial, in: Circle())
+
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
     }
 }
