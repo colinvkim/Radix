@@ -219,17 +219,20 @@ final class AppModel: ObservableObject {
     }
 
     func revealSelectedInFinder() {
-        guard let url = selectedNode?.url else { return }
+        guard let selectedNode, selectedNode.supportsFileActions else { return }
+        let url = selectedNode.url
         SystemIntegration.reveal(url)
     }
 
     func openSelected() {
-        guard let url = selectedNode?.url else { return }
+        guard let selectedNode, selectedNode.supportsFileActions else { return }
+        let url = selectedNode.url
         SystemIntegration.open(url)
     }
 
     func copySelectedPath() {
-        guard let url = selectedNode?.url else { return }
+        guard let selectedNode, selectedNode.supportsFileActions else { return }
+        let url = selectedNode.url
         SystemIntegration.copyPath(url)
     }
 

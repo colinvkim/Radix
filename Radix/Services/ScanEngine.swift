@@ -96,7 +96,8 @@ actor ScanEngine {
             startedAt: startedAt,
             finishedAt: Date(),
             warnings: warnings,
-            isComplete: true
+            isComplete: true,
+            expectedTotalBytes: metrics.estimatedTotalBytes
         )
 
         metrics.isFinalizing = false
@@ -206,7 +207,8 @@ actor ScanEngine {
                 descendantFileCount: 0,
                 lastModified: metadata.lastModified,
                 isPackage: metadata.isPackage,
-                isAccessible: false
+                isAccessible: false,
+                isSynthetic: false
             )
         }
     }
@@ -279,7 +281,8 @@ actor ScanEngine {
                     descendantFileCount: 0,
                     lastModified: metadata.lastModified,
                     isPackage: metadata.isPackage,
-                    isAccessible: false
+                    isAccessible: false,
+                    isSynthetic: false
                 )
             }
         }
@@ -366,11 +369,32 @@ actor ScanEngine {
             descendantFileCount: metadata.isDirectory || metadata.isSymbolicLink ? 0 : 1,
             lastModified: metadata.lastModified,
             isPackage: metadata.isPackage,
-            isAccessible: metadata.isReadable
+            isAccessible: metadata.isReadable,
+            isSynthetic: false
         )
     }
 
     private func makeDirectoryNode(url: URL, metadata: NodeMetadata, children: [FileNode]) -> FileNode {
+        makeDirectoryNode(
+            id: url.path,
+            url: url,
+            name: displayName(for: url),
+            children: children,
+            lastModified: metadata.lastModified,
+            isPackage: metadata.isPackage,
+            isAccessible: metadata.isReadable
+        )
+    }
+
+    private func makeDirectoryNode(
+        id: String,
+        url: URL,
+        name: String,
+        children: [FileNode],
+        lastModified: Date?,
+        isPackage: Bool,
+        isAccessible: Bool
+    ) -> FileNode {
         let sortedChildren = children.sorted { lhs, rhs in
             if lhs.allocatedSize == rhs.allocatedSize {
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
@@ -387,25 +411,26 @@ actor ScanEngine {
         let descendantFileCount = sortedChildren.reduce(into: 0) { result, child in
             if child.isDirectory {
                 result += child.descendantFileCount
-            } else if !child.isSymbolicLink {
+            } else if !child.isSymbolicLink && !child.isSynthetic {
                 result += 1
             }
         }
-        let isAccessible = metadata.isReadable && sortedChildren.allSatisfy(\.isAccessible)
+        let isFullyAccessible = isAccessible && sortedChildren.allSatisfy(\.isAccessible)
 
         return FileNode(
-            id: url.path,
+            id: id,
             url: url,
-            name: displayName(for: url),
+            name: name,
             isDirectory: true,
-            isSymbolicLink: metadata.isSymbolicLink,
+            isSymbolicLink: false,
             allocatedSize: allocatedSize,
             logicalSize: logicalSize,
             children: sortedChildren,
             descendantFileCount: descendantFileCount,
-            lastModified: metadata.lastModified,
-            isPackage: metadata.isPackage,
-            isAccessible: isAccessible
+            lastModified: lastModified,
+            isPackage: isPackage,
+            isAccessible: isFullyAccessible,
+            isSynthetic: false
         )
     }
 
@@ -415,15 +440,18 @@ actor ScanEngine {
         startedAt: Date,
         finishedAt: Date?,
         warnings: [ScanWarning],
-        isComplete: Bool
+        isComplete: Bool,
+        expectedTotalBytes: Int64 = 0
     ) -> ScanSnapshot {
-        ScanSnapshot(
+        let reconciledRoot = reconcileVolumeRoot(root, for: target, expectedTotalBytes: expectedTotalBytes)
+
+        return ScanSnapshot(
             target: target,
-            root: root,
+            root: reconciledRoot,
             startedAt: startedAt,
             finishedAt: finishedAt,
             scanWarnings: warnings,
-            aggregateStats: aggregateStats(for: root),
+            aggregateStats: aggregateStats(for: reconciledRoot),
             isComplete: isComplete
         )
     }
@@ -455,7 +483,7 @@ actor ScanEngine {
         walk(node: root) { node in
             if node.isDirectory {
                 directoryCount += 1
-            } else if !node.isSymbolicLink {
+            } else if !node.isSymbolicLink && !node.isSynthetic {
                 fileCount += 1
             }
 
@@ -495,6 +523,43 @@ actor ScanEngine {
         for child in node.children {
             walk(node: child, visit: visit)
         }
+    }
+
+    private func reconcileVolumeRoot(_ root: FileNode, for target: ScanTarget, expectedTotalBytes: Int64) -> FileNode {
+        guard target.kind == .volume, expectedTotalBytes > root.allocatedSize else {
+            return root
+        }
+
+        let missingBytes = expectedTotalBytes - root.allocatedSize
+        guard missingBytes >= 64 * 1_024 * 1_024 else {
+            return root
+        }
+
+        let unattributedNode = FileNode(
+            id: "\(root.id)#system-unattributed",
+            url: target.url,
+            name: "System & Unattributed",
+            isDirectory: false,
+            isSymbolicLink: false,
+            allocatedSize: missingBytes,
+            logicalSize: missingBytes,
+            children: [],
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: false,
+            isSynthetic: true
+        )
+
+        return makeDirectoryNode(
+            id: root.id,
+            url: root.url,
+            name: root.name,
+            children: root.children + [unattributedNode],
+            lastModified: root.lastModified,
+            isPackage: root.isPackage,
+            isAccessible: root.isAccessible
+        )
     }
 
     private func maybeEmitProgress(

@@ -25,10 +25,16 @@ struct InspectorSidebarView: View {
                             Text(node.name)
                                 .font(.title3.weight(.semibold))
                                 .lineLimit(2)
-                            Text(node.url.path)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
+                            if node.isSynthetic {
+                                Text("Estimated storage that macOS reports as used but that Radix could not attribute to a regular file path.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(node.url.path)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
                         }
                     }
 
@@ -44,12 +50,15 @@ struct InspectorSidebarView: View {
                         actionButton("Reveal in Finder", systemImage: "folder") {
                             appModel.revealSelectedInFinder()
                         }
+                        .disabled(!node.supportsFileActions)
                         actionButton("Open", systemImage: "arrow.up.forward.app") {
                             appModel.openSelected()
                         }
+                        .disabled(!node.supportsFileActions)
                         actionButton("Copy Path", systemImage: "doc.on.doc") {
                             appModel.copySelectedPath()
                         }
+                        .disabled(!node.supportsFileActions)
                     }
 
                     if node.isDirectory, !node.children.isEmpty {
@@ -141,6 +150,9 @@ struct InspectorSidebarView: View {
     }
 
     private func symbolName(for node: FileNode) -> String {
+        if node.isSynthetic {
+            return "internaldrive.fill"
+        }
         if node.isSymbolicLink {
             return "arrowshape.turn.up.right.circle.fill"
         }

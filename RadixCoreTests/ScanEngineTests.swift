@@ -113,6 +113,32 @@ final class ScanEngineTests: XCTestCase {
         )
     }
 
+    func testVolumeSnapshotAddsSystemAndUnattributedNode() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileURL = rootURL.appending(path: "payload.bin")
+        try Data(repeating: 0x5A, count: 1_024).write(to: fileURL)
+
+        let engine = ScanEngine()
+        let target = ScanTarget(url: rootURL, kind: .volume)
+        var finalSnapshot: ScanSnapshot?
+
+        for try await event in engine.scan(target: target, options: ScanOptions()) {
+            if case .finished(let snapshot) = event {
+                finalSnapshot = snapshot
+            }
+        }
+
+        let snapshot = try XCTUnwrap(finalSnapshot)
+        let syntheticNode = try XCTUnwrap(snapshot.root.children.first(where: \.isSynthetic))
+
+        XCTAssertEqual(syntheticNode.name, "System & Unattributed")
+        XCTAssertFalse(syntheticNode.supportsFileActions)
+        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.children.filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })
+    }
+
     func testDirectoryChildrenAreOrderedDeterministically() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

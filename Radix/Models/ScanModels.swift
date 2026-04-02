@@ -97,12 +97,16 @@ struct FileNode: Identifiable, Hashable, Sendable {
     let lastModified: Date?
     let isPackage: Bool
     let isAccessible: Bool
+    let isSynthetic: Bool
 
     var containsChildren: Bool {
         !children.isEmpty
     }
 
     var itemKind: String {
+        if isSynthetic {
+            return "System Data"
+        }
         if isSymbolicLink {
             return "Alias"
         }
@@ -110,6 +114,10 @@ struct FileNode: Identifiable, Hashable, Sendable {
             return "Package"
         }
         return isDirectory ? "Folder" : "File"
+    }
+
+    var supportsFileActions: Bool {
+        !isSynthetic
     }
 }
 
