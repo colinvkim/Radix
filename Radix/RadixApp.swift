@@ -15,9 +15,10 @@ struct RadixApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appModel)
-                .frame(minWidth: 1240, minHeight: 780)
+                .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 760, maxHeight: .infinity)
         }
         .defaultSize(width: 1480, height: 920)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Scan Folder…") {

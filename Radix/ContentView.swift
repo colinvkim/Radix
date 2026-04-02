@@ -49,7 +49,17 @@ struct ContentView: View {
                     Button {
                         appModel.startScan(target)
                     } label: {
-                        Label(target.displayName, systemImage: target.kind == .volume ? "externaldrive.fill" : "folder.fill")
+                        HStack(spacing: 10) {
+                            Image(systemName: target.kind == .volume ? "externaldrive.fill" : "folder.fill")
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(target.displayName)
+                                Text(target.kind == .volume ? "Mounted volume" : "Folder")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                 }
@@ -72,6 +82,7 @@ struct ContentView: View {
                 }
             }
         }
+        .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
             Button {
                 appModel.presentOpenPanelAndScan()
@@ -85,22 +96,26 @@ struct ContentView: View {
     }
 
     private var mainWorkspace: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            headerCard
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                headerCard
 
-            if appModel.shouldSuggestFullDiskAccess {
-                fullDiskAccessBanner
-            }
+                if appModel.shouldSuggestFullDiskAccess {
+                    fullDiskAccessBanner
+                }
 
-            if let snapshot = appModel.snapshot,
-               let focusNode = appModel.currentFocusNode {
-                workspace(for: snapshot, focusNode: focusNode)
-            } else {
-                emptyState
+                if let snapshot = appModel.snapshot,
+                   let focusNode = appModel.currentFocusNode {
+                    workspace(for: snapshot, focusNode: focusNode)
+                } else {
+                    emptyState
+                        .frame(minHeight: 520)
+                }
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(20)
-        .frame(minWidth: 680, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .dropDestination(for: URL.self) { urls, _ in
             appModel.handleDroppedURLs(urls)
@@ -110,7 +125,7 @@ struct ContentView: View {
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 18) {
                     headerTitleBlock
                     Spacer(minLength: 20)
                     headerActions
@@ -123,18 +138,19 @@ struct ContentView: View {
             }
 
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 135), spacing: 14)],
+                columns: [GridItem(.adaptive(minimum: 150), spacing: 14)],
                 alignment: .leading,
                 spacing: 14
             ) {
                 statusMetric(
                     title: "Mode",
-                    value: appModel.isFinalizingScan ? "Finishing" : (appModel.isScanning ? "Scanning" : (appModel.snapshot?.isComplete == true ? "Complete" : "Ready"))
+                    value: appModel.isFinalizingScan ? "Finishing" : (appModel.isScanning ? "Scanning" : (appModel.snapshot?.isComplete == true ? "Complete" : "Ready")),
+                    systemImage: "waveform.path.ecg"
                 )
-                statusMetric(title: "Progress", value: appModel.scanProgressLabel)
-                statusMetric(title: "Files", value: "\(appModel.scanMetrics.filesVisited)")
-                statusMetric(title: "Folders", value: "\(appModel.scanMetrics.directoriesVisited)")
-                statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.scanMetrics.bytesDiscovered))
+                statusMetric(title: "Progress", value: appModel.scanProgressLabel, systemImage: "gauge.with.dots.needle.33percent")
+                statusMetric(title: "Files", value: "\(appModel.scanMetrics.filesVisited)", systemImage: "doc.on.doc")
+                statusMetric(title: "Folders", value: "\(appModel.scanMetrics.directoriesVisited)", systemImage: "folder")
+                statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.scanMetrics.bytesDiscovered), systemImage: "internaldrive")
             }
 
             if appModel.isScanning {
@@ -214,21 +230,52 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             breadcrumbBar
 
-            VStack(alignment: .leading, spacing: 14) {
-                SunburstChartView(
-                    rootNode: focusNode,
-                    index: appModel.fileTreeIndex,
-                    selectedNodeID: appModel.selectedNodeID,
-                    depthLimit: appModel.maxRenderedDepth,
-                    onSelect: { appModel.select(nodeID: $0) },
-                    onZoom: { appModel.focus(nodeID: $0) }
-                )
-                .frame(minHeight: 500)
+            sectionCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Sunburst")
+                                .font(.headline.weight(.semibold))
+                            Text("Double-click a directory to zoom in. Select any segment to inspect it.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let node = appModel.selectedNode {
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text(node.name)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Text(RadixFormatters.size(node.allocatedSize))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: 220, alignment: .trailing)
+                        }
+                    }
 
-                VStack(alignment: .leading, spacing: 10) {
+                    SunburstChartView(
+                        rootNode: focusNode,
+                        index: appModel.fileTreeIndex,
+                        selectedNodeID: appModel.selectedNodeID,
+                        depthLimit: appModel.maxRenderedDepth,
+                        onSelect: { appModel.select(nodeID: $0) },
+                        onZoom: { appModel.focus(nodeID: $0) }
+                    )
+                    .frame(height: 520)
+                }
+            }
+
+            sectionCard {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Contents of \(focusNode.name)")
-                            .font(.headline.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Contents of \(focusNode.name)")
+                                .font(.headline.weight(.semibold))
+                            Text("Sort by size, inspect metadata, or jump deeper from the selected row.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Text("\(snapshot.scanWarnings.count) warning\(snapshot.scanWarnings.count == 1 ? "" : "s")")
                             .foregroundStyle(.secondary)
@@ -238,10 +285,8 @@ struct ContentView: View {
                         nodes: appModel.tableNodes,
                         selection: $appModel.selectedNodeID
                     )
-                    .frame(minHeight: 230)
+                    .frame(minHeight: 280)
                 }
-                .padding(18)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
     }
@@ -311,19 +356,33 @@ struct ContentView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 
-    private func statusMetric(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private func statusMetric(title: String, value: String, systemImage: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
             Text(value)
-                .font(.headline)
+                .font(.title3.weight(.semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func toggleInspector() {
