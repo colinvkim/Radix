@@ -464,8 +464,6 @@ actor ScanEngine {
         }
 
         if let rootValues = try? url.resourceValues(forKeys: Set(summaryKeys)) {
-            state.allocatedSize += Int64(rootValues.fileAllocatedSize ?? 0)
-            state.logicalSize += Int64(rootValues.fileSize ?? 0)
             state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
         }
 
@@ -478,12 +476,15 @@ actor ScanEngine {
                 let isDirectory = values.isDirectory ?? false
                 let isSymbolicLink = values.isSymbolicLink ?? false
 
-                state.allocatedSize += childAllocatedSize
-                state.logicalSize += childLogicalSize
                 state.isAccessible = state.isAccessible && (values.isReadable ?? false)
 
-                if !isDirectory && !isSymbolicLink {
-                    state.descendantFileCount += 1
+                if !isDirectory {
+                    state.allocatedSize += childAllocatedSize
+                    state.logicalSize += childLogicalSize
+
+                    if !isSymbolicLink {
+                        state.descendantFileCount += 1
+                    }
                 }
             } catch {
                 state.isAccessible = false

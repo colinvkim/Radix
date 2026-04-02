@@ -47,6 +47,27 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(packageNode.logicalSize, 2_048)
     }
 
+    func testPackageLeafSizesIgnoreNestedDirectoryEntries() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Deep.app", directoryHint: .isDirectory)
+        let binaryURL = packageURL.appending(path: "Contents/Frameworks/A.framework/Resources/B.bundle/C.txt")
+
+        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x7F, count: 1_024).write(to: binaryURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Deep.app" }))
+
+        XCTAssertEqual(packageNode.descendantFileCount, 1)
+        XCTAssertEqual(packageNode.logicalSize, 1_024)
+        XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 1_024)
+    }
+
     func testPackagesCanBeExpandedWhenEnabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
