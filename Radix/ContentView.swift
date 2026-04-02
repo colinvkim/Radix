@@ -269,7 +269,7 @@ struct ContentView: View {
 
     private var emptyState: some View {
         VStack(spacing: 22) {
-            Image(systemName: "externaldrive.badge.magnifyingglass")
+            Image(systemName: "magnifyingglass.circle.fill")
                 .font(.system(size: 38, weight: .medium))
                 .foregroundStyle(.tint)
 
