@@ -69,7 +69,7 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List(selection: $selectedSidebarTargetID) {
-            Section("Locations") {
+            Section {
                 ForEach(defaultTargets) { target in
                     sidebarTargetRow(target)
                         .tag(target.id)
@@ -84,8 +84,17 @@ struct ContentView: View {
                     }
                 }
             }
+
+            Section {
+                Button {
+                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Label("Choose Folder…", systemImage: "folder.badge.plus")
+                }
+            }
         }
         .listStyle(.sidebar)
+        .navigationTitle("Locations")
         .onChange(of: selectedSidebarTargetID) { _, newValue in
             guard let targetID = newValue,
                   let target = (defaultTargets + appModel.recentTargets).first(where: { $0.id == targetID }),
