@@ -8,6 +8,14 @@
 import Foundation
 
 actor ScanEngine {
+    private final class AtomicDirectorySummaryState: @unchecked Sendable {
+        var allocatedSize: Int64 = 0
+        var logicalSize: Int64 = 0
+        var descendantFileCount = 0
+        var isAccessible = true
+        var warnings: [ScanWarning] = []
+    }
+
     struct ScanBehavior: Sendable {
         let excludesStartupVolumeInternals: Bool
 
@@ -19,6 +27,7 @@ actor ScanEngine {
         let logicalSize: Int64
         let descendantFileCount: Int
         let isAccessible: Bool
+        let warnings: [ScanWarning]
     }
 
     private let fileManager = FileManager.default
@@ -133,7 +142,14 @@ actor ScanEngine {
         metrics.recalculateProgress()
 
         if !shouldTraverseDirectory(metadata: metadata, options: options) {
-            let fileNode = makeLeafNode(url: target.url, metadata: metadata, options: options)
+            let leafResult = makeLeafNode(url: target.url, metadata: metadata, options: options)
+            let fileNode = leafResult.node
+            if !leafResult.warnings.isEmpty {
+                warnings.append(contentsOf: leafResult.warnings)
+                for warning in leafResult.warnings {
+                    continuation.yield(.warning(warning))
+                }
+            }
             if fileNode.isDirectory {
                 metrics.directoriesVisited += 1
                 metrics.filesVisited += fileNode.descendantFileCount
@@ -297,7 +313,14 @@ actor ScanEngine {
             }
         }
 
-        let fileNode = makeLeafNode(url: url, metadata: metadata, options: options)
+        let leafResult = makeLeafNode(url: url, metadata: metadata, options: options)
+        let fileNode = leafResult.node
+        if !leafResult.warnings.isEmpty {
+            warnings.append(contentsOf: leafResult.warnings)
+            for warning in leafResult.warnings {
+                continuation.yield(.warning(warning))
+            }
+        }
         if fileNode.isDirectory {
             metrics.directoriesVisited += 1
             metrics.filesVisited += fileNode.descendantFileCount
@@ -387,29 +410,32 @@ actor ScanEngine {
         )
     }
 
-    private func makeLeafNode(url: URL, metadata: NodeMetadata, options: ScanOptions) -> FileNode {
+    private func makeLeafNode(url: URL, metadata: NodeMetadata, options: ScanOptions) -> (node: FileNode, warnings: [ScanWarning]) {
         guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
-            return makeFileNode(url: url, metadata: metadata)
+            return (makeFileNode(url: url, metadata: metadata), [])
         }
 
         guard let summary = summarizeAtomicDirectory(at: url) else {
-            return makeFileNode(url: url, metadata: metadata)
+            return (makeFileNode(url: url, metadata: metadata), [])
         }
 
-        return FileNode(
-            id: url.path,
-            url: url,
-            name: displayName(for: url),
-            isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
-            logicalSize: max(metadata.logicalSize, summary.logicalSize),
-            children: [],
-            descendantFileCount: summary.descendantFileCount,
-            lastModified: metadata.lastModified,
-            isPackage: true,
-            isAccessible: metadata.isReadable && summary.isAccessible,
-            isSynthetic: false
+        return (
+            FileNode(
+                id: url.path,
+                url: url,
+                name: displayName(for: url),
+                isDirectory: true,
+                isSymbolicLink: false,
+                allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
+                logicalSize: max(metadata.logicalSize, summary.logicalSize),
+                children: [],
+                descendantFileCount: summary.descendantFileCount,
+                lastModified: metadata.lastModified,
+                isPackage: true,
+                isAccessible: metadata.isReadable && summary.isAccessible,
+                isSynthetic: false
+            ),
+            summary.warnings
         )
     }
 
@@ -422,17 +448,15 @@ actor ScanEngine {
             .isReadableKey
         ]
 
-        var allocatedSize: Int64 = 0
-        var logicalSize: Int64 = 0
-        var descendantFileCount = 0
-        var isAccessible = true
+        let state = AtomicDirectorySummaryState()
 
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: summaryKeys,
             options: [],
-            errorHandler: { _, _ in
-                isAccessible = false
+            errorHandler: { childURL, error in
+                state.isAccessible = false
+                state.warnings.append(Self.makeWarning(for: childURL, error: error))
                 return true
             }
         ) else {
@@ -440,36 +464,39 @@ actor ScanEngine {
         }
 
         if let rootValues = try? url.resourceValues(forKeys: Set(summaryKeys)) {
-            allocatedSize += Int64(rootValues.fileAllocatedSize ?? 0)
-            logicalSize += Int64(rootValues.fileSize ?? 0)
-            isAccessible = isAccessible && (rootValues.isReadable ?? false)
+            state.allocatedSize += Int64(rootValues.fileAllocatedSize ?? 0)
+            state.logicalSize += Int64(rootValues.fileSize ?? 0)
+            state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
         }
 
         for case let childURL as URL in enumerator {
-            guard let values = try? childURL.resourceValues(forKeys: Set(summaryKeys)) else {
-                isAccessible = false
-                continue
-            }
+            do {
+                let values = try childURL.resourceValues(forKeys: Set(summaryKeys))
 
-            let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
-            let childLogicalSize = Int64(values.fileSize ?? 0)
-            let isDirectory = values.isDirectory ?? false
-            let isSymbolicLink = values.isSymbolicLink ?? false
+                let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
+                let childLogicalSize = Int64(values.fileSize ?? 0)
+                let isDirectory = values.isDirectory ?? false
+                let isSymbolicLink = values.isSymbolicLink ?? false
 
-            allocatedSize += childAllocatedSize
-            logicalSize += childLogicalSize
-            isAccessible = isAccessible && (values.isReadable ?? false)
+                state.allocatedSize += childAllocatedSize
+                state.logicalSize += childLogicalSize
+                state.isAccessible = state.isAccessible && (values.isReadable ?? false)
 
-            if !isDirectory && !isSymbolicLink {
-                descendantFileCount += 1
+                if !isDirectory && !isSymbolicLink {
+                    state.descendantFileCount += 1
+                }
+            } catch {
+                state.isAccessible = false
+                state.warnings.append(Self.makeWarning(for: childURL, error: error))
             }
         }
 
         return AtomicDirectorySummary(
-            allocatedSize: allocatedSize,
-            logicalSize: logicalSize,
-            descendantFileCount: descendantFileCount,
-            isAccessible: isAccessible
+            allocatedSize: state.allocatedSize,
+            logicalSize: state.logicalSize,
+            descendantFileCount: state.descendantFileCount,
+            isAccessible: state.isAccessible,
+            warnings: state.warnings
         )
     }
 
@@ -735,7 +762,7 @@ actor ScanEngine {
         return max(metadata.allocatedSize, 0)
     }
 
-    private func makeWarning(for url: URL, error: Error) -> ScanWarning {
+    private nonisolated static func makeWarning(for url: URL, error: Error) -> ScanWarning {
         let nsError = error as NSError
         let category: ScanWarningCategory
 
@@ -754,6 +781,10 @@ actor ScanEngine {
             message: nsError.localizedDescription,
             category: category
         )
+    }
+
+    private func makeWarning(for url: URL, error: Error) -> ScanWarning {
+        Self.makeWarning(for: url, error: error)
     }
 }
 

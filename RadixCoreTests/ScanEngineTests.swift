@@ -67,6 +67,35 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(packageNode.descendantFileCount, 1)
     }
 
+    func testAtomicPackageAccessFailuresProduceWarnings() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Locked.app", directoryHint: .isDirectory)
+        let readableFileURL = packageURL.appending(path: "Contents/MacOS/Binary")
+        let unreadableDirectoryURL = packageURL.appending(path: "Contents/Private")
+        let unreadableFileURL = unreadableDirectoryURL.appending(path: "Secret.dat")
+
+        try FileManager.default.createDirectory(at: readableFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unreadableDirectoryURL, withIntermediateDirectories: true)
+        try Data("binary".utf8).write(to: readableFileURL)
+        try Data("secret".utf8).write(to: unreadableFileURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadableDirectoryURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: unreadableDirectoryURL.path)
+        }
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Locked.app" }))
+
+        XCTAssertFalse(packageNode.isAccessible)
+        XCTAssertFalse(snapshot.scanWarnings.isEmpty)
+        XCTAssertTrue(snapshot.scanWarnings.contains(where: { $0.path.contains("Locked.app") }))
+    }
+
     func testSymbolicLinksAreNotTraversed() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
