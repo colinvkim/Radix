@@ -43,7 +43,7 @@ struct InspectorSidebarView: View {
                         metricRow("Logical", value: RadixFormatters.size(node.logicalSize))
                         metricRow("Kind", value: node.itemKind)
                         metricRow("Modified", value: RadixFormatters.date(node.lastModified))
-                        metricRow("Accessible", value: node.isAccessible ? "Yes" : "Limited")
+                        metricRow("Accessible", value: accessibilityValue(for: node))
                     }
 
                     inspectorCard("Actions") {
@@ -139,6 +139,13 @@ struct InspectorSidebarView: View {
             Spacer()
             Text(value)
         }
+    }
+
+    private func accessibilityValue(for node: FileNode) -> String {
+        if node.isSynthetic {
+            return "Estimated"
+        }
+        return node.isAccessible ? "Yes" : "Limited"
     }
 
     private func actionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {

@@ -208,6 +208,8 @@ final class ScanEngineTests: XCTestCase {
         let syntheticNode = try XCTUnwrap(snapshot.root.children.first(where: \.isSynthetic))
 
         XCTAssertEqual(syntheticNode.name, "System & Unattributed")
+        XCTAssertTrue(syntheticNode.isAccessible)
+        XCTAssertTrue(snapshot.root.isAccessible)
         XCTAssertFalse(syntheticNode.supportsFileActions)
         XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
         XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.children.filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })

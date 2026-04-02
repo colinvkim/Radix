@@ -677,7 +677,7 @@ actor ScanEngine {
             descendantFileCount: 0,
             lastModified: nil,
             isPackage: false,
-            isAccessible: false,
+            isAccessible: true,
             isSynthetic: true
         )
 

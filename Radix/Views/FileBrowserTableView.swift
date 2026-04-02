@@ -123,8 +123,11 @@ struct FileBrowserTableView: View {
     }
 
     private func statusText(for node: FileNode) -> String? {
+        if node.isSynthetic {
+            return "Estimated from volume usage"
+        }
         guard !node.isAccessible else { return nil }
-        return node.isSynthetic ? "Estimated from volume usage" : "Limited access"
+        return "Limited access"
     }
 
     private func iconColor(for node: FileNode) -> Color {
