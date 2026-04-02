@@ -131,6 +131,7 @@ struct ContentView: View {
                     title: "Mode",
                     value: appModel.isScanning ? "Scanning" : (appModel.snapshot?.isComplete == true ? "Complete" : "Ready")
                 )
+                statusMetric(title: "Progress", value: appModel.scanProgressLabel)
                 statusMetric(title: "Files", value: "\(appModel.scanMetrics.filesVisited)")
                 statusMetric(title: "Folders", value: "\(appModel.scanMetrics.directoriesVisited)")
                 statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.scanMetrics.bytesDiscovered))
@@ -138,8 +139,13 @@ struct ContentView: View {
 
             if appModel.isScanning {
                 VStack(alignment: .leading, spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
+                    ProgressView(value: appModel.scanProgressFraction, total: 1) {
+                        Text("Scanning \(appModel.scanProgressLabel)")
+                    } currentValueLabel: {
+                        Text(appModel.scanProgressLabel)
+                            .monospacedDigit()
+                    }
+                    .controlSize(.small)
                     Text(appModel.scanMetrics.currentPath)
                         .font(.caption)
                         .foregroundStyle(.secondary)

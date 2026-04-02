@@ -75,6 +75,20 @@ final class AppModel: ObservableObject {
         PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
     }
 
+    var scanProgressFraction: Double {
+        if isScanning {
+            return scanMetrics.progressFraction
+        }
+        if snapshot != nil {
+            return 1
+        }
+        return 0
+    }
+
+    var scanProgressLabel: String {
+        "\(Int((scanProgressFraction * 100).rounded(.down)))%"
+    }
+
     func dismissOnboarding() {
         showsOnboarding = false
         UserDefaults.standard.set(true, forKey: "didCompleteOnboarding")
@@ -212,6 +226,7 @@ final class AppModel: ObservableObject {
             phase = .scanning
         case .finished(let snapshot):
             apply(snapshot: snapshot)
+            scanMetrics.recalculateProgress(isComplete: true)
             phase = .displaying
             scanTask = nil
         }

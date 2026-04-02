@@ -125,6 +125,39 @@ struct ScanMetrics: Sendable {
     var bytesDiscovered: Int64 = 0
     var currentPath = ""
     var startedAt = Date()
+    var discoveredItems = 0
+    var completedItems = 0
+    var estimatedTotalBytes: Int64 = 0
+    var progressFraction = 0.0
+
+    nonisolated var progressPercentage: Int {
+        Int((progressFraction * 100).rounded(.down))
+    }
+
+    nonisolated mutating func recalculateProgress(isComplete: Bool = false) {
+        if isComplete {
+            progressFraction = 1
+            return
+        }
+
+        let byteFraction: Double
+        if estimatedTotalBytes > 0 {
+            byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 0.995)
+        } else {
+            byteFraction = 0
+        }
+
+        let itemFraction: Double
+        if discoveredItems > 0 {
+            itemFraction = min(Double(completedItems) / Double(discoveredItems), 0.995)
+        } else {
+            itemFraction = 0
+        }
+
+        let hasStarted = filesVisited > 0 || directoriesVisited > 0 || discoveredItems > 0
+        let minimumVisibleProgress = hasStarted ? 0.01 : 0
+        progressFraction = max(progressFraction, max(byteFraction, itemFraction, minimumVisibleProgress))
+    }
 }
 
 enum ScanProgressEvent: Sendable {

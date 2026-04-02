@@ -83,6 +83,37 @@ final class ScanEngineTests: XCTestCase {
 
         XCTAssertEqual(snapshot.root.children.map(\.name), ["alpha.txt", "zeta.txt"])
     }
+
+    func testProgressFractionIsMonotonicAndCompletes() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        for directoryIndex in 0..<3 {
+            let directoryURL = rootURL.appending(path: "Folder-\(directoryIndex)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+            for fileIndex in 0..<4 {
+                let fileURL = directoryURL.appending(path: "File-\(fileIndex).txt")
+                try Data(repeating: UInt8(fileIndex), count: 1_024).write(to: fileURL)
+            }
+        }
+
+        let engine = ScanEngine()
+        var progressFractions: [Double] = []
+
+        for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+            if case .progress(let metrics) = event {
+                progressFractions.append(metrics.progressFraction)
+            }
+        }
+
+        XCTAssertFalse(progressFractions.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(progressFractions.last), 1, accuracy: 0.0001)
+
+        for pair in zip(progressFractions, progressFractions.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(pair.1, pair.0)
+        }
+    }
 }
 
 private func finishedSnapshot(target: ScanTarget, options: ScanOptions) async throws -> ScanSnapshot {

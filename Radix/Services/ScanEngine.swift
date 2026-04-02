@@ -9,7 +9,17 @@ import Foundation
 
 actor ScanEngine {
     private let fileManager = FileManager.default
-    private let resourceKeys: Set<URLResourceKey> = [
+    private let scanResourceKeys: Set<URLResourceKey> = [
+        .isDirectoryKey,
+        .isPackageKey,
+        .isSymbolicLinkKey,
+        .fileAllocatedSizeKey,
+        .totalFileAllocatedSizeKey,
+        .fileSizeKey,
+        .contentModificationDateKey,
+        .isReadableKey
+    ]
+    private let rootResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
         .isPackageKey,
         .isSymbolicLinkKey,
@@ -18,8 +28,8 @@ actor ScanEngine {
         .fileSizeKey,
         .contentModificationDateKey,
         .isReadableKey,
-        .isRegularFileKey,
-        .volumeNameKey
+        .volumeAvailableCapacityKey,
+        .volumeTotalCapacityKey
     ]
 
     nonisolated func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
@@ -54,6 +64,7 @@ actor ScanEngine {
         let startedAt = Date()
         var metrics = ScanMetrics(startedAt: startedAt)
         var warnings: [ScanWarning] = []
+        var emissionState = ScanEmissionState()
 
         let rootNode = try scanRootNode(
             target: target,
@@ -61,8 +72,13 @@ actor ScanEngine {
             metrics: &metrics,
             warnings: &warnings,
             continuation: continuation,
-            startedAt: startedAt
+            startedAt: startedAt,
+            emissionState: &emissionState
         )
+        metrics.completedItems = max(metrics.completedItems, metrics.discoveredItems)
+        metrics.currentPath = target.url.path
+        metrics.recalculateProgress(isComplete: true)
+        continuation.yield(.progress(metrics))
 
         return makeSnapshot(
             target: target,
@@ -80,26 +96,36 @@ actor ScanEngine {
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
-        startedAt: Date
+        startedAt: Date,
+        emissionState: inout ScanEmissionState
     ) throws -> FileNode {
         try Task.checkCancellation()
 
-        let metadata = try metadata(for: target.url)
+        let metadata = try metadata(for: target.url, includeVolumeDetails: true)
+        metrics.discoveredItems = 1
+        metrics.estimatedTotalBytes = estimatedTotalBytes(for: target, metadata: metadata)
         metrics.currentPath = target.url.path
+        metrics.recalculateProgress()
 
         if !shouldTraverseDirectory(metadata: metadata, options: options) {
             let fileNode = makeFileNode(url: target.url, metadata: metadata)
             metrics.filesVisited += 1
             metrics.bytesDiscovered += fileNode.allocatedSize
+            metrics.completedItems += 1
+            metrics.recalculateProgress()
             continuation.yield(.progress(metrics))
             return fileNode
         }
 
         metrics.directoriesVisited += 1
+        metrics.recalculateProgress()
         continuation.yield(.progress(metrics))
 
         do {
             let childURLs = try contents(of: target.url, includeHiddenFiles: options.includeHiddenFiles)
+            metrics.discoveredItems += childURLs.count
+            metrics.recalculateProgress()
+            maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
             var children: [FileNode] = []
 
             for childURL in childURLs {
@@ -109,7 +135,8 @@ actor ScanEngine {
                     options: options,
                     metrics: &metrics,
                     warnings: &warnings,
-                    continuation: continuation
+                    continuation: continuation,
+                    emissionState: &emissionState
                 )
                 children.append(child)
 
@@ -129,12 +156,17 @@ actor ScanEngine {
                 continuation.yield(.snapshot(partialSnapshot))
             }
 
+            metrics.completedItems += 1
+            metrics.recalculateProgress()
+            maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
             return makeDirectoryNode(url: target.url, metadata: metadata, children: children)
         } catch {
             let warning = makeWarning(for: target.url, error: error)
             warnings.append(warning)
             continuation.yield(.warning(warning))
             metrics.inaccessibleDirectories += 1
+            metrics.completedItems += 1
+            metrics.recalculateProgress()
             continuation.yield(.progress(metrics))
 
             return FileNode(
@@ -159,7 +191,8 @@ actor ScanEngine {
         options: ScanOptions,
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
-        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws -> FileNode {
         try Task.checkCancellation()
 
@@ -168,10 +201,14 @@ actor ScanEngine {
 
         if shouldTraverseDirectory(metadata: metadata, options: options) {
             metrics.directoriesVisited += 1
-            maybeEmitProgress(metrics: metrics, continuation: continuation)
+            metrics.recalculateProgress()
+            maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
             do {
                 let childURLs = try contents(of: url, includeHiddenFiles: options.includeHiddenFiles)
+                metrics.discoveredItems += childURLs.count
+                metrics.recalculateProgress()
+                maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
                 var children: [FileNode] = []
 
                 for childURL in childURLs {
@@ -180,18 +217,24 @@ actor ScanEngine {
                         options: options,
                         metrics: &metrics,
                         warnings: &warnings,
-                        continuation: continuation
+                        continuation: continuation,
+                        emissionState: &emissionState
                     )
                     children.append(child)
                 }
 
+                metrics.completedItems += 1
+                metrics.recalculateProgress()
+                maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
                 return makeDirectoryNode(url: url, metadata: metadata, children: children)
             } catch {
                 let warning = makeWarning(for: url, error: error)
                 warnings.append(warning)
                 continuation.yield(.warning(warning))
                 metrics.inaccessibleDirectories += 1
-                maybeEmitProgress(metrics: metrics, continuation: continuation)
+                metrics.completedItems += 1
+                metrics.recalculateProgress()
+                maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
                 return FileNode(
                     id: url.path,
@@ -213,18 +256,28 @@ actor ScanEngine {
         let fileNode = makeFileNode(url: url, metadata: metadata)
         metrics.filesVisited += 1
         metrics.bytesDiscovered += fileNode.allocatedSize
-        maybeEmitProgress(metrics: metrics, continuation: continuation)
+        metrics.completedItems += 1
+        metrics.recalculateProgress()
+        maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
         return fileNode
     }
 
-    private func metadata(for url: URL) throws -> NodeMetadata {
-        let values = try url.resourceValues(forKeys: resourceKeys)
+    private func metadata(for url: URL, includeVolumeDetails: Bool = false) throws -> NodeMetadata {
+        let keys = includeVolumeDetails ? rootResourceKeys : scanResourceKeys
+        let values = try url.resourceValues(forKeys: keys)
         let isDirectory = values.isDirectory ?? false
         let isPackage = values.isPackage ?? false
         let isSymbolicLink = values.isSymbolicLink ?? false
         let logicalSize = Int64(values.fileSize ?? 0)
         let allocatedSize = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
         let isReadable = values.isReadable ?? false
+        let volumeUsedCapacity: Int64?
+        if let totalCapacity = values.volumeTotalCapacity,
+           let availableCapacity = values.volumeAvailableCapacity {
+            volumeUsedCapacity = Int64(max(totalCapacity - availableCapacity, 0))
+        } else {
+            volumeUsedCapacity = nil
+        }
 
         return NodeMetadata(
             isDirectory: isDirectory,
@@ -233,7 +286,8 @@ actor ScanEngine {
             logicalSize: logicalSize,
             allocatedSize: allocatedSize,
             lastModified: values.contentModificationDate,
-            isReadable: isReadable
+            isReadable: isReadable,
+            volumeUsedCapacity: volumeUsedCapacity
         )
     }
 
@@ -245,19 +299,11 @@ actor ScanEngine {
 
         let contents = try fileManager.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: Array(resourceKeys),
+            includingPropertiesForKeys: Array(scanResourceKeys),
             options: options
         )
 
-        return contents.sorted {
-            let lhsName = displayName(for: $0)
-            let rhsName = displayName(for: $1)
-            let comparison = lhsName.localizedStandardCompare(rhsName)
-            if comparison == .orderedSame {
-                return $0.path < $1.path
-            }
-            return comparison == .orderedAscending
-        }
+        return contents
     }
 
     private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNode {
@@ -370,12 +416,17 @@ actor ScanEngine {
 
     private func maybeEmitProgress(
         metrics: ScanMetrics,
-        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) {
         let visitedItems = metrics.filesVisited + metrics.directoriesVisited
-        if visitedItems == 1 || visitedItems.isMultiple(of: 200) {
-            continuation.yield(.progress(metrics))
-        }
+        let now = Date()
+        let elapsed = now.timeIntervalSince(emissionState.lastProgressEmission)
+        let shouldEmit = visitedItems <= 2 || visitedItems.isMultiple(of: 1_000) || elapsed >= 0.15
+        guard shouldEmit else { return }
+
+        emissionState.lastProgressEmission = now
+        continuation.yield(.progress(metrics))
     }
 
     private func displayName(for url: URL) -> String {
@@ -395,6 +446,14 @@ actor ScanEngine {
         guard metadata.isDirectory else { return false }
         guard !metadata.isSymbolicLink else { return false }
         return !metadata.isPackage || options.treatPackagesAsDirectories
+    }
+
+    private func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
+        if target.kind == .volume, let volumeUsedCapacity = metadata.volumeUsedCapacity {
+            return max(volumeUsedCapacity, metadata.allocatedSize)
+        }
+
+        return max(metadata.allocatedSize, 0)
     }
 
     private func makeWarning(for url: URL, error: Error) -> ScanWarning {
@@ -427,4 +486,13 @@ private struct NodeMetadata {
     let allocatedSize: Int64
     let lastModified: Date?
     let isReadable: Bool
+    let volumeUsedCapacity: Int64?
+}
+
+private struct ScanEmissionState: Sendable {
+    var lastProgressEmission: Date
+
+    nonisolated init(lastProgressEmission: Date = .distantPast) {
+        self.lastProgressEmission = lastProgressEmission
+    }
 }
