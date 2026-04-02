@@ -30,8 +30,6 @@ struct ContentView: View {
             InspectorSidebarView()
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .toolbar {
             if appModel.isScanning {
                 ToolbarItem(placement: .automatic) {
@@ -68,43 +66,32 @@ struct ContentView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Locations")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+        List(selection: $selectedSidebarTargetID) {
+            Section("Locations") {
+                ForEach(defaultTargets) { target in
+                    sidebarTargetRow(target)
+                        .tag(target.id)
+                }
+            }
 
-            List(selection: $selectedSidebarTargetID) {
-                Section {
-                    ForEach(defaultTargets) { target in
+            if !appModel.recentTargets.isEmpty {
+                Section("Recent") {
+                    ForEach(appModel.recentTargets) { target in
                         sidebarTargetRow(target)
                             .tag(target.id)
                     }
                 }
+            }
 
-                if !appModel.recentTargets.isEmpty {
-                    Section("Recent") {
-                        ForEach(appModel.recentTargets) { target in
-                            sidebarTargetRow(target)
-                                .tag(target.id)
-                        }
-                    }
-                }
-
-                Section {
-                    Button {
-                        appModel.presentOpenPanelAndScan()
-                    } label: {
-                        Label("Choose Folder…", systemImage: "folder.badge.plus")
-                    }
+            Section {
+                Button {
+                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Label("Choose Folder…", systemImage: "folder.badge.plus")
                 }
             }
-            .listStyle(.sidebar)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .listStyle(.sidebar)
         .onChange(of: selectedSidebarTargetID) { _, newValue in
             guard let targetID = newValue,
                   let target = (defaultTargets + appModel.recentTargets).first(where: { $0.id == targetID }),
