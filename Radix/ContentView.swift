@@ -11,6 +11,14 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .doubleColumn
 
+    private var defaultTargets: [ScanTarget] {
+        SystemIntegration.defaultTargets()
+    }
+
+    private var startupDiskTarget: ScanTarget? {
+        defaultTargets.first(where: { $0.kind == .volume })
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
             sidebar
@@ -22,6 +30,27 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItemGroup {
+                Button("Scan Folder…") {
+                    appModel.presentOpenPanelAndScan()
+                }
+
+                Button("Rescan") {
+                    appModel.rescan()
+                }
+                .disabled(appModel.selectedTarget == nil)
+
+                Button("Stop") {
+                    appModel.stopScan()
+                }
+                .disabled(!appModel.isScanning)
+
+                Button(splitViewVisibility == .all ? "Hide Inspector" : "Show Inspector") {
+                    toggleInspector()
+                }
+            }
+        }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
         }
@@ -43,42 +72,20 @@ struct ContentView: View {
     }
 
     private var sidebar: some View {
-        List {
+        List(selection: sidebarSelection) {
             Section("Quick Scans") {
-                ForEach(SystemIntegration.defaultTargets()) { target in
-                    Button {
-                        appModel.startScan(target)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: target.kind == .volume ? "externaldrive.fill" : "folder.fill")
-                                .foregroundStyle(.tint)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(target.displayName)
-                                Text(target.kind == .volume ? "Mounted volume" : "Folder")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
+                ForEach(defaultTargets) { target in
+                    sidebarTargetRow(target, subtitle: target.kind == .volume ? "Mounted volume" : "Folder")
+                        .tag(target.id)
                 }
             }
 
-            Section("Recent") {
-                ForEach(appModel.recentTargets) { target in
-                    Button {
-                        appModel.startScan(target)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(target.displayName)
-                            Text(target.url.path)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+            if !appModel.recentTargets.isEmpty {
+                Section("Recent") {
+                    ForEach(appModel.recentTargets) { target in
+                        sidebarTargetRow(target, subtitle: target.url.path)
+                            .tag(target.id)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -124,18 +131,7 @@ struct ContentView: View {
 
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 18) {
-                    headerTitleBlock
-                    Spacer(minLength: 20)
-                    headerActions
-                }
-
-                VStack(alignment: .leading, spacing: 14) {
-                    headerTitleBlock
-                    headerActions
-                }
-            }
+            headerTitleBlock
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 150), spacing: 14)],
@@ -148,9 +144,9 @@ struct ContentView: View {
                     systemImage: "waveform.path.ecg"
                 )
                 statusMetric(title: "Progress", value: appModel.scanProgressLabel, systemImage: "gauge.with.dots.needle.33percent")
-                statusMetric(title: "Files", value: "\(appModel.scanMetrics.filesVisited)", systemImage: "doc.on.doc")
-                statusMetric(title: "Folders", value: "\(appModel.scanMetrics.directoriesVisited)", systemImage: "folder")
-                statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.scanMetrics.bytesDiscovered), systemImage: "internaldrive")
+                statusMetric(title: "Files", value: "\(appModel.displayedFileCount)", systemImage: "doc.on.doc")
+                statusMetric(title: "Folders", value: "\(appModel.displayedDirectoryCount)", systemImage: "folder")
+                statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.displayedAllocatedSize), systemImage: "internaldrive")
             }
 
             if appModel.isScanning {
@@ -181,7 +177,7 @@ struct ContentView: View {
     private var headerTitleBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(appModel.statusTitle)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.largeTitle.weight(.bold))
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
 
@@ -200,32 +196,6 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var headerActions: some View {
-        HStack(spacing: 10) {
-            Button("Scan Folder…") {
-                appModel.presentOpenPanelAndScan()
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button("Rescan") {
-                appModel.rescan()
-            }
-            .buttonStyle(.bordered)
-            .disabled(appModel.selectedTarget == nil)
-
-            Button("Inspector") {
-                toggleInspector()
-            }
-            .buttonStyle(.bordered)
-
-            Button("Stop") {
-                appModel.stopScan()
-            }
-            .buttonStyle(.bordered)
-            .disabled(!appModel.isScanning)
-        }
-    }
-
     private func workspace(for snapshot: ScanSnapshot, focusNode: FileNode) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             breadcrumbBar
@@ -241,17 +211,7 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if let node = appModel.selectedNode {
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text(node.name)
-                                    .font(.subheadline.weight(.semibold))
-                                    .lineLimit(1)
-                                Text(RadixFormatters.size(node.allocatedSize))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: 220, alignment: .trailing)
-                        }
+                        chartActions
                     }
 
                     SunburstChartView(
@@ -277,8 +237,18 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text("\(snapshot.scanWarnings.count) warning\(snapshot.scanWarnings.count == 1 ? "" : "s")")
-                            .foregroundStyle(.secondary)
+                        Label(
+                            "\(appModel.tableNodes.count) item\(appModel.tableNodes.count == 1 ? "" : "s")",
+                            systemImage: "list.bullet"
+                        )
+                        .foregroundStyle(.secondary)
+                        if snapshot.scanWarnings.count > 0 {
+                            Label(
+                                "\(snapshot.scanWarnings.count) warning\(snapshot.scanWarnings.count == 1 ? "" : "s")",
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .foregroundStyle(.orange)
+                        }
                     }
 
                     FileBrowserTableView(
@@ -345,10 +315,17 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("Show Inspector") {
-                    splitViewVisibility = .all
+                if let startupDiskTarget {
+                    Button("Scan \(startupDiskTarget.displayName)") {
+                        appModel.startScan(startupDiskTarget)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button("Show Inspector") {
+                        splitViewVisibility = .all
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -377,6 +354,36 @@ struct ContentView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
+    private var chartActions: some View {
+        HStack(spacing: 10) {
+            if let node = appModel.selectedNode {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(node.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(RadixFormatters.size(node.allocatedSize))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 220, alignment: .trailing)
+            }
+
+            if appModel.canZoomIntoSelection {
+                Button("Zoom to Selection") {
+                    appModel.zoomIntoSelection()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if !appModel.isFocusedAtRoot {
+                Button("Reset Focus") {
+                    appModel.resetFocusToRoot()
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
     private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             content()
@@ -387,6 +394,36 @@ struct ContentView: View {
 
     private func toggleInspector() {
         splitViewVisibility = splitViewVisibility == .all ? .doubleColumn : .all
+    }
+
+    private func sidebarTargetRow(_ target: ScanTarget, subtitle: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: target.kind == .volume ? "externaldrive.fill" : "folder.fill")
+                .foregroundStyle(.tint)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(target.displayName)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sidebarSelection: Binding<String?> {
+        Binding(
+            get: { appModel.selectedTarget?.id },
+            set: { newValue in
+                guard let targetID = newValue,
+                      let target = (defaultTargets + appModel.recentTargets).first(where: { $0.id == targetID }) else {
+                    return
+                }
+                appModel.startScan(target)
+            }
+        )
     }
 }
 
@@ -419,11 +456,13 @@ private struct BreadcrumbBar: View {
                 onSelect(node.id)
             }
             .buttonStyle(BorderedProminentButtonStyle())
+            .lineLimit(1)
         } else {
             Button(node.name) {
                 onSelect(node.id)
             }
             .buttonStyle(BorderedButtonStyle())
+            .lineLimit(1)
         }
 
         if !isLast {

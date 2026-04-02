@@ -13,7 +13,7 @@ struct SunburstChartView: View {
     let index: FileTreeIndex
     let selectedNodeID: String?
     let depthLimit: Int
-    let onSelect: (String) -> Void
+    let onSelect: (String?) -> Void
     let onZoom: (String) -> Void
 
     @State private var hoveredSegment: SunburstSegment?
@@ -22,20 +22,23 @@ struct SunburstChartView: View {
         SunburstLayout.segments(for: rootNode, depthLimit: depthLimit)
     }
 
+    private var displayedNode: FileNode? {
+        if let hoveredNodeID = hoveredSegment?.nodeID,
+           let hoveredNode = index.node(id: hoveredNodeID) {
+            return hoveredNode
+        }
+        if let selectedNodeID,
+           let selectedNode = index.node(id: selectedNodeID) {
+            return selectedNode
+        }
+        return rootNode
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(nsColor: .controlBackgroundColor),
-                                Color(nsColor: .underPageBackgroundColor)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Color(nsColor: .controlBackgroundColor))
 
                 Canvas { context, size in
                     for segment in segments {
@@ -53,12 +56,19 @@ struct SunburstChartView: View {
                 .padding(24)
 
                 VStack(spacing: 6) {
-                    Text(rootNode.name)
+                    Text(displayedNode?.name ?? rootNode.name)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text(RadixFormatters.size(rootNode.allocatedSize))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                    Text(RadixFormatters.size(displayedNode?.allocatedSize ?? rootNode.allocatedSize))
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.secondary)
+                    if let displayedNode, displayedNode.id != rootNode.id {
+                        Text(displayedNode.itemKind)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(20)
                 .background(
@@ -75,6 +85,7 @@ struct SunburstChartView: View {
                 } onClick: { point, clickCount in
                     guard let segment = SunburstHitTester.segment(at: point, in: geometry.size, segments: segments),
                           let nodeID = segment.nodeID else {
+                        onSelect(nil)
                         return
                     }
 
@@ -96,7 +107,6 @@ struct SunburstChartView: View {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .strokeBorder(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.12), radius: 14, y: 6)
         }
     }
 

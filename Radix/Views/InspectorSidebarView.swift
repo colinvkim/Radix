@@ -47,6 +47,11 @@ struct InspectorSidebarView: View {
                     }
 
                     inspectorCard("Actions") {
+                        if appModel.canZoomIntoSelection {
+                            actionButton("Zoom In", systemImage: "scope") {
+                                appModel.zoomIntoSelection()
+                            }
+                        }
                         actionButton("Reveal in Finder", systemImage: "folder") {
                             appModel.revealSelectedInFinder()
                         }

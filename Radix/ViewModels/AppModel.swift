@@ -27,7 +27,7 @@ final class AppModel: ObservableObject {
     @Published var selectedNodeID: String?
     @Published var focusedNodeID: String?
     @Published var fileTreeIndex = FileTreeIndex.empty
-    @Published var recentTargets: [ScanTarget] = SystemIntegration.defaultTargets()
+    @Published var recentTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
     @Published var lastErrorMessage: String?
 
@@ -63,6 +63,41 @@ final class AppModel: ObservableObject {
             return focusNode.children
         }
         return fileTreeIndex.parent(of: focusNode.id)?.children ?? []
+    }
+
+    var displayedFileCount: Int {
+        if isScanning {
+            return scanMetrics.filesVisited
+        }
+        return snapshot?.aggregateStats.fileCount ?? 0
+    }
+
+    var displayedDirectoryCount: Int {
+        if isScanning {
+            return scanMetrics.directoriesVisited
+        }
+        return snapshot?.aggregateStats.directoryCount ?? 0
+    }
+
+    var displayedAllocatedSize: Int64 {
+        if isScanning {
+            return scanMetrics.bytesDiscovered
+        }
+        return snapshot?.aggregateStats.totalAllocatedSize ?? 0
+    }
+
+    var warningCount: Int {
+        snapshot?.scanWarnings.count ?? 0
+    }
+
+    var canZoomIntoSelection: Bool {
+        guard let selectedNode else { return false }
+        return selectedNode.isDirectory && selectedNode.containsChildren
+    }
+
+    var isFocusedAtRoot: Bool {
+        guard let rootID = snapshot?.root.id else { return true }
+        return (focusedNodeID ?? rootID) == rootID
     }
 
     var statusTitle: String {
@@ -178,7 +213,6 @@ final class AppModel: ObservableObject {
     }
 
     func select(nodeID: String?) {
-        guard let nodeID else { return }
         selectedNodeID = nodeID
     }
 
