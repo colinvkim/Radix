@@ -73,7 +73,7 @@ struct ContentView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 14)
-                .padding(.top, 40)
+                .padding(.top, 12)
                 .padding(.bottom, 8)
 
             List(selection: $selectedSidebarTargetID) {

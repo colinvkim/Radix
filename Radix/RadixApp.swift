@@ -19,6 +19,7 @@ struct RadixApp: App {
         }
         .defaultSize(width: 1480, height: 920)
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.expanded)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Scan Folder…") {
