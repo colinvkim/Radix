@@ -82,32 +82,36 @@ struct ContentView: View {
     }
 
     private var mainWorkspace: some View {
-        GeometryReader { geometry in
-            ScrollView {
+        Group {
+            if let snapshot = appModel.snapshot,
+               let focusNode = appModel.currentFocusNode {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        headerCard
+
+                        if appModel.shouldSuggestFullDiskAccess {
+                            fullDiskAccessBanner
+                        }
+
+                        workspace(for: snapshot, focusNode: focusNode)
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            } else {
                 VStack(alignment: .leading, spacing: 18) {
                     headerCard
-
-                    if appModel.shouldSuggestFullDiskAccess {
-                        fullDiskAccessBanner
-                    }
-
-                    if let snapshot = appModel.snapshot,
-                       let focusNode = appModel.currentFocusNode {
-                        workspace(for: snapshot, focusNode: focusNode)
-                    } else {
-                        emptyState
-                            .frame(minHeight: max(geometry.size.height - 120, 520))
-                            .frame(maxWidth: .infinity)
-                    }
+                    emptyState
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .padding(20)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .dropDestination(for: URL.self) { urls, _ in
-                appModel.handleDroppedURLs(urls)
-            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .dropDestination(for: URL.self) { urls, _ in
+            appModel.handleDroppedURLs(urls)
         }
     }
 
@@ -280,7 +284,7 @@ struct ContentView: View {
                 Text("Start a Scan")
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
-                Text("Choose a folder from the sidebar, use the toolbar button, or drag a folder or mounted disk into the window.")
+                Text("Choose a folder from the sidebar, or drag a folder or mounted disk into the window.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
