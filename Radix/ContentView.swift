@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
-    @State private var splitViewVisibility: NavigationSplitViewVisibility = .doubleColumn
+    @State private var splitViewVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedSidebarTargetID: String?
 
     private var defaultTargets: [ScanTarget] {
@@ -24,13 +24,11 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
-        } content: {
-            mainWorkspace
-        } detail: {
-            InspectorSidebarView()
-                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
-        .navigationSplitViewStyle(.balanced)
+    detail: {
+            mainWorkspace
+        }
+        .navigationSplitViewStyle(.prominentDetail)
         .toolbar(removing: .sidebarToggle)
         .toolbar {
             if appModel.isScanning {
@@ -40,6 +38,10 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+        .inspector(isPresented: $appModel.showsInspector) {
+            InspectorSidebarView()
+                .inspectorColumnWidth(min: 280, ideal: 320, max: 360)
         }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()

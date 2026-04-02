@@ -28,6 +28,7 @@ final class AppModel: ObservableObject {
     @Published var focusedNodeID: String?
     @Published var fileTreeIndex = FileTreeIndex.empty
     @Published var recentTargets: [ScanTarget] = []
+    @Published var showsInspector = true
     @Published var showsOnboarding: Bool
     @Published var lastErrorMessage: String?
 
