@@ -12,20 +12,25 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Toggle("Show hidden files while scanning", isOn: $appModel.showHiddenFiles)
-            Text("Mounted volume scans always include hidden files automatically.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Toggle("Treat app bundles and packages as folders", isOn: $appModel.treatPackagesAsDirectories)
+            Section("Scanning") {
+                Toggle("Show hidden files while scanning", isOn: $appModel.showHiddenFiles)
+                Toggle("Treat app bundles and packages as folders", isOn: $appModel.treatPackagesAsDirectories)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Sunburst depth")
+                Text("Mounted volume scans always include hidden files automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Visualization") {
                 Stepper(value: $appModel.maxRenderedDepth, in: 3...10) {
-                    Text("\(appModel.maxRenderedDepth) rings")
+                    LabeledContent("Sunburst depth") {
+                        Text("\(appModel.maxRenderedDepth) rings")
+                    }
                 }
             }
         }
+        .formStyle(.grouped)
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 460)
     }
 }

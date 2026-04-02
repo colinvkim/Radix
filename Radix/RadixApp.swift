@@ -20,6 +20,9 @@ struct RadixApp: App {
         .defaultSize(width: 1480, height: 920)
         .windowResizability(.contentMinSize)
         .commands {
+            SidebarCommands()
+            InspectorCommands()
+
             CommandGroup(after: .newItem) {
                 Button("Scan Folder…") {
                     appModel.presentOpenPanelAndScan()

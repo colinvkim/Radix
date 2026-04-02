@@ -11,90 +11,91 @@ struct OnboardingView: View {
     @EnvironmentObject private var appModel: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Welcome to Radix", systemImage: "sun.max")
+        HSplitView {
+            VStack(alignment: .leading, spacing: 20) {
+                Label("Radix", systemImage: "scope")
                     .font(.largeTitle.weight(.bold))
 
-                Text("Scan disks and folders with a live sunburst map, inspect what is actually consuming space, and stay in a safe read-only workflow.")
+                Text("Scan disks and folders with a native macOS workflow, inspect the live map as results stream in, and stay entirely read-only.")
                     .font(.title3)
                     .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    featureRow(
+                        title: "Read-only by design",
+                        body: "Radix scans and summarizes usage. It does not move or delete files."
+                    )
+                    featureRow(
+                        title: "Works with Finder",
+                        body: "Choose folders with the standard open panel, reveal results in Finder, and drag locations straight into the window."
+                    )
+                    featureRow(
+                        title: "Full Disk Access is optional",
+                        body: "Grant it only if you want more complete results from protected locations such as Mail, Safari, and Library content."
+                    )
+                }
+
+                Spacer()
             }
+            .padding(28)
+            .frame(minWidth: 320, maxWidth: .infinity, alignment: .topLeading)
 
-            HStack(spacing: 16) {
-                onboardingCard(
-                    title: "Read-only by design",
-                    body: "Radix does not delete or move anything in v1. It scans, summarizes, and helps you inspect results."
-                )
-                onboardingCard(
-                    title: "Native macOS workflow",
-                    body: "Choose targets with the standard open panel, drag folders into the window, and reveal items directly in Finder."
-                )
-                onboardingCard(
-                    title: "Optional Full Disk Access",
-                    body: "Granting Full Disk Access improves scan completeness on protected folders such as Mail, Safari, and other privacy-sensitive locations."
-                )
-            }
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Before your first scan")
+                    .font(.title3.weight(.semibold))
 
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Full Disk Access Setup")
-                    .font(.headline)
-
-                Text("Radix can scan selected folders without this, but protected locations such as Mail, Messages, Safari, and some Library content remain incomplete until you enable Full Disk Access.")
+                Text("Radix can scan normal folders immediately. For protected system and privacy-sensitive locations, enable Full Disk Access in System Settings.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    onboardingStep(number: 1, text: "Click Open Full Disk Access Settings.")
-                    onboardingStep(number: 2, text: "In Privacy & Security > Full Disk Access, find Radix in the list.")
-                    onboardingStep(number: 3, text: "Turn on the toggle for Radix, then return here and continue.")
+                VStack(alignment: .leading, spacing: 12) {
+                    onboardingStep(number: 1, text: "Open Full Disk Access Settings.")
+                    onboardingStep(number: 2, text: "Find Radix in Privacy & Security > Full Disk Access.")
+                    onboardingStep(number: 3, text: "Enable the toggle, then return to Radix.")
                 }
 
-                Text("macOS does not let apps enable this permission themselves. Radix can only open the right settings pane and try to get itself listed first.")
+                Text("macOS controls this permission. Radix can only open the correct settings screen for you.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(18)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-            HStack(spacing: 12) {
-                Button("Choose Folder to Scan") {
-                    appModel.dismissOnboarding()
-                    appModel.presentOpenPanelAndScan()
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Open Full Disk Access Settings") {
-                    appModel.prepareAndOpenFullDiskAccessSettings()
-                }
-                .buttonStyle(.bordered)
 
                 Spacer()
 
-                Button("Continue") {
-                    appModel.dismissOnboarding()
+                HStack(spacing: 12) {
+                    Button("Choose Folder to Scan") {
+                        appModel.dismissOnboarding()
+                        appModel.presentOpenPanelAndScan()
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Open Full Disk Access Settings") {
+                        appModel.prepareAndOpenFullDiskAccessSettings()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    Button("Continue") {
+                        appModel.dismissOnboarding()
+                    }
+                    .keyboardShortcut(.defaultAction)
                 }
-                .keyboardShortcut(.defaultAction)
             }
+            .padding(28)
+            .frame(minWidth: 420, maxWidth: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .controlBackgroundColor))
         }
-        .padding(28)
-        .frame(minWidth: 760)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(minWidth: 860, minHeight: 520)
     }
 
-    private func onboardingCard(title: String, body: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func featureRow(title: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.headline)
             Text(body)
-                .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func onboardingStep(number: Int, text: String) -> some View {
