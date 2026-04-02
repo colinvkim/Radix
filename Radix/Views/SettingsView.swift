@@ -13,6 +13,9 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Toggle("Show hidden files while scanning", isOn: $appModel.showHiddenFiles)
+            Text("Mounted volume scans always include hidden files automatically.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Toggle("Treat app bundles and packages as folders", isOn: $appModel.treatPackagesAsDirectories)
 
             VStack(alignment: .leading, spacing: 8) {

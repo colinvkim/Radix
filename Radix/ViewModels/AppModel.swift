@@ -130,7 +130,7 @@ final class AppModel: ObservableObject {
         activeScanID = scanID
 
         let options = ScanOptions(
-            includeHiddenFiles: showHiddenFiles,
+            includeHiddenFiles: showHiddenFiles || target.kind == .volume,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
             maxRenderedDepth: maxRenderedDepth
         )
