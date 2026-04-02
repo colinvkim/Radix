@@ -31,6 +31,16 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            if appModel.isScanning {
+                ToolbarItem(placement: .automatic) {
+                    Button("Stop", role: .destructive) {
+                        appModel.stopScan()
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
         }
@@ -72,14 +82,6 @@ struct ContentView: View {
                         sidebarTargetRow(target)
                             .tag(target.id)
                     }
-                }
-            }
-
-            Section {
-                Button {
-                    appModel.presentOpenPanelAndScan()
-                } label: {
-                    Label("Choose Folder…", systemImage: "folder.badge.plus")
                 }
             }
         }
