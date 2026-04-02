@@ -1,0 +1,4 @@
+.build/
+*.xcuserstate
+xcuserdata/
+Radix.xcodeproj/xcuserdata/
