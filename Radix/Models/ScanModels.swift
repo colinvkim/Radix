@@ -129,6 +129,7 @@ struct ScanMetrics: Sendable {
     var completedItems = 0
     var estimatedTotalBytes: Int64 = 0
     var progressFraction = 0.0
+    var isFinalizing = false
 
     nonisolated var progressPercentage: Int {
         Int((progressFraction * 100).rounded(.down))
@@ -142,14 +143,14 @@ struct ScanMetrics: Sendable {
 
         let byteFraction: Double
         if estimatedTotalBytes > 0 {
-            byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 0.995)
+            byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 0.99)
         } else {
             byteFraction = 0
         }
 
         let itemFraction: Double
-        if discoveredItems > 0 {
-            itemFraction = min(Double(completedItems) / Double(discoveredItems), 0.995)
+        if estimatedTotalBytes == 0, discoveredItems > 0 {
+            itemFraction = min(Double(completedItems) / Double(discoveredItems), 0.9)
         } else {
             itemFraction = 0
         }

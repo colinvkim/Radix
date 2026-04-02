@@ -77,7 +77,7 @@ final class AppModel: ObservableObject {
     }
 
     var isFinalizingScan: Bool {
-        isScanning && scanMetrics.progressFraction >= 0.98
+        isScanning && scanMetrics.isFinalizing
     }
 
     var scanProgressFraction: Double {

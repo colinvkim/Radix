@@ -114,6 +114,20 @@ final class ScanEngineTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(pair.1, pair.0)
         }
     }
+
+    func testByteEstimatePreventsPrematureFinalizingProgress() {
+        var metrics = ScanMetrics()
+        metrics.estimatedTotalBytes = 10_000
+        metrics.discoveredItems = 6
+        metrics.completedItems = 5
+        metrics.filesVisited = 500
+        metrics.bytesDiscovered = 1_200
+
+        metrics.recalculateProgress()
+
+        XCTAssertLessThan(metrics.progressFraction, 0.5)
+        XCTAssertFalse(metrics.isFinalizing)
+    }
 }
 
 private func finishedSnapshot(target: ScanTarget, options: ScanOptions) async throws -> ScanSnapshot {

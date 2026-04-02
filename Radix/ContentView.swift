@@ -214,7 +214,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             breadcrumbBar
 
-            VSplitView {
+            VStack(alignment: .leading, spacing: 14) {
                 SunburstChartView(
                     rootNode: focusNode,
                     index: appModel.fileTreeIndex,
@@ -223,7 +223,7 @@ struct ContentView: View {
                     onSelect: { appModel.select(nodeID: $0) },
                     onZoom: { appModel.focus(nodeID: $0) }
                 )
-                .frame(minHeight: 420)
+                .frame(minHeight: 500)
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -238,10 +238,10 @@ struct ContentView: View {
                         nodes: appModel.tableNodes,
                         selection: $appModel.selectedNodeID
                     )
+                    .frame(minHeight: 230)
                 }
                 .padding(18)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .frame(minHeight: 220)
             }
         }
     }

@@ -76,11 +76,11 @@ actor ScanEngine {
             emissionState: &emissionState
         )
         metrics.completedItems = max(metrics.completedItems, metrics.discoveredItems)
-        metrics.currentPath = target.url.path
-        metrics.recalculateProgress(isComplete: true)
+        metrics.currentPath = "Summarizing results…"
+        metrics.isFinalizing = true
         continuation.yield(.progress(metrics))
 
-        return makeSnapshot(
+        let snapshot = makeSnapshot(
             target: target,
             root: rootNode,
             startedAt: startedAt,
@@ -88,6 +88,12 @@ actor ScanEngine {
             warnings: warnings,
             isComplete: true
         )
+
+        metrics.isFinalizing = false
+        metrics.currentPath = target.url.path
+        metrics.recalculateProgress(isComplete: true)
+        continuation.yield(.progress(metrics))
+        return snapshot
     }
 
     private func scanRootNode(
