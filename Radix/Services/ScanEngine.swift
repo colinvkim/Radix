@@ -616,10 +616,7 @@ actor ScanEngine {
         }
 
         let lastPathComponent = url.lastPathComponent
-        if lastPathComponent.isEmpty {
-            return FileManager.default.displayName(atPath: url.path)
-        }
-        return lastPathComponent
+        return lastPathComponent.isEmpty ? url.path : lastPathComponent
     }
 
     private func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {

@@ -61,7 +61,8 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
             return volumeName ?? "Startup Disk"
         }
 
-        return FileManager.default.displayName(atPath: url.path)
+        let lastPathComponent = url.lastPathComponent
+        return lastPathComponent.isEmpty ? url.path : lastPathComponent
     }
 }
 
