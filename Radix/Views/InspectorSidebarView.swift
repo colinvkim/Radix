@@ -15,11 +15,11 @@ struct InspectorSidebarView: View {
             VStack(alignment: .leading, spacing: 18) {
                 if let node = appModel.selectedNode {
                     HStack(spacing: 14) {
-                        Image(nsImage: SystemIntegration.icon(for: node.url))
-                            .resizable()
-                            .scaledToFit()
+                        Image(systemName: symbolName(for: node))
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundStyle(node.isDirectory ? Color.accentColor : Color.secondary)
                             .frame(width: 44, height: 44)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(node.name)
@@ -41,7 +41,7 @@ struct InspectorSidebarView: View {
                     }
 
                     inspectorCard("Actions") {
-                        actionButton("Reveal in Finder", systemImage: "finder") {
+                        actionButton("Reveal in Finder", systemImage: "folder") {
                             appModel.revealSelectedInFinder()
                         }
                         actionButton("Open", systemImage: "arrow.up.forward.app") {
@@ -138,5 +138,15 @@ struct InspectorSidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.bordered)
+    }
+
+    private func symbolName(for node: FileNode) -> String {
+        if node.isSymbolicLink {
+            return "arrowshape.turn.up.right.circle.fill"
+        }
+        if node.isPackage {
+            return "shippingbox.fill"
+        }
+        return node.isDirectory ? "folder.fill" : "doc.fill"
     }
 }

@@ -34,6 +34,7 @@ final class AppModel: ObservableObject {
     private let scanEngine = ScanEngine()
 
     private var scanTask: Task<Void, Never>?
+    private var activeScanID: UUID?
 
     init() {
         showsOnboarding = !UserDefaults.standard.bool(forKey: "didCompleteOnboarding")
@@ -75,6 +76,10 @@ final class AppModel: ObservableObject {
         PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
     }
 
+    var isFinalizingScan: Bool {
+        isScanning && scanMetrics.progressFraction >= 0.98
+    }
+
     var scanProgressFraction: Double {
         if isScanning {
             return scanMetrics.progressFraction
@@ -86,7 +91,16 @@ final class AppModel: ObservableObject {
     }
 
     var scanProgressLabel: String {
-        "\(Int((scanProgressFraction * 100).rounded(.down)))%"
+        if isFinalizingScan {
+            return "Finishing"
+        }
+        if isScanning {
+            return scanMetrics.progressPercentage.formatted(.number) + "%"
+        }
+        if snapshot != nil {
+            return "100%"
+        }
+        return "\(Int((scanProgressFraction * 100).rounded(.down)))%"
     }
 
     func dismissOnboarding() {
@@ -112,6 +126,8 @@ final class AppModel: ObservableObject {
         fileTreeIndex = .empty
 
         registerRecentTarget(target)
+        let scanID = UUID()
+        activeScanID = scanID
 
         let options = ScanOptions(
             includeHiddenFiles: showHiddenFiles,
@@ -124,15 +140,24 @@ final class AppModel: ObservableObject {
         scanTask = Task {
             do {
                 for try await event in stream {
-                    handle(event)
+                    guard activeScanID == scanID else {
+                        break
+                    }
+                    handle(event, scanID: scanID)
                 }
             } catch is CancellationError {
-                if snapshot == nil {
+                if activeScanID == scanID && snapshot == nil {
                     phase = .idle
                 }
             } catch {
-                phase = .failed
-                lastErrorMessage = error.localizedDescription
+                if activeScanID == scanID {
+                    phase = .failed
+                    lastErrorMessage = error.localizedDescription
+                }
+            }
+
+            if activeScanID == scanID && phase != .displaying && phase != .failed {
+                scanTask = nil
             }
         }
     }
@@ -143,6 +168,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopScan(resetState: Bool = true) {
+        activeScanID = nil
         scanTask?.cancel()
         scanTask = nil
 
@@ -215,7 +241,9 @@ final class AppModel: ObservableObject {
         _ = SystemIntegration.prepareAndOpenFullDiskAccessSettings()
     }
 
-    private func handle(_ event: ScanProgressEvent) {
+    private func handle(_ event: ScanProgressEvent, scanID: UUID) {
+        guard activeScanID == scanID else { return }
+
         switch event {
         case .progress(let metrics):
             scanMetrics = metrics
@@ -227,6 +255,7 @@ final class AppModel: ObservableObject {
         case .finished(let snapshot):
             apply(snapshot: snapshot)
             scanMetrics.recalculateProgress(isComplete: true)
+            activeScanID = nil
             phase = .displaying
             scanTask = nil
         }

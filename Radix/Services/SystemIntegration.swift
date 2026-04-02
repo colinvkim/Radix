@@ -65,10 +65,6 @@ enum SystemIntegration {
         pasteboard.setString(url.path, forType: .string)
     }
 
-    static func icon(for url: URL) -> NSImage {
-        NSWorkspace.shared.icon(forFile: url.path)
-    }
-
     @discardableResult
     static func openFullDiskAccessSettings() -> Bool {
         guard !isRunningInsideXcodePreview else {
