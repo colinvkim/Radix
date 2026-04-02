@@ -119,15 +119,14 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             headerTitleBlock
 
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 150), spacing: 14)],
-                alignment: .leading,
-                spacing: 14
-            ) {
-                statusMetric(title: "Progress", value: appModel.scanProgressLabel, systemImage: "gauge.with.dots.needle.33percent")
-                statusMetric(title: "Files", value: "\(appModel.displayedFileCount)", systemImage: "doc.on.doc")
-                statusMetric(title: "Folders", value: "\(appModel.displayedDirectoryCount)", systemImage: "folder")
-                statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.displayedAllocatedSize), systemImage: "internaldrive")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) {
+                    statusCards
+                }
+
+                statusGrid(columns: 2)
+
+                statusGrid(columns: 1)
             }
 
             if appModel.isScanning {
@@ -175,6 +174,24 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var statusCards: some View {
+        statusMetric(title: "Progress", value: appModel.scanProgressLabel, systemImage: "gauge.with.dots.needle.33percent")
+        statusMetric(title: "Files", value: "\(appModel.displayedFileCount)", systemImage: "doc.on.doc")
+        statusMetric(title: "Folders", value: "\(appModel.displayedDirectoryCount)", systemImage: "folder")
+        statusMetric(title: "Discovered", value: RadixFormatters.size(appModel.displayedAllocatedSize), systemImage: "internaldrive")
+    }
+
+    private func statusGrid(columns: Int) -> some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: columns),
+            alignment: .leading,
+            spacing: 14
+        ) {
+            statusCards
+        }
     }
 
     private func workspace(for snapshot: ScanSnapshot, focusNode: FileNode) -> some View {
