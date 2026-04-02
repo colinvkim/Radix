@@ -30,27 +30,6 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItemGroup {
-                Button("Scan Folder…") {
-                    appModel.presentOpenPanelAndScan()
-                }
-
-                Button("Rescan") {
-                    appModel.rescan()
-                }
-                .disabled(appModel.selectedTarget == nil)
-
-                Button("Stop") {
-                    appModel.stopScan()
-                }
-                .disabled(!appModel.isScanning)
-
-                Button(splitViewVisibility == .all ? "Hide Inspector" : "Show Inspector") {
-                    toggleInspector()
-                }
-            }
-        }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
         }
@@ -103,29 +82,32 @@ struct ContentView: View {
     }
 
     private var mainWorkspace: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                headerCard
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    headerCard
 
-                if appModel.shouldSuggestFullDiskAccess {
-                    fullDiskAccessBanner
-                }
+                    if appModel.shouldSuggestFullDiskAccess {
+                        fullDiskAccessBanner
+                    }
 
-                if let snapshot = appModel.snapshot,
-                   let focusNode = appModel.currentFocusNode {
-                    workspace(for: snapshot, focusNode: focusNode)
-                } else {
-                    emptyState
-                        .frame(minHeight: 520)
+                    if let snapshot = appModel.snapshot,
+                       let focusNode = appModel.currentFocusNode {
+                        workspace(for: snapshot, focusNode: focusNode)
+                    } else {
+                        emptyState
+                            .frame(minHeight: max(geometry.size.height - 120, 520))
+                            .frame(maxWidth: .infinity)
+                    }
                 }
+                .padding(20)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .dropDestination(for: URL.self) { urls, _ in
-            appModel.handleDroppedURLs(urls)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .dropDestination(for: URL.self) { urls, _ in
+                appModel.handleDroppedURLs(urls)
+            }
         }
     }
 
@@ -138,11 +120,6 @@ struct ContentView: View {
                 alignment: .leading,
                 spacing: 14
             ) {
-                statusMetric(
-                    title: "Mode",
-                    value: appModel.isFinalizingScan ? "Finishing" : (appModel.isScanning ? "Scanning" : (appModel.snapshot?.isComplete == true ? "Complete" : "Ready")),
-                    systemImage: "waveform.path.ecg"
-                )
                 statusMetric(title: "Progress", value: appModel.scanProgressLabel, systemImage: "gauge.with.dots.needle.33percent")
                 statusMetric(title: "Files", value: "\(appModel.displayedFileCount)", systemImage: "doc.on.doc")
                 statusMetric(title: "Folders", value: "\(appModel.displayedDirectoryCount)", systemImage: "folder")
@@ -318,11 +295,6 @@ struct ContentView: View {
                 if let startupDiskTarget {
                     Button("Scan \(startupDiskTarget.displayName)") {
                         appModel.startScan(startupDiskTarget)
-                    }
-                    .buttonStyle(.bordered)
-                } else {
-                    Button("Show Inspector") {
-                        splitViewVisibility = .all
                     }
                     .buttonStyle(.bordered)
                 }
