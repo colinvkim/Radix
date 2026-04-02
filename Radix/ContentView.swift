@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
-    @State private var splitViewVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var splitViewVisibility: NavigationSplitViewVisibility = .doubleColumn
     @State private var selectedSidebarTargetID: String?
 
     private var defaultTargets: [ScanTarget] {
@@ -24,11 +24,13 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
-        }
-    detail: {
+        } content: {
             mainWorkspace
+        } detail: {
+            InspectorSidebarView()
+                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
-        .navigationSplitViewStyle(.prominentDetail)
+        .navigationSplitViewStyle(.balanced)
         .toolbar(removing: .sidebarToggle)
         .toolbar {
             if appModel.isScanning {
@@ -38,10 +40,6 @@ struct ContentView: View {
                     }
                 }
             }
-        }
-        .inspector(isPresented: $appModel.showsInspector) {
-            InspectorSidebarView()
-                .inspectorColumnWidth(min: 280, ideal: 320, max: 360)
         }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
@@ -70,33 +68,43 @@ struct ContentView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $selectedSidebarTargetID) {
-            Section {
-                ForEach(defaultTargets) { target in
-                    sidebarTargetRow(target)
-                        .tag(target.id)
-                }
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Locations")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
 
-            if !appModel.recentTargets.isEmpty {
-                Section("Recent") {
-                    ForEach(appModel.recentTargets) { target in
+            List(selection: $selectedSidebarTargetID) {
+                Section {
+                    ForEach(defaultTargets) { target in
                         sidebarTargetRow(target)
                             .tag(target.id)
                     }
                 }
-            }
 
-            Section {
-                Button {
-                    appModel.presentOpenPanelAndScan()
-                } label: {
-                    Label("Choose Folder…", systemImage: "folder.badge.plus")
+                if !appModel.recentTargets.isEmpty {
+                    Section("Recent") {
+                        ForEach(appModel.recentTargets) { target in
+                            sidebarTargetRow(target)
+                                .tag(target.id)
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        appModel.presentOpenPanelAndScan()
+                    } label: {
+                        Label("Choose Folder…", systemImage: "folder.badge.plus")
+                    }
                 }
             }
+            .listStyle(.sidebar)
         }
-        .listStyle(.sidebar)
-        .navigationTitle("Locations")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .underPageBackgroundColor))
         .onChange(of: selectedSidebarTargetID) { _, newValue in
             guard let targetID = newValue,
                   let target = (defaultTargets + appModel.recentTargets).first(where: { $0.id == targetID }),
