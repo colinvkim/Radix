@@ -5,7 +5,6 @@
 //  Created by Colin Kim on 4/1/26.
 //
 
-import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -32,15 +31,6 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button(action: toggleSidebar) {
-                    Image(systemName: "sidebar.leading")
-                }
-                .help("Toggle Sidebar")
-            }
-        }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
         }
@@ -406,14 +396,6 @@ struct ContentView: View {
         }
         .padding(18)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    private func toggleInspector() {
-        splitViewVisibility = splitViewVisibility == .all ? .doubleColumn : .all
-    }
-
-    private func toggleSidebar() {
-        NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
     }
 
     private func sidebarTargetRow(_ target: ScanTarget) -> some View {
