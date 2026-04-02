@@ -9,6 +9,10 @@ import AppKit
 import Foundation
 
 enum SystemIntegration {
+    private static var isRunningInsideXcodePreview: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
+
     @MainActor
     static func presentScanPanel() -> ScanTarget? {
         let panel = NSOpenPanel()
@@ -67,6 +71,10 @@ enum SystemIntegration {
 
     @discardableResult
     static func openFullDiskAccessSettings() -> Bool {
+        guard !isRunningInsideXcodePreview else {
+            return false
+        }
+
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else {
             return false
         }
@@ -76,6 +84,10 @@ enum SystemIntegration {
 
     @discardableResult
     static func prepareAndOpenFullDiskAccessSettings() -> Bool {
+        guard !isRunningInsideXcodePreview else {
+            return false
+        }
+
         primeFullDiskAccessListEntry()
         return openFullDiskAccessSettings()
     }
@@ -109,10 +121,19 @@ enum SystemIntegration {
 }
 
 enum PermissionAdvisor {
+    private static let fullDiskAccessProtectedPathFragments = [
+        "/Library/Mail",
+        "/Library/Messages",
+        "/Library/Safari",
+        "/Library/HomeKit",
+        "/Library/Application Support/com.apple.TCC",
+    ]
+
     static func shouldSuggestFullDiskAccess(for snapshot: ScanSnapshot?) -> Bool {
         guard let snapshot else { return false }
         return snapshot.scanWarnings.contains(where: { warning in
-            warning.category == .permissionDenied
+            warning.category == .permissionDenied &&
+                fullDiskAccessProtectedPathFragments.contains(where: { warning.path.contains($0) })
         })
     }
 }

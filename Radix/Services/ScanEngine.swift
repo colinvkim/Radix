@@ -12,6 +12,7 @@ actor ScanEngine {
     private let resourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
         .isPackageKey,
+        .isSymbolicLinkKey,
         .fileAllocatedSizeKey,
         .totalFileAllocatedSizeKey,
         .fileSizeKey,
@@ -86,7 +87,7 @@ actor ScanEngine {
         let metadata = try metadata(for: target.url)
         metrics.currentPath = target.url.path
 
-        if !metadata.isDirectory || (metadata.isPackage && !options.treatPackagesAsDirectories) {
+        if !shouldTraverseDirectory(metadata: metadata, options: options) {
             let fileNode = makeFileNode(url: target.url, metadata: metadata)
             metrics.filesVisited += 1
             metrics.bytesDiscovered += fileNode.allocatedSize
@@ -141,6 +142,7 @@ actor ScanEngine {
                 url: target.url,
                 name: displayName(for: target.url),
                 isDirectory: true,
+                isSymbolicLink: metadata.isSymbolicLink,
                 allocatedSize: 0,
                 logicalSize: 0,
                 children: [],
@@ -164,7 +166,7 @@ actor ScanEngine {
         let metadata = try metadata(for: url)
         metrics.currentPath = url.path
 
-        if metadata.isDirectory && (!metadata.isPackage || options.treatPackagesAsDirectories) {
+        if shouldTraverseDirectory(metadata: metadata, options: options) {
             metrics.directoriesVisited += 1
             maybeEmitProgress(metrics: metrics, continuation: continuation)
 
@@ -196,6 +198,7 @@ actor ScanEngine {
                     url: url,
                     name: displayName(for: url),
                     isDirectory: true,
+                    isSymbolicLink: metadata.isSymbolicLink,
                     allocatedSize: 0,
                     logicalSize: 0,
                     children: [],
@@ -218,6 +221,7 @@ actor ScanEngine {
         let values = try url.resourceValues(forKeys: resourceKeys)
         let isDirectory = values.isDirectory ?? false
         let isPackage = values.isPackage ?? false
+        let isSymbolicLink = values.isSymbolicLink ?? false
         let logicalSize = Int64(values.fileSize ?? 0)
         let allocatedSize = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
         let isReadable = values.isReadable ?? false
@@ -225,6 +229,7 @@ actor ScanEngine {
         return NodeMetadata(
             isDirectory: isDirectory,
             isPackage: isPackage,
+            isSymbolicLink: isSymbolicLink,
             logicalSize: logicalSize,
             allocatedSize: allocatedSize,
             lastModified: values.contentModificationDate,
@@ -238,11 +243,21 @@ actor ScanEngine {
             options.insert(.skipsHiddenFiles)
         }
 
-        return try fileManager.contentsOfDirectory(
+        let contents = try fileManager.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: Array(resourceKeys),
             options: options
         )
+
+        return contents.sorted {
+            let lhsName = displayName(for: $0)
+            let rhsName = displayName(for: $1)
+            let comparison = lhsName.localizedStandardCompare(rhsName)
+            if comparison == .orderedSame {
+                return $0.path < $1.path
+            }
+            return comparison == .orderedAscending
+        }
     }
 
     private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNode {
@@ -251,6 +266,7 @@ actor ScanEngine {
             url: url,
             name: displayName(for: url),
             isDirectory: metadata.isDirectory,
+            isSymbolicLink: metadata.isSymbolicLink,
             allocatedSize: metadata.allocatedSize,
             logicalSize: metadata.logicalSize,
             children: [],
@@ -285,6 +301,7 @@ actor ScanEngine {
             url: url,
             name: displayName(for: url),
             isDirectory: true,
+            isSymbolicLink: metadata.isSymbolicLink,
             allocatedSize: allocatedSize,
             logicalSize: logicalSize,
             children: sortedChildren,
@@ -374,12 +391,18 @@ actor ScanEngine {
         return lastPathComponent
     }
 
+    private func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {
+        guard metadata.isDirectory else { return false }
+        guard !metadata.isSymbolicLink else { return false }
+        return !metadata.isPackage || options.treatPackagesAsDirectories
+    }
+
     private func makeWarning(for url: URL, error: Error) -> ScanWarning {
         let nsError = error as NSError
         let category: ScanWarningCategory
 
         if nsError.domain == NSCocoaErrorDomain &&
-            (nsError.code == NSFileReadNoPermissionError || nsError.code == NSFileReadNoSuchFileError) {
+            nsError.code == NSFileReadNoPermissionError {
             category = .permissionDenied
         } else if nsError.domain == NSPOSIXErrorDomain &&
             (nsError.code == EACCES || nsError.code == EPERM) {
@@ -399,6 +422,7 @@ actor ScanEngine {
 private struct NodeMetadata {
     let isDirectory: Bool
     let isPackage: Bool
+    let isSymbolicLink: Bool
     let logicalSize: Int64
     let allocatedSize: Int64
     let lastModified: Date?

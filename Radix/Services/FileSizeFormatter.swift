@@ -8,31 +8,31 @@
 import Foundation
 
 enum RadixFormatters {
-    private static let byteFormatter: ByteCountFormatter = {
+    private static func makeByteFormatter() -> ByteCountFormatter {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
         formatter.countStyle = .file
         formatter.includesActualByteCount = false
         formatter.isAdaptive = true
         return formatter
-    }()
+    }
 
-    private static let dateFormatter: DateFormatter = {
+    private static func makeDateFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter
-    }()
+    }
 
     static func size(_ bytes: Int64) -> String {
-        byteFormatter.string(fromByteCount: bytes)
+        makeByteFormatter().string(fromByteCount: bytes)
     }
 
     static func date(_ date: Date?) -> String {
         guard let date else {
             return "Unknown"
         }
-        return dateFormatter.string(from: date)
+        return makeDateFormatter().string(from: date)
     }
 
     static func scanElapsed(startedAt: Date, finishedAt: Date?) -> String {

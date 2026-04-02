@@ -74,6 +74,7 @@ struct FileNode: Identifiable, Hashable, Sendable {
     let url: URL
     let name: String
     let isDirectory: Bool
+    let isSymbolicLink: Bool
     let allocatedSize: Int64
     let logicalSize: Int64
     let children: [FileNode]
@@ -87,6 +88,9 @@ struct FileNode: Identifiable, Hashable, Sendable {
     }
 
     var itemKind: String {
+        if isSymbolicLink {
+            return "Alias"
+        }
         if isPackage {
             return "Package"
         }
