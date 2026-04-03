@@ -6,8 +6,9 @@ struct FileBrowserTableView: View {
     let nodes: [FileNode]
     @Binding var selection: String?
 
-    @FocusState private var isSearchFieldFocused: Bool
     @State private var searchText = ""
+    @State private var searchScope: FileBrowserSearchScope = .currentContents
+    @State private var isSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
@@ -47,43 +48,20 @@ struct FileBrowserTableView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-
-                        TextField("Filter current contents", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .focused($isSearchFieldFocused)
-
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Clear filter")
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .controlSize(.small)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-
-                    Divider()
-
                     if displayedNodes.isEmpty {
                         ContentUnavailableView(
                             "No Matching Items",
                             systemImage: "magnifyingglass",
-                            description: Text("Try a different filter or clear the current search.")
+                            description: Text(noResultsDescription)
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         Table(displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
                             TableColumn("Name", value: \.name) { node in
-                                NameCell(node: node)
+                                NameCell(
+                                    node: node,
+                                    subtitleOverride: subtitle(for: node)
+                                )
                             }
                             .width(min: 260, ideal: 360)
 
@@ -163,14 +141,32 @@ struct FileBrowserTableView: View {
                 }
             }
         }
-        .focusedSceneValue(\.fileListFilterAction) {
-            isSearchFieldFocused = true
+        .searchable(
+            text: $searchText,
+            isPresented: $isSearchPresented,
+            prompt: searchPrompt
+        )
+        .searchScopes($searchScope) {
+            Text(FileBrowserSearchScope.currentContents.title)
+                .tag(FileBrowserSearchScope.currentContents)
+            Text(FileBrowserSearchScope.entireScan.title)
+                .tag(FileBrowserSearchScope.entireScan)
+        }
+        .focusedSceneValue(\.fileListFilterAction) { scope in
+            searchScope = scope
+            isSearchPresented = true
         }
         .onAppear(perform: rebuildDisplayedNodes)
         .onChange(of: nodes) { _, _ in
             rebuildDisplayedNodes()
         }
         .onChange(of: searchText) { _, _ in
+            rebuildDisplayedNodes()
+        }
+        .onChange(of: searchScope) { _, _ in
+            rebuildDisplayedNodes()
+        }
+        .onChange(of: appModel.snapshot?.id) { _, _ in
             rebuildDisplayedNodes()
         }
     }
@@ -185,12 +181,44 @@ struct FileBrowserTableView: View {
         return "1"
     }
 
+    private var searchPrompt: Text {
+        Text(searchScope == .currentContents ? "Filter current contents" : "Search entire scan")
+    }
+
+    private var noResultsDescription: String {
+        switch searchScope {
+        case .currentContents:
+            return "Try a different filter or clear the current search."
+        case .entireScan:
+            return "No items in this scan match your search."
+        }
+    }
+
+    private var searchCandidates: [FileNode] {
+        switch searchScope {
+        case .currentContents:
+            return nodes
+        case .entireScan:
+            return appModel.fileTreeIndex.nodesByID.values
+                .filter { $0.id != appModel.fileTreeIndex.rootID }
+        }
+    }
+
+    private func subtitle(for node: FileNode) -> String? {
+        guard searchScope == .entireScan, !searchText.isEmpty else {
+            return node.secondaryStatusText
+        }
+
+        let parentPath = appModel.fileTreeIndex.parent(of: node.id)?.url.path
+        return parentPath ?? node.url.deletingLastPathComponent().path
+    }
+
     private func rebuildDisplayedNodes() {
-        let sortedNodes = nodes.sorted(using: sortOrder)
+        let sortedNodes = searchCandidates.sorted(using: sortOrder)
         let filteredNodes: [FileNode]
 
         if searchText.isEmpty {
-            filteredNodes = sortedNodes
+            filteredNodes = searchScope == .currentContents ? sortedNodes : nodes.sorted(using: sortOrder)
         } else {
             filteredNodes = sortedNodes.filter { node in
                 node.name.localizedStandardContains(searchText) ||
@@ -206,6 +234,7 @@ struct FileBrowserTableView: View {
 
 private struct NameCell: View {
     let node: FileNode
+    let subtitleOverride: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -216,13 +245,21 @@ private struct NameCell: View {
                 Text(node.name)
                     .lineLimit(1)
 
-                if let statusText = node.secondaryStatusText {
+                if let statusText = subtitleOverride ?? node.secondaryStatusText {
                     Text(statusText)
                         .font(.caption)
-                        .foregroundStyle(node.isSynthetic ? Color.secondary : Color.orange)
+                        .foregroundStyle(searchSubtitleColor)
+                        .lineLimit(1)
                 }
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var searchSubtitleColor: Color {
+        if subtitleOverride != nil {
+            return .secondary
+        }
+        return node.isSynthetic ? .secondary : .orange
     }
 }

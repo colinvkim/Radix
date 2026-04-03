@@ -29,9 +29,15 @@ struct RadixCommands: Commands {
 
         CommandMenu("Find") {
             Button("Find in Current Contents") {
-                fileListFilterAction?()
+                fileListFilterAction?(.currentContents)
             }
             .keyboardShortcut("f")
+            .disabled(fileListFilterAction == nil)
+
+            Button("Find in Entire Scan") {
+                fileListFilterAction?(.entireScan)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(fileListFilterAction == nil)
         }
 
