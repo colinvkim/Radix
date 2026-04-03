@@ -10,6 +10,7 @@ struct FileBrowserTableView: View {
     @FocusState private var isEntireScanSearchFieldFocused: Bool
     @State private var currentContentsSearchText = ""
     @State private var entireScanSearchText = ""
+    @State private var isEntireScanSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
@@ -185,16 +186,17 @@ struct FileBrowserTableView: View {
         }
         .searchable(
             text: $entireScanSearchText,
+            isPresented: $isEntireScanSearchPresented,
             placement: .toolbar,
             prompt: Text("Search Entire Scan")
         )
         .searchFocused($isEntireScanSearchFieldFocused)
-        .searchPresentationToolbarBehavior(.avoidHidingContent)
         .focusedSceneValue(\.fileListFilterAction) { target in
             switch target {
             case .currentContents:
                 isCurrentContentsSearchFieldFocused = true
             case .entireScan:
+                isEntireScanSearchPresented = true
                 isEntireScanSearchFieldFocused = true
             }
         }
@@ -210,6 +212,16 @@ struct FileBrowserTableView: View {
         }
         .onChange(of: entireScanSearchText) { _, _ in
             refreshDisplayedNodes()
+        }
+        .onChange(of: isEntireScanSearchFieldFocused) { _, isFocused in
+            if !isFocused && entireScanSearchText.isEmpty {
+                isEntireScanSearchPresented = false
+            }
+        }
+        .onChange(of: isEntireScanSearchPresented) { _, isPresented in
+            if !isPresented && entireScanSearchText.isEmpty {
+                isEntireScanSearchFieldFocused = false
+            }
         }
         .onChange(of: appModel.snapshot?.id) { _, _ in
             rebuildEntireScanSearchIndex()
@@ -248,6 +260,12 @@ struct FileBrowserTableView: View {
 
     private func refreshDisplayedNodes() {
         entireScanSearchTask?.cancel()
+
+        if appModel.snapshot == nil {
+            isEntireScanSearchPresented = false
+        } else if isShowingEntireScanResults || isEntireScanSearchFieldFocused {
+            isEntireScanSearchPresented = true
+        }
 
         if isShowingEntireScanResults {
             scheduleEntireScanSearch()
