@@ -8,6 +8,15 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
+
+struct BreadcrumbItem: Identifiable, Hashable {
+    let path: String
+    let title: String
+    let isCurrent: Bool
+
+    var id: String { path }
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -110,6 +119,31 @@ final class AppModel: ObservableObject {
     var breadcrumbNodes: [FileNode] {
         guard snapshot != nil else { return [] }
         return fileTreeIndex.path(to: focusedNodeID)
+    }
+
+    var breadcrumbItems: [BreadcrumbItem] {
+        guard let focusNode = currentFocusNode else { return [] }
+
+        let standardizedURL = focusNode.url.standardizedFileURL
+        let components = standardizedURL.pathComponents
+        var currentPath = ""
+
+        return components.enumerated().map { index, component in
+            if component == "/" {
+                currentPath = "/"
+            } else if currentPath == "/" {
+                currentPath += component
+            } else {
+                currentPath += "/" + component
+            }
+
+            let url = URL(fileURLWithPath: currentPath, isDirectory: true).standardizedFileURL
+            return BreadcrumbItem(
+                path: url.path,
+                title: url.navigationDisplayName,
+                isCurrent: index == components.count - 1
+            )
+        }
     }
 
     var tableNodes: [FileNode] {
@@ -368,30 +402,58 @@ final class AppModel: ObservableObject {
 
     func select(nodeID: String?) {
         guard let nodeID else {
-            selectedNodeID = nil
+            withAnimation(.snappy(duration: 0.18)) {
+                selectedNodeID = nil
+            }
             return
         }
 
         guard fileTreeIndex.node(id: nodeID) != nil else {
-            selectedNodeID = nil
+            withAnimation(.snappy(duration: 0.18)) {
+                selectedNodeID = nil
+            }
             return
         }
 
-        selectedNodeID = nodeID
+        withAnimation(.snappy(duration: 0.18)) {
+            selectedNodeID = nodeID
+        }
     }
 
     func focus(nodeID: String?) {
         guard let nodeID, fileTreeIndex.node(id: nodeID) != nil else { return }
-        focusedNodeID = nodeID
-        if let selectedNodeID,
-           selectedNodeID != nodeID,
-           !fileTreeIndex.isAncestor(nodeID, of: selectedNodeID) {
-            self.selectedNodeID = nil
+
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0.02)) {
+            focusedNodeID = nodeID
+            if let selectedNodeID,
+               selectedNodeID != nodeID,
+               !fileTreeIndex.isAncestor(nodeID, of: selectedNodeID) {
+                self.selectedNodeID = nil
+            }
         }
     }
 
     func clearSelection() {
-        selectedNodeID = nil
+        withAnimation(.snappy(duration: 0.18)) {
+            selectedNodeID = nil
+        }
+    }
+
+    func activateBreadcrumb(path: String) {
+        let normalizedPath = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+
+        if fileTreeIndex.node(id: normalizedPath) != nil {
+            focus(nodeID: normalizedPath)
+            select(nodeID: normalizedPath)
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: normalizedPath) else {
+            lastErrorMessage = FileActionError.unavailable(path: normalizedPath).localizedDescription
+            return
+        }
+
+        startScan(ScanTarget(url: URL(fileURLWithPath: normalizedPath, isDirectory: true)))
     }
 
     func zoomIntoSelection() {
@@ -416,8 +478,10 @@ final class AppModel: ObservableObject {
 
     func resetFocusToRoot() {
         guard let rootID = snapshot?.root.id else { return }
-        focusedNodeID = rootID
-        selectedNodeID = nil
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0.02)) {
+            focusedNodeID = rootID
+            selectedNodeID = nil
+        }
     }
 
     func selectSidebarTarget(id: String?) {

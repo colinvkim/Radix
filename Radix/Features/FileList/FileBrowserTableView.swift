@@ -54,31 +54,21 @@ struct FileBrowserTableView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-
+                    HStack(alignment: .center, spacing: 12) {
                         TextField("Filter current contents", text: $searchText)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(.roundedBorder)
                             .focused($isSearchFieldFocused)
+                            .frame(maxWidth: 260)
 
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Clear filter")
-                        }
+                        Spacer(minLength: 8)
+
+                        Text("\(displayedNodes.count) shown")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 2)
+                    .padding(.bottom, 10)
                     .controlSize(.small)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-
-                    Divider()
 
                     Table(displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
                         TableColumn("Name", value: \.name) { node in
@@ -86,7 +76,7 @@ struct FileBrowserTableView: View {
                         }
                         .width(min: 260, ideal: 360)
 
-                        TableColumn("Allocated", value: \.allocatedSize) { node in
+                        TableColumn("Size", value: \.allocatedSize) { node in
                             Text(RadixFormatters.size(node.allocatedSize))
                                 .monospacedDigit()
                         }
@@ -97,16 +87,12 @@ struct FileBrowserTableView: View {
                         }
                         .width(min: 110, ideal: 130)
 
-                        TableColumn("Files") { node in
-                            Text(descendantCountText(for: node))
-                        }
-                        .width(min: 70, ideal: 80)
-
                         TableColumn("Modified") { node in
                             Text(RadixFormatters.date(node.lastModified))
                         }
                         .width(min: 150, ideal: 180)
                     }
+                    .controlSize(.small)
                     .accessibilityLabel("Contents table")
                     .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in.")
                     .contextMenu(forSelectionType: FileNode.ID.self) { selectedIDs in
@@ -173,16 +159,6 @@ struct FileBrowserTableView: View {
         }
     }
 
-    private func descendantCountText(for node: FileNode) -> String {
-        if node.isDirectory {
-            return "\(node.descendantFileCount)"
-        }
-        if node.isSynthetic || node.isSymbolicLink {
-            return "—"
-        }
-        return "1"
-    }
-
     private func rebuildDisplayedNodes() {
         let sortedNodes = nodes.sorted(using: sortOrder)
         let filteredNodes: [FileNode]
@@ -206,13 +182,14 @@ private struct NameCell: View {
     let node: FileNode
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: node.systemImageName)
                 .foregroundStyle(node.isDirectory || node.isSynthetic ? Color.accentColor : Color.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.name)
                     .lineLimit(1)
+                    .font(.body)
 
                 if let statusText = node.secondaryStatusText {
                     Text(statusText)

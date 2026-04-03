@@ -1,47 +1,42 @@
 import SwiftUI
 
 struct BreadcrumbBar: View {
-    let nodes: [FileNode]
-    let canReset: Bool
-    let onSelect: (String) -> Void
-    let onReset: () -> Void
+    let items: [BreadcrumbItem]
+    let onSelect: (BreadcrumbItem) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Array(nodes.enumerated()), id: \.element.id) { element in
-                    breadcrumbButton(node: element.element, isCurrent: element.offset == nodes.count - 1)
+            HStack(spacing: 4) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    Button {
+                        onSelect(item)
+                    } label: {
+                        Text(item.title)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                if item.isCurrent {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(Color(nsColor: .selectedContentBackgroundColor).opacity(0.18))
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(item.isCurrent ? .semibold : .regular))
+                    .foregroundStyle(item.isCurrent ? Color.primary : Color.secondary)
+                    .accessibilityLabel(item.isCurrent ? "Current location, \(item.title)" : "Open \(item.title)")
+                    .accessibilityHint(item.isCurrent ? "Current focus in the filesystem hierarchy." : "Navigates to this location.")
+                    .interactivePointer()
 
-                    if element.offset < nodes.count - 1 {
+                    if index < items.count - 1 {
                         Image(systemName: "chevron.right")
-                            .font(.caption2)
+                            .font(.caption2.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
-                }
-
-                if canReset {
-                    Divider()
-                        .frame(height: 12)
-
-                    Button("Scan Root", action: onReset)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHint("Returns to the top level of the current scan.")
                 }
             }
             .padding(.vertical, 2)
         }
-    }
-
-    private func breadcrumbButton(node: FileNode, isCurrent: Bool) -> some View {
-        Button(node.name) {
-            onSelect(node.id)
-        }
-        .buttonStyle(.plain)
-        .font(.subheadline.weight(isCurrent ? .semibold : .regular))
-        .foregroundStyle(isCurrent ? Color.primary : Color.secondary)
-        .lineLimit(1)
-        .accessibilityLabel(isCurrent ? "Current location, \(node.name)" : "Show \(node.name)")
-        .accessibilityHint(isCurrent ? "Current focus in the filesystem hierarchy." : "Navigates to this location.")
     }
 }

@@ -31,89 +31,96 @@ private struct ActiveWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceHeaderView(snapshot: snapshot, focusNode: focusNode)
-
-            Divider()
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 12)
 
             if appModel.shouldSuggestFullDiskAccess {
                 PermissionBanner()
-                Divider()
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
             }
 
-            visualizationPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VSplitView {
+                visualizationPane
+                    .frame(minHeight: 430, idealHeight: 560)
 
-            Divider()
-
-            contentsPane
-                .frame(height: 250)
+                contentsPane
+                    .frame(minHeight: 210, idealHeight: 250)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 18)
         }
     }
 
     private var visualizationPane: some View {
-        VStack(spacing: 0) {
-            PaneHeader(
-                title: "Disk Map",
-                subtitle: "Hover to inspect. Double-click a folder to drill down."
-            )
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Disk Map")
+                    .font(.headline.weight(.semibold))
 
-            Divider()
+                Spacer(minLength: 16)
 
-            ZStack(alignment: .bottomLeading) {
-                chartContent
+                Text("Hover to inspect. Double-click a folder to zoom in.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-                VStack {
-                    Spacer()
+            BreadcrumbBar(items: appModel.breadcrumbItems) { item in
+                appModel.activateBreadcrumb(path: item.path)
+            }
 
-                    HStack(alignment: .bottom, spacing: 16) {
-                        SelectionAccessoryBar(focusNode: focusNode)
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.36))
 
-                        Spacer(minLength: 0)
-
-                        if !appModel.showsInspector {
-                    VisualizationContextPanel(focusNode: focusNode)
-                                .frame(width: 280)
-                        }
-                    }
-                    .padding(16)
-                }
+                SunburstChartView(
+                    rootNode: focusNode,
+                    index: appModel.fileTreeIndex,
+                    selectedNodeID: appModel.selectedNodeID,
+                    depthLimit: appModel.maxRenderedDepth,
+                    layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(appModel.maxRenderedDepth)",
+                    onSelect: { appModel.select(nodeID: $0) },
+                    onZoom: { appModel.focus(nodeID: $0) }
+                )
+                .padding(20)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottomTrailing) {
+                if !appModel.showsInspector {
+                    Button {
+                        appModel.toggleInspector()
+                    } label: {
+                        Label("Show Inspector", systemImage: "sidebar.trailing")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(14)
+                }
+            }
         }
     }
 
-    private var chartContent: some View {
-        SunburstChartView(
-            rootNode: focusNode,
-            index: appModel.fileTreeIndex,
-            selectedNodeID: appModel.selectedNodeID,
-            depthLimit: appModel.maxRenderedDepth,
-            layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(appModel.maxRenderedDepth)",
-            onSelect: { appModel.select(nodeID: $0) },
-            onZoom: { appModel.focus(nodeID: $0) }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(18)
-    }
-
     private var contentsPane: some View {
-        VStack(spacing: 0) {
-            PaneHeader(
-                title: focusNode.isDirectory ? "Contents of \(focusNode.name)" : "Nearby Items",
-                subtitle: focusNode.isDirectory
-                    ? "Largest children in the current location."
-                    : "Showing sibling items from the enclosing folder.",
-                accessory: "\(appModel.tableNodes.count) items"
-            )
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Contents")
+                    .font(.headline.weight(.semibold))
 
-            Divider()
+                Spacer(minLength: 8)
+
+                Text("\(appModel.tableNodes.count) items")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             FileBrowserTableView(
                 nodes: appModel.tableNodes,
                 selection: $appModel.selectedNodeID
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if !snapshot.scanWarnings.isEmpty {
-                Divider()
                 WarningFooter(warnings: snapshot.scanWarnings)
             }
         }
@@ -121,99 +128,51 @@ private struct ActiveWorkspaceView: View {
 }
 
 private struct WorkspaceHeaderView: View {
-    @EnvironmentObject private var appModel: AppModel
-
     let snapshot: ScanSnapshot
     let focusNode: FileNode
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(focusNode.name)
-                        .font(.title2.weight(.semibold))
+    @EnvironmentObject private var appModel: AppModel
 
-                    Text(appModel.statusSubtitle)
-                        .font(.subheadline)
+    var body: some View {
+        HStack(alignment: .top, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(focusNode.name)
+                    .font(.largeTitle.weight(.semibold))
+                    .lineLimit(1)
+
+                Text(focusNode.url.path)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 20)
+
+            if appModel.isScanning {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text("Scanning")
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
+
+                    ProgressView(value: appModel.scanProgressFraction, total: 1)
+                        .frame(width: 180)
+
+                    Text(appModel.scanProgressLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
+            } else if let finishedAt = snapshot.finishedAt {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("Last Scan")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
 
-                Spacer(minLength: 16)
-
-                if appModel.isScanning {
-                    VStack(alignment: .trailing, spacing: 8) {
-                        HStack(spacing: 10) {
-                            ProgressView(value: appModel.scanProgressFraction, total: 1)
-                                .frame(width: 180)
-                            Text(appModel.scanProgressLabel)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Text(appModel.scanMetrics.currentPath)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .frame(maxWidth: 280, alignment: .trailing)
-                    }
-                } else if let finishedAt = snapshot.finishedAt {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Last Scan")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(RadixFormatters.date(finishedAt))
-                            .font(.subheadline.weight(.medium))
-                    }
-                }
-            }
-
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 14) {
-                    BreadcrumbBar(
-                        nodes: appModel.breadcrumbNodes,
-                        canReset: !appModel.isFocusedAtRoot,
-                        onSelect: { appModel.focus(nodeID: $0) },
-                        onReset: { appModel.resetFocusToRoot() }
-                    )
-
-                    Spacer(minLength: 12)
-
-                    MetricStrip(focusNode: focusNode)
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    BreadcrumbBar(
-                        nodes: appModel.breadcrumbNodes,
-                        canReset: !appModel.isFocusedAtRoot,
-                        onSelect: { appModel.focus(nodeID: $0) },
-                        onReset: { appModel.resetFocusToRoot() }
-                    )
-
-                    MetricStrip(focusNode: focusNode)
+                    Text(RadixFormatters.date(finishedAt))
+                        .font(.subheadline.weight(.semibold))
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
-}
-
-private struct WorkspaceMetricView: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -224,215 +183,30 @@ private struct PermissionBanner: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "hand.raised.fill")
                 .foregroundStyle(.orange)
+                .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Protected folders were skipped.")
-                    .font(.headline)
+                Text("Some protected folders were skipped.")
+                    .font(.subheadline.weight(.semibold))
 
-                Text("Grant Full Disk Access for more complete scans of Mail, Safari, Messages, and Library content.")
+                Text("Grant Full Disk Access for a more complete scan of Mail, Safari, Messages, and Library content.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
+            Spacer(minLength: 12)
 
             Button("Open Settings") {
                 appModel.prepareAndOpenFullDiskAccessSettings()
             }
-            .controlSize(.small)
+            .buttonStyle(.bordered)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-}
-
-private struct PaneHeader: View {
-    let title: String
-    let subtitle: String
-    var accessory: String?
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if let accessory {
-                Text(accessory)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-}
-
-private struct VisualizationContextPanel: View {
-    @EnvironmentObject private var appModel: AppModel
-
-    let focusNode: FileNode
-
-    private var inspectedNode: FileNode {
-        appModel.selectedNode ?? focusNode
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            GroupBox(appModel.selectedNode == nil ? "Current Focus" : "Selection") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(inspectedNode.name)
-                        .font(.headline)
-                        .lineLimit(2)
-
-                    Text(inspectedNode.url.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                        GridRow {
-                            WorkspaceMetricView(title: "Allocated", value: RadixFormatters.size(inspectedNode.allocatedSize))
-                            WorkspaceMetricView(title: "Kind", value: inspectedNode.itemKind)
-                        }
-
-                        GridRow {
-                            WorkspaceMetricView(title: "Modified", value: RadixFormatters.date(inspectedNode.lastModified))
-                            WorkspaceMetricView(title: "Access", value: inspectedNode.accessDescription)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .controlSize(.small)
-
-            GroupBox("Next Steps") {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let selectedNode = appModel.selectedNode, selectedNode.id != focusNode.id {
-                        Text("Double-click the selected folder in the chart or table to zoom into it.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Select a chart segment or table row to inspect a child item without leaving the current location.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if focusNode.isDirectory, !focusNode.children.isEmpty {
-                        ForEach(Array(focusNode.children.prefix(5))) { child in
-                            Button {
-                                appModel.select(nodeID: child.id)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: child.systemImageName)
-                                        .foregroundStyle(child.isDirectory ? Color.accentColor : Color.secondary)
-                                    Text(child.name)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(RadixFormatters.size(child.allocatedSize))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .controlSize(.small)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct SelectionAccessoryBar: View {
-    @EnvironmentObject private var appModel: AppModel
-
-    let focusNode: FileNode
-
-    private var inspectedNode: FileNode {
-        appModel.selectedNode ?? focusNode
-    }
-
-    private var title: String {
-        appModel.selectedNode == nil ? "Current Focus" : "Selection"
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(inspectedNode.name)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-            }
-
-            Divider()
-                .frame(height: 24)
-
-            WorkspaceMetricView(title: "Allocated", value: RadixFormatters.size(inspectedNode.allocatedSize))
-            WorkspaceMetricView(title: "Kind", value: inspectedNode.itemKind)
-
-            if appModel.selectedNode != nil, let percentOfScan = appModel.selectedNodePercentOfScanText {
-                WorkspaceMetricView(title: "% of Scan", value: percentOfScan)
-            }
-
-            Spacer(minLength: 0)
-
-            Text(appModel.selectedNode == nil ? "Select a segment to inspect it." : "Double-click a folder to zoom in.")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
-private struct MetricStrip: View {
-    let focusNode: FileNode
-
-    @EnvironmentObject private var appModel: AppModel
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                metricRow
-            }
-
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                GridRow {
-                    WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(appModel.displayedAllocatedSize))
-                    WorkspaceMetricView(title: "Files", value: "\(appModel.displayedFileCount)")
-                    WorkspaceMetricView(title: "Folders", value: "\(appModel.displayedDirectoryCount)")
-                }
-
-                GridRow {
-                    WorkspaceMetricView(title: "Focus", value: focusNode.name)
-                    WorkspaceMetricView(title: "Warnings", value: "\(appModel.warningCount)")
-                    Color.clear
-                }
-            }
-        }
-    }
-
-    private var metricRow: some View {
-        Group {
-            WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(appModel.displayedAllocatedSize))
-            WorkspaceMetricView(title: "Files", value: "\(appModel.displayedFileCount)")
-            WorkspaceMetricView(title: "Folders", value: "\(appModel.displayedDirectoryCount)")
-            WorkspaceMetricView(title: "Focus", value: focusNode.name)
-            WorkspaceMetricView(title: "Warnings", value: "\(appModel.warningCount)")
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
     }
 }
 
@@ -445,27 +219,34 @@ private struct WarningFooter: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
+                .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(warnings.count) locations had limited access or scan warnings.")
+                Text("\(warnings.count) locations were partially scanned.")
                     .font(.subheadline.weight(.semibold))
+
                 Text(warnings.first?.path ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: 12)
 
             if appModel.shouldSuggestFullDiskAccess {
                 Button("Open Settings") {
                     appModel.prepareAndOpenFullDiskAccessSettings()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+        )
     }
 }
 
@@ -473,21 +254,11 @@ private struct EmptyWorkspaceState: View {
     @EnvironmentObject private var appModel: AppModel
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "internaldrive.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Color.accentColor)
-
-            VStack(spacing: 8) {
-                Text("Choose a Folder or Disk")
-                    .font(.title2.weight(.semibold))
-
-                Text("Start from the sidebar, drop a folder into the window, or choose a location manually.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: 420)
-            }
-
+        ContentUnavailableView {
+            Label("Choose a Folder or Disk", systemImage: "internaldrive.fill")
+        } description: {
+            Text("Start from the sidebar, drop a folder into the window, or choose a location manually.")
+        } actions: {
             HStack(spacing: 12) {
                 Button("Choose Folder…") {
                     appModel.presentOpenPanelAndScan()
@@ -502,7 +273,6 @@ private struct EmptyWorkspaceState: View {
                 }
             }
         }
-        .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -511,17 +281,24 @@ private struct ScanningWorkspaceState: View {
     @EnvironmentObject private var appModel: AppModel
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
+            VStack(spacing: 10) {
+                Text("Scanning \(appModel.selectedTarget?.displayName ?? "Location")")
+                    .font(.title2.weight(.semibold))
+
+                Text(appModel.scanMetrics.currentPath)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 560)
+            }
+
             ProgressView(value: appModel.scanProgressFraction, total: 1)
-                .frame(width: 220)
+                .frame(width: 260)
 
-            Text("Scanning \(appModel.selectedTarget?.displayName ?? "Location")")
-                .font(.title3.weight(.semibold))
-
-            Text(appModel.scanMetrics.currentPath)
+            Text(appModel.scanProgressLabel)
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 540)
 
             Text("\(appModel.displayedFileCount) files, \(appModel.displayedDirectoryCount) folders")
                 .font(.caption)
@@ -530,6 +307,7 @@ private struct ScanningWorkspaceState: View {
             Button("Stop Scan") {
                 appModel.stopScan()
             }
+            .buttonStyle(.bordered)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
