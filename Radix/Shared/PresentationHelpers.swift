@@ -1,6 +1,4 @@
-import AppKit
 import Foundation
-import SwiftUI
 
 extension ScanTarget {
     var sidebarTitle: String {
@@ -77,46 +75,5 @@ extension ScanWarningCategory {
         case .cancelled:
             return "xmark.circle.fill"
         }
-    }
-}
-
-extension URL {
-    var navigationDisplayName: String {
-        if path == "/" {
-            let volumeName = try? resourceValues(forKeys: [.volumeNameKey]).volumeName
-            return volumeName ?? "Macintosh HD"
-        }
-
-        let lastPathComponent = standardizedFileURL.lastPathComponent
-        return lastPathComponent.isEmpty ? path : lastPathComponent
-    }
-}
-
-extension View {
-    func interactivePointer() -> some View {
-        modifier(PointingHandCursorModifier())
-    }
-}
-
-private struct PointingHandCursorModifier: ViewModifier {
-    @State private var isHovering = false
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { inside in
-                guard inside != isHovering else { return }
-                isHovering = inside
-
-                if inside {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-            .onDisappear {
-                guard isHovering else { return }
-                isHovering = false
-                NSCursor.pop()
-            }
     }
 }

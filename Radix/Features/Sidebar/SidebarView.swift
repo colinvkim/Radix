@@ -20,38 +20,29 @@ struct SidebarView: View {
     var body: some View {
         List(selection: selection) {
             if !appModel.smartTargets.isEmpty {
-                Section {
+                Section("Smart Locations") {
                     ForEach(appModel.smartTargets) { target in
                         SidebarTargetRow(target: target)
                             .tag(target.id)
                     }
-                } header: {
-                    Text("Smart Locations")
-                        .textCase(nil)
                 }
             }
 
             if !appModel.mountedVolumeTargets.isEmpty {
-                Section {
+                Section("Volumes") {
                     ForEach(appModel.mountedVolumeTargets) { target in
                         SidebarTargetRow(target: target)
                             .tag(target.id)
                     }
-                } header: {
-                    Text("Volumes")
-                        .textCase(nil)
                 }
             }
 
             if !appModel.recentScanTargets.isEmpty {
-                Section {
+                Section("Recent Scans") {
                     ForEach(appModel.recentScanTargets) { target in
                         SidebarTargetRow(target: target)
                             .tag(target.id)
                     }
-                } header: {
-                    Text("Recent Scans")
-                        .textCase(nil)
                 }
             }
         }
@@ -68,7 +59,6 @@ private struct SidebarTargetRow: View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.sidebarTitle)
-                    .lineLimit(1)
                 Text(target.sidebarSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -84,6 +74,5 @@ private struct SidebarTargetRow: View {
             }
         }
         .help(target.url.path)
-        .padding(.vertical, 2)
     }
 }
