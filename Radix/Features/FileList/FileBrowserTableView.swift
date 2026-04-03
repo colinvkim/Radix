@@ -183,16 +183,13 @@ struct FileBrowserTableView: View {
                 }
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                EntireScanToolbarSearchField(
-                    text: $entireScanSearchText,
-                    isFocused: $isEntireScanSearchFieldFocused
-                )
-                .frame(width: 240)
-                .disabled(appModel.snapshot == nil)
-            }
-        }
+        .searchable(
+            text: $entireScanSearchText,
+            placement: .toolbar,
+            prompt: Text("Search Entire Scan")
+        )
+        .searchFocused($isEntireScanSearchFieldFocused)
+        .searchPresentationToolbarBehavior(.avoidHidingContent)
         .focusedSceneValue(\.fileListFilterAction) { target in
             switch target {
             case .currentContents:
@@ -476,18 +473,6 @@ private struct EntireScanSearchBanner: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-    }
-}
-
-private struct EntireScanToolbarSearchField: View {
-    @Binding var text: String
-    @FocusState.Binding var isFocused: Bool
-
-    var body: some View {
-        TextField("Search Entire Scan", text: $text)
-            .textFieldStyle(.roundedBorder)
-            .focused($isFocused)
-            .accessibilityLabel("Search entire scan")
     }
 }
 
