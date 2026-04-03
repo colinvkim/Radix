@@ -11,7 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
-    private let showsInspector = Binding.constant(true)
+    @State private var showsInspector = true
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
@@ -41,7 +41,7 @@ struct ContentView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .inspector(isPresented: showsInspector) {
+        .inspector(isPresented: $showsInspector) {
             SelectionInspectorView()
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
                 .interactiveDismissDisabled()
