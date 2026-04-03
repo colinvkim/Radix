@@ -87,7 +87,7 @@ struct RadixCommands: Commands {
             Button("Reveal in Finder", systemImage: "finder") {
                 appModel.revealSelectedInFinder()
             }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .keyboardShortcut("j", modifiers: [.command, .shift])
             .disabled(!appModel.canRevealSelected)
 
             Button("Copy Path", systemImage: "document.on.document") {
