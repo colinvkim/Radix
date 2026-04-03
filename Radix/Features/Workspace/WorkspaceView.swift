@@ -67,7 +67,7 @@ private struct ActiveWorkspaceView: View {
             }
 
             BreadcrumbBar(items: appModel.breadcrumbItems) { item in
-                appModel.activateBreadcrumb(path: item.path)
+                appModel.activateBreadcrumb(item)
             }
 
             ZStack {
@@ -86,6 +86,14 @@ private struct ActiveWorkspaceView: View {
                 .padding(20)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottomLeading) {
+                if !appModel.showsInspector {
+                    VisualizationContextPanel(focusNode: focusNode)
+                        .frame(width: 300)
+                        .padding(16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if !appModel.showsInspector {
                     Button {
@@ -124,6 +132,67 @@ private struct ActiveWorkspaceView: View {
                 WarningFooter(warnings: snapshot.scanWarnings)
             }
         }
+    }
+}
+
+private struct VisualizationContextPanel: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    let focusNode: FileNode
+
+    private var inspectedNode: FileNode {
+        appModel.selectedNode ?? focusNode
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(appModel.selectedNode == nil ? "Current Focus" : "Selection")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            Text(inspectedNode.name)
+                .font(.headline)
+                .lineLimit(2)
+
+            Text(inspectedNode.url.path)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                GridRow {
+                    WorkspaceMetricView(title: "Allocated", value: RadixFormatters.size(inspectedNode.allocatedSize))
+                    WorkspaceMetricView(title: "Kind", value: inspectedNode.itemKind)
+                }
+
+                GridRow {
+                    WorkspaceMetricView(title: "Modified", value: RadixFormatters.date(inspectedNode.lastModified))
+                    WorkspaceMetricView(title: "Access", value: inspectedNode.accessDescription)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct WorkspaceMetricView: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

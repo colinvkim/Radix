@@ -35,7 +35,19 @@ struct SunburstChartView: View {
         _renderedSegments = State(initialValue: SunburstLayout.segments(for: rootNode, depthLimit: depthLimit))
     }
 
-    private var displayedSummary: ChartSummary {
+    private var displayedNode: FileNode? {
+        if let hoveredNodeID = hoveredSegment?.nodeID,
+           let hoveredNode = index.node(id: hoveredNodeID) {
+            return hoveredNode
+        }
+        if let selectedNodeID,
+           let selectedNode = index.node(id: selectedNodeID) {
+            return selectedNode
+        }
+        return rootNode
+    }
+
+    private var hoverSummary: ChartSummary? {
         if let hoveredSegment {
             if let hoveredNodeID = hoveredSegment.nodeID,
                let hoveredNode = index.node(id: hoveredNodeID) {
@@ -50,12 +62,7 @@ struct SunburstChartView: View {
             )
         }
 
-        if let selectedNodeID,
-           let selectedNode = index.node(id: selectedNodeID) {
-            return summary(for: selectedNode)
-        }
-
-        return summary(for: rootNode)
+        return nil
     }
 
     var body: some View {
@@ -76,11 +83,17 @@ struct SunburstChartView: View {
                 .position(x: chartFrame.midX, y: chartFrame.midY)
                 .scaleEffect(renderScale)
                 .opacity(renderOpacity)
-
-                CenterSummaryCard(summary: displayedSummary)
-                    .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
+            .overlay(alignment: .topLeading) {
+                if let hoverSummary {
+                    FloatingSummaryCard(summary: hoverSummary)
+                        .padding(.top, 16)
+                        .padding(.leading, 18)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
             .animation(.snappy(duration: 0.18), value: hoveredSegment?.id)
             .animation(.snappy(duration: 0.18), value: selectedNodeID)
             .onContinuousHover(coordinateSpace: .local) { phase in
@@ -122,9 +135,7 @@ struct SunburstChartView: View {
     }
 
     private var accessibilityValue: String {
-        let node = index.node(id: hoveredSegment?.nodeID) ??
-            index.node(id: selectedNodeID) ??
-            rootNode
+        let node = displayedNode ?? rootNode
         return "\(node.name), \(RadixFormatters.size(node.allocatedSize)), \(node.itemKind)"
     }
 
@@ -299,11 +310,11 @@ private struct ChartSummary {
     let detail: String
 }
 
-private struct CenterSummaryCard: View {
+private struct FloatingSummaryCard: View {
     let summary: ChartSummary
 
     var body: some View {
-        VStack(alignment: .center, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(summary.status)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -311,19 +322,18 @@ private struct CenterSummaryCard: View {
             Text(summary.title)
                 .font(.headline.weight(.semibold))
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
 
             Text(summary.value)
                 .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
 
             Text(summary.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .lineLimit(2)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(width: 190)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(12)
+        .frame(width: 220, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
