@@ -45,7 +45,7 @@ private struct ActiveWorkspaceView: View {
             Divider()
 
             contentsPane
-                .frame(height: 250)
+                .frame(height: 220)
         }
     }
 
@@ -97,16 +97,6 @@ private struct ActiveWorkspaceView: View {
 
     private var contentsPane: some View {
         VStack(spacing: 0) {
-            PaneHeader(
-                title: focusNode.isDirectory ? "Contents of \(focusNode.name)" : "Nearby Items",
-                subtitle: focusNode.isDirectory
-                    ? "Largest children in the current location."
-                    : "Showing sibling items from the enclosing folder.",
-                accessory: "\(appModel.tableNodes.count) items"
-            )
-
-            Divider()
-
             FileBrowserTableView(
                 nodes: appModel.tableNodes,
                 selection: $appModel.selectedNodeID

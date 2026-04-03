@@ -158,6 +158,15 @@ struct SunburstChartView: View {
         if segment.id == hoveredSegment?.id {
             return base.opacity(min(opacity + 0.18, 0.95))
         }
+        if segment.nodeID == selectedNodeID {
+            return base.opacity(min(opacity + 0.1, 0.9))
+        }
+        if let nodeID = segment.nodeID, index.isAncestor(nodeID, of: selectedNodeID) {
+            return base.opacity(min(opacity + 0.04, 0.84))
+        }
+        if selectedNodeID != nil {
+            return base.opacity(opacity * 0.82)
+        }
         return base.opacity(opacity)
     }
 
@@ -169,10 +178,10 @@ struct SunburstChartView: View {
             return Color(nsColor: .separatorColor).opacity(0.55)
         }
         if segment.nodeID == selectedNodeID {
-            return .accentColor
+            return Color.white.opacity(0.5)
         }
         if let nodeID = segment.nodeID, index.isAncestor(nodeID, of: selectedNodeID) {
-            return .accentColor.opacity(0.45)
+            return Color.white.opacity(0.22)
         }
         return Color(nsColor: .separatorColor).opacity(0.4)
     }
@@ -182,10 +191,10 @@ struct SunburstChartView: View {
             return 2.5
         }
         if segment.nodeID == selectedNodeID {
-            return 3
+            return 2.5
         }
         if let nodeID = segment.nodeID, index.isAncestor(nodeID, of: selectedNodeID) {
-            return 2
+            return 1.5
         }
         return 1
     }
