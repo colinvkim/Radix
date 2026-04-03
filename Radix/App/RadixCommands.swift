@@ -7,20 +7,20 @@ struct RadixCommands: Commands {
     var body: some Commands {
         SidebarCommands()
 
-        CommandGroup(after: .newItem) {
-            Button("Scan Folder…") {
+        CommandGroup(replacing: .newItem) {
+            Button("Scan Folder…", systemImage: "folder.badge.plus") {
                 appModel.presentOpenPanelAndScan()
             }
             .keyboardShortcut("o")
             .disabled(!appModel.canChooseFolder)
 
-            Button("Rescan") {
+            Button("Rescan", systemImage: "arrow.clockwise") {
                 appModel.rescan()
             }
             .keyboardShortcut("r")
             .disabled(!appModel.canRescan)
 
-            Button("Stop Scan") {
+            Button("Stop Scan", systemImage: "stop") {
                 appModel.stopScan()
             }
             .keyboardShortcut(".")
@@ -28,13 +28,13 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Find") {
-            Button("Find in Current Contents") {
+            Button("Find in Current Contents", systemImage: "sparkle.magnifyingglass") {
                 fileListFilterAction?(.currentContents)
             }
             .keyboardShortcut("f")
             .disabled(fileListFilterAction == nil)
 
-            Button("Search Entire Scan") {
+            Button("Search Entire Scan", systemImage: "magnifyingglass") {
                 fileListFilterAction?(.entireScan)
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
@@ -42,13 +42,13 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Navigate") {
-            Button("Back") {
+            Button("Back", systemImage: "chevron.left") {
                 appModel.navigateBack()
             }
             .keyboardShortcut("[", modifiers: [.command])
             .disabled(!appModel.canNavigateBack)
 
-            Button("Forward") {
+            Button("Forward", systemImage: "chevron.forward") {
                 appModel.navigateForward()
             }
             .keyboardShortcut("]", modifiers: [.command])
@@ -56,13 +56,13 @@ struct RadixCommands: Commands {
 
             Divider()
 
-            Button("Zoom Into Selection") {
+            Button("Zoom Into Selection", systemImage: "plus.magnifyingglass") {
                 appModel.zoomIntoSelection()
             }
             .keyboardShortcut(.return)
             .disabled(!appModel.canZoomIntoSelection)
 
-            Button("Back to Scan Root") {
+            Button("Back to Scan Root", systemImage: "arrowshape.turn.up.backward") {
                 appModel.resetFocusToRoot()
             }
             .keyboardShortcut("\\", modifiers: [.command, .option])
@@ -70,7 +70,7 @@ struct RadixCommands: Commands {
 
             Divider()
 
-            Button("Clear Selection") {
+            Button("Clear Selection", systemImage: "clear") {
                 appModel.clearSelection()
             }
             .keyboardShortcut(.escape, modifiers: [])
@@ -78,19 +78,19 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Inspect") {
-            Button("Open") {
+            Button("Open", systemImage: "arrow.up.forward.app") {
                 appModel.openSelected()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(!appModel.canOpenSelected)
 
-            Button("Reveal in Finder") {
+            Button("Reveal in Finder", systemImage: "finder") {
                 appModel.revealSelectedInFinder()
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(!appModel.canRevealSelected)
 
-            Button("Copy Path") {
+            Button("Copy Path", systemImage: "document.on.document") {
                 appModel.copySelectedPath()
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
@@ -98,7 +98,7 @@ struct RadixCommands: Commands {
 
             Divider()
 
-            Button("Move to Trash") {
+            Button("Move to Trash", systemImage: "trash") {
                 appModel.requestMoveSelectedToTrash()
             }
             .keyboardShortcut(.delete, modifiers: [])

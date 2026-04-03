@@ -165,7 +165,7 @@ private struct InspectorActionButtons: View {
             Button {
                 appModel.revealSelectedInFinder()
             } label: {
-                Label("Reveal in Finder", systemImage: "folder")
+                Label("Reveal in Finder", systemImage: "finder")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)

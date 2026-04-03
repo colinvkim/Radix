@@ -5,11 +5,16 @@
 //  Created by Colin Kim on 4/1/26.
 //
 
+import AppKit
 import SwiftUI
 
 @main
 struct RadixApp: App {
     @StateObject private var appModel = AppModel()
+
+    init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
 
     var body: some Scene {
         WindowGroup {
