@@ -20,6 +20,47 @@ struct ContentView: View {
         } detail: {
             WorkspaceView()
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                ControlGroup {
+                    Button {
+                        appModel.navigateBack()
+                    } label: {
+                        Label("Back", systemImage: "chevron.backward")
+                    }
+                    .disabled(!appModel.canNavigateBack)
+
+                    Button {
+                        appModel.navigateForward()
+                    } label: {
+                        Label("Forward", systemImage: "chevron.forward")
+                    }
+                    .disabled(!appModel.canNavigateForward)
+                }
+
+                Button {
+                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Label("Choose Folder", systemImage: "folder.badge.plus")
+                }
+                .disabled(!appModel.canChooseFolder)
+
+                if appModel.canStopScan {
+                    Button {
+                        appModel.stopScan()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                } else {
+                    Button {
+                        appModel.rescan()
+                    } label: {
+                        Label("Rescan", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!appModel.canRescan)
+                }
+            }
+        }
         .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: showsInspector) {
             SelectionInspectorView()
