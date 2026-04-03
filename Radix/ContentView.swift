@@ -20,53 +20,11 @@ struct ContentView: View {
         } detail: {
             WorkspaceView()
         }
-        .toolbarRole(.editor)
         .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: showsInspector) {
             SelectionInspectorView()
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 360)
                 .interactiveDismissDisabled()
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    appModel.presentOpenPanelAndScan()
-                } label: {
-                    Label("Choose Folder", systemImage: "folder.badge.plus")
-                }
-                .disabled(!appModel.canChooseFolder)
-
-                Button {
-                    appModel.rescan()
-                } label: {
-                    Label("Rescan", systemImage: "arrow.clockwise")
-                }
-                .disabled(!appModel.canRescan)
-
-                if appModel.canStopScan {
-                    Button {
-                        appModel.stopScan()
-                    } label: {
-                        Label("Stop", systemImage: "stop.fill")
-                    }
-                }
-
-                ControlGroup {
-                    Button {
-                        appModel.zoomOut()
-                    } label: {
-                        Label("Zoom Out", systemImage: "arrow.up.left.and.arrow.down.right")
-                    }
-                    .disabled(!appModel.canZoomOut)
-
-                    Button {
-                        appModel.zoomIntoSelection()
-                    } label: {
-                        Label("Zoom In", systemImage: "arrow.down.right.and.arrow.up.left")
-                    }
-                    .disabled(!appModel.canZoomIntoSelection)
-                }
-            }
         }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()

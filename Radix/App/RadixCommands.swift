@@ -36,17 +36,25 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Navigate") {
+            Button("Back") {
+                appModel.navigateBack()
+            }
+            .keyboardShortcut("[", modifiers: [.command])
+            .disabled(!appModel.canNavigateBack)
+
+            Button("Forward") {
+                appModel.navigateForward()
+            }
+            .keyboardShortcut("]", modifiers: [.command])
+            .disabled(!appModel.canNavigateForward)
+
+            Divider()
+
             Button("Zoom Into Selection") {
                 appModel.zoomIntoSelection()
             }
             .keyboardShortcut(.return)
             .disabled(!appModel.canZoomIntoSelection)
-
-            Button("Zoom Out") {
-                appModel.zoomOut()
-            }
-            .keyboardShortcut("[", modifiers: [.command, .option])
-            .disabled(!appModel.canZoomOut)
 
             Button("Back to Scan Root") {
                 appModel.resetFocusToRoot()

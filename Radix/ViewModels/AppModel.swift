@@ -69,6 +69,8 @@ final class AppModel: ObservableObject {
     private var scanTask: Task<Void, Never>?
     private var activeScanID: UUID?
     private var cancellables = Set<AnyCancellable>()
+    private var focusBackStack: [String] = []
+    private var focusForwardStack: [String] = []
 
     init() {
         let defaults = UserDefaults.standard
@@ -156,8 +158,12 @@ final class AppModel: ObservableObject {
         return selectedNode.isDirectory && selectedNode.containsChildren
     }
 
-    var canZoomOut: Bool {
-        fileTreeIndex.parent(of: focusedNodeID) != nil
+    var canNavigateBack: Bool {
+        !focusBackStack.isEmpty
+    }
+
+    var canNavigateForward: Bool {
+        !focusForwardStack.isEmpty
     }
 
     var canChooseFolder: Bool {
@@ -307,6 +313,8 @@ final class AppModel: ObservableObject {
         focusedNodeID = nil
         pendingTrashNode = nil
         fileTreeIndex = .empty
+        focusBackStack.removeAll()
+        focusForwardStack.removeAll()
 
         registerRecentTarget(target)
         refreshAvailableTargets()
@@ -379,12 +387,7 @@ final class AppModel: ObservableObject {
 
     func focus(nodeID: String?) {
         guard let nodeID, fileTreeIndex.node(id: nodeID) != nil else { return }
-        focusedNodeID = nodeID
-        if let selectedNodeID,
-           selectedNodeID != nodeID,
-           !fileTreeIndex.isAncestor(nodeID, of: selectedNodeID) {
-            self.selectedNodeID = nil
-        }
+        setFocus(nodeID, recordHistory: true)
     }
 
     func clearSelection() {
@@ -403,17 +406,33 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func zoomOut() {
-        guard let focusedNodeID,
-              let parentID = fileTreeIndex.parentByID[focusedNodeID] else {
+    func navigateBack() {
+        guard let previousFocusID = focusBackStack.popLast() else {
             return
         }
-        focus(nodeID: parentID)
+
+        if let currentFocusID = focusedNodeID {
+            focusForwardStack.append(currentFocusID)
+        }
+
+        applyFocus(previousFocusID)
+    }
+
+    func navigateForward() {
+        guard let nextFocusID = focusForwardStack.popLast() else {
+            return
+        }
+
+        if let currentFocusID = focusedNodeID {
+            focusBackStack.append(currentFocusID)
+        }
+
+        applyFocus(nextFocusID)
     }
 
     func resetFocusToRoot() {
         guard let rootID = snapshot?.root.id else { return }
-        focusedNodeID = rootID
+        setFocus(rootID, recordHistory: true)
         selectedNodeID = nil
     }
 
@@ -536,6 +555,8 @@ final class AppModel: ObservableObject {
     private func apply(snapshot: ScanSnapshot) {
         self.snapshot = snapshot
         fileTreeIndex = FileTreeIndex(root: snapshot.root)
+        focusBackStack.removeAll()
+        focusForwardStack.removeAll()
 
         if focusedNodeID == nil || fileTreeIndex.node(id: focusedNodeID) == nil {
             focusedNodeID = snapshot.root.id
@@ -562,6 +583,29 @@ final class AppModel: ObservableObject {
             throw FileActionError.unavailable(path: selectedNode.url.path)
         }
         return selectedNode
+    }
+
+    private func setFocus(_ nodeID: String, recordHistory: Bool) {
+        guard fileTreeIndex.node(id: nodeID) != nil else { return }
+        guard focusedNodeID != nodeID else { return }
+
+        if recordHistory, let currentFocusID = focusedNodeID {
+            focusBackStack.append(currentFocusID)
+            focusForwardStack.removeAll()
+        }
+
+        applyFocus(nodeID)
+    }
+
+    private func applyFocus(_ nodeID: String) {
+        guard fileTreeIndex.node(id: nodeID) != nil else { return }
+
+        focusedNodeID = nodeID
+        if let selectedNodeID,
+           selectedNodeID != nodeID,
+           !fileTreeIndex.isAncestor(nodeID, of: selectedNodeID) {
+            self.selectedNodeID = nil
+        }
     }
 
     private func isDirectoryURL(_ url: URL) -> Bool {

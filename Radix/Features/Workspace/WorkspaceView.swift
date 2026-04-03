@@ -54,7 +54,9 @@ private struct ActiveWorkspaceView: View {
             PaneHeader(
                 title: "Disk Map",
                 subtitle: "Hover to inspect. Double-click a folder to drill down."
-            )
+            ) {
+                FocusNavigationControls()
+            }
 
             Divider()
 
@@ -126,31 +128,7 @@ private struct WorkspaceHeaderView: View {
 
                 Spacer(minLength: 16)
 
-                if appModel.isScanning {
-                    VStack(alignment: .trailing, spacing: 8) {
-                        HStack(spacing: 10) {
-                            ProgressView(value: appModel.scanProgressFraction, total: 1)
-                                .frame(width: 180)
-                            Text(appModel.scanProgressLabel)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Text(appModel.scanMetrics.currentPath)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .frame(maxWidth: 280, alignment: .trailing)
-                    }
-                } else if let finishedAt = snapshot.finishedAt {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Last Scan")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(RadixFormatters.date(finishedAt))
-                            .font(.subheadline.weight(.medium))
-                    }
-                }
+                WorkspaceHeaderActions(snapshot: snapshot)
             }
 
             ViewThatFits(in: .horizontal) {
@@ -230,10 +208,20 @@ private struct PermissionBanner: View {
     }
 }
 
-private struct PaneHeader: View {
+private struct PaneHeader<Accessory: View>: View {
     let title: String
     let subtitle: String
-    var accessory: String?
+    let accessory: Accessory
+
+    init(
+        title: String,
+        subtitle: String,
+        @ViewBuilder accessory: () -> Accessory
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = accessory()
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
@@ -247,14 +235,81 @@ private struct PaneHeader: View {
 
             Spacer()
 
-            if let accessory {
-                Text(accessory)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            accessory
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+}
+
+private struct WorkspaceHeaderActions: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    let snapshot: ScanSnapshot
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            if let finishedAt = snapshot.finishedAt {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Last Scan")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(RadixFormatters.date(finishedAt))
+                        .font(.subheadline.weight(.medium))
+                }
+            }
+
+            ControlGroup {
+                Button {
+                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Label("Choose Folder", systemImage: "folder.badge.plus")
+                }
+                .disabled(!appModel.canChooseFolder)
+
+                Button {
+                    appModel.rescan()
+                } label: {
+                    Label("Rescan", systemImage: "arrow.clockwise")
+                }
+                .disabled(!appModel.canRescan)
+            }
+            .controlSize(.small)
+        }
+    }
+}
+
+private struct FocusNavigationControls: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ControlGroup {
+                Button {
+                    appModel.navigateBack()
+                } label: {
+                    Label("Back", systemImage: "chevron.backward")
+                }
+                .disabled(!appModel.canNavigateBack)
+                .help("Go back to the previous focus")
+
+                Button {
+                    appModel.navigateForward()
+                } label: {
+                    Label("Forward", systemImage: "chevron.forward")
+                }
+                .disabled(!appModel.canNavigateForward)
+                .help("Go forward to the next focus")
+            }
+
+            if !appModel.isFocusedAtRoot {
+                Button("Scan Root") {
+                    appModel.resetFocusToRoot()
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .controlSize(.small)
     }
 }
 
