@@ -55,6 +55,9 @@ private struct ActiveWorkspaceView: View {
     let snapshot: ScanSnapshot
     let focusNode: FileNode
 
+    @State private var entireScanSearchText = ""
+    @FocusState private var isEntireScanSearchFieldFocused: Bool
+
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceHeaderView(snapshot: snapshot, focusNode: focusNode)
@@ -74,6 +77,12 @@ private struct ActiveWorkspaceView: View {
             contentsPane
                 .frame(height: 220)
         }
+        .searchable(
+            text: $entireScanSearchText,
+            placement: .toolbar,
+            prompt: Text("Search Entire Scan")
+        )
+        .searchFocused($isEntireScanSearchFieldFocused)
     }
 
     private var visualizationPane: some View {
@@ -120,7 +129,9 @@ private struct ActiveWorkspaceView: View {
         VStack(spacing: 0) {
             FileBrowserTableView(
                 nodes: appModel.tableNodes,
-                selection: $appModel.selectedNodeID
+                selection: $appModel.selectedNodeID,
+                entireScanSearchText: $entireScanSearchText,
+                isEntireScanSearchFieldFocused: $isEntireScanSearchFieldFocused
             )
 
             if !snapshot.scanWarnings.isEmpty {

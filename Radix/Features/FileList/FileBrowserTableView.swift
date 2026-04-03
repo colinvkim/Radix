@@ -5,11 +5,11 @@ struct FileBrowserTableView: View {
 
     let nodes: [FileNode]
     @Binding var selection: String?
+    @Binding var entireScanSearchText: String
+    @FocusState.Binding var isEntireScanSearchFieldFocused: Bool
 
     @FocusState private var isCurrentContentsSearchFieldFocused: Bool
-    @FocusState private var isEntireScanSearchFieldFocused: Bool
     @State private var currentContentsSearchText = ""
-    @State private var entireScanSearchText = ""
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
@@ -181,16 +181,6 @@ struct FileBrowserTableView: View {
                         }
                     }
                 }
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                TextField("Search Entire Scan", text: $entireScanSearchText)
-                    .focused($isEntireScanSearchFieldFocused)
-                    .frame(width: 300)
-                    .help("Search anywhere in the current scan")
-                    .textFieldStyle(.roundedBorder)
-                .disabled(appModel.snapshot == nil)
             }
         }
         .focusedSceneValue(\.fileListFilterAction) { target in
