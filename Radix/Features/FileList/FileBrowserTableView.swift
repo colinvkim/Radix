@@ -7,12 +7,17 @@ struct FileBrowserTableView: View {
     @Binding var selection: String?
 
     @FocusState private var isCurrentContentsSearchFieldFocused: Bool
+    @FocusState private var isEntireScanSearchFieldFocused: Bool
     @State private var currentContentsSearchText = ""
     @State private var entireScanSearchText = ""
-    @State private var isEntireScanSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
+    @State private var entireScanSearchEntries: [EntireScanSearchEntry] = []
+    @State private var entireScanParentPathLookup: [FileNode.ID: String] = [:]
+    @State private var isSearchingEntireScan = false
+    @State private var entireScanIndexTask: Task<Void, Never>?
+    @State private var entireScanSearchTask: Task<Void, Never>?
 
     private var tableSelection: Binding<String?> {
         Binding(
@@ -33,7 +38,7 @@ struct FileBrowserTableView: View {
             get: { sortOrder },
             set: { newValue in
                 sortOrder = newValue
-                rebuildDisplayedNodes()
+                refreshDisplayedNodes()
             }
         )
     }
@@ -42,9 +47,13 @@ struct FileBrowserTableView: View {
         !entireScanSearchText.isEmpty
     }
 
+    private var showsTableChrome: Bool {
+        !nodes.isEmpty || isShowingEntireScanResults
+    }
+
     var body: some View {
         Group {
-            if nodes.isEmpty {
+            if !showsTableChrome {
                 ContentUnavailableView(
                     "Nothing to Show",
                     systemImage: "folder",
@@ -63,17 +72,25 @@ struct FileBrowserTableView: View {
                         Divider()
                         EntireScanSearchBanner(
                             searchText: entireScanSearchText,
-                            resultCount: displayedNodes.count
+                            resultCount: displayedNodes.count,
+                            isSearching: isSearchingEntireScan
                         ) {
                             entireScanSearchText = ""
-                            isEntireScanSearchPresented = true
-                            rebuildDisplayedNodes()
+                            refreshDisplayedNodes()
                         }
                     }
 
                     Divider()
 
-                    if displayedNodes.isEmpty {
+                    if isShowingEntireScanResults && isSearchingEntireScan && displayedNodes.isEmpty {
+                        VStack {
+                            Spacer()
+                            ProgressView("Searching Entire Scan…")
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if displayedNodes.isEmpty {
                         ContentUnavailableView(
                             "No Matching Items",
                             systemImage: "magnifyingglass",
@@ -166,31 +183,44 @@ struct FileBrowserTableView: View {
                 }
             }
         }
-        .searchable(
-            text: $entireScanSearchText,
-            isPresented: $isEntireScanSearchPresented,
-            prompt: Text("Search entire scan")
-        )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                EntireScanToolbarSearchField(
+                    text: $entireScanSearchText,
+                    isFocused: $isEntireScanSearchFieldFocused
+                )
+                .frame(width: 240)
+                .disabled(appModel.snapshot == nil)
+            }
+        }
         .focusedSceneValue(\.fileListFilterAction) { target in
             switch target {
             case .currentContents:
                 isCurrentContentsSearchFieldFocused = true
             case .entireScan:
-                isEntireScanSearchPresented = true
+                isEntireScanSearchFieldFocused = true
             }
         }
-        .onAppear(perform: rebuildDisplayedNodes)
+        .onAppear {
+            rebuildEntireScanSearchIndex()
+            refreshDisplayedNodes()
+        }
         .onChange(of: nodes) { _, _ in
-            rebuildDisplayedNodes()
+            refreshDisplayedNodes()
         }
         .onChange(of: currentContentsSearchText) { _, _ in
-            rebuildDisplayedNodes()
+            refreshDisplayedNodes()
         }
         .onChange(of: entireScanSearchText) { _, _ in
-            rebuildDisplayedNodes()
+            refreshDisplayedNodes()
         }
         .onChange(of: appModel.snapshot?.id) { _, _ in
-            rebuildDisplayedNodes()
+            rebuildEntireScanSearchIndex()
+            refreshDisplayedNodes()
+        }
+        .onDisappear {
+            entireScanIndexTask?.cancel()
+            entireScanSearchTask?.cancel()
         }
     }
 
@@ -201,21 +231,12 @@ struct FileBrowserTableView: View {
         return "Try a different filter or clear the current contents filter."
     }
 
-    private var searchCandidates: [FileNode] {
-        if isShowingEntireScanResults {
-            return appModel.fileTreeIndex.nodesByID.values
-                .filter { $0.id != appModel.fileTreeIndex.rootID }
-        }
-        return nodes
-    }
-
     private func subtitle(for node: FileNode) -> String? {
         guard isShowingEntireScanResults else {
             return node.secondaryStatusText
         }
 
-        let parentPath = appModel.fileTreeIndex.parent(of: node.id)?.url.path
-        return parentPath ?? node.url.deletingLastPathComponent().path
+        return entireScanParentPathLookup[node.id] ?? node.url.deletingLastPathComponent().path
     }
 
     private func descendantCountText(for node: FileNode) -> String {
@@ -228,9 +249,20 @@ struct FileBrowserTableView: View {
         return "1"
     }
 
-    private func rebuildDisplayedNodes() {
-        let sortedNodes = searchCandidates.sorted(using: sortOrder)
-        let searchText = isShowingEntireScanResults ? entireScanSearchText : currentContentsSearchText
+    private func refreshDisplayedNodes() {
+        entireScanSearchTask?.cancel()
+
+        if isShowingEntireScanResults {
+            scheduleEntireScanSearch()
+        } else {
+            isSearchingEntireScan = false
+            rebuildCurrentContentsResults()
+        }
+    }
+
+    private func rebuildCurrentContentsResults() {
+        let sortedNodes = nodes.sorted(using: sortOrder)
+        let searchText = currentContentsSearchText
         let filteredNodes: [FileNode]
 
         if searchText.isEmpty {
@@ -243,8 +275,129 @@ struct FileBrowserTableView: View {
             }
         }
 
-        displayedNodes = filteredNodes
-        displayedNodeLookup = Dictionary(uniqueKeysWithValues: filteredNodes.map { ($0.id, $0) })
+        applyDisplayedNodes(filteredNodes)
+    }
+
+    private func rebuildEntireScanSearchIndex() {
+        entireScanIndexTask?.cancel()
+
+        let snapshotID = appModel.snapshot?.id
+        let nodesByID = appModel.fileTreeIndex.nodesByID
+        let parentByID = appModel.fileTreeIndex.parentByID
+        let rootID = appModel.fileTreeIndex.rootID
+
+        guard snapshotID != nil else {
+            entireScanSearchEntries = []
+            return
+        }
+
+        if isShowingEntireScanResults {
+            isSearchingEntireScan = true
+            applyDisplayedNodes([])
+        }
+
+        entireScanIndexTask = Task {
+            let entries: [EntireScanSearchEntry] = await Task.detached(priority: .userInitiated) { () -> [EntireScanSearchEntry] in
+                Array(nodesByID.values).compactMap { node -> EntireScanSearchEntry? in
+                    guard node.id != rootID else {
+                        return nil
+                    }
+
+                    let parentPath = parentByID[node.id]
+                        .flatMap { nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
+                    let haystack = SearchNormalizer.normalize(
+                        [node.name, node.url.path, node.itemKind].joined(separator: "\n")
+                    )
+
+                    return EntireScanSearchEntry(
+                        node: node,
+                        parentPath: parentPath,
+                        searchHaystack: haystack
+                    )
+                }
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                entireScanSearchEntries = entries
+                entireScanParentPathLookup = Dictionary(
+                    uniqueKeysWithValues: entries.map { ($0.node.id, $0.parentPath) }
+                )
+
+                if self.appModel.snapshot?.id == snapshotID, self.isShowingEntireScanResults {
+                    scheduleEntireScanSearch()
+                }
+            }
+        }
+    }
+
+    private func scheduleEntireScanSearch() {
+        let searchText = entireScanSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !searchText.isEmpty else {
+            isSearchingEntireScan = false
+            rebuildCurrentContentsResults()
+            return
+        }
+
+        let searchEntries = entireScanSearchEntries
+        let normalizedSearchText = SearchNormalizer.normalize(searchText)
+        let snapshotID = appModel.snapshot?.id
+
+        if searchEntries.isEmpty {
+            isSearchingEntireScan = true
+            applyDisplayedNodes([])
+            return
+        }
+
+        isSearchingEntireScan = true
+
+        entireScanSearchTask = Task {
+            try? await Task.sleep(for: .milliseconds(180))
+
+            let filteredNodes = await Task.detached(priority: .userInitiated) {
+                searchEntries.compactMap { entry in
+                    entry.searchHaystack.contains(normalizedSearchText) ? entry.node : nil
+                }
+            }.value
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard self.appModel.snapshot?.id == snapshotID,
+                      SearchNormalizer.normalize(self.entireScanSearchText) == normalizedSearchText else {
+                    return
+                }
+
+                let sortedNodes = filteredNodes.sorted(using: sortOrder)
+                applyDisplayedNodes(sortedNodes)
+                isSearchingEntireScan = false
+            }
+        }
+    }
+
+    private func applyDisplayedNodes(_ nodes: [FileNode]) {
+        displayedNodes = nodes
+        displayedNodeLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+    }
+}
+
+private struct EntireScanSearchEntry: Sendable {
+    let node: FileNode
+    let parentPath: String
+    let searchHaystack: String
+}
+
+private enum SearchNormalizer {
+    nonisolated static func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
     }
 }
 
@@ -286,6 +439,7 @@ private struct CurrentContentsFilterBar: View {
 private struct EntireScanSearchBanner: View {
     let searchText: String
     let resultCount: Int
+    let isSearching: Bool
     let clearSearch: () -> Void
 
     var body: some View {
@@ -300,9 +454,19 @@ private struct EntireScanSearchBanner: View {
 
             Spacer(minLength: 12)
 
-            Text(resultCount == 1 ? "1 match" : "\(resultCount) matches")
-                .font(.caption.monospacedDigit())
+            if isSearching {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Searching…")
+                        .font(.caption)
+                }
                 .foregroundStyle(.secondary)
+            } else {
+                Text(resultCount == 1 ? "1 match" : "\(resultCount) matches")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
             Button("Clear") {
                 clearSearch()
@@ -312,6 +476,18 @@ private struct EntireScanSearchBanner: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+}
+
+private struct EntireScanToolbarSearchField: View {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+
+    var body: some View {
+        TextField("Search Entire Scan", text: $text)
+            .textFieldStyle(.roundedBorder)
+            .focused($isFocused)
+            .accessibilityLabel("Search entire scan")
     }
 }
 

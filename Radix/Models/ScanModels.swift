@@ -100,11 +100,11 @@ struct FileNode: Identifiable, Hashable, Sendable {
     let isAccessible: Bool
     let isSynthetic: Bool
 
-    var containsChildren: Bool {
+    nonisolated var containsChildren: Bool {
         !children.isEmpty
     }
 
-    var itemKind: String {
+    nonisolated var itemKind: String {
         if isSynthetic {
             return "System Data"
         }
@@ -117,7 +117,7 @@ struct FileNode: Identifiable, Hashable, Sendable {
         return isDirectory ? "Folder" : "File"
     }
 
-    var supportsFileActions: Bool {
+    nonisolated var supportsFileActions: Bool {
         !isSynthetic
     }
 }
