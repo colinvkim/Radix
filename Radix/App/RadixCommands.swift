@@ -34,7 +34,7 @@ struct RadixCommands: Commands {
             .keyboardShortcut("f")
             .disabled(fileListFilterAction == nil)
 
-            Button("Find in Entire Scan") {
+            Button("Search Entire Scan") {
                 fileListFilterAction?(.entireScan)
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])

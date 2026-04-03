@@ -1,27 +1,16 @@
 import SwiftUI
 
-enum FileBrowserSearchScope: String, CaseIterable, Identifiable {
+enum FileBrowserFindTarget {
     case currentContents
     case entireScan
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .currentContents:
-            return "Current Contents"
-        case .entireScan:
-            return "Entire Scan"
-        }
-    }
 }
 
 private struct FileListFilterActionKey: FocusedValueKey {
-    typealias Value = (FileBrowserSearchScope) -> Void
+    typealias Value = (FileBrowserFindTarget) -> Void
 }
 
 extension FocusedValues {
-    var fileListFilterAction: ((FileBrowserSearchScope) -> Void)? {
+    var fileListFilterAction: ((FileBrowserFindTarget) -> Void)? {
         get { self[FileListFilterActionKey.self] }
         set { self[FileListFilterActionKey.self] = newValue }
     }

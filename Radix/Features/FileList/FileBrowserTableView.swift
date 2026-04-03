@@ -6,9 +6,10 @@ struct FileBrowserTableView: View {
     let nodes: [FileNode]
     @Binding var selection: String?
 
-    @State private var searchText = ""
-    @State private var searchScope: FileBrowserSearchScope = .currentContents
-    @State private var isSearchPresented = false
+    @FocusState private var isCurrentContentsSearchFieldFocused: Bool
+    @State private var currentContentsSearchText = ""
+    @State private var entireScanSearchText = ""
+    @State private var isEntireScanSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
@@ -37,6 +38,10 @@ struct FileBrowserTableView: View {
         )
     }
 
+    private var isShowingEntireScanResults: Bool {
+        !entireScanSearchText.isEmpty
+    }
+
     var body: some View {
         Group {
             if nodes.isEmpty {
@@ -48,6 +53,26 @@ struct FileBrowserTableView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
+                    CurrentContentsFilterBar(
+                        text: $currentContentsSearchText,
+                        isFocused: $isCurrentContentsSearchFieldFocused,
+                        isDisabled: isShowingEntireScanResults
+                    )
+
+                    if isShowingEntireScanResults {
+                        Divider()
+                        EntireScanSearchBanner(
+                            searchText: entireScanSearchText,
+                            resultCount: displayedNodes.count
+                        ) {
+                            entireScanSearchText = ""
+                            isEntireScanSearchPresented = true
+                            rebuildDisplayedNodes()
+                        }
+                    }
+
+                    Divider()
+
                     if displayedNodes.isEmpty {
                         ContentUnavailableView(
                             "No Matching Items",
@@ -142,33 +167,55 @@ struct FileBrowserTableView: View {
             }
         }
         .searchable(
-            text: $searchText,
-            isPresented: $isSearchPresented,
-            prompt: searchPrompt
+            text: $entireScanSearchText,
+            isPresented: $isEntireScanSearchPresented,
+            prompt: Text("Search entire scan")
         )
-        .searchScopes($searchScope) {
-            Text(FileBrowserSearchScope.currentContents.title)
-                .tag(FileBrowserSearchScope.currentContents)
-            Text(FileBrowserSearchScope.entireScan.title)
-                .tag(FileBrowserSearchScope.entireScan)
-        }
-        .focusedSceneValue(\.fileListFilterAction) { scope in
-            searchScope = scope
-            isSearchPresented = true
+        .focusedSceneValue(\.fileListFilterAction) { target in
+            switch target {
+            case .currentContents:
+                isCurrentContentsSearchFieldFocused = true
+            case .entireScan:
+                isEntireScanSearchPresented = true
+            }
         }
         .onAppear(perform: rebuildDisplayedNodes)
         .onChange(of: nodes) { _, _ in
             rebuildDisplayedNodes()
         }
-        .onChange(of: searchText) { _, _ in
+        .onChange(of: currentContentsSearchText) { _, _ in
             rebuildDisplayedNodes()
         }
-        .onChange(of: searchScope) { _, _ in
+        .onChange(of: entireScanSearchText) { _, _ in
             rebuildDisplayedNodes()
         }
         .onChange(of: appModel.snapshot?.id) { _, _ in
             rebuildDisplayedNodes()
         }
+    }
+
+    private var noResultsDescription: String {
+        if isShowingEntireScanResults {
+            return "No items anywhere in this scan match your search."
+        }
+        return "Try a different filter or clear the current contents filter."
+    }
+
+    private var searchCandidates: [FileNode] {
+        if isShowingEntireScanResults {
+            return appModel.fileTreeIndex.nodesByID.values
+                .filter { $0.id != appModel.fileTreeIndex.rootID }
+        }
+        return nodes
+    }
+
+    private func subtitle(for node: FileNode) -> String? {
+        guard isShowingEntireScanResults else {
+            return node.secondaryStatusText
+        }
+
+        let parentPath = appModel.fileTreeIndex.parent(of: node.id)?.url.path
+        return parentPath ?? node.url.deletingLastPathComponent().path
     }
 
     private func descendantCountText(for node: FileNode) -> String {
@@ -181,44 +228,13 @@ struct FileBrowserTableView: View {
         return "1"
     }
 
-    private var searchPrompt: Text {
-        Text(searchScope == .currentContents ? "Filter current contents" : "Search entire scan")
-    }
-
-    private var noResultsDescription: String {
-        switch searchScope {
-        case .currentContents:
-            return "Try a different filter or clear the current search."
-        case .entireScan:
-            return "No items in this scan match your search."
-        }
-    }
-
-    private var searchCandidates: [FileNode] {
-        switch searchScope {
-        case .currentContents:
-            return nodes
-        case .entireScan:
-            return appModel.fileTreeIndex.nodesByID.values
-                .filter { $0.id != appModel.fileTreeIndex.rootID }
-        }
-    }
-
-    private func subtitle(for node: FileNode) -> String? {
-        guard searchScope == .entireScan, !searchText.isEmpty else {
-            return node.secondaryStatusText
-        }
-
-        let parentPath = appModel.fileTreeIndex.parent(of: node.id)?.url.path
-        return parentPath ?? node.url.deletingLastPathComponent().path
-    }
-
     private func rebuildDisplayedNodes() {
         let sortedNodes = searchCandidates.sorted(using: sortOrder)
+        let searchText = isShowingEntireScanResults ? entireScanSearchText : currentContentsSearchText
         let filteredNodes: [FileNode]
 
         if searchText.isEmpty {
-            filteredNodes = searchScope == .currentContents ? sortedNodes : nodes.sorted(using: sortOrder)
+            filteredNodes = sortedNodes
         } else {
             filteredNodes = sortedNodes.filter { node in
                 node.name.localizedStandardContains(searchText) ||
@@ -229,6 +245,73 @@ struct FileBrowserTableView: View {
 
         displayedNodes = filteredNodes
         displayedNodeLookup = Dictionary(uniqueKeysWithValues: filteredNodes.map { ($0.id, $0) })
+    }
+}
+
+private struct CurrentContentsFilterBar: View {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+    let isDisabled: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("Current Contents", systemImage: "line.3.horizontal.decrease.circle")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            TextField("Filter current contents", text: $text)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .disabled(isDisabled)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear current contents filter")
+                .disabled(isDisabled)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .controlSize(.small)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+    }
+}
+
+private struct EntireScanSearchBanner: View {
+    let searchText: String
+    let resultCount: Int
+    let clearSearch: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("Entire Scan", systemImage: "magnifyingglass")
+                .font(.caption.weight(.semibold))
+
+            Text("Showing results for “\(searchText)”")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            Text(resultCount == 1 ? "1 match" : "\(resultCount) matches")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Button("Clear") {
+                clearSearch()
+            }
+            .buttonStyle(.link)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
     }
 }
 
