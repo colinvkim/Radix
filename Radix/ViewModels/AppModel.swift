@@ -16,7 +16,6 @@ final class AppModel: ObservableObject {
         static let showHiddenFiles = "showHiddenFiles"
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
         static let maxRenderedDepth = "maxRenderedDepth"
-        static let showsInspector = "showsInspector"
     }
 
     private enum FileActionError: LocalizedError {
@@ -58,7 +57,6 @@ final class AppModel: ObservableObject {
     @Published var selectedTarget: ScanTarget?
     @Published var selectedNodeID: String?
     @Published var focusedNodeID: String?
-    @Published var showsInspector = true
     @Published var fileTreeIndex = FileTreeIndex.empty
     @Published private(set) var availableTargets: [ScanTarget] = []
     @Published var recentTargets: [ScanTarget] = []
@@ -80,7 +78,6 @@ final class AppModel: ObservableObject {
             showHiddenFiles = defaults.bool(forKey: DefaultsKey.showHiddenFiles)
         }
         treatPackagesAsDirectories = defaults.bool(forKey: DefaultsKey.treatPackagesAsDirectories)
-        showsInspector = defaults.object(forKey: DefaultsKey.showsInspector) as? Bool ?? true
 
         let storedDepth = defaults.integer(forKey: DefaultsKey.maxRenderedDepth)
         maxRenderedDepth = (3...10).contains(storedDepth) ? storedDepth : 6
@@ -464,10 +461,6 @@ final class AppModel: ObservableObject {
         SystemIntegration.copyPath(selectedNode.url)
     }
 
-    func toggleInspector() {
-        showsInspector.toggle()
-    }
-
     func toggleSidebar() {
         SystemIntegration.toggleSidebar()
     }
@@ -632,11 +625,6 @@ final class AppModel: ObservableObject {
         $maxRenderedDepth
             .dropFirst()
             .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.maxRenderedDepth) }
-            .store(in: &cancellables)
-
-        $showsInspector
-            .dropFirst()
-            .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.showsInspector) }
             .store(in: &cancellables)
     }
 }

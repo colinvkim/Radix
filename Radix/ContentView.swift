@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
+    private let showsInspector = Binding.constant(true)
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
@@ -21,9 +22,10 @@ struct ContentView: View {
         }
         .toolbarRole(.editor)
         .navigationSplitViewStyle(.balanced)
-        .inspector(isPresented: $appModel.showsInspector) {
+        .inspector(isPresented: showsInspector) {
             SelectionInspectorView()
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 360)
+                .interactiveDismissDisabled()
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -63,17 +65,6 @@ struct ContentView: View {
                         Label("Zoom In", systemImage: "arrow.down.right.and.arrow.up.left")
                     }
                     .disabled(!appModel.canZoomIntoSelection)
-                }
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    appModel.toggleInspector()
-                } label: {
-                    Label(
-                        appModel.showsInspector ? "Hide Inspector" : "Show Inspector",
-                        systemImage: "sidebar.trailing"
-                    )
                 }
             }
         }

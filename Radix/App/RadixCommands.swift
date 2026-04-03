@@ -6,7 +6,6 @@ struct RadixCommands: Commands {
 
     var body: some Commands {
         SidebarCommands()
-        InspectorCommands()
 
         CommandGroup(after: .newItem) {
             Button("Scan Folder…") {

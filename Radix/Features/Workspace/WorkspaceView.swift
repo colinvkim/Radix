@@ -66,13 +66,7 @@ private struct ActiveWorkspaceView: View {
 
                     HStack(alignment: .bottom, spacing: 16) {
                         SelectionAccessoryBar(focusNode: focusNode)
-
                         Spacer(minLength: 0)
-
-                        if !appModel.showsInspector {
-                    VisualizationContextPanel(focusNode: focusNode)
-                                .frame(width: 280)
-                        }
                     }
                     .padding(16)
                 }
@@ -261,85 +255,6 @@ private struct PaneHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-    }
-}
-
-private struct VisualizationContextPanel: View {
-    @EnvironmentObject private var appModel: AppModel
-
-    let focusNode: FileNode
-
-    private var inspectedNode: FileNode {
-        appModel.selectedNode ?? focusNode
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            GroupBox(appModel.selectedNode == nil ? "Current Focus" : "Selection") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(inspectedNode.name)
-                        .font(.headline)
-                        .lineLimit(2)
-
-                    Text(inspectedNode.url.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                        GridRow {
-                            WorkspaceMetricView(title: "Allocated", value: RadixFormatters.size(inspectedNode.allocatedSize))
-                            WorkspaceMetricView(title: "Kind", value: inspectedNode.itemKind)
-                        }
-
-                        GridRow {
-                            WorkspaceMetricView(title: "Modified", value: RadixFormatters.date(inspectedNode.lastModified))
-                            WorkspaceMetricView(title: "Access", value: inspectedNode.accessDescription)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .controlSize(.small)
-
-            GroupBox("Next Steps") {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let selectedNode = appModel.selectedNode, selectedNode.id != focusNode.id {
-                        Text("Double-click the selected folder in the chart or table to zoom into it.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Select a chart segment or table row to inspect a child item without leaving the current location.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if focusNode.isDirectory, !focusNode.children.isEmpty {
-                        ForEach(Array(focusNode.children.prefix(5))) { child in
-                            Button {
-                                appModel.select(nodeID: child.id)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: child.systemImageName)
-                                        .foregroundStyle(child.isDirectory ? Color.accentColor : Color.secondary)
-                                    Text(child.name)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(RadixFormatters.size(child.allocatedSize))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .controlSize(.small)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
