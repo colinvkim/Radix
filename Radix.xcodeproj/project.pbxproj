@@ -6,13 +6,30 @@
 	objectVersion = 100;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3BBA11332F80739B009EFB1C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 3BBA11322F80739B009EFB1C /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		3BF007FE2F7E285500DA9E45 /* Radix.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Radix.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3BBA123F2F808206009EFB1C /* Exceptions for "Radix" folder in "Radix" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3BF007FD2F7E285500DA9E45 /* Radix */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3BF008002F7E285500DA9E45 /* Radix */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3BBA123F2F808206009EFB1C /* Exceptions for "Radix" folder in "Radix" target */,
+			);
 			path = Radix;
 			sourceTree = "<group>";
 		};
@@ -22,6 +39,7 @@
 		3BF007FB2F7E285500DA9E45 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				3BBA11332F80739B009EFB1C /* Sparkle in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -60,6 +78,9 @@
 				3BF008002F7E285500DA9E45 /* Radix */,
 			);
 			name = Radix;
+			packageProductDependencies = (
+				3BBA11322F80739B009EFB1C /* Sparkle */,
+			);
 			productName = Radix;
 			productReference = 3BF007FE2F7E285500DA9E45 /* Radix.app */;
 			productType = "com.apple.product-type.application";
@@ -88,6 +109,9 @@
 			);
 			mainGroup = 3BF007F52F7E285500DA9E45;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3BBA11312F80739B009EFB1C /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 100;
 			productRefGroup = 3BF007FF2F7E285500DA9E45 /* Products */;
 			projectDirPath = "";
@@ -251,6 +275,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Radix/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -288,6 +313,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Radix/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -328,6 +354,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3BBA11312F80739B009EFB1C /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3BBA11322F80739B009EFB1C /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BBA11312F80739B009EFB1C /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3BF007F62F7E285500DA9E45 /* Project object */;
 }
