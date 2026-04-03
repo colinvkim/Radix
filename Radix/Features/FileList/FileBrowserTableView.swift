@@ -45,13 +45,6 @@ struct FileBrowserTableView: View {
                     description: Text("Zoom into a directory with contents to populate this table.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if displayedNodes.isEmpty {
-                ContentUnavailableView(
-                    "No Matching Items",
-                    systemImage: "magnifyingglass",
-                    description: Text("Try a different filter or clear the current search.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
                     HStack(spacing: 8) {
@@ -80,82 +73,91 @@ struct FileBrowserTableView: View {
 
                     Divider()
 
-                    Table(displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
-                        TableColumn("Name", value: \.name) { node in
-                            NameCell(node: node)
-                        }
-                        .width(min: 260, ideal: 360)
-
-                        TableColumn("Allocated", value: \.allocatedSize) { node in
-                            Text(RadixFormatters.size(node.allocatedSize))
-                                .monospacedDigit()
-                        }
-                        .width(min: 110, ideal: 130)
-
-                        TableColumn("Kind", value: \.itemKind) { node in
-                            Text(node.itemKind)
-                        }
-                        .width(min: 110, ideal: 130)
-
-                        TableColumn("Files") { node in
-                            Text(descendantCountText(for: node))
-                        }
-                        .width(min: 70, ideal: 80)
-
-                        TableColumn("Modified") { node in
-                            Text(RadixFormatters.date(node.lastModified))
-                        }
-                        .width(min: 150, ideal: 180)
-                    }
-                    .accessibilityLabel("Contents table")
-                    .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in.")
-                    .contextMenu(forSelectionType: FileNode.ID.self) { selectedIDs in
-                        if let selectedID = selectedIDs.first,
-                           let selectedNode = displayedNodeLookup[selectedID] {
-                            Button("Reveal in Finder") {
-                                appModel.select(nodeID: selectedID)
-                                appModel.revealSelectedInFinder()
+                    if displayedNodes.isEmpty {
+                        ContentUnavailableView(
+                            "No Matching Items",
+                            systemImage: "magnifyingglass",
+                            description: Text("Try a different filter or clear the current search.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Table(displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
+                            TableColumn("Name", value: \.name) { node in
+                                NameCell(node: node)
                             }
-                            .disabled(!selectedNode.supportsFileActions)
+                            .width(min: 260, ideal: 360)
 
-                            Button("Open") {
-                                appModel.select(nodeID: selectedID)
+                            TableColumn("Allocated", value: \.allocatedSize) { node in
+                                Text(RadixFormatters.size(node.allocatedSize))
+                                    .monospacedDigit()
+                            }
+                            .width(min: 110, ideal: 130)
+
+                            TableColumn("Kind", value: \.itemKind) { node in
+                                Text(node.itemKind)
+                            }
+                            .width(min: 110, ideal: 130)
+
+                            TableColumn("Files") { node in
+                                Text(descendantCountText(for: node))
+                            }
+                            .width(min: 70, ideal: 80)
+
+                            TableColumn("Modified") { node in
+                                Text(RadixFormatters.date(node.lastModified))
+                            }
+                            .width(min: 150, ideal: 180)
+                        }
+                        .accessibilityLabel("Contents table")
+                        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in.")
+                        .contextMenu(forSelectionType: FileNode.ID.self) { selectedIDs in
+                            if let selectedID = selectedIDs.first,
+                               let selectedNode = displayedNodeLookup[selectedID] {
+                                Button("Reveal in Finder") {
+                                    appModel.select(nodeID: selectedID)
+                                    appModel.revealSelectedInFinder()
+                                }
+                                .disabled(!selectedNode.supportsFileActions)
+
+                                Button("Open") {
+                                    appModel.select(nodeID: selectedID)
+                                    appModel.openSelected()
+                                }
+                                .disabled(!selectedNode.supportsFileActions)
+
+                                Button("Zoom In") {
+                                    appModel.select(nodeID: selectedID)
+                                    appModel.zoomIntoSelection()
+                                }
+                                .disabled(!selectedNode.isDirectory)
+
+                                Divider()
+
+                                Button("Move to Trash") {
+                                    appModel.select(nodeID: selectedID)
+                                    appModel.requestMoveSelectedToTrash()
+                                }
+                                .disabled(!selectedNode.supportsMoveToTrash)
+
+                                Button("Copy Path") {
+                                    appModel.select(nodeID: selectedID)
+                                    appModel.copySelectedPath()
+                                }
+                                .disabled(!selectedNode.supportsFileActions)
+                            }
+                        } primaryAction: { selectedIDs in
+                            guard let selectedID = selectedIDs.first,
+                                  let selectedNode = displayedNodeLookup[selectedID] else {
+                                return
+                            }
+
+                            appModel.select(nodeID: selectedID)
+
+                            if selectedNode.isDirectory {
+                                appModel.zoomIntoSelection()
+                            } else if selectedNode.supportsFileActions {
                                 appModel.openSelected()
                             }
-                            .disabled(!selectedNode.supportsFileActions)
-
-                            Button("Zoom In") {
-                                appModel.select(nodeID: selectedID)
-                                appModel.zoomIntoSelection()
-                            }
-                            .disabled(!selectedNode.isDirectory)
-
-                            Divider()
-
-                            Button("Move to Trash") {
-                                appModel.select(nodeID: selectedID)
-                                appModel.requestMoveSelectedToTrash()
-                            }
-                            .disabled(!selectedNode.supportsMoveToTrash)
-
-                            Button("Copy Path") {
-                                appModel.select(nodeID: selectedID)
-                                appModel.copySelectedPath()
-                            }
-                            .disabled(!selectedNode.supportsFileActions)
-                        }
-                    } primaryAction: { selectedIDs in
-                        guard let selectedID = selectedIDs.first,
-                              let selectedNode = displayedNodeLookup[selectedID] else {
-                            return
-                        }
-
-                        appModel.select(nodeID: selectedID)
-
-                        if selectedNode.isDirectory {
-                            appModel.zoomIntoSelection()
-                        } else if selectedNode.supportsFileActions {
-                            appModel.openSelected()
                         }
                     }
                 }
