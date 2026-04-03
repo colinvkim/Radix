@@ -146,19 +146,19 @@ struct FileBrowserTableView: View {
                         .contextMenu(forSelectionType: FileNode.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = displayedNodeLookup[selectedID] {
-                                Button("Reveal in Finder") {
+                                Button("Reveal in Finder", systemImage: "finder") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.revealSelectedInFinder()
                                 }
                                 .disabled(!selectedNode.supportsFileActions)
 
-                                Button("Open") {
+                                Button("Open", systemImage: "arrow.up.foward.app") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.openSelected()
                                 }
                                 .disabled(!selectedNode.supportsFileActions)
 
-                                Button("Zoom In") {
+                                Button("Zoom In", systemImage: "magnifyingglass") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.zoomIntoSelection()
                                 }
@@ -166,13 +166,13 @@ struct FileBrowserTableView: View {
 
                                 Divider()
 
-                                Button("Move to Trash") {
+                                Button("Move to Trash", systemImage: "trash") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.requestMoveSelectedToTrash()
                                 }
                                 .disabled(!selectedNode.supportsMoveToTrash)
 
-                                Button("Copy Path") {
+                                Button("Copy Path", systemImage: "document.on.document") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.copySelectedPath()
                                 }

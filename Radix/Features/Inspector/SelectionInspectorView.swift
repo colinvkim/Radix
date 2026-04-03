@@ -175,7 +175,7 @@ private struct InspectorActionButtons: View {
                 Button {
                     appModel.zoomIntoSelection()
                 } label: {
-                    Label("Zoom Into Folder", systemImage: "arrow.down.right.and.arrow.up.left")
+                    Label("Zoom Into Folder", systemImage: "plus.magnifyingglass")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
