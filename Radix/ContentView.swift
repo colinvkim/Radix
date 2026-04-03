@@ -20,31 +20,36 @@ struct ContentView: View {
         } detail: {
             WorkspaceView()
         }
+        .toolbarRole(.editor)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                ControlGroup {
-                    Button {
-                        appModel.navigateBack()
-                    } label: {
-                        Label("Back", systemImage: "chevron.backward")
-                    }
-                    .disabled(!appModel.canNavigateBack)
-
-                    Button {
-                        appModel.navigateForward()
-                    } label: {
-                        Label("Forward", systemImage: "chevron.forward")
-                    }
-                    .disabled(!appModel.canNavigateForward)
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    appModel.navigateBack()
+                } label: {
+                    Label("Back", systemImage: "chevron.backward")
                 }
+                .disabled(!appModel.canNavigateBack)
+            }
 
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    appModel.navigateForward()
+                } label: {
+                    Label("Forward", systemImage: "chevron.forward")
+                }
+                .disabled(!appModel.canNavigateForward)
+            }
+
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     appModel.presentOpenPanelAndScan()
                 } label: {
                     Label("Choose Folder", systemImage: "folder.badge.plus")
                 }
                 .disabled(!appModel.canChooseFolder)
+            }
 
+            ToolbarItem(placement: .primaryAction) {
                 if appModel.canStopScan {
                     Button {
                         appModel.stopScan()
