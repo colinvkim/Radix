@@ -257,7 +257,7 @@ final class AppModel: ObservableObject {
 
     var scanProgressLabel: String {
         if isFinalizingScan {
-            return "Finishing"
+            return "Finishing \(scanMetrics.progressPercentage.formatted(.number))%"
         }
         if isScanning {
             return scanMetrics.progressPercentage.formatted(.number) + "%"

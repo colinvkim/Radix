@@ -18,16 +18,6 @@ struct BreadcrumbBar: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
-
-                if canReset {
-                    Divider()
-                        .frame(height: 12)
-
-                    Button("Scan Root", action: onReset)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHint("Returns to the top level of the current scan.")
-                }
             }
             .padding(.vertical, 2)
         }

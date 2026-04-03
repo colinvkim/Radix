@@ -55,9 +55,6 @@ private struct ActiveWorkspaceView: View {
     let snapshot: ScanSnapshot
     let focusNode: FileNode
 
-    @State private var entireScanSearchText = ""
-    @FocusState private var isEntireScanSearchFieldFocused: Bool
-
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceHeaderView(snapshot: snapshot, focusNode: focusNode)
@@ -77,12 +74,6 @@ private struct ActiveWorkspaceView: View {
             contentsPane
                 .frame(height: 220)
         }
-        .searchable(
-            text: $entireScanSearchText,
-            placement: .toolbar,
-            prompt: Text("Search Entire Scan")
-        )
-        .searchFocused($isEntireScanSearchFieldFocused)
     }
 
     private var visualizationPane: some View {
@@ -129,9 +120,7 @@ private struct ActiveWorkspaceView: View {
         VStack(spacing: 0) {
             FileBrowserTableView(
                 nodes: appModel.tableNodes,
-                selection: $appModel.selectedNodeID,
-                entireScanSearchText: $entireScanSearchText,
-                isEntireScanSearchFieldFocused: $isEntireScanSearchFieldFocused
+                selection: $appModel.selectedNodeID
             )
 
             if !snapshot.scanWarnings.isEmpty {
@@ -432,8 +421,14 @@ private struct ScanningWorkspaceState: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView(value: appModel.scanProgressFraction, total: 1)
-                .frame(width: 220)
+            VStack(spacing: 6) {
+                ProgressView(value: appModel.scanProgressFraction, total: 1)
+                    .frame(width: 260)
+
+                Text(appModel.scanProgressLabel)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
 
             Text("Scanning \(appModel.selectedTarget?.displayName ?? "Location")")
                 .font(.title3.weight(.semibold))

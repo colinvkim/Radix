@@ -165,23 +165,32 @@ struct ScanMetrics: Sendable {
             return
         }
 
+        let discoveredWork = max(discoveredItems, 1)
+        let pendingItems = max(discoveredItems - completedItems, 0)
+        let weightedRemainingWork = Double(pendingItems) * 1.35 + 6
+        let traversalFraction = min(
+            Double(completedItems) / (Double(completedItems) + weightedRemainingWork),
+            0.97
+        )
+
         let byteFraction: Double
         if estimatedTotalBytes > 0 {
-            byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 0.99)
+            byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 0.96)
         } else {
             byteFraction = 0
         }
 
-        let itemFraction: Double
-        if estimatedTotalBytes == 0, discoveredItems > 0 {
-            itemFraction = min(Double(completedItems) / Double(discoveredItems), 0.9)
+        let discoveryFraction = min(Double(completedItems) / Double(discoveredWork), 0.92)
+        let blendedFraction: Double
+        if estimatedTotalBytes > 0 {
+            blendedFraction = (byteFraction * 0.65) + (traversalFraction * 0.25) + (discoveryFraction * 0.10)
         } else {
-            itemFraction = 0
+            blendedFraction = (traversalFraction * 0.75) + (discoveryFraction * 0.25)
         }
 
         let hasStarted = filesVisited > 0 || directoriesVisited > 0 || discoveredItems > 0
         let minimumVisibleProgress = hasStarted ? 0.01 : 0
-        progressFraction = max(progressFraction, max(byteFraction, itemFraction, minimumVisibleProgress))
+        progressFraction = max(progressFraction, max(blendedFraction, minimumVisibleProgress))
     }
 }
 

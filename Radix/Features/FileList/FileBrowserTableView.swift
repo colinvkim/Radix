@@ -5,11 +5,11 @@ struct FileBrowserTableView: View {
 
     let nodes: [FileNode]
     @Binding var selection: String?
-    @Binding var entireScanSearchText: String
-    @FocusState.Binding var isEntireScanSearchFieldFocused: Bool
 
-    @FocusState private var isCurrentContentsSearchFieldFocused: Bool
+    @FocusState private var isSearchFieldFocused: Bool
     @State private var currentContentsSearchText = ""
+    @State private var entireScanSearchText = ""
+    @State private var searchScope: FileBrowserFindTarget = .currentContents
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
@@ -44,7 +44,32 @@ struct FileBrowserTableView: View {
     }
 
     private var isShowingEntireScanResults: Bool {
-        !entireScanSearchText.isEmpty
+        searchScope == .entireScan && !entireScanSearchText.isEmpty
+    }
+
+    private var isFilteringCurrentContents: Bool {
+        searchScope == .currentContents && !currentContentsSearchText.isEmpty
+    }
+
+    private var activeSearchText: Binding<String> {
+        Binding(
+            get: {
+                switch searchScope {
+                case .currentContents:
+                    currentContentsSearchText
+                case .entireScan:
+                    entireScanSearchText
+                }
+            },
+            set: { newValue in
+                switch searchScope {
+                case .currentContents:
+                    currentContentsSearchText = newValue
+                case .entireScan:
+                    entireScanSearchText = newValue
+                }
+            }
+        )
     }
 
     private var showsTableChrome: Bool {
@@ -62,23 +87,11 @@ struct FileBrowserTableView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
-                    CurrentContentsFilterBar(
-                        text: $currentContentsSearchText,
-                        isFocused: $isCurrentContentsSearchFieldFocused,
-                        isDisabled: isShowingEntireScanResults
+                    SearchFilterBar(
+                        scope: $searchScope,
+                        text: activeSearchText,
+                        isFocused: $isSearchFieldFocused
                     )
-
-                    if isShowingEntireScanResults {
-                        Divider()
-                        EntireScanSearchBanner(
-                            searchText: entireScanSearchText,
-                            resultCount: displayedNodes.count,
-                            isSearching: isSearchingEntireScan
-                        ) {
-                            entireScanSearchText = ""
-                            refreshDisplayedNodes()
-                        }
-                    }
 
                     Divider()
 
@@ -184,12 +197,8 @@ struct FileBrowserTableView: View {
             }
         }
         .focusedSceneValue(\.fileListFilterAction) { target in
-            switch target {
-            case .currentContents:
-                isCurrentContentsSearchFieldFocused = true
-            case .entireScan:
-                isEntireScanSearchFieldFocused = true
-            }
+            searchScope = target
+            isSearchFieldFocused = true
         }
         .onAppear {
             rebuildEntireScanSearchIndex()
@@ -202,6 +211,9 @@ struct FileBrowserTableView: View {
             refreshDisplayedNodes()
         }
         .onChange(of: entireScanSearchText) { _, _ in
+            refreshDisplayedNodes()
+        }
+        .onChange(of: searchScope) { _, _ in
             refreshDisplayedNodes()
         }
         .onChange(of: appModel.snapshot?.id) { _, _ in
@@ -252,7 +264,7 @@ struct FileBrowserTableView: View {
 
     private func rebuildCurrentContentsResults() {
         let sortedNodes = nodes.sorted(using: sortOrder)
-        let searchText = currentContentsSearchText
+        let searchText = isFilteringCurrentContents ? currentContentsSearchText : ""
         let filteredNodes: [FileNode]
 
         if searchText.isEmpty {
@@ -391,21 +403,56 @@ private enum SearchNormalizer {
     }
 }
 
-private struct CurrentContentsFilterBar: View {
+private struct SearchFilterBar: View {
+    @Binding var scope: FileBrowserFindTarget
     @Binding var text: String
     @FocusState.Binding var isFocused: Bool
-    let isDisabled: Bool
+
+    private var scopeLabel: String {
+        switch scope {
+        case .currentContents:
+            "Current Contents"
+        case .entireScan:
+            "Entire Scan"
+        }
+    }
+
+    private var prompt: String {
+        switch scope {
+        case .currentContents:
+            "Filter current contents"
+        case .entireScan:
+            "Search entire scan"
+        }
+    }
 
     var body: some View {
         HStack(spacing: 10) {
-            Label("Current Contents", systemImage: "line.3.horizontal.decrease.circle")
+            Menu {
+                Button("Current Contents") {
+                    scope = .currentContents
+                    isFocused = true
+                }
+
+                Button("Entire Scan") {
+                    scope = .entireScan
+                    isFocused = true
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: scope == .currentContents ? "line.3.horizontal.decrease.circle" : "magnifyingglass")
+                    Text(scopeLabel)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
 
-            TextField("Filter current contents", text: $text)
+            TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
-                .disabled(isDisabled)
 
             if !text.isEmpty {
                 Button {
@@ -415,57 +462,13 @@ private struct CurrentContentsFilterBar: View {
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .help("Clear current contents filter")
-                .disabled(isDisabled)
+                .help(scope == .currentContents ? "Clear current contents filter" : "Clear entire scan search")
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .controlSize(.small)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-    }
-}
-
-private struct EntireScanSearchBanner: View {
-    let searchText: String
-    let resultCount: Int
-    let isSearching: Bool
-    let clearSearch: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Label("Entire Scan", systemImage: "magnifyingglass")
-                .font(.caption.weight(.semibold))
-
-            Text("Showing results for “\(searchText)”")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 12)
-
-            if isSearching {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Searching…")
-                        .font(.caption)
-                }
-                .foregroundStyle(.secondary)
-            } else {
-                Text(resultCount == 1 ? "1 match" : "\(resultCount) matches")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
-            Button("Clear") {
-                clearSearch()
-            }
-            .buttonStyle(.link)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
     }
 }
 
