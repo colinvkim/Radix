@@ -197,7 +197,6 @@ struct ScanMetrics: Sendable {
 enum ScanProgressEvent: Sendable {
     case progress(ScanMetrics)
     case warning(ScanWarning)
-    case snapshot(ScanSnapshot)
     case finished(ScanSnapshot)
 }
 

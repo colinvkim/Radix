@@ -43,7 +43,7 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: showsInspector) {
             SelectionInspectorView()
-                .inspectorColumnWidth(min: 260, ideal: 300, max: 360)
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
                 .interactiveDismissDisabled()
         }
         .sheet(isPresented: $appModel.showsOnboarding) {

@@ -85,20 +85,8 @@ private struct ActiveWorkspaceView: View {
 
             Divider()
 
-            ZStack(alignment: .bottomLeading) {
-                chartContent
-
-                VStack {
-                    Spacer()
-
-                    HStack(alignment: .bottom, spacing: 16) {
-                        SelectionAccessoryBar(focusNode: focusNode)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(16)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            chartContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -259,51 +247,6 @@ private struct PaneHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-    }
-}
-
-private struct SelectionAccessoryBar: View {
-    @EnvironmentObject private var appModel: AppModel
-
-    let focusNode: FileNode
-
-    private var inspectedNode: FileNode {
-        appModel.selectedNode ?? focusNode
-    }
-
-    private var title: String {
-        appModel.selectedNode == nil ? "Current Focus" : "Selection"
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(inspectedNode.name)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-            }
-
-            Divider()
-                .frame(height: 24)
-
-            WorkspaceMetricView(title: "Allocated", value: RadixFormatters.size(inspectedNode.allocatedSize))
-            WorkspaceMetricView(title: "Kind", value: inspectedNode.itemKind)
-
-            if appModel.selectedNode != nil, let percentOfScan = appModel.selectedNodePercentOfScanText {
-                WorkspaceMetricView(title: "% of Scan", value: percentOfScan)
-            }
-
-            Spacer(minLength: 0)
-
-            Text(appModel.selectedNode == nil ? "Select a segment to inspect it." : "Double-click a folder to zoom in.")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

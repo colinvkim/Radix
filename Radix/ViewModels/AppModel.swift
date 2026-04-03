@@ -541,8 +541,6 @@ final class AppModel: ObservableObject {
             scanMetrics = metrics
         case .warning:
             break
-        case .snapshot:
-            phase = .scanning
         case .finished(let snapshot):
             apply(snapshot: snapshot)
             scanMetrics.recalculateProgress(isComplete: true)
