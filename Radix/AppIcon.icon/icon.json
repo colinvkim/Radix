@@ -1,0 +1,47 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "extended-srgb:0.00000,0.76471,0.81569,1.00000",
+      "extended-srgb:0.38039,0.33333,0.96078,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "scope.svg",
+          "name" : "scope",
+          "position" : {
+            "scale" : 10.24,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}
