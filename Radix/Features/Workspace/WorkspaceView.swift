@@ -16,6 +16,33 @@ struct WorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Label("Choose Folder", systemImage: "folder.badge.plus")
+                }
+                .disabled(!appModel.canChooseFolder)
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                if appModel.canStopScan {
+                    Button {
+                        appModel.stopScan()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                } else {
+                    Button {
+                        appModel.rescan()
+                    } label: {
+                        Label("Rescan", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!appModel.canRescan)
+                }
+            }
+        }
         .dropDestination(for: URL.self) { urls, _ in
             appModel.handleDroppedURLs(urls)
         }
