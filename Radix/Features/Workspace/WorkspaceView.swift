@@ -16,17 +16,17 @@ struct WorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .automatic) { Spacer() }
+            ToolbarItemGroup(placement: .automatic) {
                 Button {
                     appModel.presentOpenPanelAndScan()
                 } label: {
                     Label("Choose Folder", systemImage: "folder.badge.plus")
                 }
                 .disabled(!appModel.canChooseFolder)
-            }
 
-            ToolbarItem(placement: .primaryAction) {
                 if appModel.canStopScan {
                     Button {
                         appModel.stopScan()

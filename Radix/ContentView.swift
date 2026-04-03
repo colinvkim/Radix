@@ -18,28 +18,28 @@ struct ContentView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
         } detail: {
-            WorkspaceView()
-        }
-        .toolbarRole(.editor)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    appModel.navigateBack()
-                } label: {
-                    Label("Back", systemImage: "chevron.backward")
-                }
-                .disabled(!appModel.canNavigateBack)
-            }
+            NavigationStack {
+                WorkspaceView()
+                    .toolbar {
+                        ToolbarItemGroup(placement: .navigation) {
+                            Button {
+                                appModel.navigateBack()
+                            } label: {
+                                Label("Back", systemImage: "chevron.backward")
+                            }
+                            .disabled(!appModel.canNavigateBack)
 
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    appModel.navigateForward()
-                } label: {
-                    Label("Forward", systemImage: "chevron.forward")
-                }
-                .disabled(!appModel.canNavigateForward)
+                            Button {
+                                appModel.navigateForward()
+                            } label: {
+                                Label("Forward", systemImage: "chevron.forward")
+                            }
+                            .disabled(!appModel.canNavigateForward)
+                        }
+                    }
             }
         }
+        // .toolbarRole(.editor)
         .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: $showsInspector) {
             SelectionInspectorView()
