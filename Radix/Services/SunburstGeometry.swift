@@ -8,7 +8,7 @@
 import SwiftUI
 
 enum SunburstLayout {
-    static func segments(
+    nonisolated static func segments(
         for root: FileNode,
         depthLimit: Int,
         minimumAngle: Double = .pi / 90
@@ -38,7 +38,7 @@ enum SunburstLayout {
         return result
     }
 
-    private static func appendSegments(
+    private nonisolated static func appendSegments(
         children: [FileNode],
         parentDenominator: Int64,
         startAngle: Double,
@@ -101,7 +101,7 @@ enum SunburstLayout {
         }
     }
 
-    private static func groupedChildren(
+    private nonisolated static func groupedChildren(
         _ children: [FileNode],
         denominator: Int64,
         totalAngle: Double,
@@ -187,7 +187,7 @@ enum SunburstLayout {
 }
 
 enum SunburstRenderer {
-    static func path(for segment: SunburstSegment, in size: CGSize) -> Path {
+    nonisolated static func path(for segment: SunburstSegment, in size: CGSize) -> Path {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         let maxRadius = min(size.width, size.height) / 2
         let innerRadius = maxRadius * segment.innerRadius
@@ -217,7 +217,7 @@ enum SunburstRenderer {
 }
 
 enum SunburstHitTester {
-    static func segment(
+    nonisolated static func segment(
         at point: CGPoint,
         in size: CGSize,
         segments: [SunburstSegment]

@@ -23,6 +23,16 @@ final class FileTreeIndexTests: XCTestCase {
         XCTAssertEqual(index.path(to: nil).map(\.id), [root.id])
         XCTAssertEqual(index.children(of: nil).count, 0)
     }
+
+    func testUnknownNodeFallsBackToRootPath() {
+        let child = makeFileNode(id: "/root/child.txt", name: "child.txt", size: 12)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [child])
+        let index = FileTreeIndex(root: root)
+
+        XCTAssertEqual(index.path(to: "/root/missing").map(\.id), [root.id])
+        XCTAssertNil(index.node(id: "/root/missing"))
+        XCTAssertNil(index.parent(of: "/root/missing"))
+    }
 }
 
 private func makeFileNode(id: String, name: String, size: Int64) -> FileNode {

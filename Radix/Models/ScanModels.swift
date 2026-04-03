@@ -281,3 +281,39 @@ struct FileTreeIndex {
         }
     }
 }
+
+extension FileNode {
+    var systemImageName: String {
+        if isSynthetic {
+            return "internaldrive.fill"
+        }
+        if isSymbolicLink {
+            return "arrowshape.turn.up.right.circle.fill"
+        }
+        if isPackage {
+            return "shippingbox.fill"
+        }
+        return isDirectory ? "folder.fill" : "doc.fill"
+    }
+
+    var secondaryStatusText: String? {
+        if isSynthetic {
+            return "Estimated from volume usage"
+        }
+        if !isAccessible {
+            return "Limited access"
+        }
+        return nil
+    }
+
+    var accessDescription: String {
+        if isSynthetic {
+            return "Estimated"
+        }
+        return isAccessible ? "Readable" : "Limited"
+    }
+
+    var supportsMoveToTrash: Bool {
+        supportsFileActions && url.path != "/"
+    }
+}

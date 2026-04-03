@@ -5,11 +5,43 @@
 //  Created by Codex on 4/2/26.
 //
 
-import Foundation
+import AppKit
 import Combine
+import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
+    private enum DefaultsKey {
+        static let didCompleteOnboarding = "didCompleteOnboarding"
+        static let showHiddenFiles = "showHiddenFiles"
+        static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
+        static let maxRenderedDepth = "maxRenderedDepth"
+        static let showsInspector = "showsInspector"
+    }
+
+    private enum FileActionError: LocalizedError {
+        case noSelection
+        case unavailable(path: String)
+        case unsupported
+        case directoryRequired
+        case folderRequiredForDrop
+
+        var errorDescription: String? {
+            switch self {
+            case .noSelection:
+                return "Select an item first."
+            case .unavailable(let path):
+                return "The item at \(path) is no longer available."
+            case .unsupported:
+                return "This item does not support that action."
+            case .directoryRequired:
+                return "Choose a folder with contents to zoom in."
+            case .folderRequiredForDrop:
+                return "Drop a folder or mounted volume to start a scan."
+            }
+        }
+    }
+
     enum Phase: Equatable {
         case idle
         case scanning
@@ -17,7 +49,7 @@ final class AppModel: ObservableObject {
         case failed
     }
 
-    @Published var showHiddenFiles = false
+    @Published var showHiddenFiles = true
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
     @Published var phase: Phase = .idle
@@ -26,18 +58,37 @@ final class AppModel: ObservableObject {
     @Published var selectedTarget: ScanTarget?
     @Published var selectedNodeID: String?
     @Published var focusedNodeID: String?
+    @Published var showsInspector = true
     @Published var fileTreeIndex = FileTreeIndex.empty
+    @Published private(set) var availableTargets: [ScanTarget] = []
     @Published var recentTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
     @Published var lastErrorMessage: String?
+    @Published var pendingTrashNode: FileNode?
 
     private let scanEngine = ScanEngine()
 
     private var scanTask: Task<Void, Never>?
     private var activeScanID: UUID?
+    private var cancellables = Set<AnyCancellable>()
 
     init() {
-        showsOnboarding = !UserDefaults.standard.bool(forKey: "didCompleteOnboarding")
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: DefaultsKey.showHiddenFiles) == nil {
+            showHiddenFiles = true
+        } else {
+            showHiddenFiles = defaults.bool(forKey: DefaultsKey.showHiddenFiles)
+        }
+        treatPackagesAsDirectories = defaults.bool(forKey: DefaultsKey.treatPackagesAsDirectories)
+        showsInspector = defaults.object(forKey: DefaultsKey.showsInspector) as? Bool ?? true
+
+        let storedDepth = defaults.integer(forKey: DefaultsKey.maxRenderedDepth)
+        maxRenderedDepth = (3...10).contains(storedDepth) ? storedDepth : 6
+        showsOnboarding = !defaults.bool(forKey: DefaultsKey.didCompleteOnboarding)
+
+        refreshAvailableTargets()
+        observeMountedVolumes()
+        observePreferences()
     }
 
     var isScanning: Bool {
@@ -49,7 +100,11 @@ final class AppModel: ObservableObject {
     }
 
     var selectedNode: FileNode? {
-        fileTreeIndex.node(id: selectedNodeID) ?? currentFocusNode
+        fileTreeIndex.node(id: selectedNodeID)
+    }
+
+    var selectedNodeParent: FileNode? {
+        fileTreeIndex.parent(of: selectedNode?.id)
     }
 
     var breadcrumbNodes: [FileNode] {
@@ -90,9 +145,54 @@ final class AppModel: ObservableObject {
         snapshot?.scanWarnings.count ?? 0
     }
 
+    var scanWarningsPreview: [ScanWarning] {
+        Array((snapshot?.scanWarnings ?? []).prefix(5))
+    }
+
+    var largestSelectedChildren: [FileNode] {
+        guard let selectedNode, selectedNode.isDirectory else { return [] }
+        return Array(selectedNode.children.prefix(8))
+    }
+
     var canZoomIntoSelection: Bool {
         guard let selectedNode else { return false }
         return selectedNode.isDirectory && selectedNode.containsChildren
+    }
+
+    var canZoomOut: Bool {
+        fileTreeIndex.parent(of: focusedNodeID) != nil
+    }
+
+    var canChooseFolder: Bool {
+        !isScanning
+    }
+
+    var canRescan: Bool {
+        selectedTarget != nil && !isScanning
+    }
+
+    var canStopScan: Bool {
+        isScanning
+    }
+
+    var canClearSelection: Bool {
+        selectedNodeID != nil
+    }
+
+    var canOpenSelected: Bool {
+        selectedNode?.supportsFileActions == true
+    }
+
+    var canRevealSelected: Bool {
+        selectedNode?.supportsFileActions == true
+    }
+
+    var canCopySelectedPath: Bool {
+        selectedNode?.supportsFileActions == true
+    }
+
+    var canMoveSelectedToTrash: Bool {
+        selectedNode?.supportsMoveToTrash == true
     }
 
     var isFocusedAtRoot: Bool {
@@ -100,15 +200,42 @@ final class AppModel: ObservableObject {
         return (focusedNodeID ?? rootID) == rootID
     }
 
+    var startupDiskTarget: ScanTarget? {
+        availableTargets.first(where: { $0.kind == .volume && $0.url.path == "/" })
+    }
+
+    var smartTargets: [ScanTarget] {
+        let indexedTargets = Dictionary(uniqueKeysWithValues: availableTargets.map { ($0.id, $0) })
+        return preferredSmartTargetPaths.compactMap { indexedTargets[$0] }
+    }
+
+    var mountedVolumeTargets: [ScanTarget] {
+        let excluded = Set(smartTargets.map(\.id))
+        return availableTargets.filter { $0.kind == .volume && !excluded.contains($0.id) }
+    }
+
+    var recentScanTargets: [ScanTarget] {
+        let excluded = Set((smartTargets + mountedVolumeTargets).map(\.id))
+        return recentTargets.filter { !excluded.contains($0.id) }
+    }
+
     var statusTitle: String {
         if let selectedTarget {
             return selectedTarget.displayName
+        }
+        return "Disk Usage"
+    }
+
+    var statusSubtitle: String {
+        if let selectedTarget {
+            return selectedTarget.url.path
         }
         return "Choose a folder or disk to begin"
     }
 
     var shouldSuggestFullDiskAccess: Bool {
-        PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
+        guard snapshot?.isComplete == true else { return false }
+        return PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
     }
 
     var isFinalizingScan: Bool {
@@ -138,12 +265,35 @@ final class AppModel: ObservableObject {
         return "\(Int((scanProgressFraction * 100).rounded(.down)))%"
     }
 
+    var selectedNodePercentOfParentText: String? {
+        guard let selectedNode,
+              let parent = selectedNodeParent else { return nil }
+        return percentageText(part: selectedNode.allocatedSize, total: parent.allocatedSize)
+    }
+
+    var selectedNodePercentOfScanText: String? {
+        guard let selectedNode,
+              let root = snapshot?.root else { return nil }
+        return percentageText(part: selectedNode.allocatedSize, total: root.allocatedSize)
+    }
+
     func dismissOnboarding() {
         showsOnboarding = false
-        UserDefaults.standard.set(true, forKey: "didCompleteOnboarding")
+        UserDefaults.standard.set(true, forKey: DefaultsKey.didCompleteOnboarding)
+    }
+
+    func presentOnboarding() {
+        showsOnboarding = true
+    }
+
+    func restoreDefaultPreferences() {
+        showHiddenFiles = true
+        treatPackagesAsDirectories = false
+        maxRenderedDepth = 6
     }
 
     func presentOpenPanelAndScan() {
+        guard canChooseFolder else { return }
         if let target = SystemIntegration.presentScanPanel() {
             startScan(target)
         }
@@ -158,9 +308,12 @@ final class AppModel: ObservableObject {
         scanMetrics = ScanMetrics(startedAt: Date())
         selectedNodeID = nil
         focusedNodeID = nil
+        pendingTrashNode = nil
         fileTreeIndex = .empty
 
         registerRecentTarget(target)
+        refreshAvailableTargets()
+
         let scanID = UUID()
         activeScanID = scanID
 
@@ -206,6 +359,7 @@ final class AppModel: ObservableObject {
         activeScanID = nil
         scanTask?.cancel()
         scanTask = nil
+        scanMetrics.isFinalizing = false
 
         if resetState {
             phase = snapshot == nil ? .idle : .displaying
@@ -213,20 +367,43 @@ final class AppModel: ObservableObject {
     }
 
     func select(nodeID: String?) {
+        guard let nodeID else {
+            selectedNodeID = nil
+            return
+        }
+
+        guard fileTreeIndex.node(id: nodeID) != nil else {
+            selectedNodeID = nil
+            return
+        }
+
         selectedNodeID = nodeID
     }
 
     func focus(nodeID: String?) {
         guard let nodeID, fileTreeIndex.node(id: nodeID) != nil else { return }
         focusedNodeID = nodeID
-        selectedNodeID = nodeID
+        if let selectedNodeID,
+           selectedNodeID != nodeID,
+           !fileTreeIndex.isAncestor(nodeID, of: selectedNodeID) {
+            self.selectedNodeID = nil
+        }
+    }
+
+    func clearSelection() {
+        selectedNodeID = nil
     }
 
     func zoomIntoSelection() {
-        guard let selectedNode,
-              selectedNode.isDirectory,
-              selectedNode.containsChildren else { return }
-        focus(nodeID: selectedNode.id)
+        do {
+            let node = try validatedSelection(requiresDirectory: true)
+            guard node.containsChildren else {
+                throw FileActionError.directoryRequired
+            }
+            focus(nodeID: node.id)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     func zoomOut() {
@@ -240,34 +417,100 @@ final class AppModel: ObservableObject {
     func resetFocusToRoot() {
         guard let rootID = snapshot?.root.id else { return }
         focusedNodeID = rootID
-        if selectedNodeID == nil {
-            selectedNodeID = rootID
+        selectedNodeID = nil
+    }
+
+    func selectSidebarTarget(id: String?) {
+        guard let id,
+              let target = (availableTargets + recentTargets).first(where: { $0.id == id }) else {
+            return
         }
+
+        guard selectedTarget?.id != target.id else { return }
+        startScan(target)
     }
 
     @discardableResult
     func handleDroppedURLs(_ urls: [URL]) -> Bool {
         guard let first = urls.first else { return false }
+        guard isDirectoryURL(first) else {
+            lastErrorMessage = FileActionError.folderRequiredForDrop.localizedDescription
+            return false
+        }
         startScan(ScanTarget(url: first))
         return true
     }
 
     func revealSelectedInFinder() {
-        guard let selectedNode, selectedNode.supportsFileActions else { return }
-        let url = selectedNode.url
-        SystemIntegration.reveal(url)
+        do {
+            let node = try validatedSelection()
+            SystemIntegration.reveal(node.url)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     func openSelected() {
-        guard let selectedNode, selectedNode.supportsFileActions else { return }
-        let url = selectedNode.url
-        SystemIntegration.open(url)
+        do {
+            let node = try validatedSelection()
+            SystemIntegration.open(node.url)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     func copySelectedPath() {
         guard let selectedNode, selectedNode.supportsFileActions else { return }
-        let url = selectedNode.url
-        SystemIntegration.copyPath(url)
+        SystemIntegration.copyPath(selectedNode.url)
+    }
+
+    func toggleInspector() {
+        showsInspector.toggle()
+    }
+
+    func toggleSidebar() {
+        SystemIntegration.toggleSidebar()
+    }
+
+    func requestMoveSelectedToTrash() {
+        do {
+            let node = try validatedSelection()
+            guard node.supportsMoveToTrash else {
+                throw FileActionError.unsupported
+            }
+            pendingTrashNode = node
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func confirmMovePendingNodeToTrash() {
+        guard let node = pendingTrashNode else { return }
+        pendingTrashNode = nil
+
+        do {
+            guard FileManager.default.fileExists(atPath: node.url.path) else {
+                throw FileActionError.unavailable(path: node.url.path)
+            }
+            try SystemIntegration.moveToTrash(node.url)
+            if selectedTarget?.id == node.id {
+                selectedTarget = nil
+                snapshot = nil
+                phase = .idle
+                selectedNodeID = nil
+                focusedNodeID = nil
+                fileTreeIndex = .empty
+            } else {
+                rescan()
+            }
+            refreshAvailableTargets()
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func cancelPendingTrash() {
+        pendingTrashNode = nil
     }
 
     func openFullDiskAccessSettings() {
@@ -286,8 +529,7 @@ final class AppModel: ObservableObject {
             scanMetrics = metrics
         case .warning:
             break
-        case .snapshot(let snapshot):
-            apply(snapshot: snapshot)
+        case .snapshot:
             phase = .scanning
         case .finished(let snapshot):
             apply(snapshot: snapshot)
@@ -306,9 +548,31 @@ final class AppModel: ObservableObject {
             focusedNodeID = snapshot.root.id
         }
 
-        if selectedNodeID == nil || fileTreeIndex.node(id: selectedNodeID) == nil {
-            selectedNodeID = focusedNodeID
+        if let selectedNodeID,
+           fileTreeIndex.node(id: selectedNodeID) == nil {
+            self.selectedNodeID = nil
         }
+    }
+
+    private func validatedSelection(requiresDirectory: Bool = false) throws -> FileNode {
+        guard let selectedNode else {
+            throw FileActionError.noSelection
+        }
+        guard selectedNode.supportsFileActions else {
+            throw FileActionError.unsupported
+        }
+        if requiresDirectory, !selectedNode.isDirectory {
+            throw FileActionError.directoryRequired
+        }
+        guard FileManager.default.fileExists(atPath: selectedNode.url.path) else {
+            clearSelection()
+            throw FileActionError.unavailable(path: selectedNode.url.path)
+        }
+        return selectedNode
+    }
+
+    private func isDirectoryURL(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true || url.hasDirectoryPath
     }
 
     private func registerRecentTarget(_ target: ScanTarget) {
@@ -317,5 +581,62 @@ final class AppModel: ObservableObject {
         if recentTargets.count > 10 {
             recentTargets = Array(recentTargets.prefix(10))
         }
+    }
+
+    private var preferredSmartTargetPaths: [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        return [
+            "/",
+            home,
+            home + "/Desktop",
+            home + "/Documents",
+            home + "/Downloads",
+            home + "/Library",
+            "/Applications"
+        ]
+    }
+
+    private func percentageText(part: Int64, total: Int64) -> String? {
+        guard total > 0 else { return nil }
+        return (Double(part) / Double(total))
+            .formatted(.percent.precision(.fractionLength(1)))
+    }
+
+    private func refreshAvailableTargets() {
+        availableTargets = SystemIntegration.defaultTargets()
+    }
+
+    private func observeMountedVolumes() {
+        let workspaceNotifications = NSWorkspace.shared.notificationCenter
+        workspaceNotifications.publisher(for: NSWorkspace.didMountNotification)
+            .merge(with: workspaceNotifications.publisher(for: NSWorkspace.didUnmountNotification))
+            .merge(with: workspaceNotifications.publisher(for: NSWorkspace.didRenameVolumeNotification))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshAvailableTargets()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observePreferences() {
+        $showHiddenFiles
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.showHiddenFiles) }
+            .store(in: &cancellables)
+
+        $treatPackagesAsDirectories
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.treatPackagesAsDirectories) }
+            .store(in: &cancellables)
+
+        $maxRenderedDepth
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.maxRenderedDepth) }
+            .store(in: &cancellables)
+
+        $showsInspector
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.showsInspector) }
+            .store(in: &cancellables)
     }
 }

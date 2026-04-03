@@ -34,10 +34,18 @@ enum SystemIntegration {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         let downloadsDirectory = homeDirectory.appending(path: "Downloads", directoryHint: .isDirectory)
+        let desktopDirectory = homeDirectory.appending(path: "Desktop", directoryHint: .isDirectory)
+        let documentsDirectory = homeDirectory.appending(path: "Documents", directoryHint: .isDirectory)
+        let libraryDirectory = homeDirectory.appending(path: "Library", directoryHint: .isDirectory)
         let applicationsDirectory = URL(filePath: "/Applications", directoryHint: .isDirectory)
         let startupDisk = ScanTarget(url: URL(filePath: "/", directoryHint: .isDirectory), kind: .volume)
 
-        var targets = [startupDisk, ScanTarget(url: homeDirectory), ScanTarget(url: downloadsDirectory), ScanTarget(url: applicationsDirectory)]
+        var targets = [startupDisk, ScanTarget(url: homeDirectory)]
+        for url in [desktopDirectory, documentsDirectory, downloadsDirectory, libraryDirectory, applicationsDirectory] {
+            if fileManager.fileExists(atPath: url.path) {
+                targets.append(ScanTarget(url: url))
+            }
+        }
 
         let mountedVolumes = fileManager.mountedVolumeURLs(
             includingResourceValuesForKeys: [.volumeNameKey],
@@ -63,6 +71,15 @@ enum SystemIntegration {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(url.path, forType: .string)
+    }
+
+    static func moveToTrash(_ url: URL) throws {
+        var resultingItemURL: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &resultingItemURL)
+    }
+
+    static func toggleSidebar() {
+        NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
     }
 
     @discardableResult

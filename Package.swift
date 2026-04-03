@@ -18,16 +18,15 @@ let package = Package(
             name: "RadixCore",
             path: "Radix",
             exclude: [
+                "App",
                 "Assets.xcassets",
                 "ContentView.swift",
+                "Features",
                 "RadixApp.swift",
                 "Services/SystemIntegration.swift",
+                "Shared",
                 "ViewModels",
-                "Views/FileBrowserTableView.swift",
-                "Views/InspectorSidebarView.swift",
-                "Views/OnboardingView.swift",
-                "Views/SettingsView.swift",
-                "Views/SunburstChartView.swift"
+                "Views"
             ],
             sources: [
                 "Models/ScanModels.swift",
