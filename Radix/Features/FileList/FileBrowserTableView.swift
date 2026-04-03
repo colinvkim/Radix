@@ -10,7 +10,6 @@ struct FileBrowserTableView: View {
     @FocusState private var isEntireScanSearchFieldFocused: Bool
     @State private var currentContentsSearchText = ""
     @State private var entireScanSearchText = ""
-    @State private var isEntireScanSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
@@ -184,19 +183,21 @@ struct FileBrowserTableView: View {
                 }
             }
         }
-        .searchable(
-            text: $entireScanSearchText,
-            isPresented: $isEntireScanSearchPresented,
-            placement: .toolbar,
-            prompt: Text("Search Entire Scan")
-        )
-        .searchFocused($isEntireScanSearchFieldFocused)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                EntireScanToolbarSearchField(
+                    text: $entireScanSearchText,
+                    isFocused: $isEntireScanSearchFieldFocused
+                )
+                .frame(width: 300)
+                .disabled(appModel.snapshot == nil)
+            }
+        }
         .focusedSceneValue(\.fileListFilterAction) { target in
             switch target {
             case .currentContents:
                 isCurrentContentsSearchFieldFocused = true
             case .entireScan:
-                isEntireScanSearchPresented = true
                 isEntireScanSearchFieldFocused = true
             }
         }
@@ -212,16 +213,6 @@ struct FileBrowserTableView: View {
         }
         .onChange(of: entireScanSearchText) { _, _ in
             refreshDisplayedNodes()
-        }
-        .onChange(of: isEntireScanSearchFieldFocused) { _, isFocused in
-            if !isFocused && entireScanSearchText.isEmpty {
-                isEntireScanSearchPresented = false
-            }
-        }
-        .onChange(of: isEntireScanSearchPresented) { _, isPresented in
-            if !isPresented && entireScanSearchText.isEmpty {
-                isEntireScanSearchFieldFocused = false
-            }
         }
         .onChange(of: appModel.snapshot?.id) { _, _ in
             rebuildEntireScanSearchIndex()
@@ -260,12 +251,6 @@ struct FileBrowserTableView: View {
 
     private func refreshDisplayedNodes() {
         entireScanSearchTask?.cancel()
-
-        if appModel.snapshot == nil {
-            isEntireScanSearchPresented = false
-        } else if isShowingEntireScanResults || isEntireScanSearchFieldFocused {
-            isEntireScanSearchPresented = true
-        }
 
         if isShowingEntireScanResults {
             scheduleEntireScanSearch()
@@ -491,6 +476,42 @@ private struct EntireScanSearchBanner: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+}
+
+private struct EntireScanToolbarSearchField: View {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("Search Entire Scan", text: $text)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear entire scan search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.7))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Search entire scan")
     }
 }
 
