@@ -184,12 +184,12 @@ struct FileBrowserTableView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                EntireScanToolbarSearchField(
-                    text: $entireScanSearchText,
-                    isFocused: $isEntireScanSearchFieldFocused
-                )
-                .frame(width: 300)
+            ToolbarItem(placement: .automatic) {
+                TextField("Search Entire Scan", text: $entireScanSearchText)
+                    .focused($isEntireScanSearchFieldFocused)
+                    .frame(width: 300)
+                    .help("Search anywhere in the current scan")
+                    .textFieldStyle(.roundedBorder)
                 .disabled(appModel.snapshot == nil)
             }
         }
@@ -476,42 +476,6 @@ private struct EntireScanSearchBanner: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
-    }
-}
-
-private struct EntireScanToolbarSearchField: View {
-    @Binding var text: String
-    @FocusState.Binding var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search Entire Scan", text: $text)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear entire scan search")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.7))
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Search entire scan")
     }
 }
 
