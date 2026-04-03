@@ -21,7 +21,7 @@ struct ContentView: View {
             WorkspaceView()
         }
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 ControlGroup {
                     Button {
                         appModel.navigateBack()
