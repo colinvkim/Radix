@@ -30,6 +30,23 @@ actor ScanEngine {
         let warnings: [ScanWarning]
     }
 
+    /// A work item for the iterative scanner.
+    /// `parentKey` links this item back to its parent for bottom-up assembly.
+    private struct ScanWorkItem: Sendable {
+        let url: URL
+        let includeVolumeDetails: Bool
+        let parentKey: Int
+    }
+
+    /// A completed directory scan awaiting parent assembly.
+    private struct CompletedDirScan {
+        let children: [FileNode]    // For leaves: the leaf node. For dirs: empty (resolved in phase 2).
+        let metadata: NodeMetadata
+        let url: URL
+        let includeVolumeDetails: Bool
+        let isTraversable: Bool     // True if this was a directory we intended to traverse.
+    }
+
     private let fileManager = FileManager.default
     private let scanResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -91,15 +108,16 @@ actor ScanEngine {
             excludesStartupVolumeInternals: target.kind == .volume && target.url.path == "/"
         )
 
-        let rootNode = try scanRootNode(
+        let rootNode = try scanDirectory(
             target: target,
+            includeVolumeDetails: true,
             options: options,
             behavior: behavior,
             metrics: &metrics,
             warnings: &warnings,
-                    continuation: continuation,
-                    emissionState: &emissionState
-                )
+            continuation: continuation,
+            emissionState: &emissionState
+        )
         metrics.completedItems = max(metrics.completedItems, metrics.discoveredItems)
         metrics.currentPath = "Summarizing results…"
         metrics.isFinalizing = true
@@ -122,8 +140,12 @@ actor ScanEngine {
         return snapshot
     }
 
-    private func scanRootNode(
+    // MARK: - Iterative Directory Scanning
+
+    /// Scans a directory iteratively (no recursion) and returns a fully assembled `FileNode`.
+    private func scanDirectory(
         target: ScanTarget,
+        includeVolumeDetails: Bool,
         options: ScanOptions,
         behavior: ScanBehavior,
         metrics: inout ScanMetrics,
@@ -133,187 +155,188 @@ actor ScanEngine {
     ) throws -> FileNode {
         try Task.checkCancellation()
 
-        let metadata = try metadata(for: target.url, includeVolumeDetails: true)
+        let rootMetadata = try metadata(for: target.url, includeVolumeDetails: includeVolumeDetails)
         metrics.discoveredItems = 1
-        metrics.estimatedTotalBytes = estimatedTotalBytes(for: target, metadata: metadata)
+        metrics.estimatedTotalBytes = estimatedTotalBytes(for: target, metadata: rootMetadata)
         metrics.currentPath = target.url.path
         metrics.recalculateProgress()
 
-        if !shouldTraverseDirectory(metadata: metadata, options: options) {
-            let leafResult = makeLeafNode(url: target.url, metadata: metadata, options: options)
-            let fileNode = leafResult.node
+        // If the root itself shouldn't be traversed, return a leaf node.
+        guard shouldTraverseDirectory(metadata: rootMetadata, options: options) else {
+            let leafResult = makeLeafNode(url: target.url, metadata: rootMetadata, options: options)
+            applyLeafMetrics(leafResult.node, metrics: &metrics)
             if !leafResult.warnings.isEmpty {
                 warnings.append(contentsOf: leafResult.warnings)
                 for warning in leafResult.warnings {
                     continuation.yield(.warning(warning))
                 }
             }
-            if fileNode.isDirectory {
+            continuation.yield(.progress(metrics))
+            return leafResult.node
+        }
+
+        // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
+        // We use a stack for DFS. Each item knows its parent key for assembly.
+        var workStack: [ScanWorkItem] = [
+            ScanWorkItem(url: target.url, includeVolumeDetails: true, parentKey: -1)
+        ]
+        // Maps a key to its completed result (leaf or assembled directory).
+        var completedByKey: [Int: CompletedDirScan] = [:]
+        // Maps parent key → child keys, built during phase 1.
+        var childrenKeysByKey: [Int: [Int]] = [:]
+        var nextKey = 0
+
+        while let item = workStack.popLast() {
+            try Task.checkCancellation()
+
+            let itemKey = nextKey
+            nextKey += 1
+
+            // Register this child with its parent (skip root which has parentKey -1).
+            if item.parentKey >= 0 {
+                childrenKeysByKey[item.parentKey, default: []].append(itemKey)
+            }
+
+            let meta: NodeMetadata
+            if item.includeVolumeDetails {
+                meta = rootMetadata // Already fetched for root
+            } else {
+                meta = try metadata(for: item.url)
+            }
+            metrics.currentPath = item.url.path
+
+            if shouldTraverseDirectory(metadata: meta, options: options) {
                 metrics.directoriesVisited += 1
-                metrics.filesVisited += fileNode.descendantFileCount
-            } else if !fileNode.isSymbolicLink {
-                metrics.filesVisited += 1
-            }
-            metrics.bytesDiscovered += fileNode.allocatedSize
-            metrics.completedItems += 1
-            metrics.recalculateProgress()
-            continuation.yield(.progress(metrics))
-            return fileNode
-        }
-
-        metrics.directoriesVisited += 1
-        metrics.recalculateProgress()
-        continuation.yield(.progress(metrics))
-
-        do {
-            let childURLs = try contents(
-                of: target.url,
-                includeHiddenFiles: options.includeHiddenFiles,
-                behavior: behavior
-            )
-            metrics.discoveredItems += childURLs.count
-            metrics.recalculateProgress()
-            maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-            var children: [FileNode] = []
-
-            for childURL in childURLs {
-                try Task.checkCancellation()
-                let child = try scanNode(
-                    at: childURL,
-                    options: options,
-                    behavior: behavior,
-                    metrics: &metrics,
-                    warnings: &warnings,
-                    continuation: continuation,
-                    emissionState: &emissionState
-                )
-                children.append(child)
-            }
-
-            metrics.completedItems += 1
-            metrics.recalculateProgress()
-            maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-            return makeDirectoryNode(url: target.url, metadata: metadata, children: children)
-        } catch {
-            let warning = makeWarning(for: target.url, error: error)
-            warnings.append(warning)
-            continuation.yield(.warning(warning))
-            metrics.inaccessibleDirectories += 1
-            metrics.completedItems += 1
-            metrics.recalculateProgress()
-            continuation.yield(.progress(metrics))
-
-            return FileNode(
-                id: target.url.path,
-                url: target.url,
-                name: displayName(for: target.url),
-                isDirectory: true,
-                isSymbolicLink: metadata.isSymbolicLink,
-                allocatedSize: 0,
-                logicalSize: 0,
-                children: [],
-                descendantFileCount: 0,
-                lastModified: metadata.lastModified,
-                isPackage: metadata.isPackage,
-                isAccessible: false,
-                isSynthetic: false
-            )
-        }
-    }
-
-    private func scanNode(
-        at url: URL,
-        options: ScanOptions,
-        behavior: ScanBehavior,
-        metrics: inout ScanMetrics,
-        warnings: inout [ScanWarning],
-        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
-        emissionState: inout ScanEmissionState
-    ) throws -> FileNode {
-        try Task.checkCancellation()
-
-        let metadata = try metadata(for: url)
-        metrics.currentPath = url.path
-
-        if shouldTraverseDirectory(metadata: metadata, options: options) {
-            metrics.directoriesVisited += 1
-            metrics.recalculateProgress()
-            maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-
-            do {
-                let childURLs = try contents(
-                    of: url,
-                    includeHiddenFiles: options.includeHiddenFiles,
-                    behavior: behavior
-                )
-                metrics.discoveredItems += childURLs.count
                 metrics.recalculateProgress()
                 maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-                var children: [FileNode] = []
 
-                for childURL in childURLs {
-                    let child = try scanNode(
-                        at: childURL,
-                        options: options,
-                        behavior: behavior,
-                        metrics: &metrics,
-                        warnings: &warnings,
-                        continuation: continuation,
-                        emissionState: &emissionState
+                do {
+                    let childURLs = try contents(
+                        of: item.url,
+                        includeHiddenFiles: options.includeHiddenFiles,
+                        behavior: behavior
                     )
-                    children.append(child)
+                    metrics.discoveredItems += childURLs.count
+                    metrics.recalculateProgress()
+                    maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+
+                    // Enqueue children onto the stack. Each child records its parent key.
+                    for childURL in childURLs {
+                        workStack.append(
+                            ScanWorkItem(url: childURL, includeVolumeDetails: false, parentKey: itemKey)
+                        )
+                    }
+                    // Register this directory so phase 2 can assemble it.
+                    // childrenKeysByKey will be populated after the loop by scanning parentKey references.
+                    completedByKey[itemKey] = CompletedDirScan(
+                        children: [],
+                        metadata: meta,
+                        url: item.url,
+                        includeVolumeDetails: item.includeVolumeDetails,
+                        isTraversable: true
+                    )
+                } catch {
+                    let warning = makeWarning(for: item.url, error: error)
+                    warnings.append(warning)
+                    continuation.yield(.warning(warning))
+                    metrics.inaccessibleDirectories += 1
+                    metrics.completedItems += 1
+                    metrics.recalculateProgress()
+                    maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+
+                    let inaccessibleNode = FileNode(
+                        id: item.url.path,
+                        url: item.url,
+                        name: displayName(for: item.url),
+                        isDirectory: true,
+                        isSymbolicLink: meta.isSymbolicLink,
+                        allocatedSize: 0,
+                        logicalSize: 0,
+                        children: [],
+                        descendantFileCount: 0,
+                        lastModified: meta.lastModified,
+                        isPackage: meta.isPackage,
+                        isAccessible: false,
+                        isSynthetic: false
+                    )
+                    completedByKey[itemKey] = CompletedDirScan(
+                        children: [inaccessibleNode],
+                        metadata: meta,
+                        url: item.url,
+                        includeVolumeDetails: item.includeVolumeDetails,
+                        isTraversable: false
+                    )
+                    continue
                 }
-
-                metrics.completedItems += 1
-                metrics.recalculateProgress()
-                maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-                return makeDirectoryNode(url: url, metadata: metadata, children: children)
-            } catch {
-                let warning = makeWarning(for: url, error: error)
-                warnings.append(warning)
-                continuation.yield(.warning(warning))
-                metrics.inaccessibleDirectories += 1
-                metrics.completedItems += 1
-                metrics.recalculateProgress()
+            } else {
+                // Leaf node (file, symlink, or package-as-directory).
+                let leafResult = makeLeafNode(url: item.url, metadata: meta, options: options)
+                applyLeafMetrics(leafResult.node, metrics: &metrics)
+                if !leafResult.warnings.isEmpty {
+                    warnings.append(contentsOf: leafResult.warnings)
+                    for warning in leafResult.warnings {
+                        continuation.yield(.warning(warning))
+                    }
+                }
                 maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-                return FileNode(
-                    id: url.path,
-                    url: url,
-                    name: displayName(for: url),
-                    isDirectory: true,
-                    isSymbolicLink: metadata.isSymbolicLink,
-                    allocatedSize: 0,
-                    logicalSize: 0,
-                    children: [],
-                    descendantFileCount: 0,
-                    lastModified: metadata.lastModified,
-                    isPackage: metadata.isPackage,
-                    isAccessible: false,
-                    isSynthetic: false
+                completedByKey[itemKey] = CompletedDirScan(
+                    children: [leafResult.node],
+                    metadata: meta,
+                    url: item.url,
+                    includeVolumeDetails: item.includeVolumeDetails,
+                    isTraversable: false
                 )
             }
         }
 
-        let leafResult = makeLeafNode(url: url, metadata: metadata, options: options)
-        let fileNode = leafResult.node
-        if !leafResult.warnings.isEmpty {
-            warnings.append(contentsOf: leafResult.warnings)
-            for warning in leafResult.warnings {
-                continuation.yield(.warning(warning))
+        // Phase 2: Assemble the tree bottom-up from completed results.
+        // Process keys in reverse order (children always have higher keys than parents).
+        var resolvedNodeByKey: [Int: FileNode] = [:]
+        for key in (0..<nextKey).reversed() {
+            guard let completed = completedByKey[key] else { continue }
+
+            if completed.isTraversable, let childKeys = childrenKeysByKey[key] {
+                // Traversable directory: assemble resolved children.
+                let childNodes = childKeys.compactMap { resolvedNodeByKey[$0] }
+                let assembled = makeDirectoryNode(
+                    id: completed.url.path,
+                    url: completed.url,
+                    name: displayName(for: completed.url),
+                    children: childNodes,
+                    lastModified: completed.metadata.lastModified,
+                    isPackage: completed.metadata.isPackage,
+                    isAccessible: completed.metadata.isReadable
+                )
+                resolvedNodeByKey[key] = assembled
+            } else if let onlyChild = completed.children.first {
+                // Leaf node or inaccessible directory: use the child directly.
+                resolvedNodeByKey[key] = onlyChild
             }
         }
-        if fileNode.isDirectory {
-            metrics.directoriesVisited += 1
-            metrics.filesVisited += fileNode.descendantFileCount
-        } else if !fileNode.isSymbolicLink {
-            metrics.filesVisited += 1
+
+        guard let rootNode = resolvedNodeByKey[0] else {
+            fatalError("Root work item was never completed.")
         }
-        metrics.bytesDiscovered += fileNode.allocatedSize
+
         metrics.completedItems += 1
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-        return fileNode
+
+        return rootNode
+    }
+
+    // MARK: - Helpers
+
+    private func applyLeafMetrics(_ node: FileNode, metrics: inout ScanMetrics) {
+        if node.isDirectory {
+            metrics.directoriesVisited += 1
+            metrics.filesVisited += node.descendantFileCount
+        } else if !node.isSymbolicLink {
+            metrics.filesVisited += 1
+        }
+        metrics.bytesDiscovered += node.allocatedSize
+        metrics.completedItems += 1
     }
 
     private func metadata(for url: URL, includeVolumeDetails: Bool = false) throws -> NodeMetadata {
@@ -480,18 +503,6 @@ actor ScanEngine {
             descendantFileCount: state.descendantFileCount,
             isAccessible: state.isAccessible,
             warnings: state.warnings
-        )
-    }
-
-    private func makeDirectoryNode(url: URL, metadata: NodeMetadata, children: [FileNode]) -> FileNode {
-        makeDirectoryNode(
-            id: url.path,
-            url: url,
-            name: displayName(for: url),
-            children: children,
-            lastModified: metadata.lastModified,
-            isPackage: metadata.isPackage,
-            isAccessible: metadata.isReadable
         )
     }
 
@@ -677,7 +688,6 @@ actor ScanEngine {
         if target.kind == .volume, let volumeUsedCapacity = metadata.volumeUsedCapacity {
             return max(volumeUsedCapacity, metadata.allocatedSize)
         }
-
         return max(metadata.allocatedSize, 0)
     }
 

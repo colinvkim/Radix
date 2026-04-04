@@ -265,7 +265,7 @@ final class AppModel: ObservableObject {
         if snapshot != nil {
             return "100%"
         }
-        return "\(Int((scanProgressFraction * 100).rounded(.down)))%"
+        return "\(scanMetrics.progressPercentage)%"
     }
 
     var selectedNodePercentOfParentText: String? {

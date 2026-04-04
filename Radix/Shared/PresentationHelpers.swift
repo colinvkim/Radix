@@ -1,20 +1,21 @@
 import Foundation
 
+private let cachedHomePath = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+
 extension ScanTarget {
     var sidebarTitle: String {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         switch url.path {
         case "/":
             return displayName
-        case homePath:
+        case cachedHomePath:
             return "Home"
-        case homePath + "/Desktop":
+        case cachedHomePath + "/Desktop":
             return "Desktop"
-        case homePath + "/Documents":
+        case cachedHomePath + "/Documents":
             return "Documents"
-        case homePath + "/Downloads":
+        case cachedHomePath + "/Downloads":
             return "Downloads"
-        case homePath + "/Library":
+        case cachedHomePath + "/Library":
             return "Library"
         case "/Applications":
             return "Applications"
@@ -31,19 +32,18 @@ extension ScanTarget {
     }
 
     var sidebarSymbolName: String {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         switch url.path {
         case "/":
             return "internaldrive.fill"
-        case homePath:
+        case cachedHomePath:
             return "house.fill"
-        case homePath + "/Desktop":
+        case cachedHomePath + "/Desktop":
             return "desktopcomputer"
-        case homePath + "/Documents":
+        case cachedHomePath + "/Documents":
             return "doc.on.doc.fill"
-        case homePath + "/Downloads":
+        case cachedHomePath + "/Downloads":
             return "arrow.down.circle.fill"
-        case homePath + "/Library":
+        case cachedHomePath + "/Library":
             return "books.vertical.fill"
         case "/Applications":
             return "square.grid.2x2.fill"

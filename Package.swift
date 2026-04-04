@@ -19,9 +19,11 @@ let package = Package(
             path: "Radix",
             exclude: [
                 "App",
+                "AppIcon.icon",
                 "Assets.xcassets",
                 "ContentView.swift",
                 "Features",
+                "Info.plist",
                 "RadixApp.swift",
                 "Services/SystemIntegration.swift",
                 "Shared",

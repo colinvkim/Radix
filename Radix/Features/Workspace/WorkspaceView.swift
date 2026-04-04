@@ -72,7 +72,7 @@ private struct ActiveWorkspaceView: View {
             Divider()
 
             contentsPane
-                .frame(height: 220)
+                .frame(minHeight: 200, maxHeight: .infinity)
         }
     }
 

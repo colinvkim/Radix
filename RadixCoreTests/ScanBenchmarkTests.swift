@@ -18,7 +18,6 @@ final class ScanBenchmarkTests: XCTestCase {
         let startedAt = ContinuousClock.now
         var progressEvents = 0
         var warningEvents = 0
-        var snapshotEvents = 0
         var finalSnapshot: ScanSnapshot?
 
         for try await event in engine.scan(target: ScanTarget(url: targetURL), options: ScanOptions()) {
@@ -27,8 +26,6 @@ final class ScanBenchmarkTests: XCTestCase {
                 progressEvents += 1
             case .warning:
                 warningEvents += 1
-            case .snapshot:
-                snapshotEvents += 1
             case .finished(let snapshot):
                 finalSnapshot = snapshot
             }
@@ -46,7 +43,6 @@ final class ScanBenchmarkTests: XCTestCase {
             folders=\(snapshot.aggregateStats.directoryCount)
             warnings=\(snapshot.scanWarnings.count)
             progress_events=\(progressEvents)
-            partial_snapshots=\(snapshotEvents)
             discovered=\(snapshot.aggregateStats.totalAllocatedSize)
             """
         )

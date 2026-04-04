@@ -9,10 +9,7 @@ struct SidebarView: View {
             set: { newValue in
                 guard let newValue,
                       newValue != appModel.selectedTarget?.id else { return }
-
-                Task { @MainActor in
-                    appModel.selectSidebarTarget(id: newValue)
-                }
+                appModel.selectSidebarTarget(id: newValue)
             }
         )
     }

@@ -10,7 +10,7 @@ struct FileBrowserTableView: View {
     @State private var currentContentsSearchText = ""
     @State private var entireScanSearchText = ""
     @State private var searchScope: FileBrowserFindTarget = .currentContents
-    @State private var sortOrder = [KeyPathComparator(\FileNode.allocatedSize, order: .reverse)]
+    @State private var sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
     @State private var entireScanSearchEntries: [EntireScanSearchEntry] = []
@@ -18,6 +18,7 @@ struct FileBrowserTableView: View {
     @State private var isSearchingEntireScan = false
     @State private var entireScanIndexTask: Task<Void, Never>?
     @State private var entireScanSearchTask: Task<Void, Never>?
+    @State private var filterVersion: UInt64 = 0
 
     private var tableSelection: Binding<String?> {
         Binding(
@@ -33,7 +34,7 @@ struct FileBrowserTableView: View {
         )
     }
 
-    private var sortOrderBinding: Binding<[KeyPathComparator<FileNode>]> {
+    private var sortOrderBinding: Binding<[FileNodeTableComparator]> {
         Binding(
             get: { sortOrder },
             set: { newValue in
@@ -112,7 +113,7 @@ struct FileBrowserTableView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         Table(displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
-                            TableColumn("Name", value: \.name) { node in
+                            TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                                 NameCell(
                                     node: node,
                                     subtitleOverride: subtitle(for: node)
@@ -120,13 +121,13 @@ struct FileBrowserTableView: View {
                             }
                             .width(min: 260, ideal: 360)
 
-                            TableColumn("Allocated", value: \.allocatedSize) { node in
+                            TableColumn("Allocated", sortUsing: FileNodeTableComparator(field: .allocatedSize)) { node in
                                 Text(RadixFormatters.size(node.allocatedSize))
                                     .monospacedDigit()
                             }
                             .width(min: 110, ideal: 130)
 
-                            TableColumn("Kind", value: \.itemKind) { node in
+                            TableColumn("Kind", sortUsing: FileNodeTableComparator(field: .itemKind)) { node in
                                 Text(node.itemKind)
                             }
                             .width(min: 110, ideal: 130)
@@ -204,18 +205,10 @@ struct FileBrowserTableView: View {
             rebuildEntireScanSearchIndex()
             refreshDisplayedNodes()
         }
-        .onChange(of: nodes) { _, _ in
-            refreshDisplayedNodes()
-        }
-        .onChange(of: currentContentsSearchText) { _, _ in
-            refreshDisplayedNodes()
-        }
-        .onChange(of: entireScanSearchText) { _, _ in
-            refreshDisplayedNodes()
-        }
-        .onChange(of: searchScope) { _, _ in
-            refreshDisplayedNodes()
-        }
+        .onChange(of: nodes, updateFilter)
+        .onChange(of: currentContentsSearchText, updateFilter)
+        .onChange(of: entireScanSearchText, updateFilter)
+        .onChange(of: searchScope, updateFilter)
         .onChange(of: appModel.snapshot?.id) { _, _ in
             rebuildEntireScanSearchIndex()
             refreshDisplayedNodes()
@@ -231,6 +224,11 @@ struct FileBrowserTableView: View {
             return "No items anywhere in this scan match your search."
         }
         return "Try a different filter or clear the current contents filter."
+    }
+
+    private func updateFilter() {
+        filterVersion &+= 1
+        refreshDisplayedNodes()
     }
 
     private func subtitle(for node: FileNode) -> String? {
@@ -312,7 +310,7 @@ struct FileBrowserTableView: View {
                     )
 
                     return EntireScanSearchEntry(
-                        node: node,
+                        id: node.id,
                         parentPath: parentPath,
                         searchHaystack: haystack
                     )
@@ -326,7 +324,7 @@ struct FileBrowserTableView: View {
             await MainActor.run {
                 entireScanSearchEntries = entries
                 entireScanParentPathLookup = Dictionary(
-                    uniqueKeysWithValues: entries.map { ($0.node.id, $0.parentPath) }
+                    uniqueKeysWithValues: entries.map { ($0.id, $0.parentPath) }
                 )
 
                 if self.appModel.snapshot?.id == snapshotID, self.isShowingEntireScanResults {
@@ -348,6 +346,7 @@ struct FileBrowserTableView: View {
         let searchEntries = entireScanSearchEntries
         let normalizedSearchText = SearchNormalizer.normalize(searchText)
         let snapshotID = appModel.snapshot?.id
+        let nodesByID = appModel.fileTreeIndex.nodesByID
 
         if searchEntries.isEmpty {
             isSearchingEntireScan = true
@@ -360,9 +359,9 @@ struct FileBrowserTableView: View {
         entireScanSearchTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
 
-            let filteredNodes = await Task.detached(priority: .userInitiated) {
+            let matchedIDs = await Task.detached(priority: .userInitiated) {
                 searchEntries.compactMap { entry in
-                    entry.searchHaystack.contains(normalizedSearchText) ? entry.node : nil
+                    entry.searchHaystack.contains(normalizedSearchText) ? entry.id : nil
                 }
             }.value
 
@@ -376,7 +375,8 @@ struct FileBrowserTableView: View {
                     return
                 }
 
-                let sortedNodes = filteredNodes.sorted(using: sortOrder)
+                let matchedNodes = matchedIDs.compactMap { nodesByID[$0] }
+                let sortedNodes = matchedNodes.sorted(using: sortOrder)
                 applyDisplayedNodes(sortedNodes)
                 isSearchingEntireScan = false
             }
@@ -390,9 +390,56 @@ struct FileBrowserTableView: View {
 }
 
 private struct EntireScanSearchEntry: Sendable {
-    let node: FileNode
+    let id: FileNode.ID
     let parentPath: String
     let searchHaystack: String
+}
+
+private struct FileNodeTableComparator: SortComparator, Sendable {
+    enum Field: Sendable {
+        case name
+        case allocatedSize
+        case itemKind
+    }
+
+    let field: Field
+    var order: SortOrder = .forward
+
+    func compare(_ lhs: FileNode, _ rhs: FileNode) -> ComparisonResult {
+        let result: ComparisonResult = switch field {
+        case .name:
+            lhs.name.localizedStandardCompare(rhs.name)
+        case .allocatedSize:
+            compare(lhs.allocatedSize, rhs.allocatedSize)
+        case .itemKind:
+            lhs.itemKind.localizedStandardCompare(rhs.itemKind)
+        }
+
+        if order == .forward {
+            return result
+        }
+
+        return switch result {
+        case .orderedAscending:
+            .orderedDescending
+        case .orderedDescending:
+            .orderedAscending
+        case .orderedSame:
+            .orderedSame
+        @unknown default:
+            result
+        }
+    }
+
+    private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        if lhs < rhs {
+            return .orderedAscending
+        }
+        if lhs > rhs {
+            return .orderedDescending
+        }
+        return .orderedSame
+    }
 }
 
 private enum SearchNormalizer {

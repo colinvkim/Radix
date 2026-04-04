@@ -71,6 +71,7 @@ enum SystemIntegration {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(url.path, forType: .string)
+        pasteboard.setString(url.absoluteString, forType: .fileURL)
     }
 
     static func moveToTrash(_ url: URL) throws {
