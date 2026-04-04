@@ -471,55 +471,59 @@ final class AppModel: ObservableObject {
     }
 
     func startScan(_ target: ScanTarget) {
-        stopScan(resetState: false)
+        // Defer state mutations to the next runloop to avoid
+        // "Publishing changes from within view updates is not allowed."
+        Task { @MainActor in
+            stopScan(resetState: false)
 
-        selectedTarget = target
-        phase = .scanning
-        lastErrorMessage = nil
-        scanMetrics = ScanMetrics(startedAt: Date())
-        selectedNodeID = nil
-        focusedNodeID = nil
-        pendingTrashNode = nil
-        fileTreeIndex = .empty
-        focusBackStack.removeAll()
-        focusForwardStack.removeAll()
+            selectedTarget = target
+            phase = .scanning
+            lastErrorMessage = nil
+            scanMetrics = ScanMetrics(startedAt: Date())
+            selectedNodeID = nil
+            focusedNodeID = nil
+            pendingTrashNode = nil
+            fileTreeIndex = .empty
+            focusBackStack.removeAll()
+            focusForwardStack.removeAll()
 
-        registerRecentTarget(target)
-        refreshAvailableTargets()
+            registerRecentTarget(target)
+            refreshAvailableTargets()
 
-        let scanID = UUID()
-        activeScanID = scanID
+            let scanID = UUID()
+            activeScanID = scanID
 
-        let options = ScanOptions(
-            includeHiddenFiles: showHiddenFiles || target.kind == .volume,
-            treatPackagesAsDirectories: treatPackagesAsDirectories,
-            maxRenderedDepth: maxRenderedDepth,
-            autoSummarizeDirectories: autoSummarizeDirectories
-        )
+            let options = ScanOptions(
+                includeHiddenFiles: showHiddenFiles || target.kind == .volume,
+                treatPackagesAsDirectories: treatPackagesAsDirectories,
+                maxRenderedDepth: maxRenderedDepth,
+                autoSummarizeDirectories: autoSummarizeDirectories
+            )
 
-        snapshot = nil
-        let stream = scanEngine.scan(target: target, options: options)
-        scanTask = Task {
-            do {
-                for try await event in stream {
-                    guard activeScanID == scanID else {
-                        break
+            snapshot = nil
+            let stream = scanEngine.scan(target: target, options: options)
+            scanTask = Task {
+                do {
+                    for try await event in stream {
+                        guard activeScanID == scanID else {
+                            break
+                        }
+                        handle(event, scanID: scanID)
                     }
-                    handle(event, scanID: scanID)
+                } catch is CancellationError {
+                    if activeScanID == scanID && snapshot == nil {
+                        phase = .idle
+                    }
+                } catch {
+                    if activeScanID == scanID {
+                        phase = .failed
+                        lastErrorMessage = error.localizedDescription
+                    }
                 }
-            } catch is CancellationError {
-                if activeScanID == scanID && snapshot == nil {
-                    phase = .idle
-                }
-            } catch {
-                if activeScanID == scanID {
-                    phase = .failed
-                    lastErrorMessage = error.localizedDescription
-                }
-            }
 
-            if activeScanID == scanID && phase != .displaying && phase != .failed {
-                scanTask = nil
+                if activeScanID == scanID && phase != .displaying && phase != .failed {
+                    scanTask = nil
+                }
             }
         }
     }

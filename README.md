@@ -1,12 +1,14 @@
+<p align="center">
+    <img src="./icon.png" alt="Radix" width="220">
+</p>
+
 # Radix
 
 A fast, native macOS disk space analyzer that helps you find where your storage is going. Scan any folder or volume, explore results with an interactive sunburst chart and file browser, and clean up — all without leaving the app.
 
-![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)
+![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
-
----
 
 ## Why Radix?
 
