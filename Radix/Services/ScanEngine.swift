@@ -32,10 +32,12 @@ actor ScanEngine {
 
     /// A work item for the iterative scanner.
     /// `parentKey` links this item back to its parent for bottom-up assembly.
+    /// `depth` tracks how deep we are in the directory tree.
     private struct ScanWorkItem: Sendable {
         let url: URL
         let includeVolumeDetails: Bool
         let parentKey: Int
+        let depth: Int
     }
 
     /// A completed directory scan awaiting parent assembly.
@@ -70,6 +72,19 @@ actor ScanEngine {
         .volumeAvailableCapacityKey,
         .volumeTotalCapacityKey
     ]
+
+    /// Thresholds for automatically summarizing directories with many small files.
+    /// Directories exceeding BOTH thresholds are treated as atomic (not expanded).
+    private enum AtomicDirectoryThresholds {
+        /// Minimum file count to consider a directory for atomic treatment
+        static let minFileCount = 5_000
+        /// Maximum average file size (in bytes) to consider for atomic treatment
+        /// Below this suggests files are tiny/cached/irrelevant (npm, caches, etc.)
+        static let maxAverageFileSize: Int64 = 4_096  // 4 KB average
+        /// Minimum depth at which atomic treatment applies
+        /// (depth 0 = scan root, depth 1 = immediate children, etc.)
+        static let minDepthForSummarization = 2
+    }
 
     nonisolated func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -176,9 +191,9 @@ actor ScanEngine {
         }
 
         // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
-        // We use a stack for DFS. Each item knows its parent key for assembly.
+        // We use a stack for DFS. Each item knows its parent key and depth for assembly.
         var workStack: [ScanWorkItem] = [
-            ScanWorkItem(url: target.url, includeVolumeDetails: true, parentKey: -1)
+            ScanWorkItem(url: target.url, includeVolumeDetails: true, parentKey: -1, depth: 0)
         ]
         // Maps a key to its completed result (leaf or assembled directory).
         var completedByKey: [Int: CompletedDirScan] = [:]
@@ -220,10 +235,59 @@ actor ScanEngine {
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
+                    // Check if this directory should be summarized as atomic (many small files)
+                    let minFileCount = options.autoSummarizeMinFileCount ?? AtomicDirectoryThresholds.minFileCount
+                    let maxAvgSize = options.autoSummarizeMaxAverageFileSize ?? AtomicDirectoryThresholds.maxAverageFileSize
+                    let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
+                    if options.autoSummarizeDirectories,
+                       item.depth >= minDepth,
+                       childURLs.count >= minFileCount,
+                       let summary = try shouldSummarizeAsAtomicDirectory(
+                           url: item.url,
+                           childURLs: childURLs,
+                           metadata: meta,
+                           maxAverageFileSize: maxAvgSize
+                       ) {
+                        // Treat as atomic: create a leaf node with summary stats
+                        let atomicNode = FileNode(
+                            id: item.url.path,
+                            url: item.url,
+                            name: displayName(for: item.url),
+                            isDirectory: true,
+                            isSymbolicLink: false,
+                            allocatedSize: max(meta.allocatedSize, summary.allocatedSize),
+                            logicalSize: max(meta.logicalSize, summary.logicalSize),
+                            children: [],
+                            descendantFileCount: summary.descendantFileCount,
+                            lastModified: meta.lastModified,
+                            isPackage: false,
+                            isAccessible: summary.isAccessible,
+                            isSynthetic: false,
+                            isAutoSummarized: true
+                        )
+                        applyLeafMetrics(atomicNode, metrics: &metrics)
+                        if !summary.warnings.isEmpty {
+                            warnings.append(contentsOf: summary.warnings)
+                            for warning in summary.warnings {
+                                continuation.yield(.warning(warning))
+                            }
+                        }
+                        maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+
+                        completedByKey[itemKey] = CompletedDirScan(
+                            children: [atomicNode],
+                            metadata: meta,
+                            url: item.url,
+                            includeVolumeDetails: item.includeVolumeDetails,
+                            isTraversable: false
+                        )
+                        continue
+                    }
+
                     // Enqueue children onto the stack. Each child records its parent key.
                     for childURL in childURLs {
                         workStack.append(
-                            ScanWorkItem(url: childURL, includeVolumeDetails: false, parentKey: itemKey)
+                            ScanWorkItem(url: childURL, includeVolumeDetails: false, parentKey: itemKey, depth: item.depth + 1)
                         )
                     }
                     // Register this directory so phase 2 can assemble it.
@@ -257,7 +321,8 @@ actor ScanEngine {
                         lastModified: meta.lastModified,
                         isPackage: meta.isPackage,
                         isAccessible: false,
-                        isSynthetic: false
+                        isSynthetic: false,
+                        isAutoSummarized: false
                     )
                     completedByKey[itemKey] = CompletedDirScan(
                         children: [inaccessibleNode],
@@ -411,7 +476,8 @@ actor ScanEngine {
             lastModified: metadata.lastModified,
             isPackage: metadata.isPackage,
             isAccessible: metadata.isReadable,
-            isSynthetic: false
+            isSynthetic: false,
+            isAutoSummarized: false
         )
     }
 
@@ -438,13 +504,63 @@ actor ScanEngine {
                 lastModified: metadata.lastModified,
                 isPackage: true,
                 isAccessible: metadata.isReadable && summary.isAccessible,
-                isSynthetic: false
+                isSynthetic: false,
+                isAutoSummarized: false
             ),
             summary.warnings
         )
     }
 
-    private func summarizeAtomicDirectory(at url: URL) -> AtomicDirectorySummary? {
+    /// Determines if a directory should be treated as atomic (summarized without expansion).
+    /// Returns a summary if the directory has many small files (like node_modules, caches).
+    /// Returns nil if the directory should be expanded normally.
+    ///
+    /// Sampling uses the prefetched resource values on each `childURL` (set by `contentsOfDirectory`
+    /// via `includingPropertiesForKeys`), so no additional per-file syscalls are needed.
+    private func shouldSummarizeAsAtomicDirectory(
+        url: URL,
+        childURLs: [URL],
+        metadata: NodeMetadata,
+        maxAverageFileSize: Int64
+    ) throws -> AtomicDirectorySummary? {
+        // Quick check: sample files evenly across the directory to estimate average size.
+        // childURLs already have scanResourceKeys prefetched by contentsOfDirectory,
+        // so resourceValues(forKeys:) reads from the cached values without extra syscalls.
+        let sampleSize = min(100, childURLs.count)
+        let step = max(1, childURLs.count / sampleSize)
+        let sampleURLs = stride(from: 0, to: childURLs.count, by: step).prefix(sampleSize).map { childURLs[$0] }
+
+        var sampleTotalSize: Int64 = 0
+        var sampleFileCount = 0
+
+        for childURL in sampleURLs {
+            let values = try childURL.resourceValues(forKeys: scanResourceKeys)
+            if !(values.isDirectory ?? false) {
+                let fileSize = Int64(values.fileSize ?? values.fileAllocatedSize ?? 0)
+                sampleTotalSize += fileSize
+                sampleFileCount += 1
+            }
+        }
+
+        // If sample suggests files are large on average, don't summarize
+        guard sampleFileCount > 0 else { return nil }
+        let avgFileSize = sampleTotalSize / Int64(sampleFileCount)
+        guard avgFileSize <= maxAverageFileSize else {
+            return nil
+        }
+
+        // Sample suggests atomic treatment - do a fast full summary
+        return summarizeAtomicDirectory(at: url, includeHiddenFiles: true)
+    }
+
+    /// Performs a fast recursive summary of a directory's size and file count.
+    /// - Parameters:
+    ///   - url: The directory to summarize.
+    ///   - includeHiddenFiles: Whether to include hidden files in the summary.
+    private func summarizeAtomicDirectory(
+        at url: URL,
+        includeHiddenFiles: Bool = true
+    ) -> AtomicDirectorySummary? {
         let summaryKeys: [URLResourceKey] = [
             .isDirectoryKey,
             .isSymbolicLinkKey,
@@ -455,10 +571,19 @@ actor ScanEngine {
 
         let state = AtomicDirectorySummaryState()
 
+        if let rootValues = try? url.resourceValues(forKeys: Set(summaryKeys)) {
+            state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
+        }
+
+        var enumeratorOptions: FileManager.DirectoryEnumerationOptions = []
+        if !includeHiddenFiles {
+            enumeratorOptions.insert(.skipsHiddenFiles)
+        }
+
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: summaryKeys,
-            options: [],
+            options: enumeratorOptions,
             errorHandler: { childURL, error in
                 state.isAccessible = false
                 state.warnings.append(Self.makeWarning(for: childURL, error: error))
@@ -468,22 +593,19 @@ actor ScanEngine {
             return nil
         }
 
-        if let rootValues = try? url.resourceValues(forKeys: Set(summaryKeys)) {
-            state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
-        }
-
         for case let childURL as URL in enumerator {
             do {
                 let values = try childURL.resourceValues(forKeys: Set(summaryKeys))
 
-                let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
-                let childLogicalSize = Int64(values.fileSize ?? 0)
                 let isDirectory = values.isDirectory ?? false
                 let isSymbolicLink = values.isSymbolicLink ?? false
 
                 state.isAccessible = state.isAccessible && (values.isReadable ?? false)
 
                 if !isDirectory {
+                    let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
+                    let childLogicalSize = Int64(values.fileSize ?? 0)
+
                     state.allocatedSize += childAllocatedSize
                     state.logicalSize += childLogicalSize
 
@@ -550,7 +672,8 @@ actor ScanEngine {
             lastModified: lastModified,
             isPackage: isPackage,
             isAccessible: isFullyAccessible,
-            isSynthetic: false
+            isSynthetic: false,
+            isAutoSummarized: false
         )
     }
 
@@ -586,6 +709,9 @@ actor ScanEngine {
             if node.isDirectory {
                 directoryCount += 1
                 if node.isPackage && node.children.isEmpty {
+                    fileCount += node.descendantFileCount
+                }
+                if node.isAutoSummarized {
                     fileCount += node.descendantFileCount
                 }
             } else if !node.isSymbolicLink && !node.isSynthetic {
@@ -639,7 +765,8 @@ actor ScanEngine {
             lastModified: nil,
             isPackage: false,
             isAccessible: true,
-            isSynthetic: true
+            isSynthetic: true,
+            isAutoSummarized: false
         )
 
         return makeDirectoryNode(

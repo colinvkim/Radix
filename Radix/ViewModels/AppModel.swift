@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
         static let showHiddenFiles = "showHiddenFiles"
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
         static let maxRenderedDepth = "maxRenderedDepth"
+        static let autoSummarizeDirectories = "autoSummarizeDirectories"
     }
 
     private enum FileActionError: LocalizedError {
@@ -51,6 +52,7 @@ final class AppModel: ObservableObject {
     @Published var showHiddenFiles = true
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
+    @Published var autoSummarizeDirectories = true
     @Published var phase: Phase = .idle
     @Published var snapshot: ScanSnapshot?
     @Published var scanMetrics = ScanMetrics()
@@ -67,6 +69,7 @@ final class AppModel: ObservableObject {
     private let scanEngine = ScanEngine()
 
     private var scanTask: Task<Void, Never>?
+    private var expandTask: Task<Void, Never>?
     private var activeScanID: UUID?
     private var cancellables = Set<AnyCancellable>()
     private var focusBackStack: [String] = []
@@ -83,6 +86,13 @@ final class AppModel: ObservableObject {
 
         let storedDepth = defaults.integer(forKey: DefaultsKey.maxRenderedDepth)
         maxRenderedDepth = (3...10).contains(storedDepth) ? storedDepth : 6
+
+        if defaults.object(forKey: DefaultsKey.autoSummarizeDirectories) == nil {
+            autoSummarizeDirectories = true
+        } else {
+            autoSummarizeDirectories = defaults.bool(forKey: DefaultsKey.autoSummarizeDirectories)
+        }
+
         showsOnboarding = !defaults.bool(forKey: DefaultsKey.didCompleteOnboarding)
 
         refreshAvailableTargets()
@@ -293,6 +303,164 @@ final class AppModel: ObservableObject {
         showHiddenFiles = true
         treatPackagesAsDirectories = false
         maxRenderedDepth = 6
+        autoSummarizeDirectories = true
+    }
+
+    /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
+    func expandSummarizedNode(_ node: FileNode, completion: @escaping () -> Void) {
+        guard node.isAutoSummarized else {
+            completion()
+            return
+        }
+
+        // Cancel any in-progress expansion
+        expandTask?.cancel()
+
+        let target = ScanTarget(url: node.url)
+        let options = ScanOptions(
+            includeHiddenFiles: showHiddenFiles || target.kind == .volume,
+            treatPackagesAsDirectories: treatPackagesAsDirectories,
+            maxRenderedDepth: maxRenderedDepth,
+            autoSummarizeDirectories: false  // Force full expansion
+        )
+
+        expandTask = Task(priority: .userInitiated) {
+            do {
+                var expandedNode: FileNode?
+                for try await event in scanEngine.scan(target: target, options: options) {
+                    if case .finished(let snapshot) = event {
+                        expandedNode = snapshot.root
+                    }
+                }
+
+                try Task.checkCancellation()
+
+                guard let expandedNode else {
+                    await MainActor.run { completion() }
+                    return
+                }
+
+                await MainActor.run {
+                    self.replaceNodeInTree(node, with: expandedNode)
+                    completion()
+                }
+            } catch {
+                await MainActor.run {
+                    if !(error is CancellationError) {
+                        self.lastErrorMessage = "Failed to expand '\(node.name)': \(error.localizedDescription)"
+                    }
+                    completion()
+                }
+            }
+        }
+    }
+
+    /// Replaces a node in the current snapshot tree with an expanded version.
+    private func replaceNodeInTree(_ oldNode: FileNode, with newNode: FileNode) {
+        guard let currentSnapshot = snapshot else { return }
+
+        // Build the set of ancestor IDs from target to root for fast lookup.
+        // Only nodes on this path (and the target itself) need to be rebuilt.
+        var affectedIDs: Set<String> = [oldNode.id]
+        var cursor = oldNode.id
+        while let parentID = fileTreeIndex.parentByID[cursor] {
+            affectedIDs.insert(parentID)
+            cursor = parentID
+        }
+
+        let updatedRoot = replaceNodeInTreeRecursive(currentSnapshot.root, oldNode.id, newNode, affectedIDs)
+        let updatedSnapshot = ScanSnapshot(
+            target: currentSnapshot.target,
+            root: updatedRoot,
+            startedAt: currentSnapshot.startedAt,
+            finishedAt: currentSnapshot.finishedAt,
+            scanWarnings: currentSnapshot.scanWarnings,
+            aggregateStats: aggregateStats(for: updatedRoot),
+            isComplete: currentSnapshot.isComplete
+        )
+
+        self.snapshot = updatedSnapshot
+        fileTreeIndex = FileTreeIndex(root: updatedRoot)
+        selectedNodeID = newNode.id
+    }
+
+    /// Recursively walks the tree and replaces the node with matching ID.
+    /// Only nodes on the path from root to target (identified via `affectedIDs`) are rebuilt;
+    /// all other nodes are returned unchanged (structural sharing).
+    private func replaceNodeInTreeRecursive(_ node: FileNode, _ targetID: String, _ replacement: FileNode, _ affectedIDs: Set<String>) -> FileNode {
+        if node.id == targetID {
+            return replacement
+        }
+
+        // If this node is not an ancestor of the target, return it unchanged.
+        guard affectedIDs.contains(node.id) else { return node }
+
+        let newChildren = node.children.map { replaceNodeInTreeRecursive($0, targetID, replacement, affectedIDs) }
+        return FileNode(
+            id: node.id,
+            url: node.url,
+            name: node.name,
+            isDirectory: node.isDirectory,
+            isSymbolicLink: node.isSymbolicLink,
+            allocatedSize: newChildren.reduce(into: Int64(0)) { $0 += $1.allocatedSize },
+            logicalSize: newChildren.reduce(into: Int64(0)) { $0 += $1.logicalSize },
+            children: newChildren,
+            descendantFileCount: newChildren.reduce(into: 0) {
+                if $1.isDirectory {
+                    $0 += $1.descendantFileCount
+                } else if !$1.isSymbolicLink && !$1.isSynthetic {
+                    $0 += 1
+                }
+            },
+            lastModified: node.lastModified,
+            isPackage: node.isPackage,
+            isAccessible: node.isAccessible,
+            isSynthetic: node.isSynthetic,
+            isAutoSummarized: node.isAutoSummarized
+        )
+    }
+
+    private func aggregateStats(for root: FileNode) -> ScanAggregateStats {
+        var fileCount = 0
+        var directoryCount = 0
+        var accessibleItemCount = 0
+        var inaccessibleItemCount = 0
+
+        walkTree(node: root) { node in
+            if node.isDirectory {
+                directoryCount += 1
+                if node.isPackage && node.children.isEmpty {
+                    fileCount += node.descendantFileCount
+                }
+                if node.isAutoSummarized {
+                    fileCount += node.descendantFileCount
+                }
+            } else if !node.isSymbolicLink && !node.isSynthetic {
+                fileCount += 1
+            }
+
+            if node.isAccessible {
+                accessibleItemCount += 1
+            } else {
+                inaccessibleItemCount += 1
+            }
+        }
+
+        return ScanAggregateStats(
+            totalAllocatedSize: root.allocatedSize,
+            totalLogicalSize: root.logicalSize,
+            fileCount: fileCount,
+            directoryCount: directoryCount,
+            accessibleItemCount: accessibleItemCount,
+            inaccessibleItemCount: inaccessibleItemCount
+        )
+    }
+
+    private func walkTree(node: FileNode, visit: (FileNode) -> Void) {
+        visit(node)
+        for child in node.children {
+            walkTree(node: child, visit: visit)
+        }
     }
 
     func presentOpenPanelAndScan() {
@@ -325,7 +493,8 @@ final class AppModel: ObservableObject {
         let options = ScanOptions(
             includeHiddenFiles: showHiddenFiles || target.kind == .volume,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
-            maxRenderedDepth: maxRenderedDepth
+            maxRenderedDepth: maxRenderedDepth,
+            autoSummarizeDirectories: autoSummarizeDirectories
         )
 
         snapshot = nil
@@ -364,6 +533,8 @@ final class AppModel: ObservableObject {
         activeScanID = nil
         scanTask?.cancel()
         scanTask = nil
+        expandTask?.cancel()
+        expandTask = nil
         scanMetrics.isFinalizing = false
 
         if resetState {
@@ -667,6 +838,11 @@ final class AppModel: ObservableObject {
         $maxRenderedDepth
             .dropFirst()
             .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.maxRenderedDepth) }
+            .store(in: &cancellables)
+
+        $autoSummarizeDirectories
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0, forKey: DefaultsKey.autoSummarizeDirectories) }
             .store(in: &cancellables)
     }
 }

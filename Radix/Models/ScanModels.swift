@@ -70,6 +70,16 @@ struct ScanOptions: Sendable {
     var includeHiddenFiles = false
     var treatPackagesAsDirectories = false
     var maxRenderedDepth = 6
+    var autoSummarizeDirectories = true
+    /// Override for the minimum file count to trigger auto-summarization.
+    /// When nil, the ScanEngine default (5,000) is used.
+    var autoSummarizeMinFileCount: Int?
+    /// Override for the maximum average file size to trigger auto-summarization.
+    /// When nil, the ScanEngine default (4 KB) is used.
+    var autoSummarizeMaxAverageFileSize: Int64?
+    /// Override for the minimum depth at which auto-summarization applies.
+    /// When nil, the ScanEngine default (2) is used.
+    var autoSummarizeMinDepthForSummarization: Int?
 }
 
 enum ScanWarningCategory: String, Hashable, Sendable {
@@ -99,6 +109,7 @@ struct FileNode: Identifiable, Hashable, Sendable {
     let isPackage: Bool
     let isAccessible: Bool
     let isSynthetic: Bool
+    let isAutoSummarized: Bool
 
     nonisolated var containsChildren: Bool {
         !children.isEmpty
@@ -107,6 +118,9 @@ struct FileNode: Identifiable, Hashable, Sendable {
     nonisolated var itemKind: String {
         if isSynthetic {
             return "System Data"
+        }
+        if isAutoSummarized {
+            return "Summarized"
         }
         if isSymbolicLink {
             return "Alias"
@@ -307,6 +321,9 @@ extension FileNode {
     var secondaryStatusText: String? {
         if isSynthetic {
             return "Estimated from volume usage"
+        }
+        if isAutoSummarized {
+            return "Summarized (\(descendantFileCount) files)"
         }
         if !isAccessible {
             return "Limited access"

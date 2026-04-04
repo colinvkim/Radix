@@ -539,6 +539,10 @@ private struct NameCell: View {
                         .lineLimit(1)
                 }
             }
+
+            if node.isAutoSummarized {
+                ExpandSummarizedButton(node: node)
+            }
         }
         .accessibilityElement(children: .combine)
     }
@@ -548,5 +552,35 @@ private struct NameCell: View {
             return .secondary
         }
         return node.isSynthetic ? .secondary : .orange
+    }
+}
+
+/// Button that appears next to auto-summarized directories, allowing users to expand them fully.
+private struct ExpandSummarizedButton: View {
+    let node: FileNode
+    @EnvironmentObject private var appModel: AppModel
+    @State private var isExpanding = false
+
+    var body: some View {
+        Button(action: expandFolder) {
+            Image(systemName: "arrowshape.turn.up.right.circle.fill")
+                .foregroundStyle(.blue)
+                .help("Expand '\(node.name)' to scan all \(node.descendantFileCount) files")
+        }
+        .buttonStyle(.plain)
+        .disabled(isExpanding)
+        .overlay {
+            if isExpanding {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private func expandFolder() {
+        isExpanding = true
+        appModel.expandSummarizedNode(node) {
+            isExpanding = false
+        }
     }
 }

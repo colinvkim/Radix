@@ -83,7 +83,8 @@ private func makeFileNode(id: String, name: String, size: Int64) -> FileNode {
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
-        isSynthetic: false
+        isSynthetic: false,
+        isAutoSummarized: false
     )
 }
 
@@ -101,6 +102,7 @@ private func makeDirectoryNode(id: String, name: String, children: [FileNode]) -
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
-        isSynthetic: false
+        isSynthetic: false,
+        isAutoSummarized: false
     )
 }

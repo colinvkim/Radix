@@ -36,8 +36,13 @@ private struct GeneralSettingsPane: View {
             Section("Scanning") {
                 Toggle("Show hidden files while scanning", isOn: $appModel.showHiddenFiles)
                 Toggle("Treat app bundles and packages as folders", isOn: $appModel.treatPackagesAsDirectories)
+                Toggle("Automatically summarize folders with many small files", isOn: $appModel.autoSummarizeDirectories)
 
                 Text("Hidden files are included by default. Mounted volume scans always include them automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("When enabled, directories with thousands of tiny files (like node_modules or caches) are summarized without expanding every file, dramatically improving scan speed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

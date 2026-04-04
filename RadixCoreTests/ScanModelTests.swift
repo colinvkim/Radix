@@ -46,7 +46,8 @@ final class ScanModelTests: XCTestCase {
             lastModified: nil,
             isPackage: false,
             isAccessible: isAccessible,
-            isSynthetic: isSynthetic
+            isSynthetic: isSynthetic,
+            isAutoSummarized: false
         )
     }
 }

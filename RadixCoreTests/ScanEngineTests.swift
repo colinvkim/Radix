@@ -277,6 +277,151 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertLessThan(metrics.progressFraction, 0.5)
         XCTAssertFalse(metrics.isFinalizing)
     }
+
+    func testDirectoryBelowThresholdNotAutoSummarized() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        // Create a directory with small files — well below the default 5,000-file threshold
+        let cacheURL = rootURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        // Create 100 small files — below the default 5,000 threshold
+        for i in 0..<100 {
+            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
+            try Data(repeating: UInt8(i % 256), count: 64).write(to: fileURL)  // 64 bytes each
+        }
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+
+        // The cache directory should NOT be auto-summarized (only 100 files, below threshold)
+        // This test verifies the mechanism doesn't trigger at low file counts
+        let cacheNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "cache" }))
+        XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with only 100 files should not be auto-summarized")
+        XCTAssertTrue(cacheNode.isDirectory)
+        XCTAssertTrue(cacheNode.containsChildren)
+    }
+
+    func testAutoSummarizedDirectoryShowsFileCount() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        // Create a regular file for comparison
+        let fileURL = rootURL.appending(path: "document.txt")
+        try Data("Hello, World!".utf8).write(to: fileURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+
+        let fileNode = try XCTUnwrap(snapshot.root.children.first)
+        XCTAssertFalse(fileNode.isAutoSummarized)
+        XCTAssertEqual(fileNode.itemKind, "File")
+        XCTAssertNil(fileNode.secondaryStatusText)
+    }
+
+    func testAutoSummarizeCanBeDisabledViaOptions() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        // Create a deep directory structure
+        let cacheURL = rootURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        // Create many small files
+        for i in 0..<100 {
+            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
+            try Data(repeating: UInt8(i % 256), count: 64).write(to: fileURL)
+        }
+
+        // Scan with autoSummarize disabled
+        var options = ScanOptions()
+        options.autoSummarizeDirectories = false
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        // Even with many files, the directory should NOT be auto-summarized
+        let cacheNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "cache" }))
+        XCTAssertFalse(cacheNode.isAutoSummarized)
+        XCTAssertTrue(cacheNode.containsChildren)
+        XCTAssertEqual(cacheNode.children.count, 100)
+    }
+
+    func testDirectoryIsAutoSummarizedWithLowThresholds() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        // Create a directory at depth 2: rootURL/projects/cache/
+        // Depth 0 = rootURL, depth 1 = projects, depth 2 = cache
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projectsURL, withIntermediateDirectories: true)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        // Create 20 small files — enough to trigger with low thresholds
+        for i in 0..<20 {
+            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
+            try Data(repeating: UInt8(i % 256), count: 32).write(to: fileURL)  // 32 bytes each
+        }
+
+        // Use low thresholds: min 10 files, max 256 bytes average, min depth 2
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        XCTAssertTrue(cacheNode.isAutoSummarized, "Directory should be auto-summarized with low thresholds")
+        XCTAssertFalse(cacheNode.containsChildren, "Auto-summarized directory should have no children")
+        XCTAssertEqual(cacheNode.descendantFileCount, 20, "Should report correct file count")
+        XCTAssertEqual(cacheNode.itemKind, "Summarized")
+        XCTAssertEqual(cacheNode.secondaryStatusText, "Summarized (20 files)")
+    }
+
+    func testDirectoryNotAutoSummarizedWhenFilesAreLarge() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        // Create a directory at depth 2 with 20 LARGE files
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projectsURL, withIntermediateDirectories: true)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for i in 0..<20 {
+            let fileURL = cacheURL.appending(path: "file_\(i).dat")
+            try Data(repeating: UInt8(i % 256), count: 100_000).write(to: fileURL)  // 100 KB each
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 4_096  // 4 KB max average
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with large files should not be auto-summarized")
+        XCTAssertTrue(cacheNode.containsChildren)
+        XCTAssertEqual(cacheNode.children.count, 20)
+    }
 }
 
 private func finishedSnapshot(target: ScanTarget, options: ScanOptions) async throws -> ScanSnapshot {
