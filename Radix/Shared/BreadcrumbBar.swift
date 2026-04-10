@@ -2,9 +2,7 @@ import SwiftUI
 
 struct BreadcrumbBar: View {
     let nodes: [FileNode]
-    let canReset: Bool
     let onSelect: (String) -> Void
-    let onReset: () -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {

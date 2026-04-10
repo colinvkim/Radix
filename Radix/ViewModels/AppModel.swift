@@ -232,13 +232,6 @@ final class AppModel: ObservableObject {
         return recentTargets.filter { !excluded.contains($0.id) }
     }
 
-    var statusTitle: String {
-        if let selectedTarget {
-            return selectedTarget.displayName
-        }
-        return "Disk Usage"
-    }
-
     var statusSubtitle: String {
         if let selectedTarget {
             return selectedTarget.url.path
@@ -655,10 +648,6 @@ final class AppModel: ObservableObject {
         SystemIntegration.copyPath(selectedNode.url)
     }
 
-    func toggleSidebar() {
-        SystemIntegration.toggleSidebar()
-    }
-
     func requestMoveSelectedToTrash() {
         do {
             let node = try validatedSelection()
@@ -698,10 +687,6 @@ final class AppModel: ObservableObject {
 
     func cancelPendingTrash() {
         pendingTrashNode = nil
-    }
-
-    func openFullDiskAccessSettings() {
-        _ = SystemIntegration.openFullDiskAccessSettings()
     }
 
     func prepareAndOpenFullDiskAccessSettings() {

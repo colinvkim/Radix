@@ -72,8 +72,6 @@ extension ScanWarningCategory {
             return "hand.raised.fill"
         case .fileSystem:
             return "exclamationmark.triangle.fill"
-        case .cancelled:
-            return "xmark.circle.fill"
         }
     }
 }

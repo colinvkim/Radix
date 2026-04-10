@@ -79,10 +79,6 @@ enum SystemIntegration {
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingItemURL)
     }
 
-    static func toggleSidebar() {
-        NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
-    }
-
     @discardableResult
     static func openFullDiskAccessSettings() -> Bool {
         guard !isRunningInsideXcodePreview else {

@@ -85,7 +85,6 @@ struct ScanOptions: Sendable {
 enum ScanWarningCategory: String, Hashable, Sendable {
     case permissionDenied
     case fileSystem
-    case cancelled
 }
 
 struct ScanWarning: Identifiable, Hashable, Sendable {

@@ -18,8 +18,6 @@ struct FileBrowserTableView: View {
     @State private var isSearchingEntireScan = false
     @State private var entireScanIndexTask: Task<Void, Never>?
     @State private var entireScanSearchTask: Task<Void, Never>?
-    @State private var filterVersion: UInt64 = 0
-
     private var tableSelection: Binding<String?> {
         Binding(
             get: {
@@ -227,7 +225,6 @@ struct FileBrowserTableView: View {
     }
 
     private func updateFilter() {
-        filterVersion &+= 1
         refreshDisplayedNodes()
     }
 

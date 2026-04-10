@@ -156,9 +156,7 @@ private struct WorkspaceHeaderView: View {
                 HStack(alignment: .center, spacing: 14) {
                     BreadcrumbBar(
                         nodes: appModel.breadcrumbNodes,
-                        canReset: !appModel.isFocusedAtRoot,
-                        onSelect: { appModel.focus(nodeID: $0) },
-                        onReset: { appModel.resetFocusToRoot() }
+                        onSelect: { appModel.focus(nodeID: $0) }
                     )
 
                     Spacer(minLength: 12)
@@ -169,9 +167,7 @@ private struct WorkspaceHeaderView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     BreadcrumbBar(
                         nodes: appModel.breadcrumbNodes,
-                        canReset: !appModel.isFocusedAtRoot,
-                        onSelect: { appModel.focus(nodeID: $0) },
-                        onReset: { appModel.resetFocusToRoot() }
+                        onSelect: { appModel.focus(nodeID: $0) }
                     )
 
                     MetricStrip(focusNode: focusNode)
