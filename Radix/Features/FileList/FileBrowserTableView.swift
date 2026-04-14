@@ -13,8 +13,8 @@ struct FileBrowserTableView: View {
     @State private var sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
     @State private var displayedNodes: [FileNode] = []
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
-    @State private var entireScanSearchEntries: [EntireScanSearchEntry] = []
-    @State private var entireScanParentPathLookup: [FileNode.ID: String] = [:]
+    @State private var indexedEntireScanSnapshotID: UUID?
+    @State private var entireScanNodeIDs: [FileNode.ID] = []
     @State private var isSearchingEntireScan = false
     @State private var entireScanIndexTask: Task<Void, Never>?
     @State private var entireScanSearchTask: Task<Void, Never>?
@@ -200,7 +200,6 @@ struct FileBrowserTableView: View {
             isSearchFieldFocused = true
         }
         .onAppear {
-            rebuildEntireScanSearchIndex()
             refreshDisplayedNodes()
         }
         .onChange(of: nodes, updateFilter)
@@ -208,7 +207,8 @@ struct FileBrowserTableView: View {
         .onChange(of: entireScanSearchText, updateFilter)
         .onChange(of: searchScope, updateFilter)
         .onChange(of: appModel.snapshot?.id) { _, _ in
-            rebuildEntireScanSearchIndex()
+            indexedEntireScanSnapshotID = nil
+            entireScanNodeIDs = []
             refreshDisplayedNodes()
         }
         .onDisappear {
@@ -233,7 +233,10 @@ struct FileBrowserTableView: View {
             return node.secondaryStatusText
         }
 
-        return entireScanParentPathLookup[node.id] ?? node.url.deletingLastPathComponent().path
+        let parentByID = appModel.fileTreeIndex.parentByID
+        let nodesByID = appModel.fileTreeIndex.nodesByID
+        return parentByID[node.id]
+            .flatMap { nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
     }
 
     private func descendantCountText(for node: FileNode) -> String {
@@ -250,7 +253,7 @@ struct FileBrowserTableView: View {
         entireScanSearchTask?.cancel()
 
         if isShowingEntireScanResults {
-            scheduleEntireScanSearch()
+            ensureEntireScanIndexThenSearch()
         } else {
             isSearchingEntireScan = false
             rebuildCurrentContentsResults()
@@ -275,18 +278,29 @@ struct FileBrowserTableView: View {
         applyDisplayedNodes(filteredNodes)
     }
 
-    private func rebuildEntireScanSearchIndex() {
-        entireScanIndexTask?.cancel()
-
+    private func ensureEntireScanIndexThenSearch() {
         let snapshotID = appModel.snapshot?.id
-        let nodesByID = appModel.fileTreeIndex.nodesByID
-        let parentByID = appModel.fileTreeIndex.parentByID
-        let rootID = appModel.fileTreeIndex.rootID
 
-        guard snapshotID != nil else {
-            entireScanSearchEntries = []
+        guard let snapshotID else {
+            indexedEntireScanSnapshotID = nil
+            entireScanNodeIDs = []
+            isSearchingEntireScan = false
+            applyDisplayedNodes([])
             return
         }
+
+        if indexedEntireScanSnapshotID == snapshotID {
+            scheduleEntireScanSearch()
+            return
+        }
+
+        rebuildEntireScanSearchIndex(for: snapshotID)
+    }
+
+    private func rebuildEntireScanSearchIndex(for snapshotID: UUID) {
+        entireScanIndexTask?.cancel()
+        let nodesByID = appModel.fileTreeIndex.nodesByID
+        let rootID = appModel.fileTreeIndex.rootID
 
         if isShowingEntireScanResults {
             isSearchingEntireScan = true
@@ -294,24 +308,8 @@ struct FileBrowserTableView: View {
         }
 
         entireScanIndexTask = Task {
-            let entries: [EntireScanSearchEntry] = await Task.detached(priority: .userInitiated) { () -> [EntireScanSearchEntry] in
-                Array(nodesByID.values).compactMap { node -> EntireScanSearchEntry? in
-                    guard node.id != rootID else {
-                        return nil
-                    }
-
-                    let parentPath = parentByID[node.id]
-                        .flatMap { nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
-                    let haystack = SearchNormalizer.normalize(
-                        [node.name, node.url.path, node.itemKind].joined(separator: "\n")
-                    )
-
-                    return EntireScanSearchEntry(
-                        id: node.id,
-                        parentPath: parentPath,
-                        searchHaystack: haystack
-                    )
-                }
+            let nodeIDs: [FileNode.ID] = await Task.detached(priority: .userInitiated) { () -> [FileNode.ID] in
+                nodesByID.keys.filter { $0 != rootID }
             }.value
 
             guard !Task.isCancelled else {
@@ -319,10 +317,8 @@ struct FileBrowserTableView: View {
             }
 
             await MainActor.run {
-                entireScanSearchEntries = entries
-                entireScanParentPathLookup = Dictionary(
-                    uniqueKeysWithValues: entries.map { ($0.id, $0.parentPath) }
-                )
+                indexedEntireScanSnapshotID = snapshotID
+                entireScanNodeIDs = nodeIDs
 
                 if self.appModel.snapshot?.id == snapshotID, self.isShowingEntireScanResults {
                     scheduleEntireScanSearch()
@@ -340,12 +336,12 @@ struct FileBrowserTableView: View {
             return
         }
 
-        let searchEntries = entireScanSearchEntries
+        let nodeIDs = entireScanNodeIDs
         let normalizedSearchText = SearchNormalizer.normalize(searchText)
         let snapshotID = appModel.snapshot?.id
         let nodesByID = appModel.fileTreeIndex.nodesByID
 
-        if searchEntries.isEmpty {
+        if nodeIDs.isEmpty {
             isSearchingEntireScan = true
             applyDisplayedNodes([])
             return
@@ -357,8 +353,13 @@ struct FileBrowserTableView: View {
             try? await Task.sleep(for: .milliseconds(180))
 
             let matchedIDs = await Task.detached(priority: .userInitiated) {
-                searchEntries.compactMap { entry in
-                    entry.searchHaystack.contains(normalizedSearchText) ? entry.id : nil
+                nodeIDs.compactMap { id in
+                    guard let node = nodesByID[id] else { return nil }
+
+                    let haystack = SearchNormalizer.normalize(
+                        [node.name, node.url.path, node.itemKind].joined(separator: "\n")
+                    )
+                    return haystack.contains(normalizedSearchText) ? id : nil
                 }
             }.value
 
@@ -384,12 +385,6 @@ struct FileBrowserTableView: View {
         displayedNodes = nodes
         displayedNodeLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     }
-}
-
-private struct EntireScanSearchEntry: Sendable {
-    let id: FileNode.ID
-    let parentPath: String
-    let searchHaystack: String
 }
 
 private struct FileNodeTableComparator: SortComparator, Sendable {
