@@ -361,8 +361,9 @@ actor ScanEngine {
         for key in (0..<nextKey).reversed() {
             guard let completed = completedByKey[key] else { continue }
 
-            if completed.isTraversable, let childKeys = childrenKeysByKey[key] {
-                // Traversable directory: assemble resolved children.
+            if completed.isTraversable {
+                // Traversable directories must still be materialized when empty.
+                let childKeys = childrenKeysByKey[key] ?? []
                 let childNodes = childKeys.compactMap { resolvedNodeByKey[$0] }
                 let assembled = makeDirectoryNode(
                     id: completed.url.path,

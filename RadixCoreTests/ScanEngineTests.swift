@@ -264,6 +264,43 @@ final class ScanEngineTests: XCTestCase {
         }
     }
 
+    func testEmptyDirectoryScanProducesEmptyRootNode() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+
+        XCTAssertTrue(snapshot.root.isDirectory)
+        XCTAssertEqual(snapshot.root.url.path, rootURL.path)
+        XCTAssertTrue(snapshot.root.children.isEmpty)
+        XCTAssertEqual(snapshot.aggregateStats.directoryCount, 1)
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 0)
+    }
+
+    func testEmptySubdirectoryIsRetainedInTree() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let emptyDirectoryURL = rootURL.appending(path: "Empty", directoryHint: .isDirectory)
+        let fileURL = rootURL.appending(path: "payload.txt")
+
+        try FileManager.default.createDirectory(at: emptyDirectoryURL, withIntermediateDirectories: true)
+        try Data("payload".utf8).write(to: fileURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+
+        let emptyNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Empty" }))
+        XCTAssertTrue(emptyNode.isDirectory)
+        XCTAssertTrue(emptyNode.children.isEmpty)
+        XCTAssertEqual(emptyNode.descendantFileCount, 0)
+    }
+
     func testByteEstimatePreventsPrematureFinalizingProgress() {
         var metrics = ScanMetrics()
         metrics.estimatedTotalBytes = 10_000
