@@ -348,7 +348,7 @@ struct FileBrowserTableView: View {
         let cachedHaystacks = entireScanNormalizedHaystacks
 
         if nodeIDs.isEmpty {
-            isSearchingEntireScan = true
+            isSearchingEntireScan = false
             applyDisplayedNodes([])
             return
         }
