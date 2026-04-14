@@ -18,12 +18,11 @@ It's built from scratch in Swift and SwiftUI, designed to feel like a natural pa
 
 ## Features
 
-### Fast, Respectful Scanning
+### Scanning
 
 - **Iterative file system traversal** — no recursion, no stack overflows, no hanging on deep `node_modules`
 - **Real-time progress** with smooth, blended metrics so you actually know how far along things are
 - **Auto-summarization** — directories with thousands of tiny files get collapsed into a single node, keeping scans fast and the UI clean
-- **Read-only by default** — Radix scans and reports. It won't touch your files unless you explicitly ask it to.
 - **Respects permissions** — works on ordinary folders without special privileges; warns you when protected paths (Mail, Safari, Messages) are skipped
 
 ### Visual Exploration
@@ -35,7 +34,7 @@ It's built from scratch in Swift and SwiftUI, designed to feel like a natural pa
 
 ### Built for macOS
 
-- **Native SwiftUI app** — no web views, no Electron, no churning your fans
+- **Native SwiftUI app** — no web views, no Electron
 - **Sidebar** with Smart Locations (Home, Desktop, Documents, Downloads, Library, Applications), mounted volumes, and recent scans
 - **Inspector panel** showing detailed metadata: allocated vs. logical size, parent directory, access level, largest children
 - **File actions** — Reveal in Finder, Open, Copy Path, Move to Trash, all from context menus or the inspector
@@ -55,7 +54,7 @@ Radix works out of the box on any folder you can already access. For folders lik
 
 ### Download the Latest Release
 
-Grab the latest release from the [Releases](https://github.com/colinvkim/radix/releases) page. Drag Radix into your Applications folder and you're done.
+Grab the latest release from the [Releases](https://github.com/colinvkim/radix/releases) page. Drag Radix into your Applications folder, and you're done.
 
 ## Settings
 
