@@ -319,22 +319,22 @@ final class AppModel: ObservableObject {
 
         expandTask = Task(priority: .userInitiated) {
             do {
-                var expandedNode: FileNode?
+                var expandedSnapshot: ScanSnapshot?
                 for try await event in scanEngine.scan(target: target, options: options) {
                     if case .finished(let snapshot) = event {
-                        expandedNode = snapshot.root
+                        expandedSnapshot = snapshot
                     }
                 }
 
                 try Task.checkCancellation()
 
-                guard let expandedNode else {
+                guard let expandedSnapshot else {
                     await MainActor.run { completion() }
                     return
                 }
 
                 await MainActor.run {
-                    self.replaceNodeInTree(node, with: expandedNode)
+                    self.replaceNodeInTree(node, with: expandedSnapshot)
                     completion()
                 }
             } catch {
@@ -349,98 +349,17 @@ final class AppModel: ObservableObject {
     }
 
     /// Replaces a node in the current snapshot tree with an expanded version.
-    private func replaceNodeInTree(_ oldNode: FileNode, with newNode: FileNode) {
+    private func replaceNodeInTree(_ oldNode: FileNode, with expandedSnapshot: ScanSnapshot) {
         guard let currentSnapshot = snapshot else { return }
-
-        // Build the set of ancestor IDs from target to root for fast lookup.
-        // Only nodes on this path (and the target itself) need to be rebuilt.
-        var affectedIDs: Set<String> = [oldNode.id]
-        var cursor = oldNode.id
-        while let parentID = fileTreeIndex.parentByID[cursor] {
-            affectedIDs.insert(parentID)
-            cursor = parentID
-        }
-
-        let updatedRoot = replaceNodeInTreeRecursive(currentSnapshot.root, oldNode.id, newNode, affectedIDs)
-        let updatedSnapshot = ScanSnapshot(
-            target: currentSnapshot.target,
-            root: updatedRoot,
-            startedAt: currentSnapshot.startedAt,
-            finishedAt: currentSnapshot.finishedAt,
-            scanWarnings: currentSnapshot.scanWarnings,
-            aggregateStats: aggregateStats(for: updatedRoot),
-            isComplete: currentSnapshot.isComplete
-        )
+        guard let updatedSnapshot = currentSnapshot.replacingNode(
+            id: oldNode.id,
+            with: expandedSnapshot.root,
+            additionalWarnings: expandedSnapshot.scanWarnings
+        ) else { return }
 
         self.snapshot = updatedSnapshot
-        fileTreeIndex = FileTreeIndex(root: updatedRoot)
-        selectedNodeID = newNode.id
-    }
-
-    /// Recursively walks the tree and replaces the node with matching ID.
-    /// Only nodes on the path from root to target (identified via `affectedIDs`) are rebuilt;
-    /// all other nodes are returned unchanged (structural sharing).
-    private func replaceNodeInTreeRecursive(_ node: FileNode, _ targetID: String, _ replacement: FileNode, _ affectedIDs: Set<String>) -> FileNode {
-        if node.id == targetID {
-            return replacement
-        }
-
-        // If this node is not an ancestor of the target, return it unchanged.
-        guard affectedIDs.contains(node.id) else { return node }
-
-        let newChildren = node.children.map { replaceNodeInTreeRecursive($0, targetID, replacement, affectedIDs) }
-        return FileNode.directory(
-            id: node.id,
-            url: node.url,
-            name: node.name,
-            children: newChildren,
-            lastModified: node.lastModified,
-            isPackage: node.isPackage,
-            isAccessible: node.isAccessible,
-        )
-    }
-
-    private func aggregateStats(for root: FileNode) -> ScanAggregateStats {
-        var fileCount = 0
-        var directoryCount = 0
-        var accessibleItemCount = 0
-        var inaccessibleItemCount = 0
-
-        walkTree(node: root) { node in
-            if node.isDirectory {
-                directoryCount += 1
-                if node.isPackage && node.children.isEmpty {
-                    fileCount += node.descendantFileCount
-                }
-                if node.isAutoSummarized {
-                    fileCount += node.descendantFileCount
-                }
-            } else if !node.isSymbolicLink && !node.isSynthetic {
-                fileCount += 1
-            }
-
-            if node.isAccessible {
-                accessibleItemCount += 1
-            } else {
-                inaccessibleItemCount += 1
-            }
-        }
-
-        return ScanAggregateStats(
-            totalAllocatedSize: root.allocatedSize,
-            totalLogicalSize: root.logicalSize,
-            fileCount: fileCount,
-            directoryCount: directoryCount,
-            accessibleItemCount: accessibleItemCount,
-            inaccessibleItemCount: inaccessibleItemCount
-        )
-    }
-
-    private func walkTree(node: FileNode, visit: (FileNode) -> Void) {
-        visit(node)
-        for child in node.children {
-            walkTree(node: child, visit: visit)
-        }
+        fileTreeIndex = FileTreeIndex(root: updatedSnapshot.root)
+        selectedNodeID = expandedSnapshot.root.id
     }
 
     func presentOpenPanelAndScan() {
@@ -656,15 +575,18 @@ final class AppModel: ObservableObject {
                 throw FileActionError.unavailable(path: node.url.path)
             }
             try SystemIntegration.moveToTrash(node.url)
-            if selectedTarget?.id == node.id {
+            switch ScanPostTrashAction.afterRemovingNode(activeTargetID: selectedTarget?.id, removedNodeID: node.id) {
+            case .clearActiveScan:
                 selectedTarget = nil
                 snapshot = nil
                 phase = .idle
                 selectedNodeID = nil
                 focusedNodeID = nil
                 fileTreeIndex = .empty
-            } else {
+            case .rescanActiveScan:
                 rescan()
+            case .none:
+                break
             }
             refreshAvailableTargets()
         } catch {

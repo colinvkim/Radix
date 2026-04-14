@@ -648,52 +648,9 @@ actor ScanEngine {
             startedAt: startedAt,
             finishedAt: finishedAt,
             scanWarnings: warnings,
-            aggregateStats: aggregateStats(for: reconciledRoot),
+            aggregateStats: reconciledRoot.aggregateStats,
             isComplete: isComplete
         )
-    }
-
-    private func aggregateStats(for root: FileNode) -> ScanAggregateStats {
-        var fileCount = 0
-        var directoryCount = 0
-        var accessibleItemCount = 0
-        var inaccessibleItemCount = 0
-
-        walk(node: root) { node in
-            if node.isDirectory {
-                directoryCount += 1
-                if node.isPackage && node.children.isEmpty {
-                    fileCount += node.descendantFileCount
-                }
-                if node.isAutoSummarized {
-                    fileCount += node.descendantFileCount
-                }
-            } else if !node.isSymbolicLink && !node.isSynthetic {
-                fileCount += 1
-            }
-
-            if node.isAccessible {
-                accessibleItemCount += 1
-            } else {
-                inaccessibleItemCount += 1
-            }
-        }
-
-        return ScanAggregateStats(
-            totalAllocatedSize: root.allocatedSize,
-            totalLogicalSize: root.logicalSize,
-            fileCount: fileCount,
-            directoryCount: directoryCount,
-            accessibleItemCount: accessibleItemCount,
-            inaccessibleItemCount: inaccessibleItemCount
-        )
-    }
-
-    private func walk(node: FileNode, visit: (FileNode) -> Void) {
-        visit(node)
-        for child in node.children {
-            walk(node: child, visit: visit)
-        }
     }
 
     private func reconcileVolumeRoot(_ root: FileNode, for target: ScanTarget, expectedTotalBytes: Int64) -> FileNode {

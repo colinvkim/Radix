@@ -134,6 +134,42 @@ struct FileNode: Identifiable, Hashable, Sendable {
         !isSynthetic
     }
 
+    var aggregateStats: ScanAggregateStats {
+        var fileCount = 0
+        var directoryCount = 0
+        var accessibleItemCount = 0
+        var inaccessibleItemCount = 0
+
+        walk { node in
+            if node.isDirectory {
+                directoryCount += 1
+                if node.isPackage && node.children.isEmpty {
+                    fileCount += node.descendantFileCount
+                }
+                if node.isAutoSummarized {
+                    fileCount += node.descendantFileCount
+                }
+            } else if !node.isSymbolicLink && !node.isSynthetic {
+                fileCount += 1
+            }
+
+            if node.isAccessible {
+                accessibleItemCount += 1
+            } else {
+                inaccessibleItemCount += 1
+            }
+        }
+
+        return ScanAggregateStats(
+            totalAllocatedSize: allocatedSize,
+            totalLogicalSize: logicalSize,
+            fileCount: fileCount,
+            directoryCount: directoryCount,
+            accessibleItemCount: accessibleItemCount,
+            inaccessibleItemCount: inaccessibleItemCount
+        )
+    }
+
     static func directory(
         id: String,
         url: URL,
@@ -182,6 +218,39 @@ struct FileNode: Identifiable, Hashable, Sendable {
             isAutoSummarized: false
         )
     }
+
+    private func walk(visit: (FileNode) -> Void) {
+        visit(self)
+        for child in children {
+            child.walk(visit: visit)
+        }
+    }
+
+    fileprivate func replacingNode(
+        targetID: String,
+        with replacement: FileNode,
+        affectedIDs: Set<String>
+    ) -> FileNode {
+        if id == targetID {
+            return replacement
+        }
+
+        guard affectedIDs.contains(id) else { return self }
+
+        let newChildren = children.map { child in
+            child.replacingNode(targetID: targetID, with: replacement, affectedIDs: affectedIDs)
+        }
+
+        return .directory(
+            id: id,
+            url: url,
+            name: name,
+            children: newChildren,
+            lastModified: lastModified,
+            isPackage: isPackage,
+            isAccessible: isAccessible
+        )
+    }
 }
 
 struct ScanAggregateStats: Sendable {
@@ -202,6 +271,49 @@ struct ScanSnapshot: Identifiable, Sendable {
     let scanWarnings: [ScanWarning]
     let aggregateStats: ScanAggregateStats
     let isComplete: Bool
+
+    func replacingNode(
+        id targetID: String,
+        with replacement: FileNode,
+        additionalWarnings: [ScanWarning] = []
+    ) -> ScanSnapshot? {
+        let index = FileTreeIndex(root: root)
+        guard index.node(id: targetID) != nil else { return nil }
+
+        var affectedIDs: Set<String> = [targetID]
+        var cursor = targetID
+        while let parentID = index.parentByID[cursor] {
+            affectedIDs.insert(parentID)
+            cursor = parentID
+        }
+
+        let updatedRoot = root.replacingNode(
+            targetID: targetID,
+            with: replacement,
+            affectedIDs: affectedIDs
+        )
+
+        return ScanSnapshot(
+            target: target,
+            root: updatedRoot,
+            startedAt: startedAt,
+            finishedAt: finishedAt,
+            scanWarnings: scanWarnings + additionalWarnings,
+            aggregateStats: updatedRoot.aggregateStats,
+            isComplete: isComplete
+        )
+    }
+}
+
+enum ScanPostTrashAction: Equatable {
+    case clearActiveScan
+    case rescanActiveScan
+    case none
+
+    static func afterRemovingNode(activeTargetID: String?, removedNodeID: String) -> ScanPostTrashAction {
+        guard let activeTargetID else { return .none }
+        return activeTargetID == removedNodeID ? .clearActiveScan : .rescanActiveScan
+    }
 }
 
 struct ScanMetrics: Sendable {
