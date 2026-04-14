@@ -15,6 +15,7 @@ struct FileBrowserTableView: View {
     @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
     @State private var indexedEntireScanSnapshotID: UUID?
     @State private var entireScanNodeIDs: [FileNode.ID] = []
+    @State private var entireScanNormalizedHaystacks: [FileNode.ID: String] = [:]
     @State private var isSearchingEntireScan = false
     @State private var entireScanIndexTask: Task<Void, Never>?
     @State private var entireScanSearchTask: Task<Void, Never>?
@@ -209,6 +210,7 @@ struct FileBrowserTableView: View {
         .onChange(of: appModel.snapshot?.id) { _, _ in
             indexedEntireScanSnapshotID = nil
             entireScanNodeIDs = []
+            entireScanNormalizedHaystacks = [:]
             refreshDisplayedNodes()
         }
         .onDisappear {
@@ -319,6 +321,9 @@ struct FileBrowserTableView: View {
             await MainActor.run {
                 indexedEntireScanSnapshotID = snapshotID
                 entireScanNodeIDs = nodeIDs
+                if self.appModel.snapshot?.id != snapshotID {
+                    self.entireScanNormalizedHaystacks = [:]
+                }
 
                 if self.appModel.snapshot?.id == snapshotID, self.isShowingEntireScanResults {
                     scheduleEntireScanSearch()
@@ -340,6 +345,7 @@ struct FileBrowserTableView: View {
         let normalizedSearchText = SearchNormalizer.normalize(searchText)
         let snapshotID = appModel.snapshot?.id
         let nodesByID = appModel.fileTreeIndex.nodesByID
+        let cachedHaystacks = entireScanNormalizedHaystacks
 
         if nodeIDs.isEmpty {
             isSearchingEntireScan = true
@@ -352,15 +358,32 @@ struct FileBrowserTableView: View {
         entireScanSearchTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
 
-            let matchedIDs = await Task.detached(priority: .userInitiated) {
-                nodeIDs.compactMap { id in
-                    guard let node = nodesByID[id] else { return nil }
+            let searchResult = await Task.detached(priority: .userInitiated) {
+                var updatedHaystacks = cachedHaystacks
+                var matchedIDs: [FileNode.ID] = []
 
-                    let haystack = SearchNormalizer.normalize(
-                        [node.name, node.url.path, node.itemKind].joined(separator: "\n")
-                    )
-                    return haystack.contains(normalizedSearchText) ? id : nil
+                for id in nodeIDs {
+                    guard let node = nodesByID[id] else { continue }
+
+                    let haystack: String
+                    if let cached = updatedHaystacks[id] {
+                        haystack = cached
+                    } else {
+                        haystack = SearchNormalizer.normalize(
+                            [node.name, node.url.path, node.itemKind].joined(separator: "\n")
+                        )
+                        updatedHaystacks[id] = haystack
+                    }
+
+                    if haystack.contains(normalizedSearchText) {
+                        matchedIDs.append(id)
+                    }
                 }
+
+                return EntireScanSearchResult(
+                    matchedIDs: matchedIDs,
+                    normalizedHaystacks: updatedHaystacks
+                )
             }.value
 
             guard !Task.isCancelled else {
@@ -373,7 +396,8 @@ struct FileBrowserTableView: View {
                     return
                 }
 
-                let matchedNodes = matchedIDs.compactMap { nodesByID[$0] }
+                self.entireScanNormalizedHaystacks = searchResult.normalizedHaystacks
+                let matchedNodes = searchResult.matchedIDs.compactMap { nodesByID[$0] }
                 let sortedNodes = matchedNodes.sorted(using: sortOrder)
                 applyDisplayedNodes(sortedNodes)
                 isSearchingEntireScan = false
@@ -385,6 +409,11 @@ struct FileBrowserTableView: View {
         displayedNodes = nodes
         displayedNodeLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     }
+}
+
+private struct EntireScanSearchResult {
+    let matchedIDs: [FileNode.ID]
+    let normalizedHaystacks: [FileNode.ID: String]
 }
 
 private struct FileNodeTableComparator: SortComparator, Sendable {
