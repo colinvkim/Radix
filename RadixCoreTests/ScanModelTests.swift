@@ -27,11 +27,50 @@ final class ScanModelTests: XCTestCase {
         XCTAssertEqual(syntheticNode.secondaryStatusText, "Estimated from volume usage")
     }
 
+    func testDirectoryBuilderAppliesCoreTreeInvariants() {
+        let small = makeNode(id: "/root/a.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 10)
+        let largeInaccessible = makeNode(id: "/root/z.txt", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 20)
+        let symlink = FileNode(
+            id: "/root/link",
+            url: URL(filePath: "/root/link"),
+            name: "link",
+            isDirectory: false,
+            isSymbolicLink: true,
+            allocatedSize: 5,
+            logicalSize: 5,
+            children: [],
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true,
+            isSynthetic: false,
+            isAutoSummarized: false
+        )
+
+        let directory = FileNode.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: [small, largeInaccessible, symlink],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+
+        XCTAssertEqual(directory.children.map(\.name), ["z.txt", "a.txt", "link"])
+        XCTAssertEqual(directory.allocatedSize, 35)
+        XCTAssertEqual(directory.logicalSize, 35)
+        XCTAssertEqual(directory.descendantFileCount, 2)
+        XCTAssertFalse(directory.isAccessible)
+        XCTAssertFalse(directory.isAutoSummarized)
+    }
+
     private func makeNode(
         id: String,
         isDirectory: Bool,
         isSynthetic: Bool,
-        isAccessible: Bool
+        isAccessible: Bool,
+        allocatedSize: Int64 = 64
     ) -> FileNode {
         FileNode(
             id: id,
@@ -39,8 +78,8 @@ final class ScanModelTests: XCTestCase {
             name: URL(filePath: id).lastPathComponent.isEmpty ? id : URL(filePath: id).lastPathComponent,
             isDirectory: isDirectory,
             isSymbolicLink: false,
-            allocatedSize: 64,
-            logicalSize: 64,
+            allocatedSize: allocatedSize,
+            logicalSize: allocatedSize,
             children: [],
             descendantFileCount: isDirectory ? 0 : 1,
             lastModified: nil,

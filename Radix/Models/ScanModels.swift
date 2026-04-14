@@ -133,6 +133,55 @@ struct FileNode: Identifiable, Hashable, Sendable {
     nonisolated var supportsFileActions: Bool {
         !isSynthetic
     }
+
+    static func directory(
+        id: String,
+        url: URL,
+        name: String,
+        children: [FileNode],
+        lastModified: Date?,
+        isPackage: Bool,
+        isAccessible: Bool
+    ) -> FileNode {
+        let sortedChildren = children.sorted { lhs, rhs in
+            if lhs.allocatedSize == rhs.allocatedSize {
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.allocatedSize > rhs.allocatedSize
+        }
+
+        let allocatedSize = sortedChildren.reduce(into: Int64(0)) { result, child in
+            result += child.allocatedSize
+        }
+        let logicalSize = sortedChildren.reduce(into: Int64(0)) { result, child in
+            result += child.logicalSize
+        }
+        let descendantFileCount = sortedChildren.reduce(into: 0) { result, child in
+            if child.isDirectory {
+                result += child.descendantFileCount
+            } else if !child.isSymbolicLink && !child.isSynthetic {
+                result += 1
+            }
+        }
+        let isFullyAccessible = isAccessible && sortedChildren.allSatisfy(\.isAccessible)
+
+        return FileNode(
+            id: id,
+            url: url,
+            name: name,
+            isDirectory: true,
+            isSymbolicLink: false,
+            allocatedSize: allocatedSize,
+            logicalSize: logicalSize,
+            children: sortedChildren,
+            descendantFileCount: descendantFileCount,
+            lastModified: lastModified,
+            isPackage: isPackage,
+            isAccessible: isFullyAccessible,
+            isSynthetic: false,
+            isAutoSummarized: false
+        )
+    }
 }
 
 struct ScanAggregateStats: Sendable {

@@ -366,7 +366,7 @@ actor ScanEngine {
                 // Traversable directories must still be materialized when empty.
                 let childKeys = childrenKeysByKey[key] ?? []
                 let childNodes = childKeys.compactMap { resolvedNodeByKey[$0] }
-                let assembled = makeDirectoryNode(
+                let assembled = FileNode.directory(
                     id: completed.url.path,
                     url: completed.url,
                     name: displayName(for: completed.url),
@@ -631,55 +631,6 @@ actor ScanEngine {
         )
     }
 
-    private func makeDirectoryNode(
-        id: String,
-        url: URL,
-        name: String,
-        children: [FileNode],
-        lastModified: Date?,
-        isPackage: Bool,
-        isAccessible: Bool
-    ) -> FileNode {
-        let sortedChildren = children.sorted { lhs, rhs in
-            if lhs.allocatedSize == rhs.allocatedSize {
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
-            return lhs.allocatedSize > rhs.allocatedSize
-        }
-
-        let allocatedSize = sortedChildren.reduce(into: Int64(0)) { result, child in
-            result += child.allocatedSize
-        }
-        let logicalSize = sortedChildren.reduce(into: Int64(0)) { result, child in
-            result += child.logicalSize
-        }
-        let descendantFileCount = sortedChildren.reduce(into: 0) { result, child in
-            if child.isDirectory {
-                result += child.descendantFileCount
-            } else if !child.isSymbolicLink && !child.isSynthetic {
-                result += 1
-            }
-        }
-        let isFullyAccessible = isAccessible && sortedChildren.allSatisfy(\.isAccessible)
-
-        return FileNode(
-            id: id,
-            url: url,
-            name: name,
-            isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: allocatedSize,
-            logicalSize: logicalSize,
-            children: sortedChildren,
-            descendantFileCount: descendantFileCount,
-            lastModified: lastModified,
-            isPackage: isPackage,
-            isAccessible: isFullyAccessible,
-            isSynthetic: false,
-            isAutoSummarized: false
-        )
-    }
-
     private func makeSnapshot(
         target: ScanTarget,
         root: FileNode,
@@ -772,7 +723,7 @@ actor ScanEngine {
             isAutoSummarized: false
         )
 
-        return makeDirectoryNode(
+        return FileNode.directory(
             id: root.id,
             url: root.url,
             name: root.name,

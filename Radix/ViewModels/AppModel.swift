@@ -389,27 +389,14 @@ final class AppModel: ObservableObject {
         guard affectedIDs.contains(node.id) else { return node }
 
         let newChildren = node.children.map { replaceNodeInTreeRecursive($0, targetID, replacement, affectedIDs) }
-        return FileNode(
+        return FileNode.directory(
             id: node.id,
             url: node.url,
             name: node.name,
-            isDirectory: node.isDirectory,
-            isSymbolicLink: node.isSymbolicLink,
-            allocatedSize: newChildren.reduce(into: Int64(0)) { $0 += $1.allocatedSize },
-            logicalSize: newChildren.reduce(into: Int64(0)) { $0 += $1.logicalSize },
             children: newChildren,
-            descendantFileCount: newChildren.reduce(into: 0) {
-                if $1.isDirectory {
-                    $0 += $1.descendantFileCount
-                } else if !$1.isSymbolicLink && !$1.isSynthetic {
-                    $0 += 1
-                }
-            },
             lastModified: node.lastModified,
             isPackage: node.isPackage,
             isAccessible: node.isAccessible,
-            isSynthetic: node.isSynthetic,
-            isAutoSummarized: node.isAutoSummarized
         )
     }
 
