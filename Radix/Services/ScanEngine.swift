@@ -246,6 +246,7 @@ actor ScanEngine {
                            url: item.url,
                            childURLs: childURLs,
                            metadata: meta,
+                           includeHiddenFiles: options.includeHiddenFiles,
                            maxAverageFileSize: maxAvgSize
                        ) {
                         // Treat as atomic: create a leaf node with summary stats
@@ -487,7 +488,7 @@ actor ScanEngine {
             return (makeFileNode(url: url, metadata: metadata), [])
         }
 
-        guard let summary = summarizeAtomicDirectory(at: url) else {
+        guard let summary = summarizeAtomicDirectory(at: url, includeHiddenFiles: options.includeHiddenFiles) else {
             return (makeFileNode(url: url, metadata: metadata), [])
         }
 
@@ -522,6 +523,7 @@ actor ScanEngine {
         url: URL,
         childURLs: [URL],
         metadata: NodeMetadata,
+        includeHiddenFiles: Bool,
         maxAverageFileSize: Int64
     ) throws -> AtomicDirectorySummary? {
         // Quick check: sample files evenly across the directory to estimate average size.
@@ -551,7 +553,7 @@ actor ScanEngine {
         }
 
         // Sample suggests atomic treatment - do a fast full summary
-        return summarizeAtomicDirectory(at: url, includeHiddenFiles: true)
+        return summarizeAtomicDirectory(at: url, includeHiddenFiles: includeHiddenFiles)
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.

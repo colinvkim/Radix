@@ -117,6 +117,30 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.scanWarnings.contains(where: { $0.path.contains("Locked.app") }))
     }
 
+    func testPackageLeafExcludesHiddenContentsWhenHiddenFilesDisabled() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Sample.app", directoryHint: .isDirectory)
+        let visibleFileURL = packageURL.appending(path: "Contents/MacOS/Binary")
+        let hiddenFileURL = packageURL.appending(path: "Contents/Resources/.secret")
+
+        try FileManager.default.createDirectory(at: visibleFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hiddenFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 128).write(to: visibleFileURL)
+        try Data(repeating: 0x2, count: 256).write(to: hiddenFileURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions(includeHiddenFiles: false)
+        )
+        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Sample.app" }))
+
+        XCTAssertEqual(packageNode.descendantFileCount, 1)
+        XCTAssertEqual(packageNode.logicalSize, 128)
+        XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 128)
+    }
+
     func testSymbolicLinksAreNotTraversed() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -458,6 +482,42 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with large files should not be auto-summarized")
         XCTAssertTrue(cacheNode.containsChildren)
         XCTAssertEqual(cacheNode.children.count, 20)
+    }
+
+    func testAutoSummarizedDirectoryExcludesHiddenFilesWhenHiddenFilesDisabled() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projectsURL, withIntermediateDirectories: true)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for i in 0..<12 {
+            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
+            try Data(repeating: UInt8(i), count: 32).write(to: fileURL)
+        }
+
+        for i in 0..<3 {
+            let hiddenFileURL = cacheURL.appending(path: ".hidden_\(i).tmp")
+            try Data(repeating: 0x7F, count: 32).write(to: hiddenFileURL)
+        }
+
+        var options = ScanOptions(includeHiddenFiles: false)
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        XCTAssertTrue(cacheNode.isAutoSummarized)
+        XCTAssertEqual(cacheNode.descendantFileCount, 12)
+        XCTAssertEqual(cacheNode.logicalSize, 12 * 32)
     }
 }
 
