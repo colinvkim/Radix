@@ -188,6 +188,73 @@ final class ScanModelTests: XCTestCase {
         )
     }
 
+    func testSnapshotReplacingNodeDeduplicatesWarningsByContent() throws {
+        let child = makeNode(id: "/root/folder", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let root = FileNode.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: [child],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+
+        let existingWarning = ScanWarning(
+            path: "/root/folder",
+            message: "Permission denied",
+            category: .permissionDenied
+        )
+        let duplicateWarning = ScanWarning(
+            path: "/root/folder",
+            message: "Permission denied",
+            category: .permissionDenied
+        )
+        let distinctWarning = ScanWarning(
+            path: "/root/folder/other",
+            message: "File system error",
+            category: .fileSystem
+        )
+
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(url: URL(filePath: "/root", directoryHint: .isDirectory)),
+            root: root,
+            startedAt: .distantPast,
+            finishedAt: .now,
+            scanWarnings: [existingWarning],
+            aggregateStats: root.aggregateStats,
+            isComplete: true
+        )
+
+        let replacement = FileNode.directory(
+            id: "/root/folder",
+            url: URL(filePath: "/root/folder", directoryHint: .isDirectory),
+            name: "folder",
+            children: [],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+
+        let updatedSnapshot = try XCTUnwrap(
+            snapshot.replacingNode(
+                id: child.id,
+                with: replacement,
+                additionalWarnings: [duplicateWarning, distinctWarning]
+            )
+        )
+
+        XCTAssertEqual(updatedSnapshot.scanWarnings.count, 2)
+        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [
+            existingWarning.path,
+            distinctWarning.path
+        ])
+        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.message), [
+            existingWarning.message,
+            distinctWarning.message
+        ])
+    }
+
     private func makeNode(
         id: String,
         isDirectory: Bool,

@@ -298,10 +298,27 @@ struct ScanSnapshot: Identifiable, Sendable {
             root: updatedRoot,
             startedAt: startedAt,
             finishedAt: finishedAt,
-            scanWarnings: scanWarnings + additionalWarnings,
+            scanWarnings: Self.mergedWarnings(existing: scanWarnings, additional: additionalWarnings),
             aggregateStats: updatedRoot.aggregateStats,
             isComplete: isComplete
         )
+    }
+
+    private static func mergedWarnings(
+        existing: [ScanWarning],
+        additional: [ScanWarning]
+    ) -> [ScanWarning] {
+        var seen = Set<ScanWarningKey>()
+        var result: [ScanWarning] = []
+
+        for warning in existing + additional {
+            let key = ScanWarningKey(warning: warning)
+            if seen.insert(key).inserted {
+                result.append(warning)
+            }
+        }
+
+        return result
     }
 }
 
@@ -313,6 +330,18 @@ enum ScanPostTrashAction: Equatable {
     static func afterRemovingNode(activeTargetID: String?, removedNodeID: String) -> ScanPostTrashAction {
         guard let activeTargetID else { return .none }
         return activeTargetID == removedNodeID ? .clearActiveScan : .rescanActiveScan
+    }
+}
+
+private struct ScanWarningKey: Hashable {
+    let path: String
+    let message: String
+    let category: ScanWarningCategory
+
+    init(warning: ScanWarning) {
+        self.path = warning.path
+        self.message = warning.message
+        self.category = warning.category
     }
 }
 
