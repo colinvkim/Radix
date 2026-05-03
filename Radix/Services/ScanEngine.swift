@@ -277,7 +277,7 @@ actor ScanEngine {
                         let atomicNode = FileNode(
                             id: item.url.path,
                             url: item.url,
-                            name: displayName(for: item.url),
+                            name: ScanTarget.displayName(for: item.url),
                             isDirectory: true,
                             isSymbolicLink: false,
                             allocatedSize: max(meta.allocatedSize, summary.allocatedSize),
@@ -333,7 +333,7 @@ actor ScanEngine {
                     let inaccessibleNode = FileNode(
                         id: item.url.path,
                         url: item.url,
-                        name: displayName(for: item.url),
+                        name: ScanTarget.displayName(for: item.url),
                         isDirectory: true,
                         isSymbolicLink: meta.isSymbolicLink,
                         allocatedSize: 0,
@@ -388,7 +388,7 @@ actor ScanEngine {
                 let assembled = FileNode.directory(
                     id: completed.url.path,
                     url: completed.url,
-                    name: displayName(for: completed.url),
+                    name: ScanTarget.displayName(for: completed.url),
                     children: childNodes,
                     lastModified: completed.metadata.lastModified,
                     isPackage: completed.metadata.isPackage,
@@ -465,7 +465,7 @@ actor ScanEngine {
         FileNode(
             id: url.path,
             url: url,
-            name: displayName(for: url),
+            name: ScanTarget.displayName(for: url),
             isDirectory: url.hasDirectoryPath,
             isSymbolicLink: false,
             allocatedSize: 0,
@@ -548,7 +548,7 @@ actor ScanEngine {
         FileNode(
             id: url.path,
             url: url,
-            name: displayName(for: url),
+            name: ScanTarget.displayName(for: url),
             isDirectory: metadata.isDirectory,
             isSymbolicLink: metadata.isSymbolicLink,
             allocatedSize: metadata.allocatedSize,
@@ -576,7 +576,7 @@ actor ScanEngine {
             FileNode(
                 id: url.path,
                 url: url,
-                name: displayName(for: url),
+                name: ScanTarget.displayName(for: url),
                 isDirectory: true,
                 isSymbolicLink: false,
                 allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
@@ -784,16 +784,6 @@ actor ScanEngine {
 
         emissionState.lastProgressEmission = now
         continuation.yield(.progress(metrics))
-    }
-
-    private func displayName(for url: URL) -> String {
-        if url.path == "/" {
-            let values = try? url.resourceValues(forKeys: [.volumeNameKey])
-            return values?.volumeName ?? "Startup Disk"
-        }
-
-        let lastPathComponent = url.lastPathComponent
-        return lastPathComponent.isEmpty ? url.path : lastPathComponent
     }
 
     private func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {

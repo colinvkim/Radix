@@ -44,7 +44,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         return standardizedURL
     }
 
-    private static func displayName(for url: URL) -> String {
+    nonisolated static func displayName(for url: URL) -> String {
         if url.path == "/" {
             let volumeName = try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName
             return volumeName ?? "Startup Disk"
