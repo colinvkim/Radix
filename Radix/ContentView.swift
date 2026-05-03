@@ -49,7 +49,7 @@ struct ContentView: View {
             OnboardingView()
         }
         .alert(
-            "Scan Failed",
+            appModel.errorAlertTitle,
             isPresented: Binding(
                 get: { appModel.lastErrorMessage != nil },
                 set: { newValue in
@@ -59,11 +59,10 @@ struct ContentView: View {
                 }
             )
         ) {
-            if appModel.selectedTarget != nil {
+            if appModel.canRescanFromErrorAlert {
                 Button("Rescan") {
                     appModel.rescan()
                 }
-                .disabled(!appModel.canRescan)
             }
             Button("OK", role: .cancel) {}
         } message: {

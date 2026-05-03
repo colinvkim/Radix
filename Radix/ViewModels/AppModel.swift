@@ -271,6 +271,14 @@ final class AppModel: ObservableObject {
         return "\(scanMetrics.progressPercentage)%"
     }
 
+    var errorAlertTitle: String {
+        phase == .failed ? "Scan Failed" : "Action Failed"
+    }
+
+    var canRescanFromErrorAlert: Bool {
+        phase == .failed && canRescan
+    }
+
     var selectedNodePercentOfParentText: String? {
         guard let selectedNode,
               let parent = selectedNodeParent else { return nil }
