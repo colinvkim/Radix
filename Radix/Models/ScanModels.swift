@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import SwiftUI
 
 enum ScanTargetKind: String, Hashable, Codable, Sendable {
     case folder
@@ -384,20 +383,6 @@ enum ScanProgressEvent: Sendable {
     case progress(ScanMetrics)
     case warning(ScanWarning)
     case finished(ScanSnapshot)
-}
-
-struct SunburstSegment: Identifiable, Hashable {
-    let id: String
-    let nodeID: String?
-    let label: String
-    let startAngle: Angle
-    let endAngle: Angle
-    let innerRadius: CGFloat
-    let outerRadius: CGFloat
-    let depth: Int
-    let colorKey: String
-    let totalSize: Int64
-    let isAggregate: Bool
 }
 
 struct FileTreeIndex {

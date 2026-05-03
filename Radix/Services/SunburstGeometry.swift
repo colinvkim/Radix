@@ -7,6 +7,20 @@
 
 import SwiftUI
 
+struct SunburstSegment: Identifiable, Hashable {
+    let id: String
+    let nodeID: String?
+    let label: String
+    let startAngle: Angle
+    let endAngle: Angle
+    let innerRadius: CGFloat
+    let outerRadius: CGFloat
+    let depth: Int
+    let colorKey: String
+    let totalSize: Int64
+    let isAggregate: Bool
+}
+
 enum SunburstLayout {
     nonisolated static func segments(
         for root: FileNode,
