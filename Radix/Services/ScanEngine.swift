@@ -524,6 +524,12 @@ actor ScanEngine {
         }
 
         if behavior.excludesStartupVolumeInternals &&
+            parentURL.path == "/" &&
+            childURL.lastPathComponent == "Volumes" {
+            return false
+        }
+
+        if behavior.excludesStartupVolumeInternals &&
             parentURL.path == "/System" &&
             childURL.lastPathComponent == "Volumes" {
             return false
