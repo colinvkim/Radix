@@ -152,7 +152,7 @@ struct FileBrowserTableView: View {
                                 }
                                 .disabled(!selectedNode.supportsFileActions)
 
-                                Button("Open", systemImage: "arrow.up.foward.app") {
+                                Button("Open", systemImage: "arrow.up.forward.app") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.openSelected()
                                 }
