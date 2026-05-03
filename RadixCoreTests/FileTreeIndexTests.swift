@@ -33,6 +33,27 @@ final class FileTreeIndexTests: XCTestCase {
         XCTAssertNil(index.node(id: "/root/missing"))
         XCTAssertNil(index.parent(of: "/root/missing"))
     }
+
+    func testDeepTreeIndexingAndAggregateStatsAvoidRecursiveTraversal() {
+        let depth = 5_000
+        let leafID = "/root/file.txt"
+        var node = makeFileNode(id: leafID, name: "file.txt", size: 12)
+
+        for level in stride(from: depth, through: 1, by: -1) {
+            node = makeDirectoryNode(
+                id: "/root/level-\(level)",
+                name: "level-\(level)",
+                children: [node]
+            )
+        }
+
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [node])
+        let index = FileTreeIndex(root: root)
+
+        XCTAssertEqual(index.path(to: leafID).count, depth + 2)
+        XCTAssertEqual(root.aggregateStats.directoryCount, depth + 1)
+        XCTAssertEqual(root.aggregateStats.fileCount, 1)
+    }
 }
 
 private func makeFileNode(id: String, name: String, size: Int64) -> FileNode {

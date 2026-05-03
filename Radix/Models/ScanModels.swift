@@ -139,8 +139,9 @@ struct FileNode: Identifiable, Hashable, Sendable {
         var directoryCount = 0
         var accessibleItemCount = 0
         var inaccessibleItemCount = 0
+        var stack: [FileNode] = [self]
 
-        walk { node in
+        while let node = stack.popLast() {
             if node.isDirectory {
                 directoryCount += 1
                 if node.isPackage && node.children.isEmpty {
@@ -158,6 +159,8 @@ struct FileNode: Identifiable, Hashable, Sendable {
             } else {
                 inaccessibleItemCount += 1
             }
+
+            stack.append(contentsOf: node.children)
         }
 
         return ScanAggregateStats(
@@ -217,13 +220,6 @@ struct FileNode: Identifiable, Hashable, Sendable {
             isSynthetic: false,
             isAutoSummarized: false
         )
-    }
-
-    private nonisolated func walk(visit: (FileNode) -> Void) {
-        visit(self)
-        for child in children {
-            child.walk(visit: visit)
-        }
     }
 
     fileprivate nonisolated func replacingNode(
@@ -427,7 +423,7 @@ struct FileTreeIndex {
     init(root: FileNode?) {
         rootID = root?.id
         guard let root else { return }
-        index(node: root, parentID: nil)
+        indexIteratively(root: root)
     }
 
     func node(id: String?) -> FileNode? {
@@ -481,14 +477,18 @@ struct FileTreeIndex {
         return false
     }
 
-    private mutating func index(node: FileNode, parentID: String?) {
-        nodesByID[node.id] = node
-        if let parentID {
-            parentByID[node.id] = parentID
-        }
+    private mutating func indexIteratively(root: FileNode) {
+        var stack: [(node: FileNode, parentID: String?)] = [(root, nil)]
 
-        for child in node.children {
-            index(node: child, parentID: node.id)
+        while let entry = stack.popLast() {
+            nodesByID[entry.node.id] = entry.node
+            if let parentID = entry.parentID {
+                parentByID[entry.node.id] = parentID
+            }
+
+            for child in entry.node.children.reversed() {
+                stack.append((child, entry.node.id))
+            }
         }
     }
 }
