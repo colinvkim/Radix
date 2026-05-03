@@ -466,6 +466,38 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(cacheNode.secondaryStatusText, "Summarized (20 files)")
     }
 
+    func testAutoSummarizedDirectoryCountsAsSingleVisitedDirectory() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: projectsURL, withIntermediateDirectories: true)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for i in 0..<20 {
+            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
+            try Data(repeating: UInt8(i % 256), count: 32).write(to: fileURL)
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let engine = ScanEngine()
+        var finalMetrics = ScanMetrics()
+
+        for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
+            if case .progress(let metrics) = event {
+                finalMetrics = metrics
+            }
+        }
+
+        XCTAssertEqual(finalMetrics.directoriesVisited, 3)
+        XCTAssertEqual(finalMetrics.filesVisited, 20)
+    }
+
     func testDirectoryNotAutoSummarizedWhenFilesAreLarge() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

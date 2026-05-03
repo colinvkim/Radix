@@ -411,7 +411,9 @@ actor ScanEngine {
 
     private func applyLeafMetrics(_ node: FileNode, metrics: inout ScanMetrics) {
         if node.isDirectory {
-            metrics.directoriesVisited += 1
+            if !node.isAutoSummarized {
+                metrics.directoriesVisited += 1
+            }
             metrics.filesVisited += node.descendantFileCount
         } else if !node.isSymbolicLink {
             metrics.filesVisited += 1
