@@ -134,7 +134,7 @@ struct FileNode: Identifiable, Hashable, Sendable {
         !isSynthetic
     }
 
-    var aggregateStats: ScanAggregateStats {
+    nonisolated var aggregateStats: ScanAggregateStats {
         var fileCount = 0
         var directoryCount = 0
         var accessibleItemCount = 0
@@ -170,7 +170,7 @@ struct FileNode: Identifiable, Hashable, Sendable {
         )
     }
 
-    static func directory(
+    nonisolated static func directory(
         id: String,
         url: URL,
         name: String,
@@ -219,14 +219,14 @@ struct FileNode: Identifiable, Hashable, Sendable {
         )
     }
 
-    private func walk(visit: (FileNode) -> Void) {
+    private nonisolated func walk(visit: (FileNode) -> Void) {
         visit(self)
         for child in children {
             child.walk(visit: visit)
         }
     }
 
-    fileprivate func replacingNode(
+    fileprivate nonisolated func replacingNode(
         targetID: String,
         with replacement: FileNode,
         affectedIDs: Set<String>
