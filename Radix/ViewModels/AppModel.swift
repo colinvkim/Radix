@@ -543,15 +543,19 @@ final class AppModel: ObservableObject {
     func openSelected() {
         do {
             let node = try validatedSelection()
-            SystemIntegration.open(node.url)
+            try SystemIntegration.open(node.url)
         } catch {
             lastErrorMessage = error.localizedDescription
         }
     }
 
     func copySelectedPath() {
-        guard let selectedNode, selectedNode.supportsFileActions else { return }
-        SystemIntegration.copyPath(selectedNode.url)
+        do {
+            let node = try validatedSelection()
+            try SystemIntegration.copyPath(node.url)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     func requestMoveSelectedToTrash() {
@@ -599,7 +603,12 @@ final class AppModel: ObservableObject {
     }
 
     func prepareAndOpenFullDiskAccessSettings() {
-        _ = SystemIntegration.prepareAndOpenFullDiskAccessSettings()
+        guard SystemIntegration.prepareAndOpenFullDiskAccessSettings() else {
+            lastErrorMessage = SystemIntegration.SystemIntegrationError
+                .fullDiskAccessSettingsUnavailable
+                .localizedDescription
+            return
+        }
     }
 
     private func handle(_ event: ScanProgressEvent, scanID: UUID) {

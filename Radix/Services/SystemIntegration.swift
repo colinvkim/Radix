@@ -9,6 +9,23 @@ import AppKit
 import Foundation
 
 enum SystemIntegration {
+    enum SystemIntegrationError: LocalizedError {
+        case openFailed(path: String)
+        case copyPathFailed(path: String)
+        case fullDiskAccessSettingsUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .openFailed(let path):
+                return "macOS could not open the item at \(path)."
+            case .copyPathFailed(let path):
+                return "macOS could not copy the path for \(path)."
+            case .fullDiskAccessSettingsUnavailable:
+                return "Radix could not open Full Disk Access settings."
+            }
+        }
+    }
+
     private static var isRunningInsideXcodePreview: Bool {
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
@@ -63,15 +80,21 @@ enum SystemIntegration {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    static func open(_ url: URL) {
-        NSWorkspace.shared.open(url)
+    static func open(_ url: URL) throws {
+        guard NSWorkspace.shared.open(url) else {
+            throw SystemIntegrationError.openFailed(path: url.path)
+        }
     }
 
-    static func copyPath(_ url: URL) {
+    static func copyPath(_ url: URL) throws {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(url.path, forType: .string)
-        pasteboard.setString(url.absoluteString, forType: .fileURL)
+        let copiedPath = pasteboard.setString(url.path, forType: .string)
+        let copiedURL = pasteboard.setString(url.absoluteString, forType: .fileURL)
+
+        guard copiedPath && copiedURL else {
+            throw SystemIntegrationError.copyPathFailed(path: url.path)
+        }
     }
 
     static func moveToTrash(_ url: URL) throws {
