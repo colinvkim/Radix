@@ -39,7 +39,6 @@ struct ContentView: View {
                     }
             }
         }
-        // .toolbarRole(.editor)
         .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: $showsInspector) {
             SelectionInspectorView()

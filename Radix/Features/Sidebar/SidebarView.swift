@@ -45,7 +45,6 @@ struct SidebarView: View {
         }
         .navigationTitle("Locations")
         .listStyle(.sidebar)
-        // .scrollContentBackground(.hidden)
     }
 }
 
