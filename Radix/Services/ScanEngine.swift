@@ -19,7 +19,7 @@ actor ScanEngine {
         }
     }
 
-    private final class AtomicDirectorySummaryState: @unchecked Sendable {
+    private final class AtomicDirectorySummaryState {
         var allocatedSize: Int64 = 0
         var logicalSize: Int64 = 0
         var descendantFileCount = 0
