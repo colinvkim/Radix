@@ -199,12 +199,6 @@ struct SunburstChartView: View {
         return 1
     }
 
-    private func percentageText(part: Int64, total: Int64) -> String? {
-        guard total > 0 else { return nil }
-        return (Double(part) / Double(total))
-            .formatted(.percent.precision(.fractionLength(1)))
-    }
-
     private func chartFrame(in size: CGSize) -> CGRect {
         let inset = Self.chartPadding
         let width = max(1, size.width - (inset * 2))
@@ -225,7 +219,7 @@ struct SunburstChartView: View {
     private func summary(for node: FileNode) -> ChartSummary {
         let detail: String
         if node.id != rootNode.id,
-           let percentText = percentageText(part: node.allocatedSize, total: rootNode.allocatedSize) {
+           let percentText = RadixFormatters.percentage(part: node.allocatedSize, total: rootNode.allocatedSize) {
             detail = percentText + " of current focus"
         } else {
             detail = node.itemKind

@@ -21,6 +21,11 @@ enum RadixFormatters {
         return formatterCache.date(date)
     }
 
+    static func percentage(part: Int64, total: Int64) -> String? {
+        guard total > 0 else { return nil }
+        return (Double(part) / Double(total))
+            .formatted(.percent.precision(.fractionLength(1)))
+    }
 }
 
 private final class FormatterCache: @unchecked Sendable {

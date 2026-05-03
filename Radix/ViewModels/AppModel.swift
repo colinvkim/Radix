@@ -274,13 +274,13 @@ final class AppModel: ObservableObject {
     var selectedNodePercentOfParentText: String? {
         guard let selectedNode,
               let parent = selectedNodeParent else { return nil }
-        return percentageText(part: selectedNode.allocatedSize, total: parent.allocatedSize)
+        return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: parent.allocatedSize)
     }
 
     var selectedNodePercentOfScanText: String? {
         guard let selectedNode,
               let root = snapshot?.root else { return nil }
-        return percentageText(part: selectedNode.allocatedSize, total: root.allocatedSize)
+        return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: root.allocatedSize)
     }
 
     func dismissOnboarding() {
@@ -705,12 +705,6 @@ final class AppModel: ObservableObject {
             home + "/Library",
             "/Applications"
         ]
-    }
-
-    private func percentageText(part: Int64, total: Int64) -> String? {
-        guard total > 0 else { return nil }
-        return (Double(part) / Double(total))
-            .formatted(.percent.precision(.fractionLength(1)))
     }
 
     private func refreshAvailableTargets() {
