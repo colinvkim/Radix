@@ -56,7 +56,6 @@ actor ScanEngine {
         let children: [FileNode]    // For leaves: the leaf node. For dirs: empty (resolved in phase 2).
         let metadata: NodeMetadata
         let url: URL
-        let includeVolumeDetails: Bool
         let isTraversable: Bool     // True if this was a directory we intended to traverse.
     }
 
@@ -127,7 +126,7 @@ actor ScanEngine {
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) throws -> ScanSnapshot {
         let startedAt = Date()
-        var metrics = ScanMetrics(startedAt: startedAt)
+        var metrics = ScanMetrics()
         var warnings: [ScanWarning] = []
         var emissionState = ScanEmissionState()
         let behavior = ScanBehavior(
@@ -304,7 +303,6 @@ actor ScanEngine {
                             children: [atomicNode],
                             metadata: meta,
                             url: item.url,
-                            includeVolumeDetails: item.includeVolumeDetails,
                             isTraversable: false
                         )
                         continue
@@ -322,14 +320,12 @@ actor ScanEngine {
                         children: [],
                         metadata: meta,
                         url: item.url,
-                        includeVolumeDetails: item.includeVolumeDetails,
                         isTraversable: true
                     )
                 } catch {
                     let warning = makeWarning(for: item.url, error: error)
                     warnings.append(warning)
                     continuation.yield(.warning(warning))
-                    metrics.inaccessibleDirectories += 1
                     metrics.completedItems += 1
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
@@ -354,7 +350,6 @@ actor ScanEngine {
                         children: [inaccessibleNode],
                         metadata: meta,
                         url: item.url,
-                        includeVolumeDetails: item.includeVolumeDetails,
                         isTraversable: false
                     )
                     continue
@@ -375,7 +370,6 @@ actor ScanEngine {
                     children: [leafResult.node],
                     metadata: meta,
                     url: item.url,
-                    includeVolumeDetails: item.includeVolumeDetails,
                     isTraversable: false
                 )
             }
@@ -463,7 +457,6 @@ actor ScanEngine {
                 volumeUsedCapacity: nil
             ),
             url: item.url,
-            includeVolumeDetails: item.includeVolumeDetails,
             isTraversable: false
         )
     }

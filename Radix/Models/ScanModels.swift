@@ -13,31 +13,21 @@ enum ScanTargetKind: String, Hashable, Codable, Sendable {
     case volume
 }
 
-enum AuthorizationState: String, Hashable, Codable, Sendable {
-    case notEvaluated
-    case readable
-    case limited
-    case inaccessible
-}
-
 struct ScanTarget: Identifiable, Hashable, Sendable {
     let id: String
     let url: URL
     let displayName: String
     let kind: ScanTargetKind
-    let authorizationState: AuthorizationState
 
     init(
         url: URL,
-        kind: ScanTargetKind? = nil,
-        authorizationState: AuthorizationState = .notEvaluated
+        kind: ScanTargetKind? = nil
     ) {
         let normalizedURL = ScanTarget.normalizedURL(from: url)
         self.id = normalizedURL.path
         self.url = normalizedURL
         self.displayName = ScanTarget.displayName(for: normalizedURL)
         self.kind = kind ?? (normalizedURL.path == "/" ? .volume : .folder)
-        self.authorizationState = authorizationState
     }
 
     private static func normalizedURL(from url: URL) -> URL {
@@ -69,7 +59,6 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
 struct ScanOptions: Sendable {
     var includeHiddenFiles = false
     var treatPackagesAsDirectories = false
-    var maxRenderedDepth = 6
     var autoSummarizeDirectories = true
     /// Override for the minimum file count to trigger auto-summarization.
     /// When nil, the ScanEngine default (5,000) is used.
@@ -344,10 +333,8 @@ private struct ScanWarningKey: Hashable {
 struct ScanMetrics: Sendable {
     var filesVisited = 0
     var directoriesVisited = 0
-    var inaccessibleDirectories = 0
     var bytesDiscovered: Int64 = 0
     var currentPath = ""
-    var startedAt = Date()
     var discoveredItems = 0
     var completedItems = 0
     var estimatedTotalBytes: Int64 = 0

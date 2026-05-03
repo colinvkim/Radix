@@ -313,7 +313,6 @@ final class AppModel: ObservableObject {
         let options = ScanOptions(
             includeHiddenFiles: showHiddenFiles || target.kind == .volume,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
-            maxRenderedDepth: maxRenderedDepth,
             autoSummarizeDirectories: false  // Force full expansion
         )
 
@@ -378,7 +377,7 @@ final class AppModel: ObservableObject {
             selectedTarget = target
             phase = .scanning
             lastErrorMessage = nil
-            scanMetrics = ScanMetrics(startedAt: Date())
+            scanMetrics = ScanMetrics()
             selectedNodeID = nil
             focusedNodeID = nil
             pendingTrashNode = nil
@@ -395,7 +394,6 @@ final class AppModel: ObservableObject {
             let options = ScanOptions(
                 includeHiddenFiles: showHiddenFiles || target.kind == .volume,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
-                maxRenderedDepth: maxRenderedDepth,
                 autoSummarizeDirectories: autoSummarizeDirectories
             )
 
