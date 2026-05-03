@@ -54,7 +54,7 @@ private struct GeneralSettingsPane: View {
                     }
                 }
 
-                Text("Changes apply to the next completed scan.")
+                Text("Changes apply immediately to the current disk map.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
