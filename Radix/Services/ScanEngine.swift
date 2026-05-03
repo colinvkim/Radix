@@ -216,7 +216,21 @@ actor ScanEngine {
             if item.includeVolumeDetails {
                 meta = rootMetadata // Already fetched for root
             } else {
-                meta = try metadata(for: item.url)
+                do {
+                    meta = try metadata(for: item.url)
+                } catch {
+                    recordUnavailableItem(
+                        item,
+                        itemKey: itemKey,
+                        error: error,
+                        metrics: &metrics,
+                        warnings: &warnings,
+                        continuation: continuation,
+                        emissionState: &emissionState,
+                        completedByKey: &completedByKey
+                    )
+                    continue
+                }
             }
             metrics.currentPath = item.url.path
 
@@ -404,6 +418,60 @@ actor ScanEngine {
         }
         metrics.bytesDiscovered += node.allocatedSize
         metrics.completedItems += 1
+    }
+
+    private func recordUnavailableItem(
+        _ item: ScanWorkItem,
+        itemKey: Int,
+        error: Error,
+        metrics: inout ScanMetrics,
+        warnings: inout [ScanWarning],
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState,
+        completedByKey: inout [Int: CompletedDirScan]
+    ) {
+        let warning = makeWarning(for: item.url, error: error)
+        warnings.append(warning)
+        continuation.yield(.warning(warning))
+        metrics.completedItems += 1
+        metrics.recalculateProgress()
+        maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+
+        completedByKey[itemKey] = CompletedDirScan(
+            children: [makeUnavailableNode(for: item.url)],
+            metadata: NodeMetadata(
+                isDirectory: item.url.hasDirectoryPath,
+                isPackage: false,
+                isSymbolicLink: false,
+                logicalSize: 0,
+                allocatedSize: 0,
+                lastModified: nil,
+                isReadable: false,
+                volumeUsedCapacity: nil
+            ),
+            url: item.url,
+            includeVolumeDetails: item.includeVolumeDetails,
+            isTraversable: false
+        )
+    }
+
+    private func makeUnavailableNode(for url: URL) -> FileNode {
+        FileNode(
+            id: url.path,
+            url: url,
+            name: displayName(for: url),
+            isDirectory: url.hasDirectoryPath,
+            isSymbolicLink: false,
+            allocatedSize: 0,
+            logicalSize: 0,
+            children: [],
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: false,
+            isSynthetic: false,
+            isAutoSummarized: false
+        )
     }
 
     private func metadata(for url: URL, includeVolumeDetails: Bool = false) throws -> NodeMetadata {
