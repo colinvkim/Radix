@@ -8,6 +8,17 @@
 import Foundation
 
 actor ScanEngine {
+    private enum ScanEngineError: LocalizedError {
+        case missingRootNode
+
+        var errorDescription: String? {
+            switch self {
+            case .missingRootNode:
+                return "The scan could not assemble a root node."
+            }
+        }
+    }
+
     private final class AtomicDirectorySummaryState: @unchecked Sendable {
         var allocatedSize: Int64 = 0
         var logicalSize: Int64 = 0
@@ -397,7 +408,7 @@ actor ScanEngine {
         }
 
         guard let rootNode = resolvedNodeByKey[0] else {
-            fatalError("Root work item was never completed.")
+            throw ScanEngineError.missingRootNode
         }
 
         metrics.completedItems += 1
