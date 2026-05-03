@@ -654,8 +654,12 @@ actor ScanEngine {
 
         let state = AtomicDirectorySummaryState()
 
-        if let rootValues = try? url.resourceValues(forKeys: Set(summaryKeys)) {
+        do {
+            let rootValues = try url.resourceValues(forKeys: Set(summaryKeys))
             state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
+        } catch {
+            state.isAccessible = false
+            state.warnings.append(Self.makeWarning(for: url, error: error))
         }
 
         var enumeratorOptions: FileManager.DirectoryEnumerationOptions = []

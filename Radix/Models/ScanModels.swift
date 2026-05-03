@@ -46,8 +46,12 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
 
     nonisolated static func displayName(for url: URL) -> String {
         if url.path == "/" {
-            let volumeName = try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName
-            return volumeName ?? "Startup Disk"
+            do {
+                let volumeName = try url.resourceValues(forKeys: [.volumeNameKey]).volumeName
+                return volumeName ?? "Startup Disk"
+            } catch {
+                return "Startup Disk"
+            }
         }
 
         let lastPathComponent = url.lastPathComponent

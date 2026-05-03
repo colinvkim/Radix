@@ -137,11 +137,15 @@ enum SystemIntegration {
         ]
 
         for directory in candidateDirectories where fileManager.fileExists(atPath: directory.path) {
-            _ = try? fileManager.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
+            do {
+                _ = try fileManager.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                )
+            } catch {
+                continue
+            }
         }
     }
 

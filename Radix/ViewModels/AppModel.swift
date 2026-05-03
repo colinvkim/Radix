@@ -691,7 +691,12 @@ final class AppModel: ObservableObject {
     }
 
     private func isDirectoryURL(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true || url.hasDirectoryPath
+        do {
+            let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+            return values.isDirectory == true || url.hasDirectoryPath
+        } catch {
+            return url.hasDirectoryPath
+        }
     }
 
     private func registerRecentTarget(_ target: ScanTarget) {
