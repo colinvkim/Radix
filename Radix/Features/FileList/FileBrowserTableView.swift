@@ -4,6 +4,7 @@ struct FileBrowserTableView: View {
     @EnvironmentObject private var appModel: AppModel
 
     let nodes: [FileNode]
+    let contentID: String
     @Binding var selection: String?
 
     @FocusState private var isSearchFieldFocused: Bool
@@ -17,7 +18,6 @@ struct FileBrowserTableView: View {
     @State private var entireScanNodeIDs: [FileNode.ID] = []
     @State private var entireScanNormalizedHaystacks: [FileNode.ID: String] = [:]
     @State private var isSearchingEntireScan = false
-    @State private var entireScanIndexTask: Task<Void, Never>?
     @State private var entireScanSearchTask: Task<Void, Never>?
     private var tableSelection: Binding<String?> {
         Binding(
@@ -203,7 +203,7 @@ struct FileBrowserTableView: View {
         .onAppear {
             refreshDisplayedNodes()
         }
-        .onChange(of: nodes, updateFilter)
+        .onChange(of: contentID, updateFilter)
         .onChange(of: currentContentsSearchText, updateFilter)
         .onChange(of: entireScanSearchText, updateFilter)
         .onChange(of: searchScope, updateFilter)
@@ -214,7 +214,6 @@ struct FileBrowserTableView: View {
             refreshDisplayedNodes()
         }
         .onDisappear {
-            entireScanIndexTask?.cancel()
             entireScanSearchTask?.cancel()
         }
     }
@@ -253,6 +252,7 @@ struct FileBrowserTableView: View {
 
     private func refreshDisplayedNodes() {
         entireScanSearchTask?.cancel()
+        entireScanSearchTask = nil
 
         if isShowingEntireScanResults {
             ensureEntireScanIndexThenSearch()
@@ -300,35 +300,19 @@ struct FileBrowserTableView: View {
     }
 
     private func rebuildEntireScanSearchIndex(for snapshotID: UUID) {
-        entireScanIndexTask?.cancel()
-        let nodesByID = appModel.fileTreeIndex.nodesByID
-        let rootID = appModel.fileTreeIndex.rootID
-
         if isShowingEntireScanResults {
             isSearchingEntireScan = true
             applyDisplayedNodes([])
         }
 
-        entireScanIndexTask = Task {
-            let nodeIDs: [FileNode.ID] = await Task.detached(priority: .userInitiated) { () -> [FileNode.ID] in
-                nodesByID.keys.filter { $0 != rootID }
-            }.value
+        indexedEntireScanSnapshotID = snapshotID
+        entireScanNodeIDs = appModel.fileTreeIndex.indexedNodeIDs(excludingRoot: true)
+        if appModel.snapshot?.id != snapshotID {
+            entireScanNormalizedHaystacks = [:]
+        }
 
-            guard !Task.isCancelled else {
-                return
-            }
-
-            await MainActor.run {
-                indexedEntireScanSnapshotID = snapshotID
-                entireScanNodeIDs = nodeIDs
-                if self.appModel.snapshot?.id != snapshotID {
-                    self.entireScanNormalizedHaystacks = [:]
-                }
-
-                if self.appModel.snapshot?.id == snapshotID, self.isShowingEntireScanResults {
-                    scheduleEntireScanSearch()
-                }
-            }
+        if appModel.snapshot?.id == snapshotID, isShowingEntireScanResults {
+            scheduleEntireScanSearch()
         }
     }
 
@@ -356,51 +340,60 @@ struct FileBrowserTableView: View {
         isSearchingEntireScan = true
 
         entireScanSearchTask = Task {
-            try? await Task.sleep(for: .milliseconds(180))
+            do {
+                try await Task.sleep(for: .milliseconds(180))
+                try Task.checkCancellation()
 
-            let searchResult = await Task.detached(priority: .userInitiated) {
-                var updatedHaystacks = cachedHaystacks
-                var matchedIDs: [FileNode.ID] = []
+                let searchResult = try await Task.detached(priority: .userInitiated) {
+                    var updatedHaystacks = cachedHaystacks
+                    var matchedIDs: [FileNode.ID] = []
 
-                for id in nodeIDs {
-                    guard let node = nodesByID[id] else { continue }
+                    for (offset, id) in nodeIDs.enumerated() {
+                        if offset.isMultiple(of: 256) {
+                            try Task.checkCancellation()
+                        }
 
-                    let haystack: String
-                    if let cached = updatedHaystacks[id] {
-                        haystack = cached
-                    } else {
-                        haystack = SearchNormalizer.normalize(
-                            [node.name, node.url.path, node.itemKind].joined(separator: "\n")
-                        )
-                        updatedHaystacks[id] = haystack
+                        guard let node = nodesByID[id] else { continue }
+
+                        let haystack: String
+                        if let cached = updatedHaystacks[id] {
+                            haystack = cached
+                        } else {
+                            haystack = SearchNormalizer.normalize(
+                                [node.name, node.url.path, node.itemKind].joined(separator: "\n")
+                            )
+                            updatedHaystacks[id] = haystack
+                        }
+
+                        if haystack.contains(normalizedSearchText) {
+                            matchedIDs.append(id)
+                        }
                     }
 
-                    if haystack.contains(normalizedSearchText) {
-                        matchedIDs.append(id)
+                    return EntireScanSearchResult(
+                        matchedIDs: matchedIDs,
+                        normalizedHaystacks: updatedHaystacks
+                    )
+                }.value
+
+                try Task.checkCancellation()
+
+                await MainActor.run {
+                    guard self.appModel.snapshot?.id == snapshotID,
+                          SearchNormalizer.normalize(self.entireScanSearchText) == normalizedSearchText else {
+                        return
                     }
+
+                    self.entireScanNormalizedHaystacks = searchResult.normalizedHaystacks
+                    let matchedNodes = searchResult.matchedIDs.compactMap { nodesByID[$0] }
+                    let sortedNodes = matchedNodes.sorted(using: sortOrder)
+                    applyDisplayedNodes(sortedNodes)
+                    isSearchingEntireScan = false
                 }
-
-                return EntireScanSearchResult(
-                    matchedIDs: matchedIDs,
-                    normalizedHaystacks: updatedHaystacks
-                )
-            }.value
-
-            guard !Task.isCancelled else {
+            } catch is CancellationError {
                 return
-            }
-
-            await MainActor.run {
-                guard self.appModel.snapshot?.id == snapshotID,
-                      SearchNormalizer.normalize(self.entireScanSearchText) == normalizedSearchText else {
-                    return
-                }
-
-                self.entireScanNormalizedHaystacks = searchResult.normalizedHaystacks
-                let matchedNodes = searchResult.matchedIDs.compactMap { nodesByID[$0] }
-                let sortedNodes = matchedNodes.sorted(using: sortOrder)
-                applyDisplayedNodes(sortedNodes)
-                isSearchingEntireScan = false
+            } catch {
+                return
             }
         }
     }
@@ -411,7 +404,7 @@ struct FileBrowserTableView: View {
     }
 }
 
-private struct EntireScanSearchResult {
+private struct EntireScanSearchResult: Sendable {
     let matchedIDs: [FileNode.ID]
     let normalizedHaystacks: [FileNode.ID: String]
 }

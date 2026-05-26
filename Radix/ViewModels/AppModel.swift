@@ -17,6 +17,12 @@ final class AppModel: ObservableObject {
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
         static let maxRenderedDepth = "maxRenderedDepth"
         static let autoSummarizeDirectories = "autoSummarizeDirectories"
+        static let recentTargets = "recentTargets"
+    }
+
+    private struct StoredRecentTarget: Codable {
+        let path: String
+        let kind: ScanTargetKind
     }
 
     private enum FileActionError: LocalizedError {
@@ -94,6 +100,7 @@ final class AppModel: ObservableObject {
         }
 
         showsOnboarding = !defaults.bool(forKey: DefaultsKey.didCompleteOnboarding)
+        recentTargets = Self.loadRecentTargets(from: defaults)
 
         refreshAvailableTargets()
         observeMountedVolumes()
@@ -127,6 +134,13 @@ final class AppModel: ObservableObject {
             return focusNode.children
         }
         return fileTreeIndex.parent(of: focusNode.id)?.children ?? []
+    }
+
+    var tableContentID: String {
+        [
+            snapshot?.id.uuidString ?? "no-snapshot",
+            currentFocusNode?.id ?? "no-focus"
+        ].joined(separator: "|")
     }
 
     var displayedFileCount: Int {
@@ -704,6 +718,38 @@ final class AppModel: ObservableObject {
         recentTargets.insert(target, at: 0)
         if recentTargets.count > 10 {
             recentTargets = Array(recentTargets.prefix(10))
+        }
+        persistRecentTargets()
+    }
+
+    private static func loadRecentTargets(from defaults: UserDefaults) -> [ScanTarget] {
+        guard let data = defaults.data(forKey: DefaultsKey.recentTargets) else {
+            return []
+        }
+
+        do {
+            let storedTargets = try JSONDecoder().decode([StoredRecentTarget].self, from: data)
+            return storedTargets.map { storedTarget in
+                ScanTarget(
+                    url: URL(filePath: storedTarget.path, directoryHint: .isDirectory),
+                    kind: storedTarget.kind
+                )
+            }
+        } catch {
+            return []
+        }
+    }
+
+    private func persistRecentTargets() {
+        let storedTargets = recentTargets.map { target in
+            StoredRecentTarget(path: target.url.path, kind: target.kind)
+        }
+
+        do {
+            let data = try JSONEncoder().encode(storedTargets)
+            UserDefaults.standard.set(data, forKey: DefaultsKey.recentTargets)
+        } catch {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.recentTargets)
         }
     }
 

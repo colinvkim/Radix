@@ -297,4 +297,23 @@ final class ScanModelTests: XCTestCase {
             isAutoSummarized: false
         )
     }
+
+    private func makeDirectoryNode(id: String, name: String, children: [FileNode]) -> FileNode {
+        FileNode(
+            id: id,
+            url: URL(filePath: id, directoryHint: .isDirectory),
+            name: name,
+            isDirectory: true,
+            isSymbolicLink: false,
+            allocatedSize: children.reduce(0) { $0 + $1.allocatedSize },
+            logicalSize: children.reduce(0) { $0 + $1.logicalSize },
+            children: children,
+            descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: children.allSatisfy(\.isAccessible),
+            isSynthetic: false,
+            isAutoSummarized: false
+        )
+    }
 }

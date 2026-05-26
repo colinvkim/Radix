@@ -106,7 +106,7 @@ struct ScanWarning: Identifiable, Hashable, Sendable {
     let category: ScanWarningCategory
 }
 
-struct FileNode: Identifiable, Hashable, Sendable {
+struct FileNode: Identifiable, Sendable {
     let id: String
     let url: URL
     let name: String
@@ -414,6 +414,7 @@ struct FileTreeIndex {
 
     private(set) var nodesByID: [String: FileNode] = [:]
     private(set) var parentByID: [String: String] = [:]
+    private var orderedNodeIDs: [String] = []
     let rootID: String?
 
     init(root: FileNode?) {
@@ -440,6 +441,13 @@ struct FileTreeIndex {
             return nodesByID[rootID]?.children ?? []
         }
         return []
+    }
+
+    func indexedNodeIDs(excludingRoot: Bool = false) -> [String] {
+        guard excludingRoot, let rootID else {
+            return orderedNodeIDs
+        }
+        return orderedNodeIDs.filter { $0 != rootID }
     }
 
     func path(to id: String?) -> [FileNode] {
@@ -478,6 +486,7 @@ struct FileTreeIndex {
 
         while let entry = stack.popLast() {
             nodesByID[entry.node.id] = entry.node
+            orderedNodeIDs.append(entry.node.id)
             if let parentID = entry.parentID {
                 parentByID[entry.node.id] = parentID
             }

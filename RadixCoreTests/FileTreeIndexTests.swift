@@ -16,6 +16,18 @@ final class FileTreeIndexTests: XCTestCase {
         XCTAssertEqual(index.parent(of: leaf.id)?.id, folder.id)
     }
 
+    func testIndexedNodeIDsPreserveTraversalOrderAndCanExcludeRoot() {
+        let first = makeFileNode(id: "/root/a.txt", name: "a.txt", size: 12)
+        let nested = makeFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 12)
+        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [first, folder])
+
+        let index = FileTreeIndex(root: root)
+
+        XCTAssertEqual(index.indexedNodeIDs(), ["/root", "/root/a.txt", "/root/folder", "/root/folder/b.txt"])
+        XCTAssertEqual(index.indexedNodeIDs(excludingRoot: true), ["/root/a.txt", "/root/folder", "/root/folder/b.txt"])
+    }
+
     func testEmptyIndexFallsBackToRootPath() {
         let root = makeDirectoryNode(id: "/root", name: "root", children: [])
         let index = FileTreeIndex(root: root)

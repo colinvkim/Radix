@@ -77,11 +77,16 @@ cd radix
 # Build and run tests
 swift test
 
+# Build the app locally without an Apple Developer account
+xcodebuild -scheme Radix -configuration Debug -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO build
+
 # Open in Xcode for the full app
 open Radix.xcodeproj
 ```
 
 The `Package.swift` file contains the **RadixCore** library (scan engine, models, geometry, formatters). The full SwiftUI app is built through the Xcode project.
+
+Local unsigned builds are useful for development and do not require a paid Apple Developer account. Distributed builds that use Sparkle updates should still be signed and notarized with an appropriate Apple signing identity.
 
 ### Project Structure
 

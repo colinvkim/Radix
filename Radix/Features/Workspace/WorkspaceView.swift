@@ -108,6 +108,7 @@ private struct ActiveWorkspaceView: View {
         VStack(spacing: 0) {
             FileBrowserTableView(
                 nodes: appModel.tableNodes,
+                contentID: appModel.tableContentID,
                 selection: $appModel.selectedNodeID
             )
 
