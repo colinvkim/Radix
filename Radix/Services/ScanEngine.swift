@@ -266,11 +266,12 @@ actor ScanEngine {
                     if options.autoSummarizeDirectories,
                        item.depth >= minDepth,
                        childURLs.count >= minFileCount,
-                       let summary = try shouldSummarizeAsAtomicDirectory(
+                       let summary = shouldSummarizeAsAtomicDirectory(
                            url: item.url,
                            childURLs: childURLs,
                            metadata: meta,
                            includeHiddenFiles: options.includeHiddenFiles,
+                           treatPackagesAsDirectories: options.treatPackagesAsDirectories,
                            maxAverageFileSize: maxAvgSize
                        ) {
                         // Treat as atomic: create a leaf node with summary stats
@@ -568,7 +569,11 @@ actor ScanEngine {
             return (makeFileNode(url: url, metadata: metadata), [])
         }
 
-        guard let summary = summarizeAtomicDirectory(at: url, includeHiddenFiles: options.includeHiddenFiles) else {
+        guard let summary = summarizeAtomicDirectory(
+            at: url,
+            includeHiddenFiles: options.includeHiddenFiles,
+            treatPackagesAsDirectories: true
+        ) else {
             return (makeFileNode(url: url, metadata: metadata), [])
         }
 
@@ -604,8 +609,9 @@ actor ScanEngine {
         childURLs: [URL],
         metadata: NodeMetadata,
         includeHiddenFiles: Bool,
+        treatPackagesAsDirectories: Bool,
         maxAverageFileSize: Int64
-    ) throws -> AtomicDirectorySummary? {
+    ) -> AtomicDirectorySummary? {
         // Quick check: sample files evenly across the directory to estimate average size.
         // childURLs already have scanResourceKeys prefetched by contentsOfDirectory,
         // so resourceValues(forKeys:) reads from the cached values without extra syscalls.
@@ -617,7 +623,13 @@ actor ScanEngine {
         var sampleFileCount = 0
 
         for childURL in sampleURLs {
-            let values = try childURL.resourceValues(forKeys: scanResourceKeys)
+            let values: URLResourceValues
+            do {
+                values = try childURL.resourceValues(forKeys: scanResourceKeys)
+            } catch {
+                return nil
+            }
+
             if !(values.isDirectory ?? false) {
                 let fileSize = Int64(values.fileSize ?? values.fileAllocatedSize ?? 0)
                 sampleTotalSize += fileSize
@@ -633,7 +645,11 @@ actor ScanEngine {
         }
 
         // Sample suggests atomic treatment - do a fast full summary
-        return summarizeAtomicDirectory(at: url, includeHiddenFiles: includeHiddenFiles)
+        return summarizeAtomicDirectory(
+            at: url,
+            includeHiddenFiles: includeHiddenFiles,
+            treatPackagesAsDirectories: treatPackagesAsDirectories
+        )
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
@@ -642,10 +658,12 @@ actor ScanEngine {
     ///   - includeHiddenFiles: Whether to include hidden files in the summary.
     private func summarizeAtomicDirectory(
         at url: URL,
-        includeHiddenFiles: Bool = true
+        includeHiddenFiles: Bool = true,
+        treatPackagesAsDirectories: Bool
     ) -> AtomicDirectorySummary? {
         let summaryKeys: [URLResourceKey] = [
             .isDirectoryKey,
+            .isPackageKey,
             .isSymbolicLinkKey,
             .fileAllocatedSizeKey,
             .fileSizeKey,
@@ -685,11 +703,27 @@ actor ScanEngine {
                 let values = try childURL.resourceValues(forKeys: Set(summaryKeys))
 
                 let isDirectory = values.isDirectory ?? false
+                let isPackage = values.isPackage ?? false
                 let isSymbolicLink = values.isSymbolicLink ?? false
 
                 state.isAccessible = state.isAccessible && (values.isReadable ?? false)
 
-                if !isDirectory {
+                if isDirectory {
+                    if isPackage && !treatPackagesAsDirectories {
+                        if let packageSummary = summarizeAtomicDirectory(
+                            at: childURL,
+                            includeHiddenFiles: includeHiddenFiles,
+                            treatPackagesAsDirectories: true
+                        ) {
+                            state.allocatedSize += packageSummary.allocatedSize
+                            state.logicalSize += packageSummary.logicalSize
+                            state.descendantFileCount += packageSummary.descendantFileCount
+                            state.isAccessible = state.isAccessible && packageSummary.isAccessible
+                            state.warnings.append(contentsOf: packageSummary.warnings)
+                            enumerator.skipDescendants()
+                        }
+                    }
+                } else {
                     let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
                     let childLogicalSize = Int64(values.fileSize ?? 0)
 

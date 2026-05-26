@@ -2,6 +2,24 @@ import XCTest
 @testable import RadixCore
 
 final class ScanModelTests: XCTestCase {
+    func testScanTargetInfersMountedVolumeRoots() {
+        let volumeURL = URL(filePath: "/Volumes/External Drive", directoryHint: .isDirectory)
+        let folderURL = URL(filePath: "/Users/example/Documents", directoryHint: .isDirectory)
+
+        XCTAssertEqual(
+            ScanTarget.inferredKind(for: volumeURL, mountedVolumeURLs: [volumeURL]),
+            .volume
+        )
+        XCTAssertEqual(
+            ScanTarget.inferredKind(for: folderURL, mountedVolumeURLs: [volumeURL]),
+            .folder
+        )
+        XCTAssertEqual(
+            ScanTarget.inferredKind(for: URL(filePath: "/", directoryHint: .isDirectory), mountedVolumeURLs: nil),
+            .volume
+        )
+    }
+
     func testSupportsMoveToTrashRejectsSyntheticNodesAndRootPath() {
         let rootNode = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
         let syntheticNode = makeNode(id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)

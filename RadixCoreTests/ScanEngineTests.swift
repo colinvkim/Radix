@@ -466,6 +466,42 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(cacheNode.secondaryStatusText, "Summarized (20 files)")
     }
 
+    func testAutoSummarizedDirectoryIncludesPackageLeafContents() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for i in 0..<12 {
+            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
+            try Data(repeating: UInt8(i), count: 32).write(to: fileURL)
+        }
+
+        let packageBinaryURL = cacheURL
+            .appending(path: "Tool.app", directoryHint: .isDirectory)
+            .appending(path: "Contents/MacOS/Tool")
+        try FileManager.default.createDirectory(at: packageBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x5A, count: 2_048).write(to: packageBinaryURL)
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        XCTAssertTrue(cacheNode.isAutoSummarized)
+        XCTAssertEqual(cacheNode.descendantFileCount, 13)
+        XCTAssertGreaterThanOrEqual(cacheNode.logicalSize, (12 * 32) + 2_048)
+    }
+
     func testAutoSummarizedDirectoryCountsAsSingleVisitedDirectory() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

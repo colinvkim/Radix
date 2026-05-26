@@ -26,7 +26,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         self.id = normalizedURL.path
         self.url = normalizedURL
         self.displayName = ScanTarget.displayName(for: normalizedURL)
-        self.kind = kind ?? (normalizedURL.path == "/" ? .volume : .folder)
+        self.kind = kind ?? ScanTarget.inferredKind(for: normalizedURL)
     }
 
     private static func normalizedURL(from url: URL) -> URL {
@@ -42,6 +42,26 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         }
 
         return standardizedURL
+    }
+
+    nonisolated static func inferredKind(
+        for url: URL,
+        mountedVolumeURLs: [URL]? = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: nil,
+            options: []
+        )
+    ) -> ScanTargetKind {
+        let path = url.standardizedFileURL.path
+        if path == "/" {
+            return .volume
+        }
+
+        guard let mountedVolumeURLs else {
+            return .folder
+        }
+
+        let mountedVolumePaths = Set(mountedVolumeURLs.map { $0.standardizedFileURL.path })
+        return mountedVolumePaths.contains(path) ? .volume : .folder
     }
 
     nonisolated static func displayName(for url: URL) -> String {
