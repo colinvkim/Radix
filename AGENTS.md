@@ -30,7 +30,7 @@ Radix is a native macOS disk space analyzer built in Swift and SwiftUI. When dev
 ```
 Radix/
 ├── App/                  # App entry point, commands, window management
-├── Models/               # Core data types (FileNode, ScanSnapshot, etc.)
+├── Models/               # Core data types (FileNodeRecord, ScanSnapshot, etc.)
 ├── Services/             # Scan engine, sunburst geometry, formatters
 ├── ViewModels/           # AppModel — central state manager
 ├── Features/             # UI features (workspace, sidebar, file browser,
@@ -41,6 +41,7 @@ Radix/
 │   ├── Inspector/
 │   ├── Settings/
 │   └── Onboarding/
+├── Views/                # Reserved for future shared view composition
 └── Shared/               # Reusable components (breadcrumbs, helpers)
 ```
 
@@ -60,7 +61,7 @@ Important paths:
 - `Radix/Shared/`: shared UI helpers
 - `RadixCoreTests/`: package-level unit and benchmark-style tests
 - `releases/`: release/update assets
-- `Sparkle-2.9.1/`: Sparkle vendored artifacts
+- Sparkle is managed through Xcode Swift Package Manager; do not add vendored Sparkle folders or frameworks to the repo.
 
 ## Product Constraints
 
