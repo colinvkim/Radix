@@ -165,7 +165,7 @@ private struct InspectorActionButtons: View {
             Button {
                 appModel.previewSelectedWithQuickLook()
             } label: {
-                Label("Quick Look", systemImage: "eye")
+                Label("Quick Look", systemImage: "document.viewfinder")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)

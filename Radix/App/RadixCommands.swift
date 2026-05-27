@@ -78,7 +78,7 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Inspect") {
-            Button("Quick Look", systemImage: "eye") {
+            Button("Quick Look", systemImage: "document.viewfinder") {
                 appModel.toggleQuickLookForSelected()
             }
             .keyboardShortcut("y", modifiers: [.command])

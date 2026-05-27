@@ -146,7 +146,7 @@ struct FileBrowserTableView: View {
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = displayedNodeLookup[selectedID] {
-                                Button("Quick Look", systemImage: "eye") {
+                                Button("Quick Look", systemImage: "document.viewfinder") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.previewSelectedWithQuickLook()
                                 }
