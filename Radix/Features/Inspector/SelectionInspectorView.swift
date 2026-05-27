@@ -84,7 +84,7 @@ struct SelectionInspectorView: View {
 }
 
 private struct InspectorHeader: View {
-    let node: FileNode
+    let node: FileNodeRecord
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -229,7 +229,7 @@ private struct InspectorActionButtons: View {
 }
 
 private struct LargestChildRow: View {
-    let node: FileNode
+    let node: FileNodeRecord
 
     var body: some View {
         HStack(spacing: 10) {

@@ -23,13 +23,15 @@ struct SunburstSegment: Identifiable, Hashable {
 
 enum SunburstLayout {
     nonisolated static func segments(
-        for root: FileNode,
+        in treeStore: FileTreeStore,
+        rootID: String,
         depthLimit: Int,
         minimumAngle: Double = .pi / 90
     ) -> [SunburstSegment] {
         guard depthLimit > 0 else { return [] }
+        guard let root = treeStore.node(id: rootID) else { return [] }
 
-        let rootChildren = root.children
+        let rootChildren = treeStore.children(of: root.id)
         let visibleChildren = rootChildren.isEmpty ? [root] : rootChildren
         let ringStart: CGFloat = 0.22
         let ringWidth = (0.98 - ringStart) / CGFloat(max(depthLimit, 1))
@@ -37,6 +39,7 @@ enum SunburstLayout {
 
         var result: [SunburstSegment] = []
         appendSegments(
+            in: treeStore,
             children: visibleChildren,
             parentDenominator: denominator,
             startAngle: 0,
@@ -53,7 +56,8 @@ enum SunburstLayout {
     }
 
     private nonisolated static func appendSegments(
-        children: [FileNode],
+        in treeStore: FileTreeStore,
+        children: [FileNodeRecord],
         parentDenominator: Int64,
         startAngle: Double,
         endAngle: Double,
@@ -94,10 +98,16 @@ enum SunburstLayout {
             if let node = entry.node,
                depth + 1 < depthLimit,
                node.isDirectory,
-               !node.children.isEmpty,
                node.allocatedSize > 0 {
+                let childNodes = treeStore.children(of: node.id)
+                guard !childNodes.isEmpty else {
+                    cursor = segmentEnd
+                    continue
+                }
+
                 appendSegments(
-                    children: node.children,
+                    in: treeStore,
+                    children: childNodes,
                     parentDenominator: node.allocatedSize,
                     startAngle: cursor,
                     endAngle: segmentEnd,
@@ -116,7 +126,7 @@ enum SunburstLayout {
     }
 
     private nonisolated static func groupedChildren(
-        _ children: [FileNode],
+        _ children: [FileNodeRecord],
         denominator: Int64,
         totalAngle: Double,
         minimumAngle: Double
@@ -136,7 +146,7 @@ enum SunburstLayout {
         }
 
         var visible: [GroupEntry] = []
-        var groupedNodes: [FileNode] = []
+        var groupedNodes: [FileNodeRecord] = []
         var groupedSize: Int64 = 0
 
         for child in children {
@@ -196,7 +206,7 @@ enum SunburstLayout {
         let totalSize: Int64
         let isAggregate: Bool
         let colorKey: String
-        let node: FileNode?
+        let node: FileNodeRecord?
     }
 }
 

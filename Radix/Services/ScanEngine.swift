@@ -53,7 +53,7 @@ actor ScanEngine {
 
     /// A completed directory scan awaiting parent assembly.
     private struct CompletedDirScan {
-        let children: [FileNode]    // For leaves: the leaf node. For dirs: empty (resolved in phase 2).
+        let children: [FileNodeRecord]    // For leaves: the leaf node. For dirs: empty (resolved in phase 2).
         let metadata: NodeMetadata
         let url: URL
         let isTraversable: Bool     // True if this was a directory we intended to traverse.
@@ -133,7 +133,7 @@ actor ScanEngine {
             excludesStartupVolumeInternals: target.kind == .volume && target.url.path == "/"
         )
 
-        let rootNode = try scanDirectory(
+        let treeStore = try scanDirectory(
             target: target,
             includeVolumeDetails: true,
             options: options,
@@ -150,7 +150,7 @@ actor ScanEngine {
 
         let snapshot = makeSnapshot(
             target: target,
-            root: rootNode,
+            treeStore: treeStore,
             startedAt: startedAt,
             finishedAt: Date(),
             warnings: warnings,
@@ -167,7 +167,7 @@ actor ScanEngine {
 
     // MARK: - Iterative Directory Scanning
 
-    /// Scans a directory iteratively (no recursion) and returns a fully assembled `FileNode`.
+    /// Scans a directory iteratively (no recursion) and returns a fully assembled flat tree.
     private func scanDirectory(
         target: ScanTarget,
         includeVolumeDetails: Bool,
@@ -177,7 +177,7 @@ actor ScanEngine {
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> FileNode {
+    ) throws -> FileTreeStore {
         try Task.checkCancellation()
 
         let rootMetadata = try metadata(for: target.url, includeVolumeDetails: includeVolumeDetails)
@@ -197,7 +197,7 @@ actor ScanEngine {
                 }
             }
             continuation.yield(.progress(metrics))
-            return leafResult.node
+            return FileTreeStore(root: leafResult.node)
         }
 
         // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
@@ -275,7 +275,7 @@ actor ScanEngine {
                            maxAverageFileSize: maxAvgSize
                        ) {
                         // Treat as atomic: create a leaf node with summary stats
-                        let atomicNode = FileNode(
+                        let atomicNode = FileNodeRecord(
                             id: item.url.path,
                             url: item.url,
                             name: ScanTarget.displayName(for: item.url),
@@ -283,7 +283,6 @@ actor ScanEngine {
                             isSymbolicLink: false,
                             allocatedSize: max(meta.allocatedSize, summary.allocatedSize),
                             logicalSize: max(meta.logicalSize, summary.logicalSize),
-                            children: [],
                             descendantFileCount: summary.descendantFileCount,
                             lastModified: meta.lastModified,
                             isPackage: false,
@@ -331,7 +330,7 @@ actor ScanEngine {
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-                    let inaccessibleNode = FileNode(
+                    let inaccessibleNode = FileNodeRecord(
                         id: item.url.path,
                         url: item.url,
                         name: ScanTarget.displayName(for: item.url),
@@ -339,7 +338,6 @@ actor ScanEngine {
                         isSymbolicLink: meta.isSymbolicLink,
                         allocatedSize: 0,
                         logicalSize: 0,
-                        children: [],
                         descendantFileCount: 0,
                         lastModified: meta.lastModified,
                         isPackage: meta.isPackage,
@@ -378,7 +376,9 @@ actor ScanEngine {
 
         // Phase 2: Assemble the tree bottom-up from completed results.
         // Process keys in reverse order (children always have higher keys than parents).
-        var resolvedNodeByKey: [Int: FileNode] = [:]
+        var resolvedNodeByKey: [Int: FileNodeRecord] = [:]
+        var childIDsByID: [String: [String]] = [:]
+        var parentIDByID: [String: String] = [:]
         for key in (0..<nextKey).reversed() {
             guard let completed = completedByKey[key] else { continue }
 
@@ -386,16 +386,21 @@ actor ScanEngine {
                 // Traversable directories must still be materialized when empty.
                 let childKeys = childrenKeysByKey[key] ?? []
                 let childNodes = childKeys.compactMap { resolvedNodeByKey[$0] }
-                let assembled = FileNode.directory(
+                let sortedChildren = FileTreeStore.sortedChildren(childNodes)
+                let assembled = FileNodeRecord.directory(
                     id: completed.url.path,
                     url: completed.url,
                     name: ScanTarget.displayName(for: completed.url),
-                    children: childNodes,
+                    children: sortedChildren,
                     lastModified: completed.metadata.lastModified,
                     isPackage: completed.metadata.isPackage,
                     isAccessible: completed.metadata.isReadable
                 )
                 resolvedNodeByKey[key] = assembled
+                childIDsByID[assembled.id] = sortedChildren.map(\.id)
+                for child in sortedChildren {
+                    parentIDByID[child.id] = assembled.id
+                }
             } else if let onlyChild = completed.children.first {
                 // Leaf node or inaccessible directory: use the child directly.
                 resolvedNodeByKey[key] = onlyChild
@@ -410,12 +415,18 @@ actor ScanEngine {
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-        return rootNode
+        let nodesByID = Dictionary(uniqueKeysWithValues: resolvedNodeByKey.values.map { ($0.id, $0) })
+        return FileTreeStore(
+            rootID: rootNode.id,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: parentIDByID
+        )
     }
 
     // MARK: - Helpers
 
-    private func applyLeafMetrics(_ node: FileNode, metrics: inout ScanMetrics) {
+    private func applyLeafMetrics(_ node: FileNodeRecord, metrics: inout ScanMetrics) {
         if node.isDirectory {
             if !node.isAutoSummarized {
                 metrics.directoriesVisited += 1
@@ -462,8 +473,8 @@ actor ScanEngine {
         )
     }
 
-    private func makeUnavailableNode(for url: URL) -> FileNode {
-        FileNode(
+    private func makeUnavailableNode(for url: URL) -> FileNodeRecord {
+        FileNodeRecord(
             id: url.path,
             url: url,
             name: ScanTarget.displayName(for: url),
@@ -471,7 +482,6 @@ actor ScanEngine {
             isSymbolicLink: false,
             allocatedSize: 0,
             logicalSize: 0,
-            children: [],
             descendantFileCount: 0,
             lastModified: nil,
             isPackage: false,
@@ -545,8 +555,8 @@ actor ScanEngine {
         return true
     }
 
-    private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNode {
-        FileNode(
+    private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNodeRecord {
+        FileNodeRecord(
             id: url.path,
             url: url,
             name: ScanTarget.displayName(for: url),
@@ -554,7 +564,6 @@ actor ScanEngine {
             isSymbolicLink: metadata.isSymbolicLink,
             allocatedSize: metadata.allocatedSize,
             logicalSize: metadata.logicalSize,
-            children: [],
             descendantFileCount: metadata.isDirectory || metadata.isSymbolicLink ? 0 : 1,
             lastModified: metadata.lastModified,
             isPackage: metadata.isPackage,
@@ -564,7 +573,7 @@ actor ScanEngine {
         )
     }
 
-    private func makeLeafNode(url: URL, metadata: NodeMetadata, options: ScanOptions) -> (node: FileNode, warnings: [ScanWarning]) {
+    private func makeLeafNode(url: URL, metadata: NodeMetadata, options: ScanOptions) -> (node: FileNodeRecord, warnings: [ScanWarning]) {
         guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
             return (makeFileNode(url: url, metadata: metadata), [])
         }
@@ -578,7 +587,7 @@ actor ScanEngine {
         }
 
         return (
-            FileNode(
+            FileNodeRecord(
                 id: url.path,
                 url: url,
                 name: ScanTarget.displayName(for: url),
@@ -586,7 +595,6 @@ actor ScanEngine {
                 isSymbolicLink: false,
                 allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
                 logicalSize: max(metadata.logicalSize, summary.logicalSize),
-                children: [],
                 descendantFileCount: summary.descendantFileCount,
                 lastModified: metadata.lastModified,
                 isPackage: true,
@@ -751,37 +759,38 @@ actor ScanEngine {
 
     private func makeSnapshot(
         target: ScanTarget,
-        root: FileNode,
+        treeStore: FileTreeStore,
         startedAt: Date,
         finishedAt: Date?,
         warnings: [ScanWarning],
         isComplete: Bool,
         expectedTotalBytes: Int64 = 0
     ) -> ScanSnapshot {
-        let reconciledRoot = reconcileVolumeRoot(root, for: target, expectedTotalBytes: expectedTotalBytes)
+        let reconciledStore = reconcileVolumeRoot(treeStore, for: target, expectedTotalBytes: expectedTotalBytes)
 
         return ScanSnapshot(
             target: target,
-            root: reconciledRoot,
+            treeStore: reconciledStore,
             startedAt: startedAt,
             finishedAt: finishedAt,
             scanWarnings: warnings,
-            aggregateStats: reconciledRoot.aggregateStats,
+            aggregateStats: reconciledStore.aggregateStats,
             isComplete: isComplete
         )
     }
 
-    private func reconcileVolumeRoot(_ root: FileNode, for target: ScanTarget, expectedTotalBytes: Int64) -> FileNode {
+    private func reconcileVolumeRoot(_ treeStore: FileTreeStore, for target: ScanTarget, expectedTotalBytes: Int64) -> FileTreeStore {
+        let root = treeStore.root
         guard target.kind == .volume, expectedTotalBytes > root.allocatedSize else {
-            return root
+            return treeStore
         }
 
         let missingBytes = expectedTotalBytes - root.allocatedSize
         guard missingBytes >= 64 * 1_024 * 1_024 else {
-            return root
+            return treeStore
         }
 
-        let unattributedNode = FileNode(
+        let unattributedNode = FileNodeRecord(
             id: "\(root.id)#system-unattributed",
             url: target.url,
             name: "System & Unattributed",
@@ -789,7 +798,6 @@ actor ScanEngine {
             isSymbolicLink: false,
             allocatedSize: missingBytes,
             logicalSize: missingBytes,
-            children: [],
             descendantFileCount: 0,
             lastModified: nil,
             isPackage: false,
@@ -798,14 +806,33 @@ actor ScanEngine {
             isAutoSummarized: false
         )
 
-        return FileNode.directory(
+        let rootChildren = treeStore.children(of: root.id) + [unattributedNode]
+        let sortedRootChildren = FileTreeStore.sortedChildren(rootChildren)
+        let reconciledRoot = FileNodeRecord.directory(
             id: root.id,
             url: root.url,
             name: root.name,
-            children: root.children + [unattributedNode],
+            children: sortedRootChildren,
             lastModified: root.lastModified,
             isPackage: root.isPackage,
             isAccessible: root.isAccessible
+        )
+
+        var nodesByID = treeStore.nodesByID
+        nodesByID[reconciledRoot.id] = reconciledRoot
+        nodesByID[unattributedNode.id] = unattributedNode
+
+        var childIDsByID = treeStore.childIDsByID
+        childIDsByID[root.id] = sortedRootChildren.map(\.id)
+
+        var parentIDByID = treeStore.parentIDByID
+        parentIDByID[unattributedNode.id] = root.id
+
+        return FileTreeStore(
+            rootID: treeStore.rootID,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: parentIDByID
         )
     }
 

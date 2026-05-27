@@ -88,7 +88,7 @@ The `Package.swift` file contains the **RadixCore** library (scan engine, models
 ```
 Radix/
 ├── App/                  # App entry point, commands, window management
-├── Models/               # Core data types (FileNode, ScanSnapshot, etc.)
+├── Models/               # Core data types (FileNodeRecord, ScanSnapshot, etc.)
 ├── Services/             # Scan engine, sunburst geometry, formatters
 ├── ViewModels/           # AppModel — central state manager
 ├── Features/             # UI features (workspace, sidebar, file browser,
@@ -106,7 +106,7 @@ Radix/
 
 - **ScanEngine** is an actor-based async scanner that uses iterative (not recursive) filesystem traversal for safety and performance.
 - **AppModel** is the single source of truth — a `@MainActor` observable object that drives the entire UI.
-- **ScanSnapshot** and **FileTreeIndex** provide immutable scan results with O(1) path lookups, structural sharing, and efficient tree updates.
+- **ScanSnapshot** and **FileTreeStore** provide immutable scan results with O(1) path lookups, flat tree storage, and efficient subtree updates.
 - The **sunburst chart** is rendered using SwiftUI's Canvas API for performant drawing of hundreds of segments.
 - No external Swift package dependencies — everything is built with Apple's frameworks.
 

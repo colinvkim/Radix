@@ -11,8 +11,12 @@ final class SunburstGeometryTests: XCTestCase {
                 makeFileNode(id: "/root/b", name: "b", size: 1)
             ]
         )
+        let store = makeStore(root: root, children: [
+            makeFileNode(id: "/root/a", name: "a", size: 3),
+            makeFileNode(id: "/root/b", name: "b", size: 1),
+        ])
 
-        let segments = SunburstLayout.segments(for: root, depthLimit: 1)
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
         let totalRadians = segments.reduce(0.0) { partialResult, segment in
             partialResult + (segment.endAngle.radians - segment.startAngle.radians)
         }
@@ -29,8 +33,9 @@ final class SunburstGeometryTests: XCTestCase {
             makeFileNode(id: "/root/tiny-3", name: "tiny-3", size: 1)
         ]
         let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
 
-        let segments = SunburstLayout.segments(for: root, depthLimit: 1, minimumAngle: .pi / 2)
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1, minimumAngle: .pi / 2)
         let aggregate = try XCTUnwrap(segments.first(where: { $0.isAggregate }))
 
         XCTAssertNil(aggregate.nodeID)
@@ -47,8 +52,12 @@ final class SunburstGeometryTests: XCTestCase {
                 makeFileNode(id: "/root/b", name: "b", size: 1)
             ]
         )
+        let store = makeStore(root: root, children: [
+            makeFileNode(id: "/root/a", name: "a", size: 1),
+            makeFileNode(id: "/root/b", name: "b", size: 1),
+        ])
 
-        let segments = SunburstLayout.segments(for: root, depthLimit: 1)
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
         let firstSegment = try XCTUnwrap(segments.first)
         let size = CGSize(width: 300, height: 300)
         let hitPoint = pointInside(segment: firstSegment, in: size)
@@ -69,8 +78,12 @@ private func pointInside(segment: SunburstSegment, in size: CGSize) -> CGPoint {
     )
 }
 
-private func makeFileNode(id: String, name: String, size: Int64) -> FileNode {
-    FileNode(
+private func makeStore(root: FileNodeRecord, children: [FileNodeRecord]) -> FileTreeStore {
+    FileTreeStore(root: root, childrenByID: [root.id: children])
+}
+
+private func makeFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
+    FileNodeRecord(
         id: id,
         url: URL(filePath: id),
         name: name,
@@ -78,7 +91,6 @@ private func makeFileNode(id: String, name: String, size: Int64) -> FileNode {
         isSymbolicLink: false,
         allocatedSize: size,
         logicalSize: size,
-        children: [],
         descendantFileCount: 1,
         lastModified: nil,
         isPackage: false,
@@ -88,8 +100,8 @@ private func makeFileNode(id: String, name: String, size: Int64) -> FileNode {
     )
 }
 
-private func makeDirectoryNode(id: String, name: String, children: [FileNode]) -> FileNode {
-    FileNode(
+private func makeDirectoryNode(id: String, name: String, children: [FileNodeRecord]) -> FileNodeRecord {
+    FileNodeRecord(
         id: id,
         url: URL(filePath: id, directoryHint: .isDirectory),
         name: name,
@@ -97,7 +109,6 @@ private func makeDirectoryNode(id: String, name: String, children: [FileNode]) -
         isSymbolicLink: false,
         allocatedSize: children.reduce(0) { $0 + $1.allocatedSize },
         logicalSize: children.reduce(0) { $0 + $1.logicalSize },
-        children: children,
         descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
         lastModified: nil,
         isPackage: false,

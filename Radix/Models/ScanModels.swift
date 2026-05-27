@@ -106,7 +106,7 @@ struct ScanWarning: Identifiable, Hashable, Sendable {
     let category: ScanWarningCategory
 }
 
-struct FileNode: Identifiable, Sendable {
+struct FileNodeRecord: Identifiable, Sendable {
     let id: String
     let url: URL
     let name: String
@@ -114,17 +114,12 @@ struct FileNode: Identifiable, Sendable {
     let isSymbolicLink: Bool
     let allocatedSize: Int64
     let logicalSize: Int64
-    let children: [FileNode]
     let descendantFileCount: Int
     let lastModified: Date?
     let isPackage: Bool
     let isAccessible: Bool
     let isSynthetic: Bool
     let isAutoSummarized: Bool
-
-    nonisolated var containsChildren: Bool {
-        !children.isEmpty
-    }
 
     nonisolated var itemKind: String {
         if isSynthetic {
@@ -146,61 +141,16 @@ struct FileNode: Identifiable, Sendable {
         !isSynthetic
     }
 
-    nonisolated var aggregateStats: ScanAggregateStats {
-        var fileCount = 0
-        var directoryCount = 0
-        var accessibleItemCount = 0
-        var inaccessibleItemCount = 0
-        var stack: [FileNode] = [self]
-
-        while let node = stack.popLast() {
-            if node.isDirectory {
-                directoryCount += 1
-                if node.isPackage && node.children.isEmpty {
-                    fileCount += node.descendantFileCount
-                }
-                if node.isAutoSummarized {
-                    fileCount += node.descendantFileCount
-                }
-            } else if !node.isSymbolicLink && !node.isSynthetic {
-                fileCount += 1
-            }
-
-            if node.isAccessible {
-                accessibleItemCount += 1
-            } else {
-                inaccessibleItemCount += 1
-            }
-
-            stack.append(contentsOf: node.children)
-        }
-
-        return ScanAggregateStats(
-            totalAllocatedSize: allocatedSize,
-            totalLogicalSize: logicalSize,
-            fileCount: fileCount,
-            directoryCount: directoryCount,
-            accessibleItemCount: accessibleItemCount,
-            inaccessibleItemCount: inaccessibleItemCount
-        )
-    }
-
     nonisolated static func directory(
         id: String,
         url: URL,
         name: String,
-        children: [FileNode],
+        children: [FileNodeRecord],
         lastModified: Date?,
         isPackage: Bool,
         isAccessible: Bool
-    ) -> FileNode {
-        let sortedChildren = children.sorted { lhs, rhs in
-            if lhs.allocatedSize == rhs.allocatedSize {
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
-            return lhs.allocatedSize > rhs.allocatedSize
-        }
-
+    ) -> FileNodeRecord {
+        let sortedChildren = FileTreeStore.sortedChildren(children)
         let allocatedSize = sortedChildren.reduce(into: Int64(0)) { result, child in
             result += child.allocatedSize
         }
@@ -216,7 +166,7 @@ struct FileNode: Identifiable, Sendable {
         }
         let isFullyAccessible = isAccessible && sortedChildren.allSatisfy(\.isAccessible)
 
-        return FileNode(
+        return FileNodeRecord(
             id: id,
             url: url,
             name: name,
@@ -224,39 +174,12 @@ struct FileNode: Identifiable, Sendable {
             isSymbolicLink: false,
             allocatedSize: allocatedSize,
             logicalSize: logicalSize,
-            children: sortedChildren,
             descendantFileCount: descendantFileCount,
             lastModified: lastModified,
             isPackage: isPackage,
             isAccessible: isFullyAccessible,
             isSynthetic: false,
             isAutoSummarized: false
-        )
-    }
-
-    fileprivate nonisolated func replacingNode(
-        targetID: String,
-        with replacement: FileNode,
-        affectedIDs: Set<String>
-    ) -> FileNode {
-        if id == targetID {
-            return replacement
-        }
-
-        guard affectedIDs.contains(id) else { return self }
-
-        let newChildren = children.map { child in
-            child.replacingNode(targetID: targetID, with: replacement, affectedIDs: affectedIDs)
-        }
-
-        return .directory(
-            id: id,
-            url: url,
-            name: name,
-            children: newChildren,
-            lastModified: lastModified,
-            isPackage: isPackage,
-            isAccessible: isAccessible
         )
     }
 }
@@ -273,54 +196,48 @@ struct ScanAggregateStats: Sendable {
 struct ScanSnapshot: Identifiable, Sendable {
     let id = UUID()
     let target: ScanTarget
-    let root: FileNode
+    let treeStore: FileTreeStore
     let startedAt: Date
     let finishedAt: Date?
     let scanWarnings: [ScanWarning]
     let aggregateStats: ScanAggregateStats
     let isComplete: Bool
 
-    func replacingNode(
+    nonisolated var root: FileNodeRecord {
+        treeStore.root
+    }
+
+    nonisolated func replacingNode(
         id targetID: String,
-        with replacement: FileNode,
+        with replacement: FileTreeStore,
         additionalWarnings: [ScanWarning] = []
     ) -> ScanSnapshot? {
-        let index = FileTreeIndex(root: root)
-        guard index.node(id: targetID) != nil else { return nil }
-
-        var affectedIDs: Set<String> = [targetID]
-        var cursor = targetID
-        while let parentID = index.parentByID[cursor] {
-            affectedIDs.insert(parentID)
-            cursor = parentID
-        }
-
-        let updatedRoot = root.replacingNode(
-            targetID: targetID,
-            with: replacement,
-            affectedIDs: affectedIDs
-        )
+        guard let updatedStore = treeStore.replacingSubtree(id: targetID, with: replacement) else { return nil }
 
         return ScanSnapshot(
             target: target,
-            root: updatedRoot,
+            treeStore: updatedStore,
             startedAt: startedAt,
             finishedAt: finishedAt,
             scanWarnings: Self.mergedWarnings(existing: scanWarnings, additional: additionalWarnings),
-            aggregateStats: updatedRoot.aggregateStats,
+            aggregateStats: updatedStore.aggregateStats,
             isComplete: isComplete
         )
     }
 
-    private static func mergedWarnings(
+    private nonisolated static func mergedWarnings(
         existing: [ScanWarning],
         additional: [ScanWarning]
     ) -> [ScanWarning] {
-        var seen = Set<ScanWarningKey>()
+        var seen = Set<String>()
         var result: [ScanWarning] = []
 
         for warning in existing + additional {
-            let key = ScanWarningKey(warning: warning)
+            let key = [
+                warning.category.rawValue,
+                warning.path,
+                warning.message,
+            ].joined(separator: "\u{0}")
             if seen.insert(key).inserted {
                 result.append(warning)
             }
@@ -338,18 +255,6 @@ enum ScanPostTrashAction: Equatable {
     static func afterRemovingNode(activeTargetID: String?, removedNodeID: String) -> ScanPostTrashAction {
         guard let activeTargetID else { return .none }
         return activeTargetID == removedNodeID ? .clearActiveScan : .rescanActiveScan
-    }
-}
-
-private struct ScanWarningKey: Hashable {
-    let path: String
-    let message: String
-    let category: ScanWarningCategory
-
-    init(warning: ScanWarning) {
-        self.path = warning.path
-        self.message = warning.message
-        self.category = warning.category
     }
 }
 
@@ -409,70 +314,164 @@ enum ScanProgressEvent: Sendable {
     case finished(ScanSnapshot)
 }
 
-struct FileTreeIndex {
-    static let empty = FileTreeIndex(root: nil)
+struct FileTreeStore: Sendable {
+    let rootID: String
+    let nodesByID: [String: FileNodeRecord]
+    let childIDsByID: [String: [String]]
+    let parentIDByID: [String: String]
+    private let orderedNodeIDs: [String]
 
-    private(set) var nodesByID: [String: FileNode] = [:]
-    private(set) var parentByID: [String: String] = [:]
-    private var orderedNodeIDs: [String] = []
-    let rootID: String?
-
-    init(root: FileNode?) {
-        rootID = root?.id
-        guard let root else { return }
-        indexIteratively(root: root)
+    nonisolated var root: FileNodeRecord {
+        guard let root = nodesByID[rootID] else {
+            preconditionFailure("FileTreeStore rootID does not exist in nodesByID.")
+        }
+        return root
     }
 
-    func node(id: String?) -> FileNode? {
+    nonisolated var aggregateStats: ScanAggregateStats {
+        var fileCount = 0
+        var directoryCount = 0
+        var accessibleItemCount = 0
+        var inaccessibleItemCount = 0
+
+        for nodeID in orderedNodeIDs {
+            guard let node = nodesByID[nodeID] else { continue }
+
+            if node.isDirectory {
+                directoryCount += 1
+                if node.isPackage && children(of: node.id).isEmpty {
+                    fileCount += node.descendantFileCount
+                }
+                if node.isAutoSummarized {
+                    fileCount += node.descendantFileCount
+                }
+            } else if !node.isSymbolicLink && !node.isSynthetic {
+                fileCount += 1
+            }
+
+            if node.isAccessible {
+                accessibleItemCount += 1
+            } else {
+                inaccessibleItemCount += 1
+            }
+        }
+
+        return ScanAggregateStats(
+            totalAllocatedSize: root.allocatedSize,
+            totalLogicalSize: root.logicalSize,
+            fileCount: fileCount,
+            directoryCount: directoryCount,
+            accessibleItemCount: accessibleItemCount,
+            inaccessibleItemCount: inaccessibleItemCount
+        )
+    }
+
+    nonisolated init(root: FileNodeRecord) {
+        self.init(
+            rootID: root.id,
+            nodesByID: [root.id: root],
+            childIDsByID: [:],
+            parentIDByID: [:]
+        )
+    }
+
+    nonisolated init(root: FileNodeRecord, childrenByID inputChildrenByID: [String: [FileNodeRecord]]) {
+        var nodesByID = [root.id: root]
+        var childIDsByID: [String: [String]] = [:]
+        var parentIDByID: [String: String] = [:]
+        var stack = [root]
+
+        while let parent = stack.popLast() {
+            let children = Self.sortedChildren(inputChildrenByID[parent.id] ?? [])
+            guard !children.isEmpty else { continue }
+
+            childIDsByID[parent.id] = children.map(\.id)
+            for child in children {
+                nodesByID[child.id] = child
+                parentIDByID[child.id] = parent.id
+                stack.append(child)
+            }
+        }
+
+        self.init(
+            rootID: root.id,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: parentIDByID
+        )
+    }
+
+    nonisolated init(
+        rootID: String,
+        nodesByID: [String: FileNodeRecord],
+        childIDsByID: [String: [String]],
+        parentIDByID: [String: String]
+    ) {
+        self.rootID = rootID
+        self.nodesByID = nodesByID
+        self.childIDsByID = childIDsByID
+        self.parentIDByID = parentIDByID
+        self.orderedNodeIDs = Self.makeOrderedNodeIDs(rootID: rootID, childIDsByID: childIDsByID, nodesByID: nodesByID)
+    }
+
+    nonisolated static func sortedChildren(_ children: [FileNodeRecord]) -> [FileNodeRecord] {
+        children.sorted { lhs, rhs in
+            if lhs.allocatedSize == rhs.allocatedSize {
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.allocatedSize > rhs.allocatedSize
+        }
+    }
+
+    nonisolated func node(id: String?) -> FileNodeRecord? {
         guard let id else { return nil }
         return nodesByID[id]
     }
 
-    func parent(of id: String?) -> FileNode? {
-        guard let id, let parentID = parentByID[id] else { return nil }
+    nonisolated func parent(of id: String?) -> FileNodeRecord? {
+        guard let id, let parentID = parentIDByID[id] else { return nil }
         return nodesByID[parentID]
     }
 
-    func children(of id: String?) -> [FileNode] {
-        if let node = node(id: id) {
-            return node.children
-        }
-        if let rootID {
-            return nodesByID[rootID]?.children ?? []
-        }
-        return []
+    nonisolated func children(of id: String?) -> [FileNodeRecord] {
+        let resolvedID = id ?? rootID
+        return childIDsByID[resolvedID]?.compactMap { nodesByID[$0] } ?? []
     }
 
-    func indexedNodeIDs(excludingRoot: Bool = false) -> [String] {
-        guard excludingRoot, let rootID else {
+    nonisolated func containsChildren(id: String?) -> Bool {
+        let resolvedID = id ?? rootID
+        return childIDsByID[resolvedID]?.isEmpty == false
+    }
+
+    nonisolated func indexedNodeIDs(excludingRoot: Bool = false) -> [String] {
+        guard excludingRoot else {
             return orderedNodeIDs
         }
         return orderedNodeIDs.filter { $0 != rootID }
     }
 
-    func path(to id: String?) -> [FileNode] {
+    nonisolated func path(to id: String?) -> [FileNodeRecord] {
         guard let id, let node = nodesByID[id] else {
-            guard let rootID, let root = nodesByID[rootID] else { return [] }
             return [root]
         }
 
-        var result: [FileNode] = [node]
+        var result: [FileNodeRecord] = [node]
         var cursor = id
-        while let parentID = parentByID[cursor], let parent = nodesByID[parentID] {
+        while let parentID = parentIDByID[cursor], let parent = nodesByID[parentID] {
             result.append(parent)
             cursor = parentID
         }
         return result.reversed()
     }
 
-    func isAncestor(_ ancestorID: String, of descendantID: String?) -> Bool {
+    nonisolated func isAncestor(_ ancestorID: String, of descendantID: String?) -> Bool {
         guard let descendantID else { return false }
         if ancestorID == descendantID {
             return true
         }
 
         var cursor = descendantID
-        while let parentID = parentByID[cursor] {
+        while let parentID = parentIDByID[cursor] {
             if parentID == ancestorID {
                 return true
             }
@@ -481,24 +480,96 @@ struct FileTreeIndex {
         return false
     }
 
-    private mutating func indexIteratively(root: FileNode) {
-        var stack: [(node: FileNode, parentID: String?)] = [(root, nil)]
+    nonisolated func replacingSubtree(id targetID: String, with replacement: FileTreeStore) -> FileTreeStore? {
+        guard nodesByID[targetID] != nil else { return nil }
 
-        while let entry = stack.popLast() {
-            nodesByID[entry.node.id] = entry.node
-            orderedNodeIDs.append(entry.node.id)
-            if let parentID = entry.parentID {
-                parentByID[entry.node.id] = parentID
-            }
+        let oldParentID = parentIDByID[targetID]
+        let oldSubtreeIDs = Set(subtreeNodeIDs(rootedAt: targetID))
+        var updatedNodes = nodesByID
+        var updatedChildIDs = childIDsByID
+        var updatedParentIDs = parentIDByID
 
-            for child in entry.node.children.reversed() {
-                stack.append((child, entry.node.id))
-            }
+        for oldID in oldSubtreeIDs {
+            updatedNodes.removeValue(forKey: oldID)
+            updatedChildIDs.removeValue(forKey: oldID)
+            updatedParentIDs.removeValue(forKey: oldID)
         }
+
+        updatedNodes.merge(replacement.nodesByID) { _, new in new }
+        updatedChildIDs.merge(replacement.childIDsByID) { _, new in new }
+        updatedParentIDs.merge(replacement.parentIDByID) { _, new in new }
+
+        let updatedRootID: String
+        if let oldParentID {
+            let previousChildIDs = childIDsByID[oldParentID] ?? []
+            updatedChildIDs[oldParentID] = previousChildIDs.map { childID in
+                childID == targetID ? replacement.rootID : childID
+            }
+            updatedParentIDs[replacement.rootID] = oldParentID
+            updatedRootID = rootID
+        } else {
+            updatedParentIDs.removeValue(forKey: replacement.rootID)
+            updatedRootID = replacement.rootID
+        }
+
+        var cursor = oldParentID
+        while let currentID = cursor {
+            guard let current = updatedNodes[currentID] else { break }
+            let childRecords = (updatedChildIDs[currentID] ?? []).compactMap { updatedNodes[$0] }
+            updatedNodes[currentID] = FileNodeRecord.directory(
+                id: current.id,
+                url: current.url,
+                name: current.name,
+                children: childRecords,
+                lastModified: current.lastModified,
+                isPackage: current.isPackage,
+                isAccessible: current.isAccessible
+            )
+            updatedChildIDs[currentID] = Self.sortedChildren(childRecords).map(\.id)
+            cursor = updatedParentIDs[currentID]
+        }
+
+        return FileTreeStore(
+            rootID: updatedRootID,
+            nodesByID: updatedNodes,
+            childIDsByID: updatedChildIDs,
+            parentIDByID: updatedParentIDs
+        )
+    }
+
+    private nonisolated func subtreeNodeIDs(rootedAt id: String) -> [String] {
+        var result: [String] = []
+        var stack = [id]
+
+        while let currentID = stack.popLast() {
+            result.append(currentID)
+            let childIDs = childIDsByID[currentID] ?? []
+            stack.append(contentsOf: childIDs)
+        }
+
+        return result
+    }
+
+    private nonisolated static func makeOrderedNodeIDs(
+        rootID: String,
+        childIDsByID: [String: [String]],
+        nodesByID: [String: FileNodeRecord]
+    ) -> [String] {
+        guard nodesByID[rootID] != nil else { return [] }
+        var result: [String] = []
+        var stack: [String] = [rootID]
+
+        while let nodeID = stack.popLast() {
+            guard nodesByID[nodeID] != nil else { continue }
+            result.append(nodeID)
+            stack.append(contentsOf: (childIDsByID[nodeID] ?? []).reversed())
+        }
+
+        return result
     }
 }
 
-extension FileNode {
+extension FileNodeRecord {
     var systemImageName: String {
         if isSynthetic {
             return "internaldrive.fill"

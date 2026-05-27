@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct BreadcrumbBar: View {
-    let nodes: [FileNode]
+    let nodes: [FileNodeRecord]
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -21,7 +21,7 @@ struct BreadcrumbBar: View {
         }
     }
 
-    private func breadcrumbButton(node: FileNode, isCurrent: Bool) -> some View {
+    private func breadcrumbButton(node: FileNodeRecord, isCurrent: Bool) -> some View {
         Button(node.name) {
             onSelect(node.id)
         }

@@ -3,8 +3,8 @@ import SwiftUI
 struct SunburstChartView: View {
     private static let chartPadding: CGFloat = 22
 
-    let rootNode: FileNode
-    let index: FileTreeIndex
+    let rootNode: FileNodeRecord
+    let treeStore: FileTreeStore
     let selectedNodeID: String?
     let depthLimit: Int
     let layoutID: String
@@ -15,8 +15,8 @@ struct SunburstChartView: View {
     @State private var renderedSegments: [SunburstSegment]
 
     init(
-        rootNode: FileNode,
-        index: FileTreeIndex,
+        rootNode: FileNodeRecord,
+        treeStore: FileTreeStore,
         selectedNodeID: String?,
         depthLimit: Int,
         layoutID: String,
@@ -24,22 +24,22 @@ struct SunburstChartView: View {
         onZoom: @escaping (String) -> Void
     ) {
         self.rootNode = rootNode
-        self.index = index
+        self.treeStore = treeStore
         self.selectedNodeID = selectedNodeID
         self.depthLimit = depthLimit
         self.layoutID = layoutID
         self.onSelect = onSelect
         self.onZoom = onZoom
-        _renderedSegments = State(initialValue: SunburstLayout.segments(for: rootNode, depthLimit: depthLimit))
+        _renderedSegments = State(initialValue: SunburstLayout.segments(in: treeStore, rootID: rootNode.id, depthLimit: depthLimit))
     }
 
-    private var displayedNode: FileNode? {
+    private var displayedNode: FileNodeRecord? {
         if let hoveredNodeID = hoveredSegment?.nodeID,
-           let hoveredNode = index.node(id: hoveredNodeID) {
+           let hoveredNode = treeStore.node(id: hoveredNodeID) {
             return hoveredNode
         }
         if let selectedNodeID,
-           let selectedNode = index.node(id: selectedNodeID) {
+           let selectedNode = treeStore.node(id: selectedNodeID) {
             return selectedNode
         }
         return rootNode
@@ -49,7 +49,7 @@ struct SunburstChartView: View {
         guard let hoveredSegment else { return nil }
 
         if let hoveredNodeID = hoveredSegment.nodeID,
-           let hoveredNode = index.node(id: hoveredNodeID) {
+           let hoveredNode = treeStore.node(id: hoveredNodeID) {
             return summary(for: hoveredNode)
         }
 
@@ -110,7 +110,7 @@ struct SunburstChartView: View {
             .onTapGesture(count: 2, coordinateSpace: .local) { location in
                 guard let segment = hitTest(at: location, in: chartFrame),
                       let nodeID = segment.nodeID,
-                      index.node(id: nodeID)?.isDirectory == true else {
+                      treeStore.node(id: nodeID)?.isDirectory == true else {
                     return
                 }
 
@@ -122,10 +122,11 @@ struct SunburstChartView: View {
             .accessibilityValue(accessibilityValue)
             .accessibilityHint("Select a segment to inspect it. Double-click a folder segment to zoom in.")
             .task(id: layoutID) {
-                let node = rootNode
+                let store = treeStore
+                let rootID = rootNode.id
                 let depth = depthLimit
                 let segments = await Task.detached(priority: .userInitiated) {
-                    SunburstLayout.segments(for: node, depthLimit: depth)
+                    SunburstLayout.segments(in: store, rootID: rootID, depthLimit: depth)
                 }.value
                 guard !Task.isCancelled else { return }
                 hoveredSegment = nil
@@ -161,7 +162,7 @@ struct SunburstChartView: View {
         if segment.nodeID == selectedNodeID {
             return base.opacity(min(opacity + 0.1, 0.9))
         }
-        if let nodeID = segment.nodeID, index.isAncestor(nodeID, of: selectedNodeID) {
+        if let nodeID = segment.nodeID, treeStore.isAncestor(nodeID, of: selectedNodeID) {
             return base.opacity(min(opacity + 0.04, 0.84))
         }
         if selectedNodeID != nil {
@@ -180,7 +181,7 @@ struct SunburstChartView: View {
         if segment.nodeID == selectedNodeID {
             return Color.white.opacity(0.5)
         }
-        if let nodeID = segment.nodeID, index.isAncestor(nodeID, of: selectedNodeID) {
+        if let nodeID = segment.nodeID, treeStore.isAncestor(nodeID, of: selectedNodeID) {
             return Color.white.opacity(0.22)
         }
         return Color(nsColor: .separatorColor).opacity(0.4)
@@ -193,7 +194,7 @@ struct SunburstChartView: View {
         if segment.nodeID == selectedNodeID {
             return 2.5
         }
-        if let nodeID = segment.nodeID, index.isAncestor(nodeID, of: selectedNodeID) {
+        if let nodeID = segment.nodeID, treeStore.isAncestor(nodeID, of: selectedNodeID) {
             return 1.5
         }
         return 1
@@ -216,7 +217,7 @@ struct SunburstChartView: View {
         return SunburstHitTester.segment(at: localPoint, in: frame.size, segments: renderedSegments)
     }
 
-    private func summary(for node: FileNode) -> ChartSummary {
+    private func summary(for node: FileNodeRecord) -> ChartSummary {
         let detail: String
         if node.id != rootNode.id,
            let percentText = RadixFormatters.percentage(part: node.allocatedSize, total: rootNode.allocatedSize) {

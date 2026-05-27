@@ -48,34 +48,27 @@ final class ScanModelTests: XCTestCase {
     func testDirectoryBuilderAppliesCoreTreeInvariants() {
         let small = makeNode(id: "/root/a.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 10)
         let largeInaccessible = makeNode(id: "/root/z.txt", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 20)
-        let symlink = FileNode(
+        let symlink = makeNode(
             id: "/root/link",
-            url: URL(filePath: "/root/link"),
-            name: "link",
             isDirectory: false,
             isSymbolicLink: true,
-            allocatedSize: 5,
-            logicalSize: 5,
-            children: [],
-            descendantFileCount: 0,
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true,
             isSynthetic: false,
-            isAutoSummarized: false
+            isAccessible: true,
+            allocatedSize: 5
         )
 
-        let directory = FileNode.directory(
+        let children = [small, largeInaccessible, symlink]
+        let directory = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
             name: "root",
-            children: [small, largeInaccessible, symlink],
+            children: children,
             lastModified: nil,
             isPackage: false,
             isAccessible: true
         )
 
-        XCTAssertEqual(directory.children.map(\.name), ["z.txt", "a.txt", "link"])
+        XCTAssertEqual(FileTreeStore.sortedChildren(children).map(\.name), ["z.txt", "a.txt", "link"])
         XCTAssertEqual(directory.allocatedSize, 35)
         XCTAssertEqual(directory.logicalSize, 35)
         XCTAssertEqual(directory.descendantFileCount, 2)
@@ -85,24 +78,17 @@ final class ScanModelTests: XCTestCase {
 
     func testSnapshotReplacingNodeRebuildsAncestorsAndPreservesWarnings() throws {
         let staleLeaf = makeNode(id: "/root/folder/stale.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 5)
-        let summarizedFolder = FileNode(
+        let summarizedFolder = makeNode(
             id: "/root/folder",
-            url: URL(filePath: "/root/folder", directoryHint: .isDirectory),
-            name: "folder",
             isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: 5,
-            logicalSize: 5,
-            children: [],
-            descendantFileCount: 42,
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true,
             isSynthetic: false,
+            isAccessible: true,
+            allocatedSize: 5,
+            descendantFileCount: 42,
             isAutoSummarized: true
         )
         let sibling = makeNode(id: "/root/sibling.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 8)
-        let root = FileNode.directory(
+        let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
             name: "root",
@@ -111,17 +97,10 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
+        let treeStore = FileTreeStore(root: root, childrenByID: [root.id: [summarizedFolder, sibling]])
 
         let originalWarning = ScanWarning(path: "/root/folder", message: "original", category: .fileSystem)
-        let snapshot = ScanSnapshot(
-            target: ScanTarget(url: URL(filePath: "/root", directoryHint: .isDirectory)),
-            root: root,
-            startedAt: .distantPast,
-            finishedAt: .now,
-            scanWarnings: [originalWarning],
-            aggregateStats: root.aggregateStats,
-            isComplete: true
-        )
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore, warnings: [originalWarning])
 
         let inaccessibleExpandedLeaf = makeNode(
             id: "/root/folder/z.txt",
@@ -137,7 +116,7 @@ final class ScanModelTests: XCTestCase {
             isAccessible: true,
             allocatedSize: 10
         )
-        let expandedFolder = FileNode.directory(
+        let expandedFolder = FileNodeRecord.directory(
             id: "/root/folder",
             url: URL(filePath: "/root/folder", directoryHint: .isDirectory),
             name: "folder",
@@ -146,30 +125,34 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
+        let expandedStore = FileTreeStore(root: expandedFolder, childrenByID: [
+            expandedFolder.id: [accessibleExpandedLeaf, inaccessibleExpandedLeaf],
+        ])
         let expansionWarning = ScanWarning(path: "/root/folder/z.txt", message: "expanded", category: .permissionDenied)
 
         let updatedSnapshot = try XCTUnwrap(
             snapshot.replacingNode(
                 id: summarizedFolder.id,
-                with: expandedFolder,
+                with: expandedStore,
                 additionalWarnings: [expansionWarning]
             )
         )
 
-        let updatedFolder = try XCTUnwrap(updatedSnapshot.root.children.first(where: { $0.id == summarizedFolder.id }))
+        let updatedFolder = try XCTUnwrap(updatedSnapshot.treeStore.node(id: summarizedFolder.id))
+        let updatedChildren = updatedSnapshot.treeStore.children(of: updatedFolder.id)
         XCTAssertFalse(updatedFolder.isAutoSummarized)
-        XCTAssertEqual(updatedFolder.children.map(\.name), ["z.txt", "a.txt"])
+        XCTAssertEqual(updatedChildren.map(\.name), ["z.txt", "a.txt"])
         XCTAssertEqual(updatedFolder.descendantFileCount, 2)
         XCTAssertFalse(updatedFolder.isAccessible)
         XCTAssertEqual(updatedSnapshot.aggregateStats.fileCount, 3)
         XCTAssertFalse(updatedSnapshot.root.isAccessible)
         XCTAssertEqual(updatedSnapshot.scanWarnings.count, 2)
         XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [originalWarning.path, expansionWarning.path])
-        XCTAssertNotEqual(staleLeaf.id, updatedFolder.children.first?.id)
+        XCTAssertNotEqual(staleLeaf.id, updatedChildren.first?.id)
     }
 
     func testSnapshotReplacingMissingNodeReturnsNil() {
-        let root = FileNode.directory(
+        let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
             name: "root",
@@ -178,17 +161,10 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
-        let snapshot = ScanSnapshot(
-            target: ScanTarget(url: URL(filePath: "/root", directoryHint: .isDirectory)),
-            root: root,
-            startedAt: .distantPast,
-            finishedAt: .now,
-            scanWarnings: [],
-            aggregateStats: root.aggregateStats,
-            isComplete: true
-        )
+        let treeStore = FileTreeStore(root: root)
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore)
 
-        XCTAssertNil(snapshot.replacingNode(id: "/root/missing", with: root))
+        XCTAssertNil(snapshot.replacingNode(id: "/root/missing", with: treeStore))
     }
 
     func testPostTrashActionMatchesCurrentSelectionPolicy() {
@@ -208,7 +184,7 @@ final class ScanModelTests: XCTestCase {
 
     func testSnapshotReplacingNodeDeduplicatesWarningsByContent() throws {
         let child = makeNode(id: "/root/folder", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let root = FileNode.directory(
+        let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
             name: "root",
@@ -217,6 +193,7 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
+        let treeStore = FileTreeStore(root: root, childrenByID: [root.id: [child]])
 
         let existingWarning = ScanWarning(
             path: "/root/folder",
@@ -234,17 +211,8 @@ final class ScanModelTests: XCTestCase {
             category: .fileSystem
         )
 
-        let snapshot = ScanSnapshot(
-            target: ScanTarget(url: URL(filePath: "/root", directoryHint: .isDirectory)),
-            root: root,
-            startedAt: .distantPast,
-            finishedAt: .now,
-            scanWarnings: [existingWarning],
-            aggregateStats: root.aggregateStats,
-            isComplete: true
-        )
-
-        let replacement = FileNode.directory(
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore, warnings: [existingWarning])
+        let replacement = FileNodeRecord.directory(
             id: "/root/folder",
             url: URL(filePath: "/root/folder", directoryHint: .isDirectory),
             name: "folder",
@@ -257,7 +225,7 @@ final class ScanModelTests: XCTestCase {
         let updatedSnapshot = try XCTUnwrap(
             snapshot.replacingNode(
                 id: child.id,
-                with: replacement,
+                with: FileTreeStore(root: replacement),
                 additionalWarnings: [duplicateWarning, distinctWarning]
             )
         )
@@ -273,47 +241,46 @@ final class ScanModelTests: XCTestCase {
         ])
     }
 
+    private func makeSnapshot(
+        root: FileNodeRecord,
+        treeStore: FileTreeStore,
+        warnings: [ScanWarning] = []
+    ) -> ScanSnapshot {
+        ScanSnapshot(
+            target: ScanTarget(url: URL(filePath: root.id, directoryHint: .isDirectory)),
+            treeStore: treeStore,
+            startedAt: .distantPast,
+            finishedAt: .now,
+            scanWarnings: warnings,
+            aggregateStats: treeStore.aggregateStats,
+            isComplete: true
+        )
+    }
+
     private func makeNode(
         id: String,
         isDirectory: Bool,
+        isSymbolicLink: Bool = false,
         isSynthetic: Bool,
         isAccessible: Bool,
-        allocatedSize: Int64 = 64
-    ) -> FileNode {
-        FileNode(
+        allocatedSize: Int64 = 64,
+        descendantFileCount: Int? = nil,
+        isAutoSummarized: Bool = false
+    ) -> FileNodeRecord {
+        FileNodeRecord(
             id: id,
             url: URL(filePath: id, directoryHint: isDirectory ? .isDirectory : .notDirectory),
             name: URL(filePath: id).lastPathComponent.isEmpty ? id : URL(filePath: id).lastPathComponent,
             isDirectory: isDirectory,
-            isSymbolicLink: false,
+            isSymbolicLink: isSymbolicLink,
             allocatedSize: allocatedSize,
             logicalSize: allocatedSize,
-            children: [],
-            descendantFileCount: isDirectory ? 0 : 1,
+            descendantFileCount: descendantFileCount ?? (isDirectory || isSymbolicLink ? 0 : 1),
             lastModified: nil,
             isPackage: false,
             isAccessible: isAccessible,
             isSynthetic: isSynthetic,
-            isAutoSummarized: false
-        )
-    }
-
-    private func makeDirectoryNode(id: String, name: String, children: [FileNode]) -> FileNode {
-        FileNode(
-            id: id,
-            url: URL(filePath: id, directoryHint: .isDirectory),
-            name: name,
-            isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: children.reduce(0) { $0 + $1.allocatedSize },
-            logicalSize: children.reduce(0) { $0 + $1.logicalSize },
-            children: children,
-            descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: children.allSatisfy(\.isAccessible),
-            isSynthetic: false,
-            isAutoSummarized: false
+            isAutoSummarized: isAutoSummarized
         )
     }
 }

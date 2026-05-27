@@ -53,7 +53,7 @@ private struct ActiveWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
 
     let snapshot: ScanSnapshot
-    let focusNode: FileNode
+    let focusNode: FileNodeRecord
 
     var body: some View {
         VStack(spacing: 0) {
@@ -93,7 +93,7 @@ private struct ActiveWorkspaceView: View {
     private var chartContent: some View {
         SunburstChartView(
             rootNode: focusNode,
-            index: appModel.fileTreeIndex,
+            treeStore: snapshot.treeStore,
             selectedNodeID: appModel.selectedNodeID,
             depthLimit: appModel.maxRenderedDepth,
             layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(appModel.maxRenderedDepth)",
@@ -124,7 +124,7 @@ private struct WorkspaceHeaderView: View {
     @EnvironmentObject private var appModel: AppModel
 
     let snapshot: ScanSnapshot
-    let focusNode: FileNode
+    let focusNode: FileNodeRecord
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -248,7 +248,7 @@ private struct PaneHeader: View {
 }
 
 private struct MetricStrip: View {
-    let focusNode: FileNode
+    let focusNode: FileNodeRecord
 
     @EnvironmentObject private var appModel: AppModel
 

@@ -65,12 +65,12 @@ final class AppModel: ObservableObject {
     @Published var selectedTarget: ScanTarget?
     @Published var selectedNodeID: String?
     @Published var focusedNodeID: String?
-    @Published var fileTreeIndex = FileTreeIndex.empty
+    @Published var fileTreeStore: FileTreeStore?
     @Published private(set) var availableTargets: [ScanTarget] = []
     @Published var recentTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
     @Published var lastErrorMessage: String?
-    @Published var pendingTrashNode: FileNode?
+    @Published var pendingTrashNode: FileNodeRecord?
 
     private let scanEngine = ScanEngine()
 
@@ -111,29 +111,30 @@ final class AppModel: ObservableObject {
         phase == .scanning
     }
 
-    var currentFocusNode: FileNode? {
-        fileTreeIndex.node(id: focusedNodeID) ?? snapshot?.root
+    var currentFocusNode: FileNodeRecord? {
+        fileTreeStore?.node(id: focusedNodeID) ?? fileTreeStore?.root
     }
 
-    var selectedNode: FileNode? {
-        fileTreeIndex.node(id: selectedNodeID)
+    var selectedNode: FileNodeRecord? {
+        fileTreeStore?.node(id: selectedNodeID)
     }
 
-    var selectedNodeParent: FileNode? {
-        fileTreeIndex.parent(of: selectedNode?.id)
+    var selectedNodeParent: FileNodeRecord? {
+        fileTreeStore?.parent(of: selectedNode?.id)
     }
 
-    var breadcrumbNodes: [FileNode] {
-        guard snapshot != nil else { return [] }
-        return fileTreeIndex.path(to: focusedNodeID)
+    var breadcrumbNodes: [FileNodeRecord] {
+        guard let fileTreeStore else { return [] }
+        return fileTreeStore.path(to: focusedNodeID)
     }
 
-    var tableNodes: [FileNode] {
-        guard let focusNode = currentFocusNode else { return [] }
+    var tableNodes: [FileNodeRecord] {
+        guard let fileTreeStore, let focusNode = currentFocusNode else { return [] }
         if focusNode.isDirectory {
-            return focusNode.children
+            return fileTreeStore.children(of: focusNode.id)
         }
-        return fileTreeIndex.parent(of: focusNode.id)?.children ?? []
+        guard let parent = fileTreeStore.parent(of: focusNode.id) else { return [] }
+        return fileTreeStore.children(of: parent.id)
     }
 
     var tableContentID: String {
@@ -172,14 +173,14 @@ final class AppModel: ObservableObject {
         Array((snapshot?.scanWarnings ?? []).prefix(5))
     }
 
-    var largestSelectedChildren: [FileNode] {
-        guard let selectedNode, selectedNode.isDirectory else { return [] }
-        return Array(selectedNode.children.prefix(8))
+    var largestSelectedChildren: [FileNodeRecord] {
+        guard let fileTreeStore, let selectedNode, selectedNode.isDirectory else { return [] }
+        return Array(fileTreeStore.children(of: selectedNode.id).prefix(8))
     }
 
     var canZoomIntoSelection: Bool {
-        guard let selectedNode else { return false }
-        return selectedNode.isDirectory && selectedNode.containsChildren
+        guard let fileTreeStore, let selectedNode else { return false }
+        return selectedNode.isDirectory && fileTreeStore.containsChildren(id: selectedNode.id)
     }
 
     var canNavigateBack: Bool {
@@ -322,7 +323,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
-    func expandSummarizedNode(_ node: FileNode, completion: @escaping () -> Void) {
+    func expandSummarizedNode(_ node: FileNodeRecord, completion: @escaping () -> Void) {
         guard node.isAutoSummarized else {
             completion()
             return
@@ -370,16 +371,16 @@ final class AppModel: ObservableObject {
     }
 
     /// Replaces a node in the current snapshot tree with an expanded version.
-    private func replaceNodeInTree(_ oldNode: FileNode, with expandedSnapshot: ScanSnapshot) {
+    private func replaceNodeInTree(_ oldNode: FileNodeRecord, with expandedSnapshot: ScanSnapshot) {
         guard let currentSnapshot = snapshot else { return }
         guard let updatedSnapshot = currentSnapshot.replacingNode(
             id: oldNode.id,
-            with: expandedSnapshot.root,
+            with: expandedSnapshot.treeStore,
             additionalWarnings: expandedSnapshot.scanWarnings
         ) else { return }
 
         self.snapshot = updatedSnapshot
-        fileTreeIndex = FileTreeIndex(root: updatedSnapshot.root)
+        fileTreeStore = updatedSnapshot.treeStore
         selectedNodeID = expandedSnapshot.root.id
     }
 
@@ -403,7 +404,7 @@ final class AppModel: ObservableObject {
             selectedNodeID = nil
             focusedNodeID = nil
             pendingTrashNode = nil
-            fileTreeIndex = .empty
+            fileTreeStore = nil
             focusBackStack.removeAll()
             focusForwardStack.removeAll()
 
@@ -471,7 +472,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        guard fileTreeIndex.node(id: nodeID) != nil else {
+        guard fileTreeStore?.node(id: nodeID) != nil else {
             selectedNodeID = nil
             return
         }
@@ -480,7 +481,7 @@ final class AppModel: ObservableObject {
     }
 
     func focus(nodeID: String?) {
-        guard let nodeID, fileTreeIndex.node(id: nodeID) != nil else { return }
+        guard let nodeID, fileTreeStore?.node(id: nodeID) != nil else { return }
         setFocus(nodeID, recordHistory: true)
     }
 
@@ -491,7 +492,7 @@ final class AppModel: ObservableObject {
     func zoomIntoSelection() {
         do {
             let node = try validatedSelection(requiresDirectory: true)
-            guard node.containsChildren else {
+            guard fileTreeStore?.containsChildren(id: node.id) == true else {
                 throw FileActionError.directoryRequired
             }
             focus(nodeID: node.id)
@@ -606,7 +607,7 @@ final class AppModel: ObservableObject {
                 phase = .idle
                 selectedNodeID = nil
                 focusedNodeID = nil
-                fileTreeIndex = .empty
+                fileTreeStore = nil
             case .rescanActiveScan:
                 rescan()
             case .none:
@@ -650,21 +651,21 @@ final class AppModel: ObservableObject {
 
     private func apply(snapshot: ScanSnapshot) {
         self.snapshot = snapshot
-        fileTreeIndex = FileTreeIndex(root: snapshot.root)
+        fileTreeStore = snapshot.treeStore
         focusBackStack.removeAll()
         focusForwardStack.removeAll()
 
-        if focusedNodeID == nil || fileTreeIndex.node(id: focusedNodeID) == nil {
+        if focusedNodeID == nil || fileTreeStore?.node(id: focusedNodeID) == nil {
             focusedNodeID = snapshot.root.id
         }
 
         if let selectedNodeID,
-           fileTreeIndex.node(id: selectedNodeID) == nil {
+           fileTreeStore?.node(id: selectedNodeID) == nil {
             self.selectedNodeID = nil
         }
     }
 
-    private func validatedSelection(requiresDirectory: Bool = false) throws -> FileNode {
+    private func validatedSelection(requiresDirectory: Bool = false) throws -> FileNodeRecord {
         guard let selectedNode else {
             throw FileActionError.noSelection
         }
@@ -682,7 +683,7 @@ final class AppModel: ObservableObject {
     }
 
     private func setFocus(_ nodeID: String, recordHistory: Bool) {
-        guard fileTreeIndex.node(id: nodeID) != nil else { return }
+        guard fileTreeStore?.node(id: nodeID) != nil else { return }
         guard focusedNodeID != nodeID else { return }
 
         if recordHistory, let currentFocusID = focusedNodeID {
@@ -694,12 +695,12 @@ final class AppModel: ObservableObject {
     }
 
     private func applyFocus(_ nodeID: String) {
-        guard fileTreeIndex.node(id: nodeID) != nil else { return }
+        guard fileTreeStore?.node(id: nodeID) != nil else { return }
 
         focusedNodeID = nodeID
         if let selectedNodeID,
            selectedNodeID != nodeID,
-           !fileTreeIndex.isAncestor(nodeID, of: selectedNodeID) {
+           fileTreeStore?.isAncestor(nodeID, of: selectedNodeID) != true {
             self.selectedNodeID = nil
         }
     }

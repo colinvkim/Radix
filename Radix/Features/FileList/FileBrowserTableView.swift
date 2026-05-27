@@ -3,7 +3,7 @@ import SwiftUI
 struct FileBrowserTableView: View {
     @EnvironmentObject private var appModel: AppModel
 
-    let nodes: [FileNode]
+    let nodes: [FileNodeRecord]
     let contentID: String
     @Binding var selection: String?
 
@@ -12,11 +12,11 @@ struct FileBrowserTableView: View {
     @State private var entireScanSearchText = ""
     @State private var searchScope: FileBrowserFindTarget = .currentContents
     @State private var sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
-    @State private var displayedNodes: [FileNode] = []
-    @State private var displayedNodeLookup: [FileNode.ID: FileNode] = [:]
+    @State private var displayedNodes: [FileNodeRecord] = []
+    @State private var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
     @State private var indexedEntireScanSnapshotID: UUID?
-    @State private var entireScanNodeIDs: [FileNode.ID] = []
-    @State private var entireScanNormalizedHaystacks: [FileNode.ID: String] = [:]
+    @State private var entireScanNodeIDs: [FileNodeRecord.ID] = []
+    @State private var entireScanNormalizedHaystacks: [FileNodeRecord.ID: String] = [:]
     @State private var isSearchingEntireScan = false
     @State private var entireScanSearchTask: Task<Void, Never>?
     private var tableSelection: Binding<String?> {
@@ -143,7 +143,7 @@ struct FileBrowserTableView: View {
                         }
                         .accessibilityLabel("Contents table")
                         .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in.")
-                        .contextMenu(forSelectionType: FileNode.ID.self) { selectedIDs in
+                        .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = displayedNodeLookup[selectedID] {
                                 Button("Reveal in Finder", systemImage: "finder") {
@@ -229,18 +229,20 @@ struct FileBrowserTableView: View {
         refreshDisplayedNodes()
     }
 
-    private func subtitle(for node: FileNode) -> String? {
+    private func subtitle(for node: FileNodeRecord) -> String? {
         guard isShowingEntireScanResults else {
             return node.secondaryStatusText
         }
 
-        let parentByID = appModel.fileTreeIndex.parentByID
-        let nodesByID = appModel.fileTreeIndex.nodesByID
-        return parentByID[node.id]
-            .flatMap { nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
+        guard let fileTreeStore = appModel.fileTreeStore else {
+            return node.url.deletingLastPathComponent().path
+        }
+
+        return fileTreeStore.parentIDByID[node.id]
+            .flatMap { fileTreeStore.nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
     }
 
-    private func descendantCountText(for node: FileNode) -> String {
+    private func descendantCountText(for node: FileNodeRecord) -> String {
         if node.isDirectory {
             return "\(node.descendantFileCount)"
         }
@@ -265,7 +267,7 @@ struct FileBrowserTableView: View {
     private func rebuildCurrentContentsResults() {
         let sortedNodes = nodes.sorted(using: sortOrder)
         let searchText = isFilteringCurrentContents ? currentContentsSearchText : ""
-        let filteredNodes: [FileNode]
+        let filteredNodes: [FileNodeRecord]
 
         if searchText.isEmpty {
             filteredNodes = sortedNodes
@@ -306,7 +308,7 @@ struct FileBrowserTableView: View {
         }
 
         indexedEntireScanSnapshotID = snapshotID
-        entireScanNodeIDs = appModel.fileTreeIndex.indexedNodeIDs(excludingRoot: true)
+        entireScanNodeIDs = appModel.fileTreeStore?.indexedNodeIDs(excludingRoot: true) ?? []
         if appModel.snapshot?.id != snapshotID {
             entireScanNormalizedHaystacks = [:]
         }
@@ -328,7 +330,7 @@ struct FileBrowserTableView: View {
         let nodeIDs = entireScanNodeIDs
         let normalizedSearchText = SearchNormalizer.normalize(searchText)
         let snapshotID = appModel.snapshot?.id
-        let nodesByID = appModel.fileTreeIndex.nodesByID
+        let nodesByID = appModel.fileTreeStore?.nodesByID ?? [:]
         let cachedHaystacks = entireScanNormalizedHaystacks
 
         if nodeIDs.isEmpty {
@@ -346,7 +348,7 @@ struct FileBrowserTableView: View {
 
                 let searchResult = try await Task.detached(priority: .userInitiated) {
                     var updatedHaystacks = cachedHaystacks
-                    var matchedIDs: [FileNode.ID] = []
+                    var matchedIDs: [FileNodeRecord.ID] = []
 
                     for (offset, id) in nodeIDs.enumerated() {
                         if offset.isMultiple(of: 256) {
@@ -398,15 +400,15 @@ struct FileBrowserTableView: View {
         }
     }
 
-    private func applyDisplayedNodes(_ nodes: [FileNode]) {
+    private func applyDisplayedNodes(_ nodes: [FileNodeRecord]) {
         displayedNodes = nodes
         displayedNodeLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     }
 }
 
 private struct EntireScanSearchResult: Sendable {
-    let matchedIDs: [FileNode.ID]
-    let normalizedHaystacks: [FileNode.ID: String]
+    let matchedIDs: [FileNodeRecord.ID]
+    let normalizedHaystacks: [FileNodeRecord.ID: String]
 }
 
 private struct FileNodeTableComparator: SortComparator, Sendable {
@@ -419,7 +421,7 @@ private struct FileNodeTableComparator: SortComparator, Sendable {
     let field: Field
     var order: SortOrder = .forward
 
-    func compare(_ lhs: FileNode, _ rhs: FileNode) -> ComparisonResult {
+    func compare(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord) -> ComparisonResult {
         let result: ComparisonResult = switch field {
         case .name:
             lhs.name.localizedStandardCompare(rhs.name)
@@ -534,7 +536,7 @@ private struct SearchFilterBar: View {
 }
 
 private struct NameCell: View {
-    let node: FileNode
+    let node: FileNodeRecord
     let subtitleOverride: String?
 
     var body: some View {
@@ -571,7 +573,7 @@ private struct NameCell: View {
 
 /// Button that appears next to auto-summarized directories, allowing users to expand them fully.
 private struct ExpandSummarizedButton: View {
-    let node: FileNode
+    let node: FileNodeRecord
     @EnvironmentObject private var appModel: AppModel
     @State private var isExpanding = false
 

@@ -16,11 +16,11 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Sample.app" }))
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
         XCTAssertTrue(packageNode.isPackage)
         XCTAssertTrue(packageNode.isDirectory)
-        XCTAssertFalse(packageNode.containsChildren)
+        XCTAssertFalse(containsChildren(packageNode, in: snapshot))
         XCTAssertEqual(packageNode.descendantFileCount, 1)
         XCTAssertGreaterThanOrEqual(packageNode.logicalSize, Int64("binary".utf8.count))
         XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
@@ -41,7 +41,7 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Host.app" }))
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Host.app" }))
 
         XCTAssertEqual(packageNode.descendantFileCount, 1)
         XCTAssertGreaterThanOrEqual(packageNode.logicalSize, 2_048)
@@ -61,7 +61,7 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Deep.app" }))
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Deep.app" }))
 
         XCTAssertEqual(packageNode.descendantFileCount, 1)
         XCTAssertEqual(packageNode.logicalSize, 1_024)
@@ -82,9 +82,9 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions(treatPackagesAsDirectories: true)
         )
-        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Sample.app" }))
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
-        XCTAssertTrue(packageNode.containsChildren)
+        XCTAssertTrue(containsChildren(packageNode, in: snapshot))
         XCTAssertEqual(packageNode.descendantFileCount, 1)
     }
 
@@ -110,7 +110,7 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Locked.app" }))
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Locked.app" }))
 
         XCTAssertFalse(packageNode.isAccessible)
         XCTAssertFalse(snapshot.scanWarnings.isEmpty)
@@ -134,7 +134,7 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions(includeHiddenFiles: false)
         )
-        let packageNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Sample.app" }))
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
         XCTAssertEqual(packageNode.descendantFileCount, 1)
         XCTAssertEqual(packageNode.logicalSize, 128)
@@ -157,10 +157,10 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let aliasNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Alias" }))
+        let aliasNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Alias" }))
 
         XCTAssertTrue(aliasNode.isSymbolicLink)
-        XCTAssertFalse(aliasNode.containsChildren)
+        XCTAssertFalse(containsChildren(aliasNode, in: snapshot))
         XCTAssertEqual(aliasNode.itemKind, "Alias")
         XCTAssertEqual(aliasNode.descendantFileCount, 0)
         XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
@@ -243,14 +243,14 @@ final class ScanEngineTests: XCTestCase {
         }
 
         let snapshot = try XCTUnwrap(finalSnapshot)
-        let syntheticNode = try XCTUnwrap(snapshot.root.children.first(where: \.isSynthetic))
+        let syntheticNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: \.isSynthetic))
 
         XCTAssertEqual(syntheticNode.name, "System & Unattributed")
         XCTAssertTrue(syntheticNode.isAccessible)
         XCTAssertTrue(snapshot.root.isAccessible)
         XCTAssertFalse(syntheticNode.supportsFileActions)
         XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
-        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.children.filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })
+        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.totalAllocatedSize, rootChildren(in: snapshot).filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })
     }
 
     func testDirectoryChildrenAreOrderedDeterministically() async throws {
@@ -268,7 +268,7 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        XCTAssertEqual(snapshot.root.children.map(\.name), ["alpha.txt", "zeta.txt"])
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["alpha.txt", "zeta.txt"])
     }
 
     func testProgressFractionIsMonotonicAndCompletes() async throws {
@@ -313,7 +313,7 @@ final class ScanEngineTests: XCTestCase {
 
         XCTAssertTrue(snapshot.root.isDirectory)
         XCTAssertEqual(snapshot.root.url.path, rootURL.path)
-        XCTAssertTrue(snapshot.root.children.isEmpty)
+        XCTAssertTrue(rootChildren(in: snapshot).isEmpty)
         XCTAssertEqual(snapshot.aggregateStats.directoryCount, 1)
         XCTAssertEqual(snapshot.aggregateStats.fileCount, 0)
     }
@@ -333,9 +333,9 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        let emptyNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "Empty" }))
+        let emptyNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Empty" }))
         XCTAssertTrue(emptyNode.isDirectory)
-        XCTAssertTrue(emptyNode.children.isEmpty)
+        XCTAssertTrue(children(of: emptyNode, in: snapshot).isEmpty)
         XCTAssertEqual(emptyNode.descendantFileCount, 0)
     }
 
@@ -374,10 +374,10 @@ final class ScanEngineTests: XCTestCase {
 
         // The cache directory should NOT be auto-summarized (only 100 files, below threshold)
         // This test verifies the mechanism doesn't trigger at low file counts
-        let cacheNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "cache" }))
+        let cacheNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
         XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with only 100 files should not be auto-summarized")
         XCTAssertTrue(cacheNode.isDirectory)
-        XCTAssertTrue(cacheNode.containsChildren)
+        XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
     }
 
     func testAutoSummarizedDirectoryShowsFileCount() async throws {
@@ -393,7 +393,7 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        let fileNode = try XCTUnwrap(snapshot.root.children.first)
+        let fileNode = try XCTUnwrap(rootChildren(in: snapshot).first)
         XCTAssertFalse(fileNode.isAutoSummarized)
         XCTAssertEqual(fileNode.itemKind, "File")
         XCTAssertNil(fileNode.secondaryStatusText)
@@ -423,10 +423,10 @@ final class ScanEngineTests: XCTestCase {
         )
 
         // Even with many files, the directory should NOT be auto-summarized
-        let cacheNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "cache" }))
+        let cacheNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
         XCTAssertFalse(cacheNode.isAutoSummarized)
-        XCTAssertTrue(cacheNode.containsChildren)
-        XCTAssertEqual(cacheNode.children.count, 100)
+        XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
+        XCTAssertEqual(children(of: cacheNode, in: snapshot).count, 100)
     }
 
     func testDirectoryIsAutoSummarizedWithLowThresholds() async throws {
@@ -457,10 +457,10 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
         XCTAssertTrue(cacheNode.isAutoSummarized, "Directory should be auto-summarized with low thresholds")
-        XCTAssertFalse(cacheNode.containsChildren, "Auto-summarized directory should have no children")
+        XCTAssertFalse(containsChildren(cacheNode, in: snapshot), "Auto-summarized directory should have no children")
         XCTAssertEqual(cacheNode.descendantFileCount, 20, "Should report correct file count")
         XCTAssertEqual(cacheNode.itemKind, "Summarized")
         XCTAssertEqual(cacheNode.secondaryStatusText, "Summarized (20 files)")
@@ -495,8 +495,8 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
         XCTAssertTrue(cacheNode.isAutoSummarized)
         XCTAssertEqual(cacheNode.descendantFileCount, 13)
         XCTAssertGreaterThanOrEqual(cacheNode.logicalSize, (12 * 32) + 2_048)
@@ -559,11 +559,11 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
         XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with large files should not be auto-summarized")
-        XCTAssertTrue(cacheNode.containsChildren)
-        XCTAssertEqual(cacheNode.children.count, 20)
+        XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
+        XCTAssertEqual(children(of: cacheNode, in: snapshot).count, 20)
     }
 
     func testAutoSummarizedDirectoryExcludesHiddenFilesWhenHiddenFilesDisabled() async throws {
@@ -595,8 +595,8 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(snapshot.root.children.first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(projectsNode.children.first(where: { $0.name == "cache" }))
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
         XCTAssertTrue(cacheNode.isAutoSummarized)
         XCTAssertEqual(cacheNode.descendantFileCount, 12)
         XCTAssertEqual(cacheNode.logicalSize, 12 * 32)
@@ -614,6 +614,18 @@ private func finishedSnapshot(target: ScanTarget, options: ScanOptions) async th
 
     XCTFail("Expected scan to produce a final snapshot")
     throw CancellationError()
+}
+
+private func rootChildren(in snapshot: ScanSnapshot) -> [FileNodeRecord] {
+    snapshot.treeStore.children(of: snapshot.root.id)
+}
+
+private func children(of node: FileNodeRecord, in snapshot: ScanSnapshot) -> [FileNodeRecord] {
+    snapshot.treeStore.children(of: node.id)
+}
+
+private func containsChildren(_ node: FileNodeRecord, in snapshot: ScanSnapshot) -> Bool {
+    snapshot.treeStore.containsChildren(id: node.id)
 }
 
 private func makeTemporaryDirectory() throws -> URL {
