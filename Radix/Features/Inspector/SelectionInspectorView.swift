@@ -163,12 +163,21 @@ private struct InspectorActionButtons: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
+                appModel.previewSelectedWithQuickLook()
+            } label: {
+                Label("Quick Look", systemImage: "eye")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!appModel.canQuickLookSelected)
+
+            Button {
                 appModel.revealSelectedInFinder()
             } label: {
                 Label("Reveal in Finder", systemImage: "finder")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .disabled(!appModel.canRevealSelected)
 
             if appModel.canZoomIntoSelection {

@@ -142,10 +142,16 @@ struct FileBrowserTableView: View {
                             .width(min: 150, ideal: 180)
                         }
                         .accessibilityLabel("Contents table")
-                        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in.")
+                        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in. Press Space for Quick Look.")
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = displayedNodeLookup[selectedID] {
+                                Button("Quick Look", systemImage: "eye") {
+                                    appModel.select(nodeID: selectedID)
+                                    appModel.previewSelectedWithQuickLook()
+                                }
+                                .disabled(!selectedNode.supportsFileActions)
+
                                 Button("Reveal in Finder", systemImage: "finder") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.revealSelectedInFinder()

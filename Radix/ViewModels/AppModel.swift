@@ -63,7 +63,11 @@ final class AppModel: ObservableObject {
     @Published var snapshot: ScanSnapshot?
     @Published var scanMetrics = ScanMetrics()
     @Published var selectedTarget: ScanTarget?
-    @Published var selectedNodeID: String?
+    @Published var selectedNodeID: String? {
+        didSet {
+            syncVisibleQuickLookPreview()
+        }
+    }
     @Published var focusedNodeID: String?
     @Published var fileTreeStore: FileTreeStore?
     @Published private(set) var availableTargets: [ScanTarget] = []
@@ -78,6 +82,7 @@ final class AppModel: ObservableObject {
     private var expandTask: Task<Void, Never>?
     private var activeScanID: UUID?
     private var cancellables = Set<AnyCancellable>()
+    private var quickLookEventMonitor: Any?
     private var focusBackStack: [String] = []
     private var focusForwardStack: [String] = []
 
@@ -105,6 +110,7 @@ final class AppModel: ObservableObject {
         refreshAvailableTargets()
         observeMountedVolumes()
         observePreferences()
+        installQuickLookKeyMonitor()
     }
 
     var isScanning: Bool {
@@ -208,6 +214,10 @@ final class AppModel: ObservableObject {
     }
 
     var canOpenSelected: Bool {
+        selectedNode?.supportsFileActions == true
+    }
+
+    var canQuickLookSelected: Bool {
         selectedNode?.supportsFileActions == true
     }
 
@@ -570,6 +580,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func previewSelectedWithQuickLook() {
+        do {
+            let node = try validatedSelection()
+            try SystemIntegration.presentQuickLookPreview(for: node.url)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func toggleQuickLookForSelected() {
+        do {
+            let node = try validatedSelection()
+            try SystemIntegration.toggleQuickLookPreview(for: node.url)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
     func copySelectedPath() {
         do {
             let node = try validatedSelection()
@@ -680,6 +708,57 @@ final class AppModel: ObservableObject {
             throw FileActionError.unavailable(path: selectedNode.url.path)
         }
         return selectedNode
+    }
+
+    private func syncVisibleQuickLookPreview() {
+        guard SystemIntegration.isQuickLookPreviewVisible else { return }
+
+        guard let selectedNode, selectedNode.supportsFileActions else {
+            SystemIntegration.closeQuickLookPreview()
+            return
+        }
+
+        SystemIntegration.updateVisibleQuickLookPreview(for: selectedNode.url)
+    }
+
+    private func installQuickLookKeyMonitor() {
+        quickLookEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let didHandleEvent = MainActor.assumeIsolated {
+                self?.handleQuickLookKeyDown(event) == true
+            }
+            return didHandleEvent ? nil : event
+        }
+    }
+
+    private func handleQuickLookKeyDown(_ event: NSEvent) -> Bool {
+        guard Self.isPlainSpaceKey(event) else { return false }
+        guard !showsOnboarding, pendingTrashNode == nil else { return false }
+        guard !SystemIntegration.isQuickLookPreviewPanelKeyWindow else { return false }
+        guard !Self.shouldPreserveSpaceKey(for: event.window?.firstResponder) else { return false }
+        guard canQuickLookSelected else { return false }
+
+        toggleQuickLookForSelected()
+        return true
+    }
+
+    private static func isPlainSpaceKey(_ event: NSEvent) -> Bool {
+        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else { return false }
+        return event.keyCode == 49 || event.charactersIgnoringModifiers == " "
+    }
+
+    private static func shouldPreserveSpaceKey(for responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+
+        if responder is NSTextView || responder is NSTextField || responder is NSButton {
+            return true
+        }
+
+        if responder is NSTableView || responder is NSOutlineView || responder is NSCollectionView {
+            return false
+        }
+
+        return responder is NSControl
     }
 
     private func setFocus(_ nodeID: String, recordHistory: Bool) {

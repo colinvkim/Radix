@@ -26,6 +26,7 @@ let package = Package(
                 "Info.plist",
                 "RadixApp.swift",
                 "Services/SystemIntegration.swift",
+                "Services/QuickLookIntegration.swift",
                 "Shared",
                 "ViewModels",
                 "Views"
