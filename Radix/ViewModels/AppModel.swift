@@ -441,17 +441,25 @@ final class AppModel: ObservableObject {
                         handle(event, scanID: scanID)
                     }
                 } catch is CancellationError {
-                    if activeScanID == scanID && snapshot == nil {
-                        phase = .idle
+                    if activeScanID == scanID {
+                        if snapshot == nil {
+                            phase = .idle
+                        }
+                        activeScanID = nil
+                        scanTask = nil
                     }
                 } catch {
                     if activeScanID == scanID {
                         phase = .failed
                         lastErrorMessage = error.localizedDescription
+                        activeScanID = nil
+                        scanTask = nil
                     }
                 }
 
-                if activeScanID == scanID && phase != .displaying && phase != .failed {
+                if activeScanID == scanID {
+                    phase = snapshot == nil ? .idle : .displaying
+                    activeScanID = nil
                     scanTask = nil
                 }
             }
@@ -785,11 +793,20 @@ final class AppModel: ObservableObject {
     }
 
     private func isDirectoryURL(_ url: URL) -> Bool {
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return false
+        }
+
+        if isDirectory.boolValue {
+            return true
+        }
+
         do {
             let values = try url.resourceValues(forKeys: [.isDirectoryKey])
-            return values.isDirectory == true || url.hasDirectoryPath
+            return values.isDirectory == true
         } catch {
-            return url.hasDirectoryPath
+            return false
         }
     }
 

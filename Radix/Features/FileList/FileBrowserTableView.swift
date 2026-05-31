@@ -44,11 +44,19 @@ struct FileBrowserTableView: View {
     }
 
     private var isShowingEntireScanResults: Bool {
-        searchScope == .entireScan && !entireScanSearchText.isEmpty
+        searchScope == .entireScan && !trimmedEntireScanSearchText.isEmpty
     }
 
     private var isFilteringCurrentContents: Bool {
-        searchScope == .currentContents && !currentContentsSearchText.isEmpty
+        searchScope == .currentContents && !trimmedCurrentContentsSearchText.isEmpty
+    }
+
+    private var trimmedCurrentContentsSearchText: String {
+        currentContentsSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedEntireScanSearchText: String {
+        entireScanSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var activeSearchText: Binding<String> {
@@ -272,7 +280,7 @@ struct FileBrowserTableView: View {
 
     private func rebuildCurrentContentsResults() {
         let sortedNodes = nodes.sorted(using: sortOrder)
-        let searchText = isFilteringCurrentContents ? currentContentsSearchText : ""
+        let searchText = isFilteringCurrentContents ? trimmedCurrentContentsSearchText : ""
         let filteredNodes: [FileNodeRecord]
 
         if searchText.isEmpty {
@@ -325,7 +333,7 @@ struct FileBrowserTableView: View {
     }
 
     private func scheduleEntireScanSearch() {
-        let searchText = entireScanSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchText = trimmedEntireScanSearchText
 
         guard !searchText.isEmpty else {
             isSearchingEntireScan = false
@@ -388,7 +396,7 @@ struct FileBrowserTableView: View {
 
                 await MainActor.run {
                     guard self.appModel.snapshot?.id == snapshotID,
-                          SearchNormalizer.normalize(self.entireScanSearchText) == normalizedSearchText else {
+                          SearchNormalizer.normalize(self.trimmedEntireScanSearchText) == normalizedSearchText else {
                         return
                     }
 

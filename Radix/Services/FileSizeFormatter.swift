@@ -34,7 +34,7 @@ private final class FormatterCache: @unchecked Sendable {
     private let dateFormatter: DateFormatter
     init() {
         let byteFormatter = ByteCountFormatter()
-        byteFormatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+        byteFormatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB, .useTB]
         byteFormatter.countStyle = .file
         byteFormatter.includesActualByteCount = false
         byteFormatter.isAdaptive = true
