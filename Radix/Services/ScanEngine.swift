@@ -46,9 +46,17 @@ actor ScanEngine {
     /// `depth` tracks how deep we are in the directory tree.
     private struct ScanWorkItem: Sendable {
         let url: URL
-        let includeVolumeDetails: Bool
+        let metadata: NodeMetadata?
         let parentKey: Int
         let depth: Int
+    }
+
+    /// A child discovered during directory enumeration.
+    /// `contentsOfDirectory` prefetches resource values, so carrying decoded metadata forward
+    /// avoids asking each URL for the same values again when the child is scanned.
+    private struct DirectoryEntry: Sendable {
+        let url: URL
+        let metadata: NodeMetadata?
     }
 
     /// A completed directory scan awaiting parent assembly.
@@ -203,7 +211,7 @@ actor ScanEngine {
         // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
         // We use a stack for DFS. Each item knows its parent key and depth for assembly.
         var workStack: [ScanWorkItem] = [
-            ScanWorkItem(url: target.url, includeVolumeDetails: true, parentKey: -1, depth: 0)
+            ScanWorkItem(url: target.url, metadata: rootMetadata, parentKey: -1, depth: 0)
         ]
         // Maps a key to its completed result (leaf or assembled directory).
         var completedByKey: [Int: CompletedDirScan] = [:]
@@ -223,8 +231,8 @@ actor ScanEngine {
             }
 
             let meta: NodeMetadata
-            if item.includeVolumeDetails {
-                meta = rootMetadata // Already fetched for root
+            if let itemMetadata = item.metadata {
+                meta = itemMetadata
             } else {
                 do {
                     meta = try metadata(for: item.url)
@@ -250,12 +258,12 @@ actor ScanEngine {
                 maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
                 do {
-                    let childURLs = try contents(
+                    let childEntries = try contents(
                         of: item.url,
                         includeHiddenFiles: options.includeHiddenFiles,
                         behavior: behavior
                     )
-                    metrics.discoveredItems += childURLs.count
+                    metrics.discoveredItems += childEntries.count
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
@@ -265,10 +273,10 @@ actor ScanEngine {
                     let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
                     if options.autoSummarizeDirectories,
                        item.depth >= minDepth,
-                       childURLs.count >= minFileCount,
+                       childEntries.count >= minFileCount,
                        let summary = shouldSummarizeAsAtomicDirectory(
                            url: item.url,
-                           childURLs: childURLs,
+                           childEntries: childEntries,
                            metadata: meta,
                            includeHiddenFiles: options.includeHiddenFiles,
                            treatPackagesAsDirectories: options.treatPackagesAsDirectories,
@@ -309,9 +317,14 @@ actor ScanEngine {
                     }
 
                     // Enqueue children onto the stack. Each child records its parent key.
-                    for childURL in childURLs {
+                    for childEntry in childEntries {
                         workStack.append(
-                            ScanWorkItem(url: childURL, includeVolumeDetails: false, parentKey: itemKey, depth: item.depth + 1)
+                            ScanWorkItem(
+                                url: childEntry.url,
+                                metadata: childEntry.metadata,
+                                parentKey: itemKey,
+                                depth: item.depth + 1
+                            )
                         )
                     }
                     // Register this directory so phase 2 can assemble it.
@@ -394,7 +407,8 @@ actor ScanEngine {
                     children: sortedChildren,
                     lastModified: completed.metadata.lastModified,
                     isPackage: completed.metadata.isPackage,
-                    isAccessible: completed.metadata.isReadable
+                    isAccessible: completed.metadata.isReadable,
+                    childrenAreSorted: true
                 )
                 resolvedNodeByKey[key] = assembled
                 childIDsByID[assembled.id] = sortedChildren.map(\.id)
@@ -520,7 +534,7 @@ actor ScanEngine {
         )
     }
 
-    private func contents(of url: URL, includeHiddenFiles: Bool, behavior: ScanBehavior) throws -> [URL] {
+    private func contents(of url: URL, includeHiddenFiles: Bool, behavior: ScanBehavior) throws -> [DirectoryEntry] {
         var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants, .skipsSubdirectoryDescendants]
         if !includeHiddenFiles {
             options.insert(.skipsHiddenFiles)
@@ -532,7 +546,16 @@ actor ScanEngine {
             options: options
         )
 
-        return contents.filter { Self.includedChildURL($0, under: url, behavior: behavior) }
+        return contents.compactMap { childURL in
+            guard Self.includedChildURL(childURL, under: url, behavior: behavior) else {
+                return nil
+            }
+
+            return DirectoryEntry(
+                url: childURL,
+                metadata: try? metadata(for: childURL)
+            )
+        }
     }
 
     nonisolated static func includedChildURL(_ childURL: URL, under parentURL: URL, behavior: ScanBehavior) -> Bool {
@@ -610,37 +633,35 @@ actor ScanEngine {
     /// Returns a summary if the directory has many small files (like node_modules, caches).
     /// Returns nil if the directory should be expanded normally.
     ///
-    /// Sampling uses the prefetched resource values on each `childURL` (set by `contentsOfDirectory`
-    /// via `includingPropertiesForKeys`), so no additional per-file syscalls are needed.
+    /// Sampling uses metadata decoded from `contentsOfDirectory`'s prefetched resource values,
+    /// so no additional per-file resource lookups are needed.
     private func shouldSummarizeAsAtomicDirectory(
         url: URL,
-        childURLs: [URL],
+        childEntries: [DirectoryEntry],
         metadata: NodeMetadata,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
         maxAverageFileSize: Int64
     ) -> AtomicDirectorySummary? {
+        guard !childEntries.isEmpty else { return nil }
+
         // Quick check: sample files evenly across the directory to estimate average size.
-        // childURLs already have scanResourceKeys prefetched by contentsOfDirectory,
-        // so resourceValues(forKeys:) reads from the cached values without extra syscalls.
-        let sampleSize = min(100, childURLs.count)
-        let step = max(1, childURLs.count / sampleSize)
-        let sampleURLs = stride(from: 0, to: childURLs.count, by: step).prefix(sampleSize).map { childURLs[$0] }
+        let sampleSize = min(100, childEntries.count)
+        let step = max(1, childEntries.count / sampleSize)
+        let sampleEntries = stride(from: 0, to: childEntries.count, by: step)
+            .prefix(sampleSize)
+            .map { childEntries[$0] }
 
         var sampleTotalSize: Int64 = 0
         var sampleFileCount = 0
 
-        for childURL in sampleURLs {
-            let values: URLResourceValues
-            do {
-                values = try childURL.resourceValues(forKeys: scanResourceKeys)
-            } catch {
+        for childEntry in sampleEntries {
+            guard let childMetadata = childEntry.metadata else {
                 return nil
             }
 
-            if !(values.isDirectory ?? false) {
-                let fileSize = Int64(values.fileSize ?? values.fileAllocatedSize ?? 0)
-                sampleTotalSize += fileSize
+            if !childMetadata.isDirectory {
+                sampleTotalSize += childMetadata.logicalSize
                 sampleFileCount += 1
             }
         }
@@ -653,11 +674,111 @@ actor ScanEngine {
         }
 
         // Sample suggests atomic treatment - do a fast full summary
+        let directDirectoryCount = childEntries.reduce(into: 0) { count, childEntry in
+            if childEntry.metadata?.isDirectory == true {
+                count += 1
+            }
+        }
+        let canReuseImmediateEntries = directDirectoryCount <= max(8, childEntries.count / 10)
+        if canReuseImmediateEntries {
+            return summarizeAtomicDirectory(
+                at: url,
+                childEntries: childEntries,
+                rootMetadata: metadata,
+                includeHiddenFiles: includeHiddenFiles,
+                treatPackagesAsDirectories: treatPackagesAsDirectories
+            )
+        }
+
         return summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: treatPackagesAsDirectories
         )
+    }
+
+    /// Performs a fast recursive summary of a directory's size and file count.
+    /// Reuses the directory's already-enumerated immediate children to avoid a second full
+    /// pass over flat cache-like directories.
+    private func summarizeAtomicDirectory(
+        at url: URL,
+        childEntries: [DirectoryEntry],
+        rootMetadata: NodeMetadata,
+        includeHiddenFiles: Bool = true,
+        treatPackagesAsDirectories: Bool
+    ) -> AtomicDirectorySummary? {
+        let state = AtomicDirectorySummaryState()
+        state.isAccessible = rootMetadata.isReadable
+
+        for childEntry in childEntries {
+            let childMetadata: NodeMetadata
+            if let preloadedMetadata = childEntry.metadata {
+                childMetadata = preloadedMetadata
+            } else {
+                do {
+                    childMetadata = try metadata(for: childEntry.url)
+                } catch {
+                    state.isAccessible = false
+                    state.warnings.append(Self.makeWarning(for: childEntry.url, error: error))
+                    continue
+                }
+            }
+
+            accumulateAtomicSummary(
+                for: childEntry.url,
+                metadata: childMetadata,
+                into: state,
+                includeHiddenFiles: includeHiddenFiles,
+                treatPackagesAsDirectories: treatPackagesAsDirectories
+            )
+        }
+
+        return AtomicDirectorySummary(
+            allocatedSize: state.allocatedSize,
+            logicalSize: state.logicalSize,
+            descendantFileCount: state.descendantFileCount,
+            isAccessible: state.isAccessible,
+            warnings: state.warnings
+        )
+    }
+
+    private func accumulateAtomicSummary(
+        for url: URL,
+        metadata: NodeMetadata,
+        into state: AtomicDirectorySummaryState,
+        includeHiddenFiles: Bool,
+        treatPackagesAsDirectories: Bool
+    ) {
+        state.isAccessible = state.isAccessible && metadata.isReadable
+
+        if metadata.isDirectory {
+            let nestedTreatsPackagesAsDirectories = metadata.isPackage ? true : treatPackagesAsDirectories
+            if metadata.isPackage || !metadata.isSymbolicLink {
+                if let nestedSummary = summarizeAtomicDirectory(
+                    at: url,
+                    includeHiddenFiles: includeHiddenFiles,
+                    treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories
+                ) {
+                    merge(nestedSummary, into: state)
+                }
+            }
+            return
+        }
+
+        state.allocatedSize += metadata.allocatedSize
+        state.logicalSize += metadata.logicalSize
+
+        if !metadata.isSymbolicLink {
+            state.descendantFileCount += 1
+        }
+    }
+
+    private func merge(_ summary: AtomicDirectorySummary, into state: AtomicDirectorySummaryState) {
+        state.allocatedSize += summary.allocatedSize
+        state.logicalSize += summary.logicalSize
+        state.descendantFileCount += summary.descendantFileCount
+        state.isAccessible = state.isAccessible && summary.isAccessible
+        state.warnings.append(contentsOf: summary.warnings)
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
@@ -677,11 +798,12 @@ actor ScanEngine {
             .fileSizeKey,
             .isReadableKey
         ]
+        let summaryKeySet = Set(summaryKeys)
 
         let state = AtomicDirectorySummaryState()
 
         do {
-            let rootValues = try url.resourceValues(forKeys: Set(summaryKeys))
+            let rootValues = try url.resourceValues(forKeys: summaryKeySet)
             state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
         } catch {
             state.isAccessible = false
@@ -708,7 +830,7 @@ actor ScanEngine {
 
         for case let childURL as URL in enumerator {
             do {
-                let values = try childURL.resourceValues(forKeys: Set(summaryKeys))
+                let values = try childURL.resourceValues(forKeys: summaryKeySet)
 
                 let isDirectory = values.isDirectory ?? false
                 let isPackage = values.isPackage ?? false
@@ -723,11 +845,7 @@ actor ScanEngine {
                             includeHiddenFiles: includeHiddenFiles,
                             treatPackagesAsDirectories: true
                         ) {
-                            state.allocatedSize += packageSummary.allocatedSize
-                            state.logicalSize += packageSummary.logicalSize
-                            state.descendantFileCount += packageSummary.descendantFileCount
-                            state.isAccessible = state.isAccessible && packageSummary.isAccessible
-                            state.warnings.append(contentsOf: packageSummary.warnings)
+                            merge(packageSummary, into: state)
                             enumerator.skipDescendants()
                         }
                     }
@@ -815,7 +933,8 @@ actor ScanEngine {
             children: sortedRootChildren,
             lastModified: root.lastModified,
             isPackage: root.isPackage,
-            isAccessible: root.isAccessible
+            isAccessible: root.isAccessible,
+            childrenAreSorted: true
         )
 
         var nodesByID = treeStore.nodesByID
@@ -890,7 +1009,7 @@ actor ScanEngine {
     }
 }
 
-private struct NodeMetadata {
+private struct NodeMetadata: Sendable {
     let isDirectory: Bool
     let isPackage: Bool
     let isSymbolicLink: Bool

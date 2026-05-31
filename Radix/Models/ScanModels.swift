@@ -148,9 +148,10 @@ struct FileNodeRecord: Identifiable, Sendable {
         children: [FileNodeRecord],
         lastModified: Date?,
         isPackage: Bool,
-        isAccessible: Bool
+        isAccessible: Bool,
+        childrenAreSorted: Bool = false
     ) -> FileNodeRecord {
-        let sortedChildren = FileTreeStore.sortedChildren(children)
+        let sortedChildren = childrenAreSorted ? children : FileTreeStore.sortedChildren(children)
         let allocatedSize = sortedChildren.reduce(into: Int64(0)) { result, child in
             result += child.allocatedSize
         }
@@ -516,16 +517,18 @@ struct FileTreeStore: Sendable {
         while let currentID = cursor {
             guard let current = updatedNodes[currentID] else { break }
             let childRecords = (updatedChildIDs[currentID] ?? []).compactMap { updatedNodes[$0] }
+            let sortedChildRecords = Self.sortedChildren(childRecords)
             updatedNodes[currentID] = FileNodeRecord.directory(
                 id: current.id,
                 url: current.url,
                 name: current.name,
-                children: childRecords,
+                children: sortedChildRecords,
                 lastModified: current.lastModified,
                 isPackage: current.isPackage,
-                isAccessible: current.isAccessible
+                isAccessible: current.isAccessible,
+                childrenAreSorted: true
             )
-            updatedChildIDs[currentID] = Self.sortedChildren(childRecords).map(\.id)
+            updatedChildIDs[currentID] = sortedChildRecords.map(\.id)
             cursor = updatedParentIDs[currentID]
         }
 
