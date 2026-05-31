@@ -4,6 +4,8 @@
 <dict>
 	<key>SUFeedURL</key>
 	<string>https://radix.colinkim.dev/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>p8XNK5WipyOCtLH5ETLxpulo1nc2aY7detwrhjxNKIs=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUScheduledCheckInterval</key>
