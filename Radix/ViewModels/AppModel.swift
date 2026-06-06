@@ -106,6 +106,7 @@ final class AppModel: ObservableObject {
 
         showsOnboarding = !defaults.bool(forKey: DefaultsKey.didCompleteOnboarding)
         recentTargets = Self.loadRecentTargets(from: defaults)
+        pruneUnavailableRecentTargets()
 
         refreshAvailableTargets()
         observeMountedVolumes()
@@ -254,7 +255,7 @@ final class AppModel: ObservableObject {
 
     var recentScanTargets: [ScanTarget] {
         let excluded = Set((smartTargets + mountedVolumeTargets).map(\.id))
-        return recentTargets.filter { !excluded.contains($0.id) }
+        return recentTargets.filter { !excluded.contains($0.id) && Self.isAvailableScanTarget($0) }
     }
 
     var statusSubtitle: String {
@@ -551,7 +552,7 @@ final class AppModel: ObservableObject {
 
     func selectSidebarTarget(id: String?) {
         guard let id,
-              let target = (availableTargets + recentTargets).first(where: { $0.id == id }) else {
+              let target = (availableTargets + recentScanTargets).first(where: { $0.id == id }) else {
             return
         }
 
@@ -793,6 +794,14 @@ final class AppModel: ObservableObject {
     }
 
     private func isDirectoryURL(_ url: URL) -> Bool {
+        Self.isExistingDirectoryURL(url)
+    }
+
+    private static func isAvailableScanTarget(_ target: ScanTarget) -> Bool {
+        isExistingDirectoryURL(target.url)
+    }
+
+    private static func isExistingDirectoryURL(_ url: URL) -> Bool {
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             return false
@@ -811,11 +820,24 @@ final class AppModel: ObservableObject {
     }
 
     private func registerRecentTarget(_ target: ScanTarget) {
-        recentTargets.removeAll { $0.id == target.id }
+        recentTargets.removeAll { $0.id == target.id || !Self.isAvailableScanTarget($0) }
+        guard Self.isAvailableScanTarget(target) else {
+            persistRecentTargets()
+            return
+        }
+
         recentTargets.insert(target, at: 0)
         if recentTargets.count > 10 {
             recentTargets = Array(recentTargets.prefix(10))
         }
+        persistRecentTargets()
+    }
+
+    private func pruneUnavailableRecentTargets() {
+        let availableRecentTargets = recentTargets.filter(Self.isAvailableScanTarget)
+        guard availableRecentTargets.count != recentTargets.count else { return }
+
+        recentTargets = availableRecentTargets
         persistRecentTargets()
     }
 
