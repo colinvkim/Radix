@@ -16,7 +16,7 @@ struct WorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .hidingWindowToolbarBackgroundWhenAvailable()
         .toolbar {
             ToolbarItem(placement: .automatic) { Spacer() }
             ToolbarItemGroup(placement: .automatic) {
@@ -45,6 +45,17 @@ struct WorkspaceView: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             appModel.handleDroppedURLs(urls)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func hidingWindowToolbarBackgroundWhenAvailable() -> some View {
+        if #available(macOS 15.0, *) {
+            toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else {
+            self
         }
     }
 }
