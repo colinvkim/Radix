@@ -6,7 +6,7 @@
 
 A fast, native macOS disk space analyzer that helps you find where your storage is going. Scan any folder or volume, explore results with an interactive sunburst chart and file browser, and clean up — all without leaving the app. Take a look at [Radix's beautiful website](https://radix.colinkim.dev)!
 
-![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-blue)
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -47,7 +47,7 @@ Radix works out of the box on any folder you can already access. For folders lik
 
 ## Requirements
 
-- **macOS 26.0 (Tahoe)** or later
+- **macOS 14.0 (Sonoma)** or later
 - **Xcode 26+** with Swift 6.0 toolchain (for building from source)
 
 ## Installation
