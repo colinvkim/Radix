@@ -165,7 +165,7 @@ private struct InspectorActionButtons: View {
             Button {
                 appModel.previewSelectedWithQuickLook()
             } label: {
-                Label("Quick Look", systemImage: "document.viewfinder")
+                Label("Quick Look", systemImage: RadixSystemImages.quickLook)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -174,7 +174,7 @@ private struct InspectorActionButtons: View {
             Button {
                 appModel.revealSelectedInFinder()
             } label: {
-                Label("Reveal in Finder", systemImage: "finder")
+                Label("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -229,7 +229,7 @@ private struct InspectorActionButtons: View {
         Button {
             appModel.copySelectedPath()
         } label: {
-            Label("Copy Path", systemImage: "doc.on.doc")
+            Label("Copy Path", systemImage: RadixSystemImages.copyPath)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)

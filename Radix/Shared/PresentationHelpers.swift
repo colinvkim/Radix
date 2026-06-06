@@ -79,3 +79,26 @@ extension ScanWarningCategory {
         }
     }
 }
+
+enum RadixSystemImages {
+    static var quickLook: String {
+        if #available(macOS 15.0, *) {
+            return "document.viewfinder"
+        }
+        return "doc.viewfinder"
+    }
+
+    static var revealInFinder: String {
+        if #available(macOS 26.0, *) {
+            return "finder"
+        }
+        return "folder"
+    }
+
+    static var copyPath: String {
+        if #available(macOS 15.0, *) {
+            return "document.on.document"
+        }
+        return "doc.on.doc"
+    }
+}

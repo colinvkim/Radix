@@ -154,13 +154,13 @@ struct FileBrowserTableView: View {
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = displayedNodeLookup[selectedID] {
-                                Button("Quick Look", systemImage: "document.viewfinder") {
+                                Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.previewSelectedWithQuickLook()
                                 }
                                 .disabled(!selectedNode.supportsFileActions)
 
-                                Button("Reveal in Finder", systemImage: "finder") {
+                                Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.revealSelectedInFinder()
                                 }
@@ -186,7 +186,7 @@ struct FileBrowserTableView: View {
                                 }
                                 .disabled(!selectedNode.supportsMoveToTrash)
 
-                                Button("Copy Path", systemImage: "document.on.document") {
+                                Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.copySelectedPath()
                                 }

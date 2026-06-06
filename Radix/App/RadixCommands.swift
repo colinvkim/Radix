@@ -78,7 +78,7 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Inspect") {
-            Button("Quick Look", systemImage: "document.viewfinder") {
+            Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
                 appModel.toggleQuickLookForSelected()
             }
             .keyboardShortcut("y", modifiers: [.command])
@@ -90,13 +90,13 @@ struct RadixCommands: Commands {
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(!appModel.canOpenSelected)
 
-            Button("Reveal in Finder", systemImage: "finder") {
+            Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
                 appModel.revealSelectedInFinder()
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
             .disabled(!appModel.canRevealSelected)
 
-            Button("Copy Path", systemImage: "document.on.document") {
+            Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
                 appModel.copySelectedPath()
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
