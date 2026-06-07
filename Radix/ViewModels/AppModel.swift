@@ -90,6 +90,16 @@ final class AppModel: ObservableObject {
         removeQuickLookKeyMonitor()
     }
 
+    func suspendMainWindowActivity() {
+        cancelDeferredScanStart()
+        if scanCoordinator.canStopScan {
+            scanCoordinator.stopScan()
+        } else {
+            scanCoordinator.stopScan(resetState: false)
+        }
+        dependencies.systemActions.quickLook.close()
+    }
+
     var phase: Phase {
         get { scanCoordinator.phase }
         set { scanCoordinator.phase = newValue }

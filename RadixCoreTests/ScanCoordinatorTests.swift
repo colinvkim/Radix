@@ -296,6 +296,50 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelSuspendingMainWindowActivityCancelsActiveScanAndClosesQuickLook() async throws {
+        let service = ControlledScanService()
+        let recorder = CoordinatorLifecycleActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.quickLook = AppQuickLookActions(
+            isPreviewVisible: { true },
+            isPreviewPanelKeyWindow: { false },
+            present: { _ in },
+            toggle: { _ in },
+            updateVisiblePreview: { _ in },
+            close: { recorder.quickLookCloseCount += 1 }
+        )
+        actions.installQuickLookKeyMonitor = { _ in
+            AppEventMonitorToken {
+                recorder.quickLookMonitorRemovalCount += 1
+            }
+        }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let target = makeCoordinatorTarget("/app/window-suspend")
+
+        model.startScan(target)
+
+        try await waitUntil("AppModel start scan before window suspension") {
+            model.phase == .scanning && service.requests.count == 1
+        }
+
+        model.suspendMainWindowActivity()
+
+        try await waitUntil("AppModel window suspension cancels active scan") {
+            service.terminationCount == 1
+        }
+
+        XCTAssertEqual(model.phase, .idle)
+        XCTAssertFalse(model.canStopScan)
+        XCTAssertEqual(recorder.quickLookCloseCount, 1)
+        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 0)
+    }
+
+    @MainActor
     func testAppModelStopCancelsDeferredScanStart() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -317,6 +361,21 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.startScan(makeCoordinatorTarget("/app/deferred-cleanup"))
         model.cleanup()
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(model.phase, .idle)
+        XCTAssertFalse(model.canStopScan)
+    }
+
+    @MainActor
+    func testAppModelSuspendingMainWindowActivityCancelsDeferredScanStart() async throws {
+        let service = ControlledScanService()
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
+
+        model.startScan(makeCoordinatorTarget("/app/deferred-window-suspend"))
+        model.suspendMainWindowActivity()
 
         try await Task.sleep(for: .milliseconds(40))
 
@@ -431,16 +490,25 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
 }
 
 @MainActor
-private func makeCoordinatorAppDependencies(scanService: any ScanEventStreaming) -> AppDependencies {
+private func makeCoordinatorAppDependencies(
+    scanService: any ScanEventStreaming,
+    systemActions: AppSystemActions = .inert
+) -> AppDependencies {
     AppDependencies(
         preferences: CoordinatorAppPreferencesStore(),
         recentTargets: RecentTargetStore(
             persistence: CoordinatorRecentTargetPersistence(),
             isAvailable: { _ in true }
         ),
-        systemActions: .inert,
+        systemActions: systemActions,
         scanService: scanService
     )
+}
+
+@MainActor
+private final class CoordinatorLifecycleActionRecorder {
+    var quickLookCloseCount = 0
+    var quickLookMonitorRemovalCount = 0
 }
 
 private final class CoordinatorAppPreferencesStore: AppPreferencesPersisting {

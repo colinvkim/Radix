@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appModel: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = true
@@ -80,6 +81,13 @@ struct ContentView: View {
             }
         } message: { node in
             Text("Radix will ask macOS to move “\(node.name)” to the Trash.")
+        }
+        .onDisappear {
+            appModel.suspendMainWindowActivity()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .background else { return }
+            appModel.suspendMainWindowActivity()
         }
     }
 }
