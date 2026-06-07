@@ -16,8 +16,18 @@ final class AppModel: ObservableObject {
         case unavailable(path: String)
         case unsupported
         case directoryRequired
+        case packageContentsHidden(settingEnabled: Bool)
         case folderRequiredForDrop
         case fullDiskAccessSettingsUnavailable
+
+        var alertTitle: String? {
+            switch self {
+            case .packageContentsHidden:
+                return "Package Contents Hidden"
+            default:
+                return nil
+            }
+        }
 
         var errorDescription: String? {
             switch self {
@@ -29,6 +39,11 @@ final class AppModel: ObservableObject {
                 return "This item does not support that action."
             case .directoryRequired:
                 return "Choose a folder with contents to zoom in."
+            case .packageContentsHidden(let settingEnabled):
+                if settingEnabled {
+                    return "Radix scanned this package before package contents were expanded. Rescan this location to zoom into it."
+                }
+                return "Radix scanned this package as a single item. To zoom into it, turn on “Treat app bundles and packages as folders” in Settings, then rescan this location."
             case .folderRequiredForDrop:
                 return "Drop a folder or mounted volume to start a scan."
             case .fullDiskAccessSettingsUnavailable:
@@ -44,12 +59,19 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableTargets: [ScanTarget] = []
     @Published var recentTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
-    @Published var lastErrorMessage: String?
+    @Published var lastErrorMessage: String? {
+        didSet {
+            if lastErrorMessage == nil {
+                lastActionErrorTitle = nil
+            }
+        }
+    }
     @Published var pendingTrashNode: FileNodeRecord?
 
     private let dependencies: AppDependencies
     private let scanCoordinator: ScanCoordinator
     private let navigationModel = WorkspaceNavigationModel()
+    private var lastActionErrorTitle: String?
 
     private var cancellables = Set<AnyCancellable>()
     private var quickLookEventMonitor: AppEventMonitorToken?
@@ -128,7 +150,10 @@ final class AppModel: ObservableObject {
     }
 
     var errorAlertTitle: String {
-        scanCoordinator.phase == .failed ? "Scan Failed" : "Action Failed"
+        if scanCoordinator.phase == .failed {
+            return "Scan Failed"
+        }
+        return lastActionErrorTitle ?? "Action Failed"
     }
 
     var canRescanFromErrorAlert: Bool {
@@ -173,7 +198,7 @@ final class AppModel: ObservableObject {
             case .expanded(let replacementRootID):
                 navigationModel.select(nodeID: replacementRootID)
             case .failed(let message):
-                lastErrorMessage = message
+                presentErrorMessage(message)
             }
 
             completion()
@@ -248,11 +273,14 @@ final class AppModel: ObservableObject {
         do {
             let node = try validatedSelection(requiresDirectory: true)
             guard navigationModel.canZoomIntoSelection else {
+                if shouldPresentPackageContentsHint(for: node) {
+                    throw FileActionError.packageContentsHidden(settingEnabled: treatPackagesAsDirectories)
+                }
                 throw FileActionError.directoryRequired
             }
             focus(nodeID: node.id)
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -282,7 +310,7 @@ final class AppModel: ObservableObject {
     func handleDroppedURLs(_ urls: [URL]) -> Bool {
         guard let first = urls.first else { return false }
         guard isDirectoryURL(first) else {
-            lastErrorMessage = FileActionError.folderRequiredForDrop.localizedDescription
+            presentError(FileActionError.folderRequiredForDrop)
             return false
         }
         startScan(ScanTarget(url: first))
@@ -294,7 +322,7 @@ final class AppModel: ObservableObject {
             let node = try validatedSelection()
             dependencies.systemActions.reveal(node.url)
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -307,7 +335,7 @@ final class AppModel: ObservableObject {
             let node = try validatedSelection()
             try dependencies.systemActions.open(node.url)
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -316,7 +344,7 @@ final class AppModel: ObservableObject {
             let node = try validatedSelection()
             try dependencies.systemActions.quickLook.present(node.url)
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -325,7 +353,7 @@ final class AppModel: ObservableObject {
             let node = try validatedSelection()
             try dependencies.systemActions.quickLook.toggle(node.url)
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -334,7 +362,7 @@ final class AppModel: ObservableObject {
             let node = try validatedSelection()
             try dependencies.systemActions.copyPath(node.url)
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -346,7 +374,7 @@ final class AppModel: ObservableObject {
             }
             pendingTrashNode = node
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -370,7 +398,7 @@ final class AppModel: ObservableObject {
             }
             refreshAvailableTargets()
         } catch {
-            lastErrorMessage = error.localizedDescription
+            presentError(error)
         }
     }
 
@@ -380,9 +408,27 @@ final class AppModel: ObservableObject {
 
     func prepareAndOpenFullDiskAccessSettings() {
         guard dependencies.systemActions.prepareAndOpenFullDiskAccessSettings() else {
-            lastErrorMessage = FileActionError.fullDiskAccessSettingsUnavailable.localizedDescription
+            presentError(FileActionError.fullDiskAccessSettingsUnavailable)
             return
         }
+    }
+
+    private func presentError(_ error: Error) {
+        if let fileActionError = error as? FileActionError {
+            lastActionErrorTitle = fileActionError.alertTitle
+        } else {
+            lastActionErrorTitle = nil
+        }
+        lastErrorMessage = error.localizedDescription
+    }
+
+    private func presentErrorMessage(_ message: String) {
+        lastActionErrorTitle = nil
+        lastErrorMessage = message
+    }
+
+    private func shouldPresentPackageContentsHint(for node: FileNodeRecord) -> Bool {
+        node.isPackage && (node.descendantFileCount > 0 || node.allocatedSize > 0 || node.logicalSize > 0)
     }
 
     private func validatedSelection(requiresDirectory: Bool = false) throws -> FileNodeRecord {
@@ -518,7 +564,7 @@ final class AppModel: ObservableObject {
         scanCoordinator.$scanErrorMessage
             .compactMap { $0 }
             .sink { [weak self] message in
-                self?.lastErrorMessage = message
+                self?.presentErrorMessage(message)
             }
             .store(in: &cancellables)
     }

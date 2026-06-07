@@ -198,6 +198,48 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testZoomIntoCollapsedPackageMentionsSettingsToggle() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let payload = makeAppModelFileNode(
+            id: "/selection/Sample.app/Contents/MacOS/Binary",
+            name: "Binary",
+            size: 42
+        )
+        let package = makeAppModelDirectoryNode(
+            id: "/selection/Sample.app",
+            name: "Sample.app",
+            children: [payload],
+            isPackage: true
+        )
+        let root = makeAppModelDirectoryNode(id: "/selection", name: "selection", children: [package])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [package]])
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(url: root.url),
+            treeStore: store,
+            startedAt: Date(),
+            finishedAt: Date(),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(root.id)
+        model.select(nodeID: package.id)
+
+        model.zoomIntoSelection()
+
+        XCTAssertEqual(model.errorAlertTitle, "Package Contents Hidden")
+        XCTAssertEqual(
+            model.lastErrorMessage,
+            "Radix scanned this package as a single item. To zoom into it, turn on “Treat app bundles and packages as folders” in Settings, then rescan this location."
+        )
+        XCTAssertEqual(model.navigation.currentFocusNode?.id, root.id)
+    }
+
+    @MainActor
     func testQuickLookVisibleSelectionChangesUpdateAndCloseThroughDependency() {
         let recorder = AppModelActionRecorder()
         recorder.isQuickLookVisible = true
@@ -391,7 +433,8 @@ private func makeAppModelFileNode(id: String, name: String, size: Int64 = 1) -> 
 private func makeAppModelDirectoryNode(
     id: String,
     name: String,
-    children: [FileNodeRecord]
+    children: [FileNodeRecord],
+    isPackage: Bool = false
 ) -> FileNodeRecord {
     FileNodeRecord(
         id: id,
@@ -403,7 +446,7 @@ private func makeAppModelDirectoryNode(
         logicalSize: children.reduce(0) { $0 + $1.logicalSize },
         descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
         lastModified: nil,
-        isPackage: false,
+        isPackage: isPackage,
         isAccessible: true,
         isSynthetic: false,
         isAutoSummarized: false
