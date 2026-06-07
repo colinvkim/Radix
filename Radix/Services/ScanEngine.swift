@@ -5,6 +5,7 @@
 //  Created by Codex on 4/2/26.
 //
 
+import Darwin
 import Foundation
 
 actor ScanEngine {
@@ -25,6 +26,11 @@ actor ScanEngine {
         var descendantFileCount = 0
         var isAccessible = true
         var warnings: [ScanWarning] = []
+        var countedHardLinkIdentities: Set<FileIdentity>
+
+        init(countedHardLinkIdentities: Set<FileIdentity> = []) {
+            self.countedHardLinkIdentities = countedHardLinkIdentities
+        }
     }
 
     struct ScanBehavior: Sendable {
@@ -39,6 +45,7 @@ actor ScanEngine {
         let descendantFileCount: Int
         let isAccessible: Bool
         let warnings: [ScanWarning]
+        let countedHardLinkIdentities: Set<FileIdentity>
     }
 
     /// A work item for the iterative scanner.
@@ -193,10 +200,16 @@ actor ScanEngine {
         metrics.estimatedTotalBytes = estimatedTotalBytes(for: target, metadata: rootMetadata)
         metrics.currentPath = target.url.path
         metrics.recalculateProgress()
+        var countedHardLinkIdentities = Set<FileIdentity>()
 
         // If the root itself shouldn't be traversed, return a leaf node.
         guard shouldTraverseDirectory(metadata: rootMetadata, options: options) else {
-            let leafResult = makeLeafNode(url: target.url, metadata: rootMetadata, options: options)
+            let leafResult = makeLeafNode(
+                url: target.url,
+                metadata: rootMetadata,
+                options: options,
+                countedHardLinkIdentities: &countedHardLinkIdentities
+            )
             applyLeafMetrics(leafResult.node, metrics: &metrics)
             if !leafResult.warnings.isEmpty {
                 warnings.append(contentsOf: leafResult.warnings)
@@ -280,7 +293,8 @@ actor ScanEngine {
                            metadata: meta,
                            includeHiddenFiles: options.includeHiddenFiles,
                            treatPackagesAsDirectories: options.treatPackagesAsDirectories,
-                           maxAverageFileSize: maxAvgSize
+                           maxAverageFileSize: maxAvgSize,
+                           countedHardLinkIdentities: &countedHardLinkIdentities
                        ) {
                         // Treat as atomic: create a leaf node with summary stats
                         let atomicNode = FileNodeRecord(
@@ -368,7 +382,12 @@ actor ScanEngine {
                 }
             } else {
                 // Leaf node (file, symlink, or package-as-directory).
-                let leafResult = makeLeafNode(url: item.url, metadata: meta, options: options)
+                let leafResult = makeLeafNode(
+                    url: item.url,
+                    metadata: meta,
+                    options: options,
+                    countedHardLinkIdentities: &countedHardLinkIdentities
+                )
                 applyLeafMetrics(leafResult.node, metrics: &metrics)
                 if !leafResult.warnings.isEmpty {
                     warnings.append(contentsOf: leafResult.warnings)
@@ -453,6 +472,24 @@ actor ScanEngine {
         metrics.completedItems += 1
     }
 
+    private func adjustedAllocatedSize(
+        for metadata: NodeMetadata,
+        countedHardLinkIdentities: inout Set<FileIdentity>
+    ) -> Int64 {
+        guard !metadata.isDirectory,
+              !metadata.isSymbolicLink,
+              metadata.linkCount > 1,
+              let fileIdentity = metadata.fileIdentity else {
+            return metadata.allocatedSize
+        }
+
+        guard countedHardLinkIdentities.insert(fileIdentity).inserted else {
+            return 0
+        }
+
+        return metadata.allocatedSize
+    }
+
     private func recordUnavailableItem(
         _ item: ScanWorkItem,
         itemKey: Int,
@@ -480,7 +517,9 @@ actor ScanEngine {
                 allocatedSize: 0,
                 lastModified: nil,
                 isReadable: false,
-                volumeUsedCapacity: nil
+                volumeUsedCapacity: nil,
+                fileIdentity: nil,
+                linkCount: 0
             ),
             url: item.url,
             isTraversable: false
@@ -514,6 +553,7 @@ actor ScanEngine {
         let logicalSize = Int64(values.fileSize ?? 0)
         let allocatedSize = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
         let isReadable = values.isReadable ?? false
+        let fileSystemInfo = fileSystemInfo(for: url)
         let volumeUsedCapacity: Int64?
         if let totalCapacity = values.volumeTotalCapacity,
            let availableCapacity = values.volumeAvailableCapacity {
@@ -530,7 +570,25 @@ actor ScanEngine {
             allocatedSize: allocatedSize,
             lastModified: values.contentModificationDate,
             isReadable: isReadable,
-            volumeUsedCapacity: volumeUsedCapacity
+            volumeUsedCapacity: volumeUsedCapacity,
+            fileIdentity: fileSystemInfo.identity,
+            linkCount: fileSystemInfo.linkCount
+        )
+    }
+
+    private func fileSystemInfo(for url: URL) -> (identity: FileIdentity?, linkCount: UInt64) {
+        var fileStat = stat()
+        let result = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Int(lstat(path, &fileStat))
+        }
+        guard result == 0 else {
+            return (nil, 0)
+        }
+
+        return (
+            FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
+            UInt64(fileStat.st_nlink)
         )
     }
 
@@ -578,14 +636,18 @@ actor ScanEngine {
         return true
     }
 
-    private func makeFileNode(url: URL, metadata: NodeMetadata) -> FileNodeRecord {
+    private func makeFileNode(
+        url: URL,
+        metadata: NodeMetadata,
+        countedHardLinkIdentities: inout Set<FileIdentity>
+    ) -> FileNodeRecord {
         FileNodeRecord(
             id: url.path,
             url: url,
             name: ScanTarget.displayName(for: url),
             isDirectory: metadata.isDirectory,
             isSymbolicLink: metadata.isSymbolicLink,
-            allocatedSize: metadata.allocatedSize,
+            allocatedSize: adjustedAllocatedSize(for: metadata, countedHardLinkIdentities: &countedHardLinkIdentities),
             logicalSize: metadata.logicalSize,
             descendantFileCount: metadata.isDirectory || metadata.isSymbolicLink ? 0 : 1,
             lastModified: metadata.lastModified,
@@ -596,18 +658,39 @@ actor ScanEngine {
         )
     }
 
-    private func makeLeafNode(url: URL, metadata: NodeMetadata, options: ScanOptions) -> (node: FileNodeRecord, warnings: [ScanWarning]) {
+    private func makeLeafNode(
+        url: URL,
+        metadata: NodeMetadata,
+        options: ScanOptions,
+        countedHardLinkIdentities: inout Set<FileIdentity>
+    ) -> (node: FileNodeRecord, warnings: [ScanWarning]) {
         guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
-            return (makeFileNode(url: url, metadata: metadata), [])
+            return (
+                makeFileNode(
+                    url: url,
+                    metadata: metadata,
+                    countedHardLinkIdentities: &countedHardLinkIdentities
+                ),
+                []
+            )
         }
 
         guard let summary = summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: options.includeHiddenFiles,
-            treatPackagesAsDirectories: true
+            treatPackagesAsDirectories: true,
+            countedHardLinkIdentities: countedHardLinkIdentities
         ) else {
-            return (makeFileNode(url: url, metadata: metadata), [])
+            return (
+                makeFileNode(
+                    url: url,
+                    metadata: metadata,
+                    countedHardLinkIdentities: &countedHardLinkIdentities
+                ),
+                []
+            )
         }
+        countedHardLinkIdentities = summary.countedHardLinkIdentities
 
         return (
             FileNodeRecord(
@@ -641,7 +724,8 @@ actor ScanEngine {
         metadata: NodeMetadata,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
-        maxAverageFileSize: Int64
+        maxAverageFileSize: Int64,
+        countedHardLinkIdentities: inout Set<FileIdentity>
     ) -> AtomicDirectorySummary? {
         guard !childEntries.isEmpty else { return nil }
 
@@ -686,15 +770,19 @@ actor ScanEngine {
                 childEntries: childEntries,
                 rootMetadata: metadata,
                 includeHiddenFiles: includeHiddenFiles,
-                treatPackagesAsDirectories: treatPackagesAsDirectories
+                treatPackagesAsDirectories: treatPackagesAsDirectories,
+                countedHardLinkIdentities: &countedHardLinkIdentities
             )
         }
 
-        return summarizeAtomicDirectory(
+        guard let summary = summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: includeHiddenFiles,
-            treatPackagesAsDirectories: treatPackagesAsDirectories
-        )
+            treatPackagesAsDirectories: treatPackagesAsDirectories,
+            countedHardLinkIdentities: countedHardLinkIdentities
+        ) else { return nil }
+        countedHardLinkIdentities = summary.countedHardLinkIdentities
+        return summary
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
@@ -705,9 +793,10 @@ actor ScanEngine {
         childEntries: [DirectoryEntry],
         rootMetadata: NodeMetadata,
         includeHiddenFiles: Bool = true,
-        treatPackagesAsDirectories: Bool
+        treatPackagesAsDirectories: Bool,
+        countedHardLinkIdentities: inout Set<FileIdentity>
     ) -> AtomicDirectorySummary? {
-        let state = AtomicDirectorySummaryState()
+        let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
         state.isAccessible = rootMetadata.isReadable
 
         for childEntry in childEntries {
@@ -732,13 +821,15 @@ actor ScanEngine {
                 treatPackagesAsDirectories: treatPackagesAsDirectories
             )
         }
+        countedHardLinkIdentities = state.countedHardLinkIdentities
 
         return AtomicDirectorySummary(
             allocatedSize: state.allocatedSize,
             logicalSize: state.logicalSize,
             descendantFileCount: state.descendantFileCount,
             isAccessible: state.isAccessible,
-            warnings: state.warnings
+            warnings: state.warnings,
+            countedHardLinkIdentities: state.countedHardLinkIdentities
         )
     }
 
@@ -757,7 +848,8 @@ actor ScanEngine {
                 if let nestedSummary = summarizeAtomicDirectory(
                     at: url,
                     includeHiddenFiles: includeHiddenFiles,
-                    treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories
+                    treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories,
+                    countedHardLinkIdentities: state.countedHardLinkIdentities
                 ) {
                     merge(nestedSummary, into: state)
                 }
@@ -765,7 +857,7 @@ actor ScanEngine {
             return
         }
 
-        state.allocatedSize += metadata.allocatedSize
+        state.allocatedSize += adjustedAllocatedSize(for: metadata, countedHardLinkIdentities: &state.countedHardLinkIdentities)
         state.logicalSize += metadata.logicalSize
 
         if !metadata.isSymbolicLink {
@@ -779,6 +871,7 @@ actor ScanEngine {
         state.descendantFileCount += summary.descendantFileCount
         state.isAccessible = state.isAccessible && summary.isAccessible
         state.warnings.append(contentsOf: summary.warnings)
+        state.countedHardLinkIdentities = summary.countedHardLinkIdentities
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
@@ -788,7 +881,8 @@ actor ScanEngine {
     private func summarizeAtomicDirectory(
         at url: URL,
         includeHiddenFiles: Bool = true,
-        treatPackagesAsDirectories: Bool
+        treatPackagesAsDirectories: Bool,
+        countedHardLinkIdentities: Set<FileIdentity> = []
     ) -> AtomicDirectorySummary? {
         let summaryKeys: [URLResourceKey] = [
             .isDirectoryKey,
@@ -800,7 +894,7 @@ actor ScanEngine {
         ]
         let summaryKeySet = Set(summaryKeys)
 
-        let state = AtomicDirectorySummaryState()
+        let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
 
         do {
             let rootValues = try url.resourceValues(forKeys: summaryKeySet)
@@ -830,33 +924,30 @@ actor ScanEngine {
 
         for case let childURL as URL in enumerator {
             do {
-                let values = try childURL.resourceValues(forKeys: summaryKeySet)
+                let childMetadata = try metadata(for: childURL)
 
-                let isDirectory = values.isDirectory ?? false
-                let isPackage = values.isPackage ?? false
-                let isSymbolicLink = values.isSymbolicLink ?? false
+                state.isAccessible = state.isAccessible && childMetadata.isReadable
 
-                state.isAccessible = state.isAccessible && (values.isReadable ?? false)
-
-                if isDirectory {
-                    if isPackage && !treatPackagesAsDirectories {
+                if childMetadata.isDirectory {
+                    if childMetadata.isPackage && !treatPackagesAsDirectories {
                         if let packageSummary = summarizeAtomicDirectory(
                             at: childURL,
                             includeHiddenFiles: includeHiddenFiles,
-                            treatPackagesAsDirectories: true
+                            treatPackagesAsDirectories: true,
+                            countedHardLinkIdentities: state.countedHardLinkIdentities
                         ) {
                             merge(packageSummary, into: state)
                             enumerator.skipDescendants()
                         }
                     }
                 } else {
-                    let childAllocatedSize = Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
-                    let childLogicalSize = Int64(values.fileSize ?? 0)
+                    state.allocatedSize += adjustedAllocatedSize(
+                        for: childMetadata,
+                        countedHardLinkIdentities: &state.countedHardLinkIdentities
+                    )
+                    state.logicalSize += childMetadata.logicalSize
 
-                    state.allocatedSize += childAllocatedSize
-                    state.logicalSize += childLogicalSize
-
-                    if !isSymbolicLink {
+                    if !childMetadata.isSymbolicLink {
                         state.descendantFileCount += 1
                     }
                 }
@@ -871,7 +962,8 @@ actor ScanEngine {
             logicalSize: state.logicalSize,
             descendantFileCount: state.descendantFileCount,
             isAccessible: state.isAccessible,
-            warnings: state.warnings
+            warnings: state.warnings,
+            countedHardLinkIdentities: state.countedHardLinkIdentities
         )
     }
 
@@ -1009,6 +1101,11 @@ actor ScanEngine {
     }
 }
 
+private struct FileIdentity: Hashable, Sendable {
+    let device: UInt64
+    let inode: UInt64
+}
+
 private struct NodeMetadata: Sendable {
     let isDirectory: Bool
     let isPackage: Bool
@@ -1018,6 +1115,8 @@ private struct NodeMetadata: Sendable {
     let lastModified: Date?
     let isReadable: Bool
     let volumeUsedCapacity: Int64?
+    let fileIdentity: FileIdentity?
+    let linkCount: UInt64
 }
 
 private struct ScanEmissionState: Sendable {

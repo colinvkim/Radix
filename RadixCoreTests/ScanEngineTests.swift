@@ -166,6 +166,29 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
     }
 
+    func testHardLinkedFilesOnlyCountAllocatedStorageOnce() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let originalURL = rootURL.appending(path: "original.bin")
+        let linkedURL = rootURL.appending(path: "linked.bin")
+
+        try Data(repeating: 0xA5, count: 4_096).write(to: originalURL)
+        try FileManager.default.linkItem(at: originalURL, to: linkedURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+        let children = rootChildren(in: snapshot)
+        let allocatedSizes = children.map(\.allocatedSize)
+
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
+        XCTAssertEqual(children.map(\.logicalSize).reduce(0, +), 8_192)
+        XCTAssertEqual(allocatedSizes.filter { $0 > 0 }.count, 1)
+        XCTAssertEqual(snapshot.root.allocatedSize, allocatedSizes.reduce(0, +))
+    }
+
     func testScanTargetNormalizesSyntheticRootAliases() {
         let nofollowTarget = ScanTarget(url: URL(filePath: "/.nofollow/Users/example", directoryHint: .isDirectory))
         let resolveTarget = ScanTarget(url: URL(filePath: "/.resolve/System/Volumes/Data", directoryHint: .isDirectory))
