@@ -52,6 +52,7 @@ struct OnboardingView: View {
                         Text("You can scan without this permission and enable it later if a scan reports skipped folders.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
