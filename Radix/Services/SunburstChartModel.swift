@@ -31,28 +31,35 @@ actor SunburstLayoutService: SunburstLayouting {
 
 @MainActor
 final class SunburstChartModel: ObservableObject {
-    @Published private(set) var renderedSegments: [SunburstSegment] = []
-    @Published private(set) var isLayoutPending = false
-    @Published private(set) var hoveredSegmentID: SunburstSegment.ID?
+    @Published private var renderState = SunburstChartRenderState()
+    private(set) var isLayoutPending = false
 
     private let layoutService: any SunburstLayouting
     private var layoutGeneration = 0
     private var activeLayoutID: String?
     private var layoutTask: Task<[SunburstSegment], Error>?
-    private var segmentLookup: [SunburstSegment.ID: SunburstSegment] = [:]
 
     init(layoutService: any SunburstLayouting = SunburstLayoutService()) {
         self.layoutService = layoutService
     }
 
+    var renderedSegments: [SunburstSegment] {
+        renderState.segments
+    }
+
+    var hoveredSegmentID: SunburstSegment.ID? {
+        renderState.hoveredSegmentID
+    }
+
     var hoveredSegment: SunburstSegment? {
-        guard let hoveredSegmentID else { return nil }
-        return segmentLookup[hoveredSegmentID]
+        renderState.hoveredSegment
     }
 
     func setHoveredSegmentID(_ segmentID: SunburstSegment.ID?) {
         guard hoveredSegmentID != segmentID else { return }
-        hoveredSegmentID = segmentID
+        var nextState = renderState
+        nextState.hoveredSegmentID = segmentID
+        renderState = nextState
     }
 
     @discardableResult
@@ -66,7 +73,7 @@ final class SunburstChartModel: ObservableObject {
         let generation = layoutGeneration
         activeLayoutID = layoutID
         layoutTask?.cancel()
-        isLayoutPending = true
+        setIsLayoutPending(true)
 
         let task = Task(priority: .userInitiated) { [layoutService] in
             try await layoutService.segments(
@@ -90,14 +97,14 @@ final class SunburstChartModel: ObservableObject {
 
             layoutTask = nil
             apply(segments)
-            isLayoutPending = false
+            setIsLayoutPending(false)
             return true
         } catch is CancellationError {
             guard isCurrentLayout(generation: generation, layoutID: layoutID) else {
                 return false
             }
             layoutTask = nil
-            isLayoutPending = false
+            setIsLayoutPending(false)
             return false
         } catch {
             guard isCurrentLayout(generation: generation, layoutID: layoutID) else {
@@ -105,7 +112,7 @@ final class SunburstChartModel: ObservableObject {
             }
             layoutTask = nil
             apply([])
-            isLayoutPending = false
+            setIsLayoutPending(false)
             return true
         }
     }
@@ -115,10 +122,31 @@ final class SunburstChartModel: ObservableObject {
     }
 
     private func apply(_ segments: [SunburstSegment]) {
-        renderedSegments = segments
+        renderState = SunburstChartRenderState(segments: segments)
+    }
+
+    private func setIsLayoutPending(_ isPending: Bool) {
+        guard isLayoutPending != isPending else { return }
+        isLayoutPending = isPending
+    }
+}
+
+private struct SunburstChartRenderState {
+    var segments: [SunburstSegment]
+    var hoveredSegmentID: SunburstSegment.ID?
+
+    private var segmentLookup: [SunburstSegment.ID: SunburstSegment]
+
+    init(segments: [SunburstSegment] = [], hoveredSegmentID: SunburstSegment.ID? = nil) {
+        self.segments = segments
+        self.hoveredSegmentID = hoveredSegmentID
         segmentLookup = segments.reduce(into: [:]) { lookup, segment in
             lookup[segment.id] = segment
         }
-        setHoveredSegmentID(nil)
+    }
+
+    var hoveredSegment: SunburstSegment? {
+        guard let hoveredSegmentID else { return nil }
+        return segmentLookup[hoveredSegmentID]
     }
 }

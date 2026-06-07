@@ -1,8 +1,43 @@
+import Combine
 import XCTest
 @testable import RadixCore
 
 @MainActor
 final class SunburstChartModelTests: XCTestCase {
+    func testStartingLayoutDoesNotPublishUntilRenderStateChanges() async {
+        let service = ControllableSunburstLayoutService()
+        let model = SunburstChartModel(layoutService: service)
+        let store = makeStore()
+        var publishCount = 0
+        let cancellable = model.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+
+        let layoutTask = Task {
+            await model.loadLayout(
+                treeStore: store,
+                rootID: store.rootID,
+                depthLimit: 1,
+                layoutID: "layout"
+            )
+        }
+        await service.waitForIssuedRequestCount(1)
+
+        XCTAssertTrue(model.isLayoutPending)
+        XCTAssertEqual(publishCount, 0)
+
+        let segment = makeSegment(id: "segment")
+        let didCompleteRequest = await service.completeRequest(id: 0, with: [segment])
+        XCTAssertTrue(didCompleteRequest)
+        let didApplyLayout = await layoutTask.value
+
+        XCTAssertTrue(didApplyLayout)
+        XCTAssertFalse(model.isLayoutPending)
+        XCTAssertEqual(model.renderedSegments.map(\.id), [segment.id])
+        XCTAssertEqual(publishCount, 1)
+        withExtendedLifetime(cancellable) {}
+    }
+
     func testStartingNewLayoutCancelsPreviousLayoutWork() async {
         let service = ControllableSunburstLayoutService(resumesOnCancellation: true)
         let model = SunburstChartModel(layoutService: service)
