@@ -274,6 +274,28 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelCleanupCancelsActiveScan() async throws {
+        let service = ControlledScanService()
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
+        let target = makeCoordinatorTarget("/app/cleanup")
+
+        model.startScan(target)
+
+        try await waitUntil("AppModel start scan before cleanup") {
+            model.phase == .scanning && service.requests.count == 1
+        }
+
+        model.cleanup()
+
+        try await waitUntil("AppModel cleanup cancels active scan") {
+            service.terminationCount == 1
+        }
+
+        XCTAssertEqual(model.phase, .idle)
+        XCTAssertFalse(model.canStopScan)
+    }
+
+    @MainActor
     func testAppModelExpansionPreservesNavigationHistory() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))

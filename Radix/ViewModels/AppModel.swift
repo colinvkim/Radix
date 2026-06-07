@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
     }
 
     func cleanup() {
+        scanCoordinator.stopScan()
         removeQuickLookKeyMonitor()
     }
 
