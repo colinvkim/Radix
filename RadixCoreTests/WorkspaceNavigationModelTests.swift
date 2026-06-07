@@ -30,6 +30,8 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         XCTAssertEqual(model.focusedNodeID, fixture.root.id)
         XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         XCTAssertFalse(model.canNavigateBack)
 
         model.focus(nodeID: fixture.docs.id)
@@ -38,6 +40,7 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
         XCTAssertEqual(model.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.docs.id])
         XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
         XCTAssertTrue(model.canNavigateBack)
         XCTAssertFalse(model.canNavigateForward)
 
@@ -105,6 +108,26 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         XCTAssertEqual(model.focusedNodeID, fixture.cache.id)
         XCTAssertNil(model.selectedNodeID)
         XCTAssertFalse(model.canClearSelection)
+    }
+
+    @MainActor
+    func testTableStateTracksRootFallbackAndFocusedFiles() {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+
+        model.setFocusedNodeID(nil)
+
+        XCTAssertNil(model.focusedNodeID)
+        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+
+        model.setFocusedNodeID(fixture.docFile.id)
+
+        XCTAssertEqual(model.focusedNodeID, fixture.docFile.id)
+        XCTAssertEqual(model.currentFocusNode?.id, fixture.docFile.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docFile.id)")
     }
 
     @MainActor
