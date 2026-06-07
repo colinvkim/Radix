@@ -444,8 +444,25 @@ struct FileTreeStore: Sendable {
     }
 
     nonisolated func children(of id: String?) -> [FileNodeRecord] {
+        (try? children(of: id, cancellationCheck: {})) ?? []
+    }
+
+    nonisolated func children(
+        of id: String?,
+        cancellationCheck: () throws -> Void
+    ) throws -> [FileNodeRecord] {
         let resolvedID = id ?? rootID
-        return childIDsByID[resolvedID]?.compactMap { nodesByID[$0] } ?? []
+        guard let childIDs = childIDsByID[resolvedID] else { return [] }
+
+        var children: [FileNodeRecord] = []
+        children.reserveCapacity(childIDs.count)
+        for childID in childIDs {
+            try cancellationCheck()
+            if let node = nodesByID[childID] {
+                children.append(node)
+            }
+        }
+        return children
     }
 
     nonisolated func containsChildren(id: String?) -> Bool {

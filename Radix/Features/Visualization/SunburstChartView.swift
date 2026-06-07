@@ -12,8 +12,7 @@ struct SunburstChartView: View {
     let onSelect: (String?) -> Void
     let onZoom: (String) -> Void
 
-    @State private var hoveredSegment: SunburstSegment?
-    @State private var renderedSegments: [SunburstSegment] = []
+    @StateObject private var chartModel = SunburstChartModel()
 
     init(
         rootNode: FileNodeRecord,
@@ -34,7 +33,7 @@ struct SunburstChartView: View {
     }
 
     private var displayedNode: FileNodeRecord? {
-        if let hoveredNodeID = hoveredSegment?.nodeID,
+        if let hoveredNodeID = chartModel.hoveredSegment?.nodeID,
            let hoveredNode = treeStore.node(id: hoveredNodeID) {
             return hoveredNode
         }
@@ -46,7 +45,7 @@ struct SunburstChartView: View {
     }
 
     private var hoverSummary: ChartSummary? {
-        guard let hoveredSegment else { return nil }
+        guard let hoveredSegment = chartModel.hoveredSegment else { return nil }
 
         if let hoveredNodeID = hoveredSegment.nodeID,
            let hoveredNode = treeStore.node(id: hoveredNodeID) {
@@ -64,23 +63,29 @@ struct SunburstChartView: View {
     var body: some View {
         GeometryReader { geometry in
             let chartFrame = chartFrame(in: geometry.size)
+            let selectedAncestorIDSet = selectedAncestorIDs
 
             ZStack {
-                Canvas { context, size in
-                    for segment in renderedSegments {
-                        let path = SunburstRenderer.path(for: segment, in: size)
-                        context.fill(path, with: .color(fillColor(for: segment)))
-                        context.stroke(
-                            path,
-                            with: .color(strokeColor(for: segment)),
-                            lineWidth: strokeWidth(for: segment)
-                        )
-                    }
-                }
+                SunburstBaseCanvas(
+                    segments: chartModel.renderedSegments,
+                    selectedNodeID: selectedNodeID,
+                    selectedAncestorIDs: selectedAncestorIDSet
+                )
+                .equatable()
                 .frame(width: chartFrame.width, height: chartFrame.height)
                 .position(x: chartFrame.midX, y: chartFrame.midY)
 
-                if renderedSegments.isEmpty {
+                SunburstHoverOverlay(
+                    segment: chartModel.hoveredSegment,
+                    selectedNodeID: selectedNodeID,
+                    selectedAncestorIDs: selectedAncestorIDSet
+                )
+                .equatable()
+                .frame(width: chartFrame.width, height: chartFrame.height)
+                .position(x: chartFrame.midX, y: chartFrame.midY)
+                .allowsHitTesting(false)
+
+                if chartModel.renderedSegments.isEmpty {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -111,29 +116,24 @@ struct SunburstChartView: View {
             .accessibilityValue(accessibilityValue)
             .accessibilityHint("Select a segment to inspect it. Double-click a folder segment to zoom in.")
             .task(id: layoutID) {
-                let store = treeStore
-                let rootID = rootNode.id
-                let depth = depthLimit
-                let segments = await Task.detached(priority: .userInitiated) {
-                    SunburstLayout.segments(in: store, rootID: rootID, depthLimit: depth)
-                }.value
-                guard !Task.isCancelled else { return }
-                hoveredSegment = nil
-                renderedSegments = segments
+                await chartModel.loadLayout(
+                    treeStore: treeStore,
+                    rootID: rootNode.id,
+                    depthLimit: depthLimit,
+                    layoutID: layoutID
+                )
             }
         }
     }
 
     private func updateHover(at location: CGPoint?, in frame: CGRect) {
         guard let location else {
-            guard hoveredSegment != nil else { return }
-            hoveredSegment = nil
+            chartModel.setHoveredSegmentID(nil)
             return
         }
 
         let nextSegment = hitTest(at: location, in: frame)
-        guard nextSegment?.id != hoveredSegment?.id else { return }
-        hoveredSegment = nextSegment
+        chartModel.setHoveredSegmentID(nextSegment?.id)
     }
 
     private func handleClick(at location: CGPoint, in frame: CGRect, clickCount: Int) {
@@ -158,65 +158,9 @@ struct SunburstChartView: View {
         return "\(node.name), \(RadixFormatters.size(node.allocatedSize)), \(node.itemKind)"
     }
 
-    private func fillColor(for segment: SunburstSegment) -> Color {
-        if segment.isAggregate {
-            let base = Color(nsColor: .tertiaryLabelColor)
-            return base.opacity(segment.id == hoveredSegment?.id ? 0.4 : 0.22)
-        }
-
-        let palette: [Color] = [
-            Color(nsColor: .systemBlue),
-            Color(nsColor: .systemTeal),
-            Color(nsColor: .systemGreen),
-            Color(nsColor: .systemOrange),
-            Color(nsColor: .systemIndigo),
-            Color(nsColor: .systemPink)
-        ]
-        let paletteIndex = Int(segment.colorKey.hashValue.magnitude % UInt(palette.count))
-        let base = palette[paletteIndex]
-        let opacity = max(0.24, 0.78 - (Double(segment.depth) * 0.09) - (segment.isAggregate ? 0.16 : 0))
-        if segment.id == hoveredSegment?.id {
-            return base.opacity(min(opacity + 0.18, 0.95))
-        }
-        if segment.nodeID == selectedNodeID {
-            return base.opacity(min(opacity + 0.1, 0.9))
-        }
-        if let nodeID = segment.nodeID, treeStore.isAncestor(nodeID, of: selectedNodeID) {
-            return base.opacity(min(opacity + 0.04, 0.84))
-        }
-        if selectedNodeID != nil {
-            return base.opacity(opacity * 0.82)
-        }
-        return base.opacity(opacity)
-    }
-
-    private func strokeColor(for segment: SunburstSegment) -> Color {
-        if segment.id == hoveredSegment?.id {
-            return .primary.opacity(0.85)
-        }
-        if segment.isAggregate {
-            return Color(nsColor: .separatorColor).opacity(0.55)
-        }
-        if segment.nodeID == selectedNodeID {
-            return Color.white.opacity(0.5)
-        }
-        if let nodeID = segment.nodeID, treeStore.isAncestor(nodeID, of: selectedNodeID) {
-            return Color.white.opacity(0.22)
-        }
-        return Color(nsColor: .separatorColor).opacity(0.4)
-    }
-
-    private func strokeWidth(for segment: SunburstSegment) -> CGFloat {
-        if segment.id == hoveredSegment?.id {
-            return 2.5
-        }
-        if segment.nodeID == selectedNodeID {
-            return 2.5
-        }
-        if let nodeID = segment.nodeID, treeStore.isAncestor(nodeID, of: selectedNodeID) {
-            return 1.5
-        }
-        return 1
+    private var selectedAncestorIDs: Set<String> {
+        guard selectedNodeID != nil else { return [] }
+        return Set(treeStore.path(to: selectedNodeID).map(\.id))
     }
 
     private func chartFrame(in size: CGSize) -> CGRect {
@@ -233,7 +177,7 @@ struct SunburstChartView: View {
             x: location.x - frame.minX,
             y: location.y - frame.minY
         )
-        return SunburstHitTester.segment(at: localPoint, in: frame.size, segments: renderedSegments)
+        return SunburstHitTester.segment(at: localPoint, in: frame.size, segments: chartModel.renderedSegments)
     }
 
     private func summary(for node: FileNodeRecord) -> ChartSummary {
@@ -251,6 +195,191 @@ struct SunburstChartView: View {
             value: RadixFormatters.size(node.allocatedSize),
             detail: detail
         )
+    }
+}
+
+private struct SunburstBaseCanvas: View, Equatable {
+    let segments: [SunburstSegment]
+    let selectedNodeID: String?
+    let selectedAncestorIDs: Set<String>
+
+    var body: some View {
+        Canvas { context, size in
+            for segment in segments {
+                let path = SunburstRenderer.path(for: segment, in: size)
+                let style = SunburstChartStyler.baseStyle(
+                    for: segment,
+                    selectedNodeID: selectedNodeID,
+                    selectedAncestorIDs: selectedAncestorIDs
+                )
+                context.fill(path, with: .color(style.fillColor))
+                context.stroke(path, with: .color(style.strokeColor), lineWidth: style.strokeWidth)
+            }
+        }
+    }
+}
+
+private struct SunburstHoverOverlay: View, Equatable {
+    let segment: SunburstSegment?
+    let selectedNodeID: String?
+    let selectedAncestorIDs: Set<String>
+
+    var body: some View {
+        Canvas { context, size in
+            guard let segment else { return }
+
+            let path = SunburstRenderer.path(for: segment, in: size)
+            let style = SunburstChartStyler.hoverOverlayStyle(
+                for: segment,
+                selectedNodeID: selectedNodeID,
+                selectedAncestorIDs: selectedAncestorIDs
+            )
+            if style.fillOpacity > 0 {
+                context.fill(path, with: .color(style.fillColor))
+            }
+            context.stroke(path, with: .color(style.strokeColor), lineWidth: style.strokeWidth)
+        }
+    }
+}
+
+private struct SunburstSegmentDrawingStyle {
+    let fillBaseColor: Color
+    let fillOpacity: Double
+    let strokeColor: Color
+    let strokeWidth: CGFloat
+
+    var fillColor: Color {
+        fillBaseColor.opacity(fillOpacity)
+    }
+}
+
+private enum SunburstChartStyler {
+    private static let palette: [Color] = [
+        Color(nsColor: .systemBlue),
+        Color(nsColor: .systemTeal),
+        Color(nsColor: .systemGreen),
+        Color(nsColor: .systemOrange),
+        Color(nsColor: .systemIndigo),
+        Color(nsColor: .systemPink)
+    ]
+
+    static func baseStyle(
+        for segment: SunburstSegment,
+        selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>
+    ) -> SunburstSegmentDrawingStyle {
+        if segment.isAggregate {
+            return SunburstSegmentDrawingStyle(
+                fillBaseColor: Color(nsColor: .tertiaryLabelColor),
+                fillOpacity: 0.22,
+                strokeColor: Color(nsColor: .separatorColor).opacity(0.55),
+                strokeWidth: 1
+            )
+        }
+
+        let baseOpacity = standardOpacity(for: segment)
+        let fillOpacity: Double
+        if segment.nodeID == selectedNodeID {
+            fillOpacity = min(baseOpacity + 0.1, 0.9)
+        } else if let nodeID = segment.nodeID, selectedAncestorIDs.contains(nodeID) {
+            fillOpacity = min(baseOpacity + 0.04, 0.84)
+        } else if selectedNodeID != nil {
+            fillOpacity = baseOpacity * 0.82
+        } else {
+            fillOpacity = baseOpacity
+        }
+
+        return SunburstSegmentDrawingStyle(
+            fillBaseColor: baseColor(for: segment),
+            fillOpacity: fillOpacity,
+            strokeColor: strokeColor(
+                for: segment,
+                selectedNodeID: selectedNodeID,
+                selectedAncestorIDs: selectedAncestorIDs
+            ),
+            strokeWidth: strokeWidth(
+                for: segment,
+                selectedNodeID: selectedNodeID,
+                selectedAncestorIDs: selectedAncestorIDs
+            )
+        )
+    }
+
+    static func hoverOverlayStyle(
+        for segment: SunburstSegment,
+        selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>
+    ) -> SunburstSegmentDrawingStyle {
+        let base = baseStyle(
+            for: segment,
+            selectedNodeID: selectedNodeID,
+            selectedAncestorIDs: selectedAncestorIDs
+        )
+        let targetFillOpacity = hoverFillOpacity(for: segment)
+        return SunburstSegmentDrawingStyle(
+            fillBaseColor: base.fillBaseColor,
+            fillOpacity: overlayOpacity(from: base.fillOpacity, to: targetFillOpacity),
+            strokeColor: .primary.opacity(0.85),
+            strokeWidth: 2.5
+        )
+    }
+
+    private static func baseColor(for segment: SunburstSegment) -> Color {
+        if segment.isAggregate {
+            return Color(nsColor: .tertiaryLabelColor)
+        }
+
+        let paletteIndex = Int(segment.colorKey.hashValue.magnitude % UInt(palette.count))
+        return palette[paletteIndex]
+    }
+
+    private static func standardOpacity(for segment: SunburstSegment) -> Double {
+        max(0.24, 0.78 - (Double(segment.depth) * 0.09) - (segment.isAggregate ? 0.16 : 0))
+    }
+
+    private static func hoverFillOpacity(for segment: SunburstSegment) -> Double {
+        if segment.isAggregate {
+            return 0.4
+        }
+
+        return min(standardOpacity(for: segment) + 0.18, 0.95)
+    }
+
+    private static func overlayOpacity(from baseOpacity: Double, to targetOpacity: Double) -> Double {
+        guard targetOpacity > baseOpacity else { return 0 }
+        let remainingOpacity = max(1 - baseOpacity, .leastNonzeroMagnitude)
+        return min(max((targetOpacity - baseOpacity) / remainingOpacity, 0), 1)
+    }
+
+    private static func strokeColor(
+        for segment: SunburstSegment,
+        selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>
+    ) -> Color {
+        if segment.isAggregate {
+            return Color(nsColor: .separatorColor).opacity(0.55)
+        }
+        if segment.nodeID == selectedNodeID {
+            return Color.white.opacity(0.5)
+        }
+        if let nodeID = segment.nodeID, selectedAncestorIDs.contains(nodeID) {
+            return Color.white.opacity(0.22)
+        }
+        return Color(nsColor: .separatorColor).opacity(0.4)
+    }
+
+    private static func strokeWidth(
+        for segment: SunburstSegment,
+        selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>
+    ) -> CGFloat {
+        if segment.nodeID == selectedNodeID {
+            return 2.5
+        }
+        if let nodeID = segment.nodeID, selectedAncestorIDs.contains(nodeID) {
+            return 1.5
+        }
+        return 1
     }
 }
 

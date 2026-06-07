@@ -39,6 +39,7 @@ let package = Package(
                 "Services/RecentTargetStore.swift",
                 "Services/ScanCoordinator.swift",
                 "Services/ScanEngine.swift",
+                "Services/SunburstChartModel.swift",
                 "Services/SunburstGeometry.swift",
                 "Services/SystemIntegration.swift",
                 "ViewModels/AppModel.swift",

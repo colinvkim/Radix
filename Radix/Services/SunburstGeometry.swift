@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct SunburstSegment: Identifiable, Hashable {
+struct SunburstSegment: Identifiable, Hashable, Sendable {
     let id: String
     let nodeID: String?
     let label: String
@@ -22,23 +22,42 @@ struct SunburstSegment: Identifiable, Hashable {
 }
 
 enum SunburstLayout {
+    typealias CancellationCheck = () throws -> Void
+
     nonisolated static func segments(
         in treeStore: FileTreeStore,
         rootID: String,
         depthLimit: Int,
         minimumAngle: Double = .pi / 90
     ) -> [SunburstSegment] {
+        (try? segments(
+            in: treeStore,
+            rootID: rootID,
+            depthLimit: depthLimit,
+            minimumAngle: minimumAngle,
+            cancellationCheck: {}
+        )) ?? []
+    }
+
+    nonisolated static func segments(
+        in treeStore: FileTreeStore,
+        rootID: String,
+        depthLimit: Int,
+        minimumAngle: Double = .pi / 90,
+        cancellationCheck: CancellationCheck
+    ) throws -> [SunburstSegment] {
         guard depthLimit > 0 else { return [] }
+        try cancellationCheck()
         guard let root = treeStore.node(id: rootID) else { return [] }
 
-        let rootChildren = treeStore.children(of: root.id)
+        let rootChildren = try treeStore.children(of: root.id, cancellationCheck: cancellationCheck)
         let visibleChildren = rootChildren.isEmpty ? [root] : rootChildren
         let ringStart: CGFloat = 0.22
         let ringWidth = (0.98 - ringStart) / CGFloat(max(depthLimit, 1))
         let denominator = max(root.allocatedSize, Int64(visibleChildren.count))
 
         var result: [SunburstSegment] = []
-        appendSegments(
+        try appendSegments(
             in: treeStore,
             children: visibleChildren,
             parentDenominator: denominator,
@@ -50,6 +69,7 @@ enum SunburstLayout {
             ringWidth: ringWidth,
             topColorKey: nil,
             minimumAngle: minimumAngle,
+            cancellationCheck: cancellationCheck,
             into: &result
         )
         return result
@@ -67,16 +87,25 @@ enum SunburstLayout {
         ringWidth: CGFloat,
         topColorKey: String?,
         minimumAngle: Double,
+        cancellationCheck: CancellationCheck,
         into segments: inout [SunburstSegment]
-    ) {
+    ) throws {
         guard depth < depthLimit else { return }
 
+        try cancellationCheck()
         let safeDenominator = max(parentDenominator, Int64(children.count))
         let totalAngle = endAngle - startAngle
-        let grouped = groupedChildren(children, denominator: safeDenominator, totalAngle: totalAngle, minimumAngle: minimumAngle)
+        let grouped = try groupedChildren(
+            children,
+            denominator: safeDenominator,
+            totalAngle: totalAngle,
+            minimumAngle: minimumAngle,
+            cancellationCheck: cancellationCheck
+        )
 
         var cursor = startAngle
         for entry in grouped {
+            try cancellationCheck()
             let proportion = Double(entry.totalSize) / Double(safeDenominator)
             let segmentEnd = cursor + (totalAngle * proportion)
             let colorKey = topColorKey ?? entry.colorKey
@@ -99,13 +128,13 @@ enum SunburstLayout {
                depth + 1 < depthLimit,
                node.isDirectory,
                node.allocatedSize > 0 {
-                let childNodes = treeStore.children(of: node.id)
+                let childNodes = try treeStore.children(of: node.id, cancellationCheck: cancellationCheck)
                 guard !childNodes.isEmpty else {
                     cursor = segmentEnd
                     continue
                 }
 
-                appendSegments(
+                try appendSegments(
                     in: treeStore,
                     children: childNodes,
                     parentDenominator: node.allocatedSize,
@@ -117,6 +146,7 @@ enum SunburstLayout {
                     ringWidth: ringWidth,
                     topColorKey: colorKey,
                     minimumAngle: minimumAngle,
+                    cancellationCheck: cancellationCheck,
                     into: &segments
                 )
             }
@@ -129,8 +159,9 @@ enum SunburstLayout {
         _ children: [FileNodeRecord],
         denominator: Int64,
         totalAngle: Double,
-        minimumAngle: Double
-    ) -> [GroupEntry] {
+        minimumAngle: Double,
+        cancellationCheck: CancellationCheck
+    ) throws -> [GroupEntry] {
         guard children.count > 1 else {
             return children.map {
                 GroupEntry(
@@ -150,6 +181,7 @@ enum SunburstLayout {
         var groupedSize: Int64 = 0
 
         for child in children {
+            try cancellationCheck()
             let size = max(child.allocatedSize, 1)
             let angle = totalAngle * (Double(size) / Double(max(denominator, 1)))
             if angle < minimumAngle {

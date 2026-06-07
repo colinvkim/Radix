@@ -64,6 +64,32 @@ final class SunburstGeometryTests: XCTestCase {
 
         XCTAssertEqual(SunburstHitTester.segment(at: hitPoint, in: size, segments: segments)?.id, firstSegment.id)
     }
+
+    func testLayoutStopsWhenCancellationCheckThrows() throws {
+        let children = (0..<100).map { index in
+            makeFileNode(id: "/root/file-\(index)", name: "file-\(index)", size: 1)
+        }
+        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
+        var cancellationChecks = 0
+
+        XCTAssertThrowsError(
+            try SunburstLayout.segments(
+                in: store,
+                rootID: root.id,
+                depthLimit: 2,
+                cancellationCheck: {
+                    cancellationChecks += 1
+                    if cancellationChecks == 4 {
+                        throw CancellationError()
+                    }
+                }
+            )
+        ) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(cancellationChecks, 4)
+    }
 }
 
 private func pointInside(segment: SunburstSegment, in size: CGSize) -> CGPoint {
