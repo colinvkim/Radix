@@ -401,8 +401,16 @@ struct FileBrowserTableView: View {
     }
 
     private func applyDisplayedNodes(_ nodes: [FileNodeRecord]) {
-        displayedNodes = nodes
-        displayedNodeLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        var uniqueNodes: [FileNodeRecord] = []
+        var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
+
+        for node in nodes where lookup[node.id] == nil {
+            lookup[node.id] = node
+            uniqueNodes.append(node)
+        }
+
+        displayedNodes = uniqueNodes
+        displayedNodeLookup = lookup
     }
 }
 

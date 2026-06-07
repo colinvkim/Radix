@@ -448,7 +448,12 @@ actor ScanEngine {
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-        let nodesByID = Dictionary(uniqueKeysWithValues: resolvedNodeByKey.values.map { ($0.id, $0) })
+        let resolvedNodes = (0..<nextKey).compactMap { resolvedNodeByKey[$0] }
+        let nodesByID = makeNodesByID(
+            from: resolvedNodes,
+            warnings: &warnings,
+            continuation: continuation
+        )
         return FileTreeStore(
             rootID: rootNode.id,
             nodesByID: nodesByID,
@@ -488,6 +493,31 @@ actor ScanEngine {
         }
 
         return metadata.allocatedSize
+    }
+
+    private func makeNodesByID(
+        from nodes: [FileNodeRecord],
+        warnings: inout [ScanWarning],
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
+    ) -> [String: FileNodeRecord] {
+        var nodesByID: [String: FileNodeRecord] = [:]
+
+        for node in nodes {
+            guard nodesByID[node.id] == nil else {
+                let warning = ScanWarning(
+                    path: node.url.path,
+                    message: "A duplicate filesystem path was collapsed in the scan results.",
+                    category: .fileSystem
+                )
+                warnings.append(warning)
+                continuation.yield(.warning(warning))
+                continue
+            }
+
+            nodesByID[node.id] = node
+        }
+
+        return nodesByID
     }
 
     private func recordUnavailableItem(
