@@ -28,7 +28,7 @@ actor ScanEngine {
         var warnings: [ScanWarning] = []
         var countedHardLinkIdentities: Set<FileIdentity>
 
-        init(countedHardLinkIdentities: Set<FileIdentity> = []) {
+        init(countedHardLinkIdentities: Set<FileIdentity>) {
             self.countedHardLinkIdentities = countedHardLinkIdentities
         }
     }
@@ -882,7 +882,7 @@ actor ScanEngine {
         at url: URL,
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
-        countedHardLinkIdentities: Set<FileIdentity> = []
+        countedHardLinkIdentities: Set<FileIdentity>
     ) -> AtomicDirectorySummary? {
         let summaryKeys: [URLResourceKey] = [
             .isDirectoryKey,
@@ -1101,9 +1101,23 @@ actor ScanEngine {
     }
 }
 
-private struct FileIdentity: Hashable, Sendable {
+nonisolated private struct FileIdentity: Hashable, Sendable {
     let device: UInt64
     let inode: UInt64
+
+    nonisolated init(device: UInt64, inode: UInt64) {
+        self.device = device
+        self.inode = inode
+    }
+
+    nonisolated static func == (lhs: FileIdentity, rhs: FileIdentity) -> Bool {
+        lhs.device == rhs.device && lhs.inode == rhs.inode
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(device)
+        hasher.combine(inode)
+    }
 }
 
 private struct NodeMetadata: Sendable {
