@@ -231,7 +231,7 @@ final class AppModel: ObservableObject {
     }
 
     var canMoveSelectedToTrash: Bool {
-        selectedNode?.supportsMoveToTrash == true
+        selectedNode?.supportsMoveToTrash(activeTarget: selectedTarget) == true
     }
 
     var isFocusedAtRoot: Bool {
@@ -619,7 +619,7 @@ final class AppModel: ObservableObject {
     func requestMoveSelectedToTrash() {
         do {
             let node = try validatedSelection()
-            guard node.supportsMoveToTrash else {
+            guard node.supportsMoveToTrash(activeTarget: selectedTarget) else {
                 throw FileActionError.unsupported
             }
             pendingTrashNode = node

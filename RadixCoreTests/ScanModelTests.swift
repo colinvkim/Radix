@@ -30,6 +30,18 @@ final class ScanModelTests: XCTestCase {
         XCTAssertTrue(folderNode.supportsMoveToTrash)
     }
 
+    func testSupportsMoveToTrashRejectsActiveVolumeRoot() {
+        let volumeTarget = ScanTarget(
+            url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
+            kind: .volume
+        )
+        let volumeRootNode = makeNode(id: volumeTarget.id, isDirectory: true, isSynthetic: false, isAccessible: true)
+        let childNode = makeNode(id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+
+        XCTAssertFalse(volumeRootNode.supportsMoveToTrash(activeTarget: volumeTarget))
+        XCTAssertTrue(childNode.supportsMoveToTrash(activeTarget: volumeTarget))
+    }
+
     func testAccessPresentationReflectsAccessibilityAndSyntheticState() {
         let readableNode = makeNode(id: "/Users/example/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
         let limitedNode = makeNode(id: "/Users/example/private", isDirectory: true, isSynthetic: false, isAccessible: false)

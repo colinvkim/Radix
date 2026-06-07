@@ -609,4 +609,10 @@ extension FileNodeRecord {
     var supportsMoveToTrash: Bool {
         supportsFileActions && url.path != "/"
     }
+
+    func supportsMoveToTrash(activeTarget: ScanTarget?) -> Bool {
+        guard supportsMoveToTrash else { return false }
+        guard let activeTarget else { return true }
+        return !(activeTarget.kind == .volume && activeTarget.id == id)
+    }
 }
