@@ -97,7 +97,7 @@ final class ScanCoordinatorTests: XCTestCase {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(90))
         var publishedPaths: [String] = []
-        let cancellable = coordinator.$scanMetrics
+        let cancellable = coordinator.progress.$metrics
             .sink { metrics in
                 guard !metrics.currentPath.isEmpty else { return }
                 publishedPaths.append(metrics.currentPath)
@@ -132,7 +132,7 @@ final class ScanCoordinatorTests: XCTestCase {
         let target = makeCoordinatorTarget("/scan/finish-flush")
         let snapshot = makeCoordinatorSnapshot(target: target)
         var publishedPaths: [String] = []
-        let cancellable = coordinator.$scanMetrics
+        let cancellable = coordinator.progress.$metrics
             .sink { metrics in
                 guard !metrics.currentPath.isEmpty else { return }
                 publishedPaths.append(metrics.currentPath)
@@ -157,6 +157,31 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.scanMetrics.progressFraction, 1, accuracy: 0.0001)
         XCTAssertTrue(publishedPaths.contains("pending-final"))
         cancellable.cancel()
+    }
+
+    @MainActor
+    func testProgressMetricsDoNotPublishCoordinatorChanges() {
+        let coordinator = ScanCoordinator()
+        var coordinatorChangeCount = 0
+        var progressChangeCount = 0
+
+        let coordinatorCancellable = coordinator.objectWillChange.sink {
+            coordinatorChangeCount += 1
+        }
+        let progressCancellable = coordinator.progress.$metrics
+            .dropFirst()
+            .sink { _ in
+                progressChangeCount += 1
+            }
+
+        var metrics = ScanMetrics()
+        metrics.currentPath = "/scan/progress-only"
+        metrics.filesVisited = 42
+        coordinator.scanMetrics = metrics
+
+        XCTAssertEqual(progressChangeCount, 1)
+        XCTAssertEqual(coordinatorChangeCount, 0)
+        withExtendedLifetime((coordinatorCancellable, progressCancellable)) {}
     }
 
     @MainActor

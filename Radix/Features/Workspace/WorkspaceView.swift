@@ -16,7 +16,10 @@ struct WorkspaceView: View {
                     focusNode: focusNode
                 )
             } else if scanState.isScanning {
-                ScanningWorkspaceState(scanState: scanState)
+                ScanningWorkspaceState(
+                    progress: scanState.progress,
+                    selectedTarget: scanState.selectedTarget
+                )
             } else {
                 EmptyWorkspaceState()
             }
@@ -69,7 +72,7 @@ private extension View {
 
 private struct ActiveWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
-    @ObservedObject var scanState: ScanCoordinator
+    let scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
@@ -78,7 +81,6 @@ private struct ActiveWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceHeaderView(
-                scanState: scanState,
                 navigation: navigation,
                 snapshot: snapshot,
                 focusNode: focusNode
@@ -149,7 +151,6 @@ private struct ActiveWorkspaceView: View {
 
 private struct WorkspaceHeaderView: View {
     @EnvironmentObject private var appModel: AppModel
-    @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
@@ -191,7 +192,7 @@ private struct WorkspaceHeaderView: View {
 
                     Spacer(minLength: 12)
 
-                    MetricStrip(scanState: scanState, focusNode: focusNode)
+                    MetricStrip(snapshot: snapshot, focusNode: focusNode)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -200,7 +201,7 @@ private struct WorkspaceHeaderView: View {
                         onSelect: { appModel.focus(nodeID: $0) }
                     )
 
-                    MetricStrip(scanState: scanState, focusNode: focusNode)
+                    MetricStrip(snapshot: snapshot, focusNode: focusNode)
                 }
             }
         }
@@ -209,10 +210,7 @@ private struct WorkspaceHeaderView: View {
     }
 
     private var statusSubtitle: String {
-        if let selectedTarget = scanState.selectedTarget {
-            return selectedTarget.url.path
-        }
-        return "Choose a folder or disk to begin"
+        snapshot.target.url.path
     }
 }
 
@@ -284,8 +282,7 @@ private struct PaneHeader: View {
 }
 
 private struct MetricStrip: View {
-    @ObservedObject var scanState: ScanCoordinator
-
+    let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
 
     var body: some View {
@@ -321,28 +318,19 @@ private struct MetricStrip: View {
     }
 
     private var displayedFileCount: Int {
-        if scanState.isScanning {
-            return scanState.scanMetrics.filesVisited
-        }
-        return scanState.snapshot?.aggregateStats.fileCount ?? 0
+        snapshot.aggregateStats.fileCount
     }
 
     private var displayedDirectoryCount: Int {
-        if scanState.isScanning {
-            return scanState.scanMetrics.directoriesVisited
-        }
-        return scanState.snapshot?.aggregateStats.directoryCount ?? 0
+        snapshot.aggregateStats.directoryCount
     }
 
     private var displayedAllocatedSize: Int64 {
-        if scanState.isScanning {
-            return scanState.scanMetrics.bytesDiscovered
-        }
-        return scanState.snapshot?.aggregateStats.totalAllocatedSize ?? 0
+        snapshot.aggregateStats.totalAllocatedSize
     }
 
     private var warningCount: Int {
-        scanState.snapshot?.scanWarnings.count ?? 0
+        snapshot.scanWarnings.count
     }
 }
 
@@ -420,7 +408,9 @@ private struct EmptyWorkspaceState: View {
 
 private struct ScanningWorkspaceState: View {
     @EnvironmentObject private var appModel: AppModel
-    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var progress: ScanProgressState
+
+    let selectedTarget: ScanTarget?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -433,15 +423,15 @@ private struct ScanningWorkspaceState: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("Scanning \(scanState.selectedTarget?.displayName ?? "Location")")
+            Text("Scanning \(selectedTarget?.displayName ?? "Location")")
                 .font(.title3.weight(.semibold))
 
-            Text(scanState.scanMetrics.currentPath)
+            Text(progress.metrics.currentPath)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 540)
 
-            Text("\(scanState.scanMetrics.filesVisited) files, \(scanState.scanMetrics.directoriesVisited) folders")
+            Text("\(progress.metrics.filesVisited) files, \(progress.metrics.directoriesVisited) folders")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -454,29 +444,17 @@ private struct ScanningWorkspaceState: View {
     }
 
     private var isFinalizingScan: Bool {
-        scanState.isScanning && scanState.scanMetrics.isFinalizing
+        progress.metrics.isFinalizing
     }
 
     private var scanProgressFraction: Double {
-        if scanState.isScanning {
-            return scanState.scanMetrics.progressFraction
-        }
-        if scanState.snapshot != nil {
-            return 1
-        }
-        return 0
+        progress.metrics.progressFraction
     }
 
     private var scanProgressLabel: String {
         if isFinalizingScan {
-            return "Finishing \(scanState.scanMetrics.progressPercentage.formatted(.number))%"
+            return "Finishing \(progress.metrics.progressPercentage.formatted(.number))%"
         }
-        if scanState.isScanning {
-            return scanState.scanMetrics.progressPercentage.formatted(.number) + "%"
-        }
-        if scanState.snapshot != nil {
-            return "100%"
-        }
-        return "\(scanState.scanMetrics.progressPercentage)%"
+        return progress.metrics.progressPercentage.formatted(.number) + "%"
     }
 }

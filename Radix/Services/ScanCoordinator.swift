@@ -27,14 +27,24 @@ enum ScanExpansionResult {
 }
 
 @MainActor
+final class ScanProgressState: ObservableObject {
+    @Published var metrics: ScanMetrics
+
+    init(metrics: ScanMetrics = ScanMetrics()) {
+        self.metrics = metrics
+    }
+}
+
+@MainActor
 final class ScanCoordinator: ObservableObject {
     @Published var phase: AppModelPhase = .idle
     @Published var snapshot: ScanSnapshot?
-    @Published var scanMetrics = ScanMetrics()
     @Published var selectedTarget: ScanTarget?
     @Published var fileTreeStore: FileTreeStore?
     @Published private(set) var completedScanSnapshot: ScanSnapshot?
     @Published private(set) var scanErrorMessage: String?
+
+    let progress: ScanProgressState
 
     private let scanService: any ScanEventStreaming
     private let progressThrottleDuration: Duration
@@ -51,10 +61,17 @@ final class ScanCoordinator: ObservableObject {
 
     init(
         scanService: any ScanEventStreaming = ScanEngine(),
-        progressThrottleDuration: Duration = .milliseconds(100)
+        progressThrottleDuration: Duration = .milliseconds(100),
+        progress: ScanProgressState = ScanProgressState()
     ) {
         self.scanService = scanService
         self.progressThrottleDuration = progressThrottleDuration
+        self.progress = progress
+    }
+
+    var scanMetrics: ScanMetrics {
+        get { progress.metrics }
+        set { progress.metrics = newValue }
     }
 
     var isScanning: Bool {
