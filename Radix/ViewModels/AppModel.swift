@@ -194,7 +194,7 @@ final class AppModel: ObservableObject {
 
     var largestSelectedChildren: [FileNodeRecord] {
         guard let fileTreeStore, let selectedNode, selectedNode.isDirectory else { return [] }
-        return Array(fileTreeStore.children(of: selectedNode.id).prefix(8))
+        return fileTreeStore.childrenPrefix(of: selectedNode.id, maxCount: 8)
     }
 
     var canZoomIntoSelection: Bool {

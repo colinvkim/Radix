@@ -349,7 +349,7 @@ struct FileTreeStore: Sendable {
 
             if node.isDirectory {
                 directoryCount += 1
-                if node.isPackage && children(of: node.id).isEmpty {
+                if node.isPackage && !containsChildren(id: node.id) {
                     fileCount += node.descendantFileCount
                 }
                 if node.isAutoSummarized {
@@ -447,6 +447,10 @@ struct FileTreeStore: Sendable {
         (try? children(of: id, cancellationCheck: {})) ?? []
     }
 
+    nonisolated func childrenPrefix(of id: String?, maxCount: Int) -> [FileNodeRecord] {
+        (try? childrenPrefix(of: id, maxCount: maxCount, cancellationCheck: {})) ?? []
+    }
+
     nonisolated func children(
         of id: String?,
         cancellationCheck: () throws -> Void
@@ -460,6 +464,30 @@ struct FileTreeStore: Sendable {
             try cancellationCheck()
             if let node = nodesByID[childID] {
                 children.append(node)
+            }
+        }
+        return children
+    }
+
+    nonisolated func childrenPrefix(
+        of id: String?,
+        maxCount: Int,
+        cancellationCheck: () throws -> Void
+    ) throws -> [FileNodeRecord] {
+        guard maxCount > 0 else { return [] }
+
+        let resolvedID = id ?? rootID
+        guard let childIDs = childIDsByID[resolvedID] else { return [] }
+
+        var children: [FileNodeRecord] = []
+        children.reserveCapacity(min(maxCount, childIDs.count))
+        for childID in childIDs {
+            try cancellationCheck()
+            if let node = nodesByID[childID] {
+                children.append(node)
+                if children.count == maxCount {
+                    break
+                }
             }
         }
         return children

@@ -6,6 +6,8 @@ struct SelectionInspectorView: View {
     @ObservedObject var navigation: WorkspaceNavigationModel
 
     var body: some View {
+        let largestChildren = largestSelectedChildren
+
         Group {
             if let node = navigation.selectedNode {
                 Form {
@@ -49,9 +51,9 @@ struct SelectionInspectorView: View {
                         InspectorActionButtons(scanState: scanState, navigation: navigation)
                     }
 
-                    if !largestSelectedChildren.isEmpty {
+                    if !largestChildren.isEmpty {
                         Section("Largest Children") {
-                            ForEach(largestSelectedChildren) { child in
+                            ForEach(largestChildren) { child in
                                 Button {
                                     appModel.select(nodeID: child.id)
                                 } label: {
@@ -96,7 +98,7 @@ struct SelectionInspectorView: View {
         guard let fileTreeStore = scanState.fileTreeStore,
               let selectedNode = navigation.selectedNode,
               selectedNode.isDirectory else { return [] }
-        return Array(fileTreeStore.children(of: selectedNode.id).prefix(8))
+        return fileTreeStore.childrenPrefix(of: selectedNode.id, maxCount: 8)
     }
 
     private var selectedNodePercentOfParentText: String? {

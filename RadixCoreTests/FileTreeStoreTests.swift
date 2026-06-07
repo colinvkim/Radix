@@ -50,6 +50,21 @@ final class FileTreeStoreTests: XCTestCase {
         XCTAssertNil(store.parent(of: "/root/missing"))
     }
 
+    func testChildrenPrefixPreservesOrderAndLimit() {
+        let children = (0..<6).map { index in
+            makeFileNode(id: "/root/item-\(index).txt", name: "item-\(index).txt", size: Int64(10 - index))
+        }
+        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let store = FileTreeStore(root: root, childrenByID: [root.id: children])
+
+        XCTAssertEqual(
+            store.childrenPrefix(of: root.id, maxCount: 3).map(\.id),
+            children.prefix(3).map(\.id)
+        )
+        XCTAssertEqual(store.childrenPrefix(of: root.id, maxCount: 99).count, children.count)
+        XCTAssertTrue(store.childrenPrefix(of: root.id, maxCount: 0).isEmpty)
+    }
+
     func testDeepTreeIndexingAndAggregateStatsAvoidRecursiveTraversal() {
         let depth = 5_000
         let leafID = "/root/file.txt"
