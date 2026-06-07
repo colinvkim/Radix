@@ -1,9 +1,25 @@
 import SwiftUI
 
+struct WorkspaceActions {
+    let chooseFolder: () -> Void
+    let startScan: (ScanTarget) -> Void
+    let stopScan: () -> Void
+    let rescan: () -> Void
+    let handleDroppedURLs: ([URL]) -> Bool
+    let selectNode: (String?) -> Void
+    let focusNode: (String?) -> Void
+    let navigateBack: () -> Void
+    let navigateForward: () -> Void
+    let openFullDiskAccessSettings: () -> Void
+}
+
 struct WorkspaceView: View {
-    @EnvironmentObject private var appModel: AppModel
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+
+    let maxRenderedDepth: Int
+    let startupDiskTarget: ScanTarget?
+    let actions: WorkspaceActions
 
     var body: some View {
         Group {
@@ -13,15 +29,21 @@ struct WorkspaceView: View {
                     scanState: scanState,
                     navigation: navigation,
                     snapshot: snapshot,
-                    focusNode: focusNode
+                    focusNode: focusNode,
+                    maxRenderedDepth: maxRenderedDepth,
+                    actions: actions
                 )
             } else if scanState.isScanning {
                 ScanningWorkspaceState(
                     progress: scanState.progress,
-                    selectedTarget: scanState.selectedTarget
+                    selectedTarget: scanState.selectedTarget,
+                    actions: actions
                 )
             } else {
-                EmptyWorkspaceState()
+                EmptyWorkspaceState(
+                    startupDiskTarget: startupDiskTarget,
+                    actions: actions
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -31,7 +53,7 @@ struct WorkspaceView: View {
             ToolbarItem(placement: .automatic) { Spacer() }
             ToolbarItemGroup(placement: .automatic) {
                 Button {
-                    appModel.presentOpenPanelAndScan()
+                    actions.chooseFolder()
                 } label: {
                     Label("Choose Folder", systemImage: "folder.badge.plus")
                 }
@@ -39,13 +61,13 @@ struct WorkspaceView: View {
 
                 if scanState.canStopScan {
                     Button {
-                        appModel.stopScan()
+                        actions.stopScan()
                     } label: {
                         Label("Stop", systemImage: "stop.fill")
                     }
                 } else {
                     Button {
-                        appModel.rescan()
+                        actions.rescan()
                     } label: {
                         Label("Rescan", systemImage: "arrow.clockwise")
                     }
@@ -54,7 +76,7 @@ struct WorkspaceView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            appModel.handleDroppedURLs(urls)
+            actions.handleDroppedURLs(urls)
         }
     }
 }
@@ -71,25 +93,27 @@ private extension View {
 }
 
 private struct ActiveWorkspaceView: View {
-    @EnvironmentObject private var appModel: AppModel
     let scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
+    let maxRenderedDepth: Int
+    let actions: WorkspaceActions
 
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceHeaderView(
                 navigation: navigation,
                 snapshot: snapshot,
-                focusNode: focusNode
+                focusNode: focusNode,
+                actions: actions
             )
 
             Divider()
 
             if PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot) {
-                PermissionBanner()
+                PermissionBanner(actions: actions)
                 Divider()
             }
 
@@ -123,10 +147,10 @@ private struct ActiveWorkspaceView: View {
             treeStore: snapshot.treeStore,
             selectedNodeID: navigation.selectedNodeID,
             selectedAncestorIDs: navigation.selectedAncestorIDs,
-            depthLimit: appModel.maxRenderedDepth,
-            layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(appModel.maxRenderedDepth)",
-            onSelect: { appModel.select(nodeID: $0) },
-            onZoom: { appModel.focus(nodeID: $0) }
+            depthLimit: maxRenderedDepth,
+            layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(maxRenderedDepth)",
+            onSelect: actions.selectNode,
+            onZoom: actions.focusNode
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(18)
@@ -143,7 +167,8 @@ private struct ActiveWorkspaceView: View {
                 Divider()
                 WarningFooter(
                     warnings: snapshot.scanWarnings,
-                    shouldSuggestFullDiskAccess: PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
+                    shouldSuggestFullDiskAccess: PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot),
+                    actions: actions
                 )
             }
         }
@@ -151,11 +176,11 @@ private struct ActiveWorkspaceView: View {
 }
 
 private struct WorkspaceHeaderView: View {
-    @EnvironmentObject private var appModel: AppModel
     @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
+    let actions: WorkspaceActions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -188,7 +213,7 @@ private struct WorkspaceHeaderView: View {
                 HStack(alignment: .center, spacing: 14) {
                     BreadcrumbBar(
                         nodes: navigation.breadcrumbNodes,
-                        onSelect: { appModel.focus(nodeID: $0) }
+                        onSelect: actions.focusNode
                     )
 
                     Spacer(minLength: 12)
@@ -199,7 +224,7 @@ private struct WorkspaceHeaderView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     BreadcrumbBar(
                         nodes: navigation.breadcrumbNodes,
-                        onSelect: { appModel.focus(nodeID: $0) }
+                        onSelect: actions.focusNode
                     )
 
                     MetricStrip(snapshot: snapshot, focusNode: focusNode)
@@ -233,7 +258,7 @@ private struct WorkspaceMetricView: View {
 }
 
 private struct PermissionBanner: View {
-    @EnvironmentObject private var appModel: AppModel
+    let actions: WorkspaceActions
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -251,7 +276,7 @@ private struct PermissionBanner: View {
             Spacer()
 
             Button("Open Settings") {
-                appModel.prepareAndOpenFullDiskAccessSettings()
+                actions.openFullDiskAccessSettings()
             }
             .controlSize(.small)
         }
@@ -336,10 +361,9 @@ private struct MetricStrip: View {
 }
 
 private struct WarningFooter: View {
-    @EnvironmentObject private var appModel: AppModel
-
     let warnings: [ScanWarning]
     let shouldSuggestFullDiskAccess: Bool
+    let actions: WorkspaceActions
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -359,7 +383,7 @@ private struct WarningFooter: View {
 
             if shouldSuggestFullDiskAccess {
                 Button("Open Settings") {
-                    appModel.prepareAndOpenFullDiskAccessSettings()
+                    actions.openFullDiskAccessSettings()
                 }
             }
         }
@@ -370,7 +394,8 @@ private struct WarningFooter: View {
 }
 
 private struct EmptyWorkspaceState: View {
-    @EnvironmentObject private var appModel: AppModel
+    let startupDiskTarget: ScanTarget?
+    let actions: WorkspaceActions
 
     var body: some View {
         VStack(spacing: 20) {
@@ -390,13 +415,13 @@ private struct EmptyWorkspaceState: View {
 
             HStack(spacing: 12) {
                 Button("Choose Folder…") {
-                    appModel.presentOpenPanelAndScan()
+                    actions.chooseFolder()
                 }
                 .buttonStyle(.borderedProminent)
 
-                if let startupDiskTarget = appModel.startupDiskTarget {
+                if let startupDiskTarget {
                     Button("Scan \(startupDiskTarget.sidebarTitle)") {
-                        appModel.startScan(startupDiskTarget)
+                        actions.startScan(startupDiskTarget)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -408,10 +433,10 @@ private struct EmptyWorkspaceState: View {
 }
 
 private struct ScanningWorkspaceState: View {
-    @EnvironmentObject private var appModel: AppModel
     @ObservedObject var progress: ScanProgressState
 
     let selectedTarget: ScanTarget?
+    let actions: WorkspaceActions
 
     var body: some View {
         VStack(spacing: 16) {
@@ -437,7 +462,7 @@ private struct ScanningWorkspaceState: View {
                 .foregroundStyle(.secondary)
 
             Button("Stop Scan") {
-                appModel.stopScan()
+                actions.stopScan()
             }
         }
         .padding(40)

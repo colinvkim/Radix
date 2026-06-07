@@ -20,7 +20,10 @@ struct ContentView: View {
         } detail: {
             WorkspaceDetailView(
                 scanState: appModel.scanState,
-                navigation: appModel.navigation
+                navigation: appModel.navigation,
+                maxRenderedDepth: appModel.maxRenderedDepth,
+                startupDiskTarget: appModel.startupDiskTarget,
+                actions: workspaceActions
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -82,24 +85,33 @@ struct ContentView: View {
 }
 
 private struct WorkspaceDetailView: View {
-    @EnvironmentObject private var appModel: AppModel
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
 
+    let maxRenderedDepth: Int
+    let startupDiskTarget: ScanTarget?
+    let actions: WorkspaceActions
+
     var body: some View {
         NavigationStack {
-            WorkspaceView(scanState: scanState, navigation: navigation)
+            WorkspaceView(
+                scanState: scanState,
+                navigation: navigation,
+                maxRenderedDepth: maxRenderedDepth,
+                startupDiskTarget: startupDiskTarget,
+                actions: actions
+            )
                 .toolbar {
                     ToolbarItemGroup(placement: .navigation) {
                         Button {
-                            appModel.navigateBack()
+                            actions.navigateBack()
                         } label: {
                             Label("Back", systemImage: "chevron.backward")
                         }
                         .disabled(!navigation.canNavigateBack)
 
                         Button {
-                            appModel.navigateForward()
+                            actions.navigateForward()
                         } label: {
                             Label("Forward", systemImage: "chevron.forward")
                         }
@@ -107,5 +119,22 @@ private struct WorkspaceDetailView: View {
                     }
                 }
         }
+    }
+}
+
+private extension ContentView {
+    var workspaceActions: WorkspaceActions {
+        WorkspaceActions(
+            chooseFolder: { appModel.presentOpenPanelAndScan() },
+            startScan: { appModel.startScan($0) },
+            stopScan: { appModel.stopScan() },
+            rescan: { appModel.rescan() },
+            handleDroppedURLs: { appModel.handleDroppedURLs($0) },
+            selectNode: { appModel.select(nodeID: $0) },
+            focusNode: { appModel.focus(nodeID: $0) },
+            navigateBack: { appModel.navigateBack() },
+            navigateForward: { appModel.navigateForward() },
+            openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
+        )
     }
 }

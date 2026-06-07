@@ -167,40 +167,6 @@ final class AppModel: ObservableObject {
         navigationModel.tableContentID
     }
 
-    var displayedFileCount: Int {
-        if isScanning {
-            return scanMetrics.filesVisited
-        }
-        return snapshot?.aggregateStats.fileCount ?? 0
-    }
-
-    var displayedDirectoryCount: Int {
-        if isScanning {
-            return scanMetrics.directoriesVisited
-        }
-        return snapshot?.aggregateStats.directoryCount ?? 0
-    }
-
-    var displayedAllocatedSize: Int64 {
-        if isScanning {
-            return scanMetrics.bytesDiscovered
-        }
-        return snapshot?.aggregateStats.totalAllocatedSize ?? 0
-    }
-
-    var warningCount: Int {
-        snapshot?.scanWarnings.count ?? 0
-    }
-
-    var scanWarningsPreview: [ScanWarning] {
-        Array((snapshot?.scanWarnings ?? []).prefix(5))
-    }
-
-    var largestSelectedChildren: [FileNodeRecord] {
-        guard let fileTreeStore, let selectedNode, selectedNode.isDirectory else { return [] }
-        return fileTreeStore.childrenPrefix(of: selectedNode.id, maxCount: 8)
-    }
-
     var canZoomIntoSelection: Bool {
         navigationModel.canZoomIntoSelection
     }
@@ -281,56 +247,12 @@ final class AppModel: ObservableObject {
         return "Choose a folder or disk to begin"
     }
 
-    var shouldSuggestFullDiskAccess: Bool {
-        guard snapshot?.isComplete == true else { return false }
-        return PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
-    }
-
-    var isFinalizingScan: Bool {
-        isScanning && scanMetrics.isFinalizing
-    }
-
-    var scanProgressFraction: Double {
-        if isScanning {
-            return scanMetrics.progressFraction
-        }
-        if snapshot != nil {
-            return 1
-        }
-        return 0
-    }
-
-    var scanProgressLabel: String {
-        if isFinalizingScan {
-            return "Finishing \(scanMetrics.progressPercentage.formatted(.number))%"
-        }
-        if isScanning {
-            return scanMetrics.progressPercentage.formatted(.number) + "%"
-        }
-        if snapshot != nil {
-            return "100%"
-        }
-        return "\(scanMetrics.progressPercentage)%"
-    }
-
     var errorAlertTitle: String {
         phase == .failed ? "Scan Failed" : "Action Failed"
     }
 
     var canRescanFromErrorAlert: Bool {
         phase == .failed && canRescan
-    }
-
-    var selectedNodePercentOfParentText: String? {
-        guard let selectedNode,
-              let parent = selectedNodeParent else { return nil }
-        return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: parent.allocatedSize)
-    }
-
-    var selectedNodePercentOfScanText: String? {
-        guard let selectedNode,
-              let root = snapshot?.root else { return nil }
-        return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: root.allocatedSize)
     }
 
     func dismissOnboarding() {
