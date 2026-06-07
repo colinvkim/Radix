@@ -177,7 +177,7 @@ struct SunburstChartView: View {
             x: location.x - frame.minX,
             y: location.y - frame.minY
         )
-        return SunburstHitTester.segment(at: localPoint, in: frame.size, segments: chartModel.renderedSegments)
+        return chartModel.segment(at: localPoint, in: frame.size)
     }
 
     private func summary(for node: FileNodeRecord) -> ChartSummary {

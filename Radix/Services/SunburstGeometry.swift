@@ -278,24 +278,75 @@ enum SunburstHitTester {
         in size: CGSize,
         segments: [SunburstSegment]
     ) -> SunburstSegment? {
+        SunburstHitTestIndex(segments: segments).segment(at: point, in: size)
+    }
+}
+
+struct SunburstHitTestIndex: Sendable {
+    private let rings: [Ring]
+
+    nonisolated init(segments: [SunburstSegment]) {
+        var ringSegmentsByDepth: [Int: [SunburstSegment]] = [:]
+        for segment in segments {
+            ringSegmentsByDepth[segment.depth, default: []].append(segment)
+        }
+
+        rings = ringSegmentsByDepth
+            .map { depth, segments in
+                Ring(depth: depth, segments: segments)
+            }
+            .sorted { $0.depth < $1.depth }
+    }
+
+    nonisolated func segment(at point: CGPoint, in size: CGSize) -> SunburstSegment? {
+        guard !rings.isEmpty else { return nil }
+
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         let dx = point.x - center.x
         let dy = point.y - center.y
         let maxRadius = min(size.width, size.height) / 2
+        guard maxRadius > 0 else { return nil }
+
         let distance = sqrt((dx * dx) + (dy * dy))
+        let normalizedDistance = distance / maxRadius
+        guard let ring = rings.first(where: { $0.contains(normalizedDistance) }) else {
+            return nil
+        }
 
         var radians = atan2(dy, dx) + (.pi / 2)
         if radians < 0 {
             radians += (.pi * 2)
         }
 
-        return segments.first { segment in
-            let innerRadius = maxRadius * segment.innerRadius
-            let outerRadius = maxRadius * segment.outerRadius
-            return distance >= innerRadius &&
-                distance <= outerRadius &&
-                radians >= segment.startAngle.radians &&
+        return ring.segments.first { segment in
+            radians >= segment.startAngle.radians &&
                 radians <= segment.endAngle.radians
+        }
+    }
+
+    private struct Ring: Sendable {
+        let depth: Int
+        let minInnerRadius: CGFloat
+        let maxOuterRadius: CGFloat
+        let segments: [SunburstSegment]
+
+        init(depth: Int, segments: [SunburstSegment]) {
+            self.depth = depth
+            self.segments = segments
+
+            var minInnerRadius = CGFloat.greatestFiniteMagnitude
+            var maxOuterRadius: CGFloat = 0
+            for segment in segments {
+                minInnerRadius = min(minInnerRadius, segment.innerRadius)
+                maxOuterRadius = max(maxOuterRadius, segment.outerRadius)
+            }
+
+            self.minInnerRadius = minInnerRadius == .greatestFiniteMagnitude ? 0 : minInnerRadius
+            self.maxOuterRadius = maxOuterRadius
+        }
+
+        func contains(_ normalizedDistance: CGFloat) -> Bool {
+            normalizedDistance >= minInnerRadius && normalizedDistance <= maxOuterRadius
         }
     }
 }

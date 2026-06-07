@@ -4,6 +4,7 @@
 //
 
 import Combine
+import CoreGraphics
 import Foundation
 
 protocol SunburstLayouting: Sendable {
@@ -60,6 +61,10 @@ final class SunburstChartModel: ObservableObject {
         var nextState = renderState
         nextState.hoveredSegmentID = segmentID
         renderState = nextState
+    }
+
+    func segment(at point: CGPoint, in size: CGSize) -> SunburstSegment? {
+        renderState.segment(at: point, in: size)
     }
 
     @discardableResult
@@ -136,6 +141,7 @@ private struct SunburstChartRenderState {
     var hoveredSegmentID: SunburstSegment.ID?
 
     private var segmentLookup: [SunburstSegment.ID: SunburstSegment]
+    private var hitTestIndex: SunburstHitTestIndex
 
     init(segments: [SunburstSegment] = [], hoveredSegmentID: SunburstSegment.ID? = nil) {
         self.segments = segments
@@ -143,10 +149,15 @@ private struct SunburstChartRenderState {
         segmentLookup = segments.reduce(into: [:]) { lookup, segment in
             lookup[segment.id] = segment
         }
+        hitTestIndex = SunburstHitTestIndex(segments: segments)
     }
 
     var hoveredSegment: SunburstSegment? {
         guard let hoveredSegmentID else { return nil }
         return segmentLookup[hoveredSegmentID]
+    }
+
+    func segment(at point: CGPoint, in size: CGSize) -> SunburstSegment? {
+        hitTestIndex.segment(at: point, in: size)
     }
 }

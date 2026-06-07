@@ -65,6 +65,17 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertEqual(SunburstHitTester.segment(at: hitPoint, in: size, segments: segments)?.id, firstSegment.id)
     }
 
+    func testHitTestIndexFindsSegmentInMatchingRing() throws {
+        let size = CGSize(width: 300, height: 300)
+        let innerRing = makeSegment(id: "inner", innerRadius: 0.1, outerRadius: 0.3, depth: 0)
+        let outerRing = makeSegment(id: "outer", innerRadius: 0.45, outerRadius: 0.8, depth: 1)
+        let index = SunburstHitTestIndex(segments: [innerRing, outerRing])
+
+        XCTAssertEqual(index.segment(at: pointInRing(radius: 0.2, in: size), in: size)?.id, innerRing.id)
+        XCTAssertEqual(index.segment(at: pointInRing(radius: 0.6, in: size), in: size)?.id, outerRing.id)
+        XCTAssertNil(index.segment(at: pointInRing(radius: 0.38, in: size), in: size))
+    }
+
     func testLayoutStopsWhenCancellationCheckThrows() throws {
         let children = (0..<100).map { index in
             makeFileNode(id: "/root/file-\(index)", name: "file-\(index)", size: 1)
@@ -101,6 +112,33 @@ private func pointInside(segment: SunburstSegment, in size: CGSize) -> CGPoint {
     return CGPoint(
         x: center.x + (cos(angle) * radius),
         y: center.y + (sin(angle) * radius)
+    )
+}
+
+private func pointInRing(radius normalizedRadius: CGFloat, in size: CGSize) -> CGPoint {
+    let center = CGPoint(x: size.width / 2, y: size.height / 2)
+    let maxRadius = min(size.width, size.height) / 2
+    return CGPoint(x: center.x, y: center.y - (normalizedRadius * maxRadius))
+}
+
+private func makeSegment(
+    id: String,
+    innerRadius: CGFloat,
+    outerRadius: CGFloat,
+    depth: Int
+) -> SunburstSegment {
+    SunburstSegment(
+        id: id,
+        nodeID: id,
+        label: id,
+        startAngle: .radians(0),
+        endAngle: .radians(.pi * 2),
+        innerRadius: innerRadius,
+        outerRadius: outerRadius,
+        depth: depth,
+        colorKey: id,
+        totalSize: 1,
+        isAggregate: false
     )
 }
 
