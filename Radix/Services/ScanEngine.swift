@@ -85,7 +85,9 @@ actor ScanEngine {
         .totalFileAllocatedSizeKey,
         .fileSizeKey,
         .contentModificationDateKey,
-        .isReadableKey
+        .isReadableKey,
+        .linkCountKey,
+        .fileResourceIdentifierKey
     ]
     private let rootResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -96,6 +98,8 @@ actor ScanEngine {
         .fileSizeKey,
         .contentModificationDateKey,
         .isReadableKey,
+        .linkCountKey,
+        .fileResourceIdentifierKey,
         .volumeAvailableCapacityKey,
         .volumeTotalCapacityKey
     ]
@@ -454,9 +458,9 @@ actor ScanEngine {
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-        let resolvedNodes = (0..<nextKey).compactMap { resolvedNodeByKey[$0] }
         let nodesByID = makeNodesByID(
-            from: resolvedNodes,
+            from: resolvedNodeByKey,
+            keyCount: nextKey,
             warnings: &warnings,
             continuation: continuation
         )
@@ -502,13 +506,16 @@ actor ScanEngine {
     }
 
     private func makeNodesByID(
-        from nodes: [FileNodeRecord],
+        from resolvedNodeByKey: [Int: FileNodeRecord],
+        keyCount: Int,
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) -> [String: FileNodeRecord] {
         var nodesByID: [String: FileNodeRecord] = [:]
+        nodesByID.reserveCapacity(resolvedNodeByKey.count)
 
-        for node in nodes {
+        for key in 0..<keyCount {
+            guard let node = resolvedNodeByKey[key] else { continue }
             guard nodesByID[node.id] == nil else {
                 let warning = ScanWarning(
                     path: node.url.path,
@@ -583,15 +590,35 @@ actor ScanEngine {
     private func metadata(for url: URL, includeVolumeDetails: Bool = false) throws -> NodeMetadata {
         let keys = includeVolumeDetails ? rootResourceKeys : scanResourceKeys
         let values = try url.resourceValues(forKeys: keys)
+        return metadata(for: url, resourceValues: values, includeVolumeDetails: includeVolumeDetails)
+    }
+
+    private func metadata(
+        for url: URL,
+        resourceValues values: URLResourceValues,
+        includeVolumeDetails: Bool = false
+    ) -> NodeMetadata {
         let isDirectory = values.isDirectory ?? false
         let isPackage = values.isPackage ?? false
         let isSymbolicLink = values.isSymbolicLink ?? false
         let logicalSize = Int64(values.fileSize ?? 0)
         let allocatedSize = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
         let isReadable = values.isReadable ?? false
-        let fileSystemInfo = fileSystemInfo(for: url)
+        var fileIdentity = Self.fileIdentity(from: values.fileResourceIdentifier)
+        var linkCount = values.linkCount.map(UInt64.init) ?? 1
+        if shouldReadFileSystemIdentity(
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            fileIdentity: fileIdentity,
+            linkCount: values.linkCount
+        ) {
+            let fileSystemInfo = fileSystemInfo(for: url)
+            fileIdentity = fileIdentity ?? fileSystemInfo.identity
+            linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
+        }
         let volumeUsedCapacity: Int64?
-        if let totalCapacity = values.volumeTotalCapacity,
+        if includeVolumeDetails,
+           let totalCapacity = values.volumeTotalCapacity,
            let availableCapacity = values.volumeAvailableCapacity {
             volumeUsedCapacity = Int64(max(totalCapacity - availableCapacity, 0))
         } else {
@@ -607,9 +634,20 @@ actor ScanEngine {
             lastModified: values.contentModificationDate,
             isReadable: isReadable,
             volumeUsedCapacity: volumeUsedCapacity,
-            fileIdentity: fileSystemInfo.identity,
-            linkCount: fileSystemInfo.linkCount
+            fileIdentity: fileIdentity,
+            linkCount: linkCount
         )
+    }
+
+    private func shouldReadFileSystemIdentity(
+        isDirectory: Bool,
+        isSymbolicLink: Bool,
+        fileIdentity: FileIdentity?,
+        linkCount: Int?
+    ) -> Bool {
+        guard !isDirectory, !isSymbolicLink else { return false }
+        guard let linkCount else { return true }
+        return linkCount > 1 && fileIdentity == nil
     }
 
     private func fileSystemInfo(for url: URL) -> (identity: FileIdentity?, linkCount: UInt64) {
@@ -626,6 +664,13 @@ actor ScanEngine {
             FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
             UInt64(fileStat.st_nlink)
         )
+    }
+
+    private nonisolated static func fileIdentity(
+        from resourceIdentifier: (any NSCopying & NSSecureCoding & NSObjectProtocol)?
+    ) -> FileIdentity? {
+        guard let identifierData = resourceIdentifier as? Data else { return nil }
+        return FileIdentity(resourceIdentifier: identifierData)
     }
 
     private func contents(of url: URL, includeHiddenFiles: Bool, behavior: ScanBehavior) throws -> [DirectoryEntry] {
@@ -647,7 +692,10 @@ actor ScanEngine {
 
             return DirectoryEntry(
                 url: childURL,
-                metadata: try? metadata(for: childURL)
+                metadata: try? metadata(
+                    for: childURL,
+                    resourceValues: childURL.resourceValues(forKeys: scanResourceKeys)
+                )
             )
         }
     }
@@ -1033,8 +1081,11 @@ actor ScanEngine {
             .isPackageKey,
             .isSymbolicLinkKey,
             .fileAllocatedSizeKey,
+            .totalFileAllocatedSizeKey,
             .fileSizeKey,
-            .isReadableKey
+            .isReadableKey,
+            .linkCountKey,
+            .fileResourceIdentifierKey
         ]
         let summaryKeySet = Set(summaryKeys)
 
@@ -1070,7 +1121,8 @@ actor ScanEngine {
         for case let childURL as URL in enumerator {
             try cancellationCheck()
             do {
-                let childMetadata = try metadata(for: childURL)
+                let childValues = try childURL.resourceValues(forKeys: summaryKeySet)
+                let childMetadata = metadata(for: childURL, resourceValues: childValues)
 
                 state.isAccessible = state.isAccessible && childMetadata.isReadable
 
@@ -1248,22 +1300,16 @@ actor ScanEngine {
     }
 }
 
-nonisolated private struct FileIdentity: Hashable, Sendable {
-    let device: UInt64
-    let inode: UInt64
+nonisolated private enum FileIdentity: Hashable, Sendable {
+    case resourceIdentifier(Data)
+    case fileSystem(device: UInt64, inode: UInt64)
 
     nonisolated init(device: UInt64, inode: UInt64) {
-        self.device = device
-        self.inode = inode
+        self = .fileSystem(device: device, inode: inode)
     }
 
-    nonisolated static func == (lhs: FileIdentity, rhs: FileIdentity) -> Bool {
-        lhs.device == rhs.device && lhs.inode == rhs.inode
-    }
-
-    nonisolated func hash(into hasher: inout Hasher) {
-        hasher.combine(device)
-        hasher.combine(inode)
+    nonisolated init(resourceIdentifier: Data) {
+        self = .resourceIdentifier(resourceIdentifier)
     }
 }
 
