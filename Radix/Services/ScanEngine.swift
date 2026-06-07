@@ -48,6 +48,8 @@ actor ScanEngine {
         let countedHardLinkIdentities: Set<FileIdentity>
     }
 
+    private typealias CancellationCheck = () throws -> Void
+
     /// A work item for the iterative scanner.
     /// `parentKey` links this item back to its parent for bottom-up assembly.
     /// `depth` tracks how deep we are in the directory tree.
@@ -194,6 +196,7 @@ actor ScanEngine {
         emissionState: inout ScanEmissionState
     ) throws -> FileTreeStore {
         try Task.checkCancellation()
+        let cancellationCheck: CancellationCheck = { try Task.checkCancellation() }
 
         let rootMetadata = try metadata(for: target.url, includeVolumeDetails: includeVolumeDetails)
         metrics.discoveredItems = 1
@@ -204,11 +207,12 @@ actor ScanEngine {
 
         // If the root itself shouldn't be traversed, return a leaf node.
         guard shouldTraverseDirectory(metadata: rootMetadata, options: options) else {
-            let leafResult = makeLeafNode(
+            let leafResult = try makeLeafNode(
                 url: target.url,
                 metadata: rootMetadata,
                 options: options,
-                countedHardLinkIdentities: &countedHardLinkIdentities
+                countedHardLinkIdentities: &countedHardLinkIdentities,
+                cancellationCheck: cancellationCheck
             )
             applyLeafMetrics(leafResult.node, metrics: &metrics)
             if !leafResult.warnings.isEmpty {
@@ -286,7 +290,7 @@ actor ScanEngine {
                     let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
                     if options.autoSummarizeDirectories,
                        item.depth >= minDepth,
-                       let summary = shouldSummarizeAsAtomicDirectory(
+                       let summary = try shouldSummarizeAsAtomicDirectory(
                            url: item.url,
                            childEntries: childEntries,
                            metadata: meta,
@@ -294,7 +298,8 @@ actor ScanEngine {
                            treatPackagesAsDirectories: options.treatPackagesAsDirectories,
                            minFileCount: minFileCount,
                            maxAverageFileSize: maxAvgSize,
-                           countedHardLinkIdentities: &countedHardLinkIdentities
+                           countedHardLinkIdentities: &countedHardLinkIdentities,
+                           cancellationCheck: cancellationCheck
                        ) {
                         // Treat as atomic: create a leaf node with summary stats
                         let atomicNode = FileNodeRecord(
@@ -382,11 +387,12 @@ actor ScanEngine {
                 }
             } else {
                 // Leaf node (file, symlink, or package-as-directory).
-                let leafResult = makeLeafNode(
+                let leafResult = try makeLeafNode(
                     url: item.url,
                     metadata: meta,
                     options: options,
-                    countedHardLinkIdentities: &countedHardLinkIdentities
+                    countedHardLinkIdentities: &countedHardLinkIdentities,
+                    cancellationCheck: cancellationCheck
                 )
                 applyLeafMetrics(leafResult.node, metrics: &metrics)
                 if !leafResult.warnings.isEmpty {
@@ -692,8 +698,10 @@ actor ScanEngine {
         url: URL,
         metadata: NodeMetadata,
         options: ScanOptions,
-        countedHardLinkIdentities: inout Set<FileIdentity>
-    ) -> (node: FileNodeRecord, warnings: [ScanWarning]) {
+        countedHardLinkIdentities: inout Set<FileIdentity>,
+        cancellationCheck: CancellationCheck
+    ) throws -> (node: FileNodeRecord, warnings: [ScanWarning]) {
+        try cancellationCheck()
         guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
             return (
                 makeFileNode(
@@ -705,11 +713,12 @@ actor ScanEngine {
             )
         }
 
-        guard let summary = summarizeAtomicDirectory(
+        guard let summary = try summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: options.includeHiddenFiles,
             treatPackagesAsDirectories: true,
-            countedHardLinkIdentities: countedHardLinkIdentities
+            countedHardLinkIdentities: countedHardLinkIdentities,
+            cancellationCheck: cancellationCheck
         ) else {
             return (
                 makeFileNode(
@@ -756,21 +765,35 @@ actor ScanEngine {
         treatPackagesAsDirectories: Bool,
         minFileCount: Int,
         maxAverageFileSize: Int64,
-        countedHardLinkIdentities: inout Set<FileIdentity>
-    ) -> AtomicDirectorySummary? {
+        countedHardLinkIdentities: inout Set<FileIdentity>,
+        cancellationCheck: CancellationCheck
+    ) throws -> AtomicDirectorySummary? {
+        try cancellationCheck()
         guard !childEntries.isEmpty else { return nil }
 
-        let immediateCandidate = childEntries.count >= minFileCount &&
-            immediateChildrenSuggestAtomicDirectory(
+        let immediateCandidate: Bool
+        if childEntries.count >= minFileCount {
+            immediateCandidate = try immediateChildrenSuggestAtomicDirectory(
                 childEntries,
-                maxAverageFileSize: maxAverageFileSize
+                maxAverageFileSize: maxAverageFileSize,
+                cancellationCheck: cancellationCheck
             )
-        let deepCandidate = immediateCandidate || descendantProbeSuggestsAtomicDirectory(
-            at: url,
-            includeHiddenFiles: includeHiddenFiles,
-            minFileCount: minFileCount,
-            maxAverageFileSize: maxAverageFileSize
-        )
+        } else {
+            immediateCandidate = false
+        }
+
+        let deepCandidate: Bool
+        if immediateCandidate {
+            deepCandidate = true
+        } else {
+            deepCandidate = try descendantProbeSuggestsAtomicDirectory(
+                at: url,
+                includeHiddenFiles: includeHiddenFiles,
+                minFileCount: minFileCount,
+                maxAverageFileSize: maxAverageFileSize,
+                cancellationCheck: cancellationCheck
+            )
+        }
 
         guard deepCandidate else {
             return nil
@@ -784,21 +807,23 @@ actor ScanEngine {
         }
         let canReuseImmediateEntries = immediateCandidate && directDirectoryCount <= max(8, childEntries.count / 10)
         if canReuseImmediateEntries {
-            return summarizeAtomicDirectory(
+            return try summarizeAtomicDirectory(
                 at: url,
                 childEntries: childEntries,
                 rootMetadata: metadata,
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
-                countedHardLinkIdentities: &countedHardLinkIdentities
+                countedHardLinkIdentities: &countedHardLinkIdentities,
+                cancellationCheck: cancellationCheck
             )
         }
 
-        guard let summary = summarizeAtomicDirectory(
+        guard let summary = try summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
-            countedHardLinkIdentities: countedHardLinkIdentities
+            countedHardLinkIdentities: countedHardLinkIdentities,
+            cancellationCheck: cancellationCheck
         ) else { return nil }
         countedHardLinkIdentities = summary.countedHardLinkIdentities
         return summary
@@ -806,8 +831,10 @@ actor ScanEngine {
 
     private func immediateChildrenSuggestAtomicDirectory(
         _ childEntries: [DirectoryEntry],
-        maxAverageFileSize: Int64
-    ) -> Bool {
+        maxAverageFileSize: Int64,
+        cancellationCheck: CancellationCheck
+    ) throws -> Bool {
+        try cancellationCheck()
         let sampleSize = min(100, childEntries.count)
         let step = max(1, childEntries.count / sampleSize)
         let sampleEntries = stride(from: 0, to: childEntries.count, by: step)
@@ -818,6 +845,7 @@ actor ScanEngine {
         var sampleFileCount = 0
 
         for childEntry in sampleEntries {
+            try cancellationCheck()
             guard let childMetadata = childEntry.metadata else {
                 return false
             }
@@ -836,8 +864,10 @@ actor ScanEngine {
         at url: URL,
         includeHiddenFiles: Bool,
         minFileCount: Int,
-        maxAverageFileSize: Int64
-    ) -> Bool {
+        maxAverageFileSize: Int64,
+        cancellationCheck: CancellationCheck
+    ) throws -> Bool {
+        try cancellationCheck()
         let probeKeys: [URLResourceKey] = [
             .isDirectoryKey,
             .isPackageKey,
@@ -864,6 +894,7 @@ actor ScanEngine {
         var totalLogicalSize: Int64 = 0
 
         for case let childURL as URL in enumerator {
+            try cancellationCheck()
             visitedItems += 1
             guard visitedItems <= maxVisitedItems else { return false }
 
@@ -898,12 +929,15 @@ actor ScanEngine {
         rootMetadata: NodeMetadata,
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
-        countedHardLinkIdentities: inout Set<FileIdentity>
-    ) -> AtomicDirectorySummary? {
+        countedHardLinkIdentities: inout Set<FileIdentity>,
+        cancellationCheck: CancellationCheck
+    ) throws -> AtomicDirectorySummary? {
+        try cancellationCheck()
         let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
         state.isAccessible = rootMetadata.isReadable
 
         for childEntry in childEntries {
+            try cancellationCheck()
             let childMetadata: NodeMetadata
             if let preloadedMetadata = childEntry.metadata {
                 childMetadata = preloadedMetadata
@@ -917,12 +951,13 @@ actor ScanEngine {
                 }
             }
 
-            accumulateAtomicSummary(
+            try accumulateAtomicSummary(
                 for: childEntry.url,
                 metadata: childMetadata,
                 into: state,
                 includeHiddenFiles: includeHiddenFiles,
-                treatPackagesAsDirectories: treatPackagesAsDirectories
+                treatPackagesAsDirectories: treatPackagesAsDirectories,
+                cancellationCheck: cancellationCheck
             )
         }
         countedHardLinkIdentities = state.countedHardLinkIdentities
@@ -942,18 +977,21 @@ actor ScanEngine {
         metadata: NodeMetadata,
         into state: AtomicDirectorySummaryState,
         includeHiddenFiles: Bool,
-        treatPackagesAsDirectories: Bool
-    ) {
+        treatPackagesAsDirectories: Bool,
+        cancellationCheck: CancellationCheck
+    ) throws {
+        try cancellationCheck()
         state.isAccessible = state.isAccessible && metadata.isReadable
 
         if metadata.isDirectory {
             let nestedTreatsPackagesAsDirectories = metadata.isPackage ? true : treatPackagesAsDirectories
             if metadata.isPackage || !metadata.isSymbolicLink {
-                if let nestedSummary = summarizeAtomicDirectory(
+                if let nestedSummary = try summarizeAtomicDirectory(
                     at: url,
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories,
-                    countedHardLinkIdentities: state.countedHardLinkIdentities
+                    countedHardLinkIdentities: state.countedHardLinkIdentities,
+                    cancellationCheck: cancellationCheck
                 ) {
                     merge(nestedSummary, into: state)
                 }
@@ -986,8 +1024,10 @@ actor ScanEngine {
         at url: URL,
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
-        countedHardLinkIdentities: Set<FileIdentity>
-    ) -> AtomicDirectorySummary? {
+        countedHardLinkIdentities: Set<FileIdentity>,
+        cancellationCheck: CancellationCheck
+    ) throws -> AtomicDirectorySummary? {
+        try cancellationCheck()
         let summaryKeys: [URLResourceKey] = [
             .isDirectoryKey,
             .isPackageKey,
@@ -1001,6 +1041,7 @@ actor ScanEngine {
         let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
 
         do {
+            try cancellationCheck()
             let rootValues = try url.resourceValues(forKeys: summaryKeySet)
             state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
         } catch {
@@ -1027,6 +1068,7 @@ actor ScanEngine {
         }
 
         for case let childURL as URL in enumerator {
+            try cancellationCheck()
             do {
                 let childMetadata = try metadata(for: childURL)
 
@@ -1034,11 +1076,12 @@ actor ScanEngine {
 
                 if childMetadata.isDirectory {
                     if childMetadata.isPackage && !treatPackagesAsDirectories {
-                        if let packageSummary = summarizeAtomicDirectory(
+                        if let packageSummary = try summarizeAtomicDirectory(
                             at: childURL,
                             includeHiddenFiles: includeHiddenFiles,
                             treatPackagesAsDirectories: true,
-                            countedHardLinkIdentities: state.countedHardLinkIdentities
+                            countedHardLinkIdentities: state.countedHardLinkIdentities,
+                            cancellationCheck: cancellationCheck
                         ) {
                             merge(packageSummary, into: state)
                             enumerator.skipDescendants()

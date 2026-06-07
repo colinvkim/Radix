@@ -141,6 +141,57 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 128)
     }
 
+    func testCancellingScanStopsPackageLeafSummaryWork() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let followUpURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: followUpURL)
+        }
+
+        let packageContentsURL = rootURL
+            .appending(path: "Large.app", directoryHint: .isDirectory)
+            .appending(path: "Contents/Resources", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: packageContentsURL, withIntermediateDirectories: true)
+
+        for index in 0..<8_000 {
+            let fileURL = packageContentsURL.appending(path: "payload-\(index).tmp")
+            try Data([UInt8(index % 256)]).write(to: fileURL)
+        }
+
+        let engine = ScanEngine()
+        let scanTask = Task {
+            var didFinish = false
+            do {
+                for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+                    if case .finished = event {
+                        didFinish = true
+                    }
+                }
+            } catch is CancellationError {
+                return false
+            }
+            return didFinish
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+        scanTask.cancel()
+        let didFinishCancelledScan = try await scanTask.value
+
+        XCTAssertFalse(didFinishCancelledScan)
+
+        let followUpFinished = try await withTimeout(.seconds(1)) {
+            for try await event in engine.scan(target: ScanTarget(url: followUpURL), options: ScanOptions()) {
+                if case .finished = event {
+                    return true
+                }
+            }
+            return false
+        }
+
+        XCTAssertTrue(followUpFinished)
+    }
+
     func testSymbolicLinksAreNotTraversed() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -701,4 +752,30 @@ private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private enum AsyncTestTimeout: Error {
+    case timedOut
+}
+
+private func withTimeout<T: Sendable>(
+    _ duration: Duration,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+
+        group.addTask {
+            try await Task.sleep(for: duration)
+            throw AsyncTestTimeout.timedOut
+        }
+
+        guard let result = try await group.next() else {
+            throw AsyncTestTimeout.timedOut
+        }
+        group.cancelAll()
+        return result
+    }
 }
