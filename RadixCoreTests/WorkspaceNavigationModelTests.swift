@@ -155,39 +155,40 @@ final class WorkspaceNavigationModelTests: XCTestCase {
     }
 
     @MainActor
-    func testAppModelBridgeExposesNavigationState() {
+    func testAppModelRoutesNavigationActionsThroughNavigationState() {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
 
-        model.snapshot = fixture.snapshot
+        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
         model.select(nodeID: fixture.docFile.id)
         model.focus(nodeID: fixture.docs.id)
 
-        XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
-        XCTAssertEqual(model.selectedNode?.id, fixture.docFile.id)
+        XCTAssertEqual(model.navigation.selectedNodeID, fixture.docFile.id)
+        XCTAssertEqual(model.navigation.selectedNode?.id, fixture.docFile.id)
         XCTAssertEqual(model.navigation.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
-        XCTAssertEqual(model.selectedNodeParent?.id, fixture.docs.id)
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
-        XCTAssertEqual(model.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.docs.id])
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertTrue(model.canClearSelection)
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertTrue(model.tableContentID.hasPrefix(fixture.snapshot.id.uuidString))
+        XCTAssertEqual(model.navigation.selectedNodeParent?.id, fixture.docs.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, fixture.docs.id)
+        XCTAssertEqual(model.navigation.currentFocusNode?.id, fixture.docs.id)
+        XCTAssertEqual(model.navigation.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.docs.id])
+        XCTAssertEqual(model.navigation.tableNodes.map(\.id), [fixture.docFile.id])
+        XCTAssertTrue(model.navigation.canClearSelection)
+        XCTAssertTrue(model.navigation.canNavigateBack)
+        XCTAssertTrue(model.navigation.tableContentID.hasPrefix(fixture.snapshot.id.uuidString))
 
-        model.selectedNodeID = "/missing"
-        XCTAssertNil(model.selectedNodeID)
+        model.select(nodeID: "/missing")
+        XCTAssertNil(model.navigation.selectedNodeID)
 
-        model.selectedNodeID = fixture.docFile.id
-        model.focusedNodeID = fixture.cache.id
-        XCTAssertEqual(model.focusedNodeID, fixture.cache.id)
-        XCTAssertNil(model.selectedNodeID)
+        model.select(nodeID: fixture.docFile.id)
+        model.navigation.setFocusedNodeID(fixture.cache.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, fixture.cache.id)
+        XCTAssertNil(model.navigation.selectedNodeID)
 
-        model.focusedNodeID = "/missing"
-        XCTAssertEqual(model.focusedNodeID, fixture.cache.id)
+        model.navigation.setFocusedNodeID("/missing")
+        XCTAssertEqual(model.navigation.focusedNodeID, fixture.cache.id)
 
         model.navigateBack()
-        XCTAssertEqual(model.focusedNodeID, fixture.root.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
     }
 }
 

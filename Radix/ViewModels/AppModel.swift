@@ -37,8 +37,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    typealias Phase = AppModelPhase
-
     @Published var showHiddenFiles = true
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
@@ -100,133 +98,12 @@ final class AppModel: ObservableObject {
         dependencies.systemActions.quickLook.close()
     }
 
-    var phase: Phase {
-        get { scanCoordinator.phase }
-        set { scanCoordinator.phase = newValue }
-    }
-
     var scanState: ScanCoordinator {
         scanCoordinator
     }
 
     var navigation: WorkspaceNavigationModel {
         navigationModel
-    }
-
-    var snapshot: ScanSnapshot? {
-        get { scanCoordinator.snapshot }
-        set {
-            scanCoordinator.replaceCurrentSnapshot(newValue)
-            navigationModel.reconcileAfterSnapshotApplied(newValue)
-        }
-    }
-
-    var scanMetrics: ScanMetrics {
-        get { scanCoordinator.scanMetrics }
-        set { scanCoordinator.scanMetrics = newValue }
-    }
-
-    var selectedTarget: ScanTarget? {
-        get { scanCoordinator.selectedTarget }
-        set { scanCoordinator.selectedTarget = newValue }
-    }
-
-    var fileTreeStore: FileTreeStore? {
-        get { scanCoordinator.fileTreeStore }
-        set {
-            scanCoordinator.fileTreeStore = newValue
-            navigationModel.updateFileTreeStore(newValue, snapshotID: snapshot?.id)
-        }
-    }
-
-    var isScanning: Bool {
-        phase == .scanning
-    }
-
-    var selectedNodeID: String? {
-        get { navigationModel.selectedNodeID }
-        set { navigationModel.select(nodeID: newValue) }
-    }
-
-    var focusedNodeID: String? {
-        get { navigationModel.focusedNodeID }
-        set { navigationModel.setFocusedNodeID(newValue) }
-    }
-
-    var currentFocusNode: FileNodeRecord? {
-        navigationModel.currentFocusNode
-    }
-
-    var selectedNode: FileNodeRecord? {
-        navigationModel.selectedNode
-    }
-
-    var selectedNodeParent: FileNodeRecord? {
-        navigationModel.selectedNodeParent
-    }
-
-    var breadcrumbNodes: [FileNodeRecord] {
-        navigationModel.breadcrumbNodes
-    }
-
-    var tableNodes: [FileNodeRecord] {
-        navigationModel.tableNodes
-    }
-
-    var tableContentID: String {
-        navigationModel.tableContentID
-    }
-
-    var canZoomIntoSelection: Bool {
-        navigationModel.canZoomIntoSelection
-    }
-
-    var canNavigateBack: Bool {
-        navigationModel.canNavigateBack
-    }
-
-    var canNavigateForward: Bool {
-        navigationModel.canNavigateForward
-    }
-
-    var canChooseFolder: Bool {
-        !isScanning
-    }
-
-    var canRescan: Bool {
-        selectedTarget != nil && !isScanning
-    }
-
-    var canStopScan: Bool {
-        isScanning
-    }
-
-    var canClearSelection: Bool {
-        navigationModel.canClearSelection
-    }
-
-    var canOpenSelected: Bool {
-        selectedNode?.supportsFileActions == true
-    }
-
-    var canQuickLookSelected: Bool {
-        selectedNode?.supportsFileActions == true
-    }
-
-    var canRevealSelected: Bool {
-        selectedNode?.supportsFileActions == true
-    }
-
-    var canCopySelectedPath: Bool {
-        selectedNode?.supportsFileActions == true
-    }
-
-    var canMoveSelectedToTrash: Bool {
-        selectedNode?.supportsMoveToTrash(activeTarget: selectedTarget) == true
-    }
-
-    var isFocusedAtRoot: Bool {
-        navigationModel.isFocusedAtRoot
     }
 
     var startupDiskTarget: ScanTarget? {
@@ -250,19 +127,12 @@ final class AppModel: ObservableObject {
             .filter { !excluded.contains($0.id) }
     }
 
-    var statusSubtitle: String {
-        if let selectedTarget {
-            return selectedTarget.url.path
-        }
-        return "Choose a folder or disk to begin"
-    }
-
     var errorAlertTitle: String {
-        phase == .failed ? "Scan Failed" : "Action Failed"
+        scanCoordinator.phase == .failed ? "Scan Failed" : "Action Failed"
     }
 
     var canRescanFromErrorAlert: Bool {
-        phase == .failed && canRescan
+        scanCoordinator.phase == .failed && scanCoordinator.canRescan
     }
 
     func dismissOnboarding() {
@@ -311,7 +181,7 @@ final class AppModel: ObservableObject {
     }
 
     func presentOpenPanelAndScan() {
-        guard canChooseFolder else { return }
+        guard !scanCoordinator.isScanning else { return }
         if let target = dependencies.systemActions.presentOpenPanel() {
             startScan(target)
         }
@@ -353,7 +223,7 @@ final class AppModel: ObservableObject {
     }
 
     func rescan() {
-        guard let selectedTarget else { return }
+        guard let selectedTarget = scanCoordinator.selectedTarget else { return }
         startScan(selectedTarget)
     }
 
@@ -377,7 +247,7 @@ final class AppModel: ObservableObject {
     func zoomIntoSelection() {
         do {
             let node = try validatedSelection(requiresDirectory: true)
-            guard canZoomIntoSelection else {
+            guard navigationModel.canZoomIntoSelection else {
                 throw FileActionError.directoryRequired
             }
             focus(nodeID: node.id)
@@ -404,7 +274,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        guard selectedTarget?.id != target.id else { return }
+        guard scanCoordinator.selectedTarget?.id != target.id else { return }
         startScan(target)
     }
 
@@ -471,7 +341,7 @@ final class AppModel: ObservableObject {
     func requestMoveSelectedToTrash() {
         do {
             let node = try validatedSelection()
-            guard node.supportsMoveToTrash(activeTarget: selectedTarget) else {
+            guard node.supportsMoveToTrash(activeTarget: scanCoordinator.selectedTarget) else {
                 throw FileActionError.unsupported
             }
             pendingTrashNode = node
@@ -489,7 +359,7 @@ final class AppModel: ObservableObject {
                 throw FileActionError.unavailable(path: node.url.path)
             }
             try dependencies.systemActions.moveToTrash(node.url)
-            switch ScanPostTrashAction.afterRemovingNode(activeTargetID: selectedTarget?.id, removedNodeID: node.id) {
+            switch ScanPostTrashAction.afterRemovingNode(activeTargetID: scanCoordinator.selectedTarget?.id, removedNodeID: node.id) {
             case .clearActiveScan:
                 scanCoordinator.clearScan()
                 navigationModel.reset()
@@ -516,7 +386,7 @@ final class AppModel: ObservableObject {
     }
 
     private func validatedSelection(requiresDirectory: Bool = false) throws -> FileNodeRecord {
-        guard let selectedNode else {
+        guard let selectedNode = navigationModel.selectedNode else {
             throw FileActionError.noSelection
         }
         guard selectedNode.supportsFileActions else {
@@ -535,7 +405,7 @@ final class AppModel: ObservableObject {
     private func syncVisibleQuickLookPreview() {
         guard dependencies.systemActions.quickLook.isPreviewVisible() else { return }
 
-        guard let selectedNode, selectedNode.supportsFileActions else {
+        guard let selectedNode = navigationModel.selectedNode, selectedNode.supportsFileActions else {
             dependencies.systemActions.quickLook.close()
             return
         }
@@ -563,7 +433,7 @@ final class AppModel: ObservableObject {
         guard !showsOnboarding, pendingTrashNode == nil else { return false }
         guard !dependencies.systemActions.quickLook.isPreviewPanelKeyWindow() else { return false }
         guard !Self.shouldPreserveSpaceKey(for: event.window?.firstResponder) else { return false }
-        guard canQuickLookSelected else { return false }
+        guard navigationModel.selectedNode?.supportsFileActions == true else { return false }
 
         toggleQuickLookForSelected()
         return true

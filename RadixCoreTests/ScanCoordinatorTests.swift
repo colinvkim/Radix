@@ -244,7 +244,7 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAppModelScanLifecycleUsesInjectedCoordinatorBridge() async throws {
+    func testAppModelScanLifecycleUsesInjectedCoordinatorState() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
         let target = makeCoordinatorTarget("/app/scan")
@@ -253,23 +253,23 @@ final class ScanCoordinatorTests: XCTestCase {
         model.startScan(target)
 
         try await waitUntil("AppModel start scan") {
-            model.phase == .scanning && service.requests.count == 1
+            model.scanState.phase == .scanning && service.requests.count == 1
         }
 
         XCTAssertEqual(service.requests.first?.target, target)
-        XCTAssertEqual(model.selectedTarget, target)
-        XCTAssertNil(model.snapshot)
+        XCTAssertEqual(model.scanState.selectedTarget, target)
+        XCTAssertNil(model.scanState.snapshot)
 
         service.yield(.finished(snapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
 
         try await waitUntil("AppModel finish scan") {
-            model.phase == .displaying
+            model.scanState.phase == .displaying
         }
 
-        XCTAssertEqual(model.snapshot?.target, target)
-        XCTAssertEqual(model.fileTreeStore?.root.id, snapshot.root.id)
-        XCTAssertEqual(model.focusedNodeID, snapshot.root.id)
+        XCTAssertEqual(model.scanState.snapshot?.target, target)
+        XCTAssertEqual(model.scanState.fileTreeStore?.root.id, snapshot.root.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, snapshot.root.id)
         XCTAssertEqual(model.recentTargets, [target])
     }
 
@@ -282,7 +282,7 @@ final class ScanCoordinatorTests: XCTestCase {
         model.startScan(target)
 
         try await waitUntil("AppModel start scan before cleanup") {
-            model.phase == .scanning && service.requests.count == 1
+            model.scanState.phase == .scanning && service.requests.count == 1
         }
 
         model.cleanup()
@@ -291,8 +291,8 @@ final class ScanCoordinatorTests: XCTestCase {
             service.terminationCount == 1
         }
 
-        XCTAssertEqual(model.phase, .idle)
-        XCTAssertFalse(model.canStopScan)
+        XCTAssertEqual(model.scanState.phase, .idle)
+        XCTAssertFalse(model.scanState.canStopScan)
     }
 
     @MainActor
@@ -324,7 +324,7 @@ final class ScanCoordinatorTests: XCTestCase {
         model.startScan(target)
 
         try await waitUntil("AppModel start scan before window suspension") {
-            model.phase == .scanning && service.requests.count == 1
+            model.scanState.phase == .scanning && service.requests.count == 1
         }
 
         model.suspendMainWindowActivity()
@@ -333,8 +333,8 @@ final class ScanCoordinatorTests: XCTestCase {
             service.terminationCount == 1
         }
 
-        XCTAssertEqual(model.phase, .idle)
-        XCTAssertFalse(model.canStopScan)
+        XCTAssertEqual(model.scanState.phase, .idle)
+        XCTAssertFalse(model.scanState.canStopScan)
         XCTAssertEqual(recorder.quickLookCloseCount, 1)
         XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 0)
     }
@@ -350,8 +350,8 @@ final class ScanCoordinatorTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(40))
 
         XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.phase, .idle)
-        XCTAssertFalse(model.canStopScan)
+        XCTAssertEqual(model.scanState.phase, .idle)
+        XCTAssertFalse(model.scanState.canStopScan)
     }
 
     @MainActor
@@ -365,8 +365,8 @@ final class ScanCoordinatorTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(40))
 
         XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.phase, .idle)
-        XCTAssertFalse(model.canStopScan)
+        XCTAssertEqual(model.scanState.phase, .idle)
+        XCTAssertFalse(model.scanState.canStopScan)
     }
 
     @MainActor
@@ -380,8 +380,8 @@ final class ScanCoordinatorTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(40))
 
         XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.phase, .idle)
-        XCTAssertFalse(model.canStopScan)
+        XCTAssertEqual(model.scanState.phase, .idle)
+        XCTAssertFalse(model.scanState.canStopScan)
     }
 
     @MainActor
@@ -392,14 +392,16 @@ final class ScanCoordinatorTests: XCTestCase {
         let focusChild = makeCoordinatorDirectoryNode(id: "/root/docs", name: "docs", children: [])
         let root = makeCoordinatorDirectoryNode(id: "/root", name: "root", children: [summarizedNode, focusChild])
         let baseStore = FileTreeStore(root: root, childrenByID: [root.id: [summarizedNode, focusChild]])
-        model.snapshot = makeCoordinatorSnapshot(
+        let baseSnapshot = makeCoordinatorSnapshot(
             target: makeCoordinatorTarget("/root"),
             root: root,
             store: baseStore
         )
-        model.focusedNodeID = root.id
+        model.scanState.replaceCurrentSnapshot(baseSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(baseSnapshot)
+        model.navigation.setFocusedNodeID(root.id)
         model.focus(nodeID: focusChild.id)
-        XCTAssertTrue(model.canNavigateBack)
+        XCTAssertTrue(model.navigation.canNavigateBack)
 
         let expandedFile = makeCoordinatorFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
         let expandedRoot = makeCoordinatorDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
@@ -426,9 +428,9 @@ final class ScanCoordinatorTests: XCTestCase {
             didCompleteExpansion
         }
 
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertEqual(model.selectedNodeID, summarizedNode.id)
-        XCTAssertEqual(model.fileTreeStore?.children(of: summarizedNode.id).map(\.id), [expandedFile.id])
+        XCTAssertTrue(model.navigation.canNavigateBack)
+        XCTAssertEqual(model.navigation.selectedNodeID, summarizedNode.id)
+        XCTAssertEqual(model.scanState.fileTreeStore?.children(of: summarizedNode.id).map(\.id), [expandedFile.id])
     }
 }
 

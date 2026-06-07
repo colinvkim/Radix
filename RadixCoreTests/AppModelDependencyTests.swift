@@ -190,7 +190,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.openSelected()
 
         XCTAssertTrue(recorder.openedURLs.isEmpty)
-        XCTAssertNil(model.selectedNodeID)
+        XCTAssertNil(model.navigation.selectedNodeID)
         XCTAssertEqual(
             model.lastErrorMessage,
             "The item at \(file.url.path) is no longer available."
@@ -213,26 +213,25 @@ final class AppModelDependencyTests: XCTestCase {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model, selectNode: false)
 
-        model.selectedNodeID = file.id
+        model.select(nodeID: file.id)
         XCTAssertEqual(recorder.updatedQuickLookURLs, [file.url])
 
-        model.selectedNodeID = nil
+        model.select(nodeID: nil)
         XCTAssertEqual(recorder.quickLookCloseCount, 1)
     }
 
     @MainActor
-    func testNarrowStateOwnersStayAlignedWithAppModelFacade() {
+    func testAppModelActionsUseNarrowStateOwners() {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model, selectNode: false)
         let target = makeAppModelTarget("/aligned")
 
-        model.selectedTarget = target
+        model.scanState.selectedTarget = target
         model.select(nodeID: file.id)
 
         XCTAssertEqual(model.scanState.selectedTarget, target)
-        XCTAssertEqual(model.scanState.snapshot?.root.id, model.snapshot?.root.id)
         XCTAssertEqual(model.navigation.selectedNodeID, file.id)
-        XCTAssertEqual(model.navigation.selectedNode?.id, model.selectedNode?.id)
+        XCTAssertEqual(model.navigation.selectedNode?.id, file.id)
     }
 
     @MainActor
@@ -347,7 +346,7 @@ private func installSelection(
     let file = makeAppModelFileNode(id: "/selection/file.txt", name: "file.txt")
     let root = makeAppModelDirectoryNode(id: "/selection", name: "selection", children: [file])
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
-    model.snapshot = ScanSnapshot(
+    let snapshot = ScanSnapshot(
         target: ScanTarget(url: root.url),
         treeStore: store,
         startedAt: Date(),
@@ -356,11 +355,12 @@ private func installSelection(
         aggregateStats: store.aggregateStats,
         isComplete: true
     )
-    model.fileTreeStore = store
-    model.focusedNodeID = root.id
+    model.scanState.replaceCurrentSnapshot(snapshot)
+    model.navigation.reconcileAfterSnapshotApplied(snapshot)
+    model.navigation.setFocusedNodeID(root.id)
 
     if selectNode {
-        model.selectedNodeID = file.id
+        model.select(nodeID: file.id)
     }
 
     return file
