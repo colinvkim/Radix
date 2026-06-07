@@ -115,7 +115,7 @@ final class ScanCoordinator: ObservableObject {
         activeScanID = nil
         scanTask?.cancel()
         scanTask = nil
-        cancelProgressThrottling()
+        resetProgressThrottling()
         cancelExpansion(completeWith: .cancelled)
 
         var metrics = scanMetrics
@@ -320,7 +320,7 @@ final class ScanCoordinator: ObservableObject {
     private func completeCancelledScan(scanID: UUID) {
         guard activeScanID == scanID else { return }
 
-        cancelProgressThrottling()
+        resetProgressThrottling()
         if snapshot == nil {
             phase = .idle
         }
@@ -331,7 +331,7 @@ final class ScanCoordinator: ObservableObject {
     private func failScan(_ error: Error, scanID: UUID) {
         guard activeScanID == scanID else { return }
 
-        cancelProgressThrottling()
+        resetProgressThrottling()
         phase = .failed
         scanErrorMessage = error.localizedDescription
         activeScanID = nil
@@ -341,7 +341,7 @@ final class ScanCoordinator: ObservableObject {
     private func completeScanIfActive(scanID: UUID) {
         guard activeScanID == scanID else { return }
 
-        cancelProgressThrottling()
+        resetProgressThrottling()
         phase = snapshot == nil ? .idle : .displaying
         activeScanID = nil
         scanTask = nil
@@ -362,10 +362,6 @@ final class ScanCoordinator: ObservableObject {
         progressPublishTask = nil
         pendingProgressMetrics = nil
         lastProgressPublishTime = nil
-    }
-
-    private func cancelProgressThrottling() {
-        resetProgressThrottling()
     }
 
     private func cancelExpansion(completeWith result: ScanExpansionResult?) {
