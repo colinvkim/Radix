@@ -165,7 +165,8 @@ struct SunburstChartView: View {
             Color(nsColor: .systemIndigo),
             Color(nsColor: .systemPink)
         ]
-        let base = palette[abs(segment.colorKey.hashValue) % palette.count]
+        let paletteIndex = Int(segment.colorKey.hashValue.magnitude % UInt(palette.count))
+        let base = palette[paletteIndex]
         let opacity = max(0.24, 0.78 - (Double(segment.depth) * 0.09) - (segment.isAggregate ? 0.16 : 0))
         if segment.id == hoveredSegment?.id {
             return base.opacity(min(opacity + 0.18, 0.95))
