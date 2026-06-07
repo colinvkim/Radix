@@ -200,6 +200,21 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(rootAliasTarget.kind, .volume)
     }
 
+    func testScanTargetResolvesSymlinkRoots() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let realDirectory = rootURL.appending(path: "Real", directoryHint: .isDirectory)
+        let symlinkURL = rootURL.appending(path: "Linked", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: realDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: realDirectory)
+
+        let target = ScanTarget(url: symlinkURL)
+
+        XCTAssertEqual(target.url.path, realDirectory.path)
+        XCTAssertEqual(target.id, realDirectory.path)
+    }
+
     func testStartupVolumeScanExcludesSyntheticAndDuplicateNamespaces() {
         let startupBehavior = ScanEngine.ScanBehavior(excludesStartupVolumeInternals: true)
         let standardBehavior = ScanEngine.ScanBehavior.standard

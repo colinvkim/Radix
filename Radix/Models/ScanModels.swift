@@ -38,10 +38,19 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
 
             let trimmedPath = String(path.dropFirst(syntheticPrefix.count))
             let normalizedPath = trimmedPath.isEmpty ? "/" : trimmedPath
-            return URL(fileURLWithPath: normalizedPath, isDirectory: standardizedURL.hasDirectoryPath).standardizedFileURL
+            let syntheticResolvedURL = URL(
+                fileURLWithPath: normalizedPath,
+                isDirectory: standardizedURL.hasDirectoryPath
+            )
+            return normalizedRootURL(from: syntheticResolvedURL)
         }
 
-        return standardizedURL
+        return normalizedRootURL(from: standardizedURL)
+    }
+
+    private static func normalizedRootURL(from url: URL) -> URL {
+        let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
+        return URL(fileURLWithPath: resolvedURL.path, isDirectory: url.hasDirectoryPath).standardizedFileURL
     }
 
     nonisolated static func inferredKind(
