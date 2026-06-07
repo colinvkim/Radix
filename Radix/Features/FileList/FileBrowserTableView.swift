@@ -71,12 +71,21 @@ struct FileBrowserTableView: View {
                     SearchFilterBar(
                         scope: searchScopeBinding,
                         text: activeSearchText,
+                        isLoading: model.isRefreshingCurrentContents,
                         isFocused: $isSearchFieldFocused
                     )
 
                     Divider()
 
-                    if model.isShowingEntireScanResults && model.isSearchingEntireScan && model.displayedNodes.isEmpty {
+                    if model.isRefreshingCurrentContents && model.displayedNodes.isEmpty {
+                        VStack {
+                            Spacer()
+                            ProgressView("Loading Contents…")
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if model.isShowingEntireScanResults && model.isSearchingEntireScan && model.displayedNodes.isEmpty {
                         VStack {
                             Spacer()
                             ProgressView("Searching Entire Scan…")
@@ -236,6 +245,7 @@ struct FileBrowserTableView: View {
 private struct SearchFilterBar: View {
     @Binding var scope: FileBrowserFindTarget
     @Binding var text: String
+    let isLoading: Bool
     @FocusState.Binding var isFocused: Bool
 
     private var scopeLabel: String {
@@ -283,6 +293,11 @@ private struct SearchFilterBar: View {
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
 
             if !text.isEmpty {
                 Button {

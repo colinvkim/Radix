@@ -44,6 +44,38 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
+    func testLargeCurrentContentsFilterDebouncesAndIgnoresStaleQuery() async throws {
+        let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
+        let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
+        let other = makeBrowserFileNode(id: "/root/other.bin", name: "other.bin", size: 20)
+        let model = FileBrowserModel(
+            searchDebounceDuration: .milliseconds(40),
+            currentContentsAsyncThreshold: 1
+        )
+
+        model.updateContent(
+            nodes: [small, large, other],
+            contentID: "snapshot|/root",
+            snapshot: nil,
+            fileTreeStore: nil
+        )
+        try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, other.id, small.id])
+
+        model.setActiveSearchText("small")
+        XCTAssertTrue(model.isRefreshingCurrentContents)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, other.id, small.id])
+
+        model.setActiveSearchText("large")
+
+        try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [large.id])
+
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(model.displayedNodes.map(\.id), [large.id])
+    }
+
+    @MainActor
     func testContentUpdatePublishesRowsAndLookupTogether() {
         let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
         let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
@@ -339,6 +371,21 @@ private func waitForStartCount(
         try await Task.sleep(for: .milliseconds(10))
     }
     XCTFail("Timed out waiting for file browser search to start.", file: file, line: line)
+}
+
+@MainActor
+private func waitForCurrentContentsRefreshToFinish(
+    _ model: FileBrowserModel,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async throws {
+    for _ in 0..<100 {
+        if !model.isRefreshingCurrentContents {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTFail("Timed out waiting for current contents refresh.", file: file, line: line)
 }
 
 private func makeBrowserFileNode(

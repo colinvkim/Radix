@@ -27,10 +27,13 @@ final class FileBrowserModel: ObservableObject {
     @Published private(set) var searchScope: FileBrowserFindTarget = .currentContents
     @Published private(set) var sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
     @Published private(set) var isSearchingEntireScan = false
+    @Published private(set) var isRefreshingCurrentContents = false
     @Published private var displayState = FileBrowserDisplayState()
 
     private let searchService: any FileSearching
+    private let currentContentsService = CurrentContentsSearchService()
     private let searchDebounceDuration: Duration
+    private let currentContentsAsyncThreshold: Int
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
     private var nodes: [FileNodeRecord] = []
@@ -40,10 +43,12 @@ final class FileBrowserModel: ObservableObject {
 
     init(
         searchService: any FileSearching = FileSearchService(),
-        searchDebounceDuration: Duration = .milliseconds(180)
+        searchDebounceDuration: Duration = .milliseconds(180),
+        currentContentsAsyncThreshold: Int = 512
     ) {
         self.searchService = searchService
         self.searchDebounceDuration = searchDebounceDuration
+        self.currentContentsAsyncThreshold = currentContentsAsyncThreshold
     }
 
     var activeSearchText: String {
@@ -128,6 +133,7 @@ final class FileBrowserModel: ObservableObject {
         searchTask = nil
         if clearLoading {
             setIsSearchingEntireScan(false)
+            setIsRefreshingCurrentContents(false)
         }
     }
 
@@ -143,6 +149,7 @@ final class FileBrowserModel: ObservableObject {
         cancelPendingSearch(clearLoading: false)
 
         if isShowingEntireScanResults {
+            setIsRefreshingCurrentContents(false)
             scheduleEntireScanSearch()
         } else {
             setIsSearchingEntireScan(false)
@@ -152,13 +159,94 @@ final class FileBrowserModel: ObservableObject {
 
     private func rebuildCurrentContentsResults() {
         let searchText = isFilteringCurrentContents ? trimmedCurrentContentsSearchText : ""
-        applyDisplayedNodes(
-            FileBrowserResults.filteredAndSortedCurrentContents(
-                nodes,
-                searchText: searchText,
-                sortOrder: sortOrder
+
+        guard shouldRefreshCurrentContentsAsynchronously else {
+            setIsRefreshingCurrentContents(false)
+            applyDisplayedNodes(
+                FileBrowserResults.filteredAndSortedCurrentContents(
+                    nodes,
+                    searchText: searchText,
+                    sortOrder: sortOrder
+                )
             )
-        )
+            return
+        }
+
+        scheduleCurrentContentsRefresh(searchText: searchText)
+    }
+
+    private var shouldRefreshCurrentContentsAsynchronously: Bool {
+        !nodes.isEmpty && nodes.count >= currentContentsAsyncThreshold
+    }
+
+    private func scheduleCurrentContentsRefresh(searchText: String) {
+        let nodes = nodes
+        let contentID = contentID
+        let snapshotID = snapshotID
+        let sortOrder = sortOrder
+        let generation = searchGeneration
+        let debounceDuration = searchText.isEmpty ? Duration.zero : searchDebounceDuration
+
+        setIsRefreshingCurrentContents(true)
+        searchTask = Task { [currentContentsService] in
+            do {
+                let refreshedNodes = try await currentContentsService.filteredAndSortedCurrentContents(
+                    nodes,
+                    searchText: searchText,
+                    sortOrder: sortOrder,
+                    debounceDuration: debounceDuration
+                )
+                try Task.checkCancellation()
+
+                await MainActor.run { [weak self] in
+                    guard let self,
+                          isCurrentCurrentContentsRefresh(
+                            generation: generation,
+                            contentID: contentID,
+                            snapshotID: snapshotID,
+                            searchText: searchText,
+                            sortOrder: sortOrder
+                          ) else {
+                        return
+                    }
+
+                    applyDisplayedNodes(refreshedNodes)
+                    setIsRefreshingCurrentContents(false)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self,
+                          isCurrentCurrentContentsRefresh(
+                            generation: generation,
+                            contentID: contentID,
+                            snapshotID: snapshotID,
+                            searchText: searchText,
+                            sortOrder: sortOrder
+                          ) else {
+                        return
+                    }
+
+                    setIsRefreshingCurrentContents(false)
+                }
+            }
+        }
+    }
+
+    private func isCurrentCurrentContentsRefresh(
+        generation: Int,
+        contentID: String,
+        snapshotID: UUID?,
+        searchText: String,
+        sortOrder: [FileNodeTableComparator]
+    ) -> Bool {
+        searchGeneration == generation &&
+            self.contentID == contentID &&
+            self.snapshotID == snapshotID &&
+            searchScope == .currentContents &&
+            trimmedCurrentContentsSearchText == searchText &&
+            self.sortOrder == sortOrder
     }
 
     private func scheduleEntireScanSearch() {
@@ -249,6 +337,30 @@ final class FileBrowserModel: ObservableObject {
     private func setIsSearchingEntireScan(_ isSearching: Bool) {
         guard isSearchingEntireScan != isSearching else { return }
         isSearchingEntireScan = isSearching
+    }
+
+    private func setIsRefreshingCurrentContents(_ isRefreshing: Bool) {
+        guard isRefreshingCurrentContents != isRefreshing else { return }
+        isRefreshingCurrentContents = isRefreshing
+    }
+}
+
+private actor CurrentContentsSearchService {
+    func filteredAndSortedCurrentContents(
+        _ nodes: [FileNodeRecord],
+        searchText: String,
+        sortOrder: [FileNodeTableComparator],
+        debounceDuration: Duration
+    ) async throws -> [FileNodeRecord] {
+        try await Task.sleep(for: debounceDuration)
+        return try FileBrowserResults.filteredAndSortedCurrentContents(
+            nodes,
+            searchText: searchText,
+            sortOrder: sortOrder,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
     }
 }
 
@@ -444,18 +556,44 @@ enum FileBrowserResults {
         searchText: String,
         sortOrder: [FileNodeTableComparator]
     ) -> [FileNodeRecord] {
+        (try? filteredAndSortedCurrentContents(
+            nodes,
+            searchText: searchText,
+            sortOrder: sortOrder,
+            cancellationCheck: {}
+        )) ?? []
+    }
+
+    nonisolated static func filteredAndSortedCurrentContents(
+        _ nodes: [FileNodeRecord],
+        searchText: String,
+        sortOrder: [FileNodeTableComparator],
+        cancellationCheck: @Sendable () throws -> Void
+    ) throws -> [FileNodeRecord] {
         let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedSearchText.isEmpty else {
+            try cancellationCheck()
             return nodes.sorted(using: sortOrder)
         }
 
-        return nodes.filter { node in
-            node.name.localizedStandardContains(trimmedSearchText) ||
+        var filteredNodes: [FileNodeRecord] = []
+        filteredNodes.reserveCapacity(min(nodes.count, 256))
+
+        for (offset, node) in nodes.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+
+            if node.name.localizedStandardContains(trimmedSearchText) ||
                 node.url.path.localizedStandardContains(trimmedSearchText) ||
-                node.itemKind.localizedStandardContains(trimmedSearchText)
+                node.itemKind.localizedStandardContains(trimmedSearchText) {
+                filteredNodes.append(node)
+            }
         }
-        .sorted(using: sortOrder)
+
+        try cancellationCheck()
+        return filteredNodes.sorted(using: sortOrder)
     }
 }
 
