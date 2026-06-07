@@ -56,6 +56,10 @@ final class SunburstChartModel: ObservableObject {
         renderState.hoveredSegment
     }
 
+    var renderedLayoutVersion: Int {
+        renderState.version
+    }
+
     func setHoveredSegmentID(_ segmentID: SunburstSegment.ID?) {
         guard hoveredSegmentID != segmentID else { return }
         var nextState = renderState
@@ -65,6 +69,16 @@ final class SunburstChartModel: ObservableObject {
 
     func segment(at point: CGPoint, in size: CGSize) -> SunburstSegment? {
         renderState.segment(at: point, in: size)
+    }
+
+    func selectionOverlaySegments(
+        selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>
+    ) -> [SunburstSelectionOverlaySegment] {
+        renderState.selectionOverlaySegments(
+            selectedNodeID: selectedNodeID,
+            selectedAncestorIDs: selectedAncestorIDs
+        )
     }
 
     @discardableResult
@@ -127,7 +141,10 @@ final class SunburstChartModel: ObservableObject {
     }
 
     private func apply(_ segments: [SunburstSegment]) {
-        renderState = SunburstChartRenderState(segments: segments)
+        renderState = SunburstChartRenderState(
+            segments: segments,
+            version: renderState.version + 1
+        )
     }
 
     private func setIsLayoutPending(_ isPending: Bool) {
@@ -136,18 +153,43 @@ final class SunburstChartModel: ObservableObject {
     }
 }
 
+enum SunburstSelectionRole: Equatable, Sendable {
+    case ancestor
+    case selected
+}
+
+struct SunburstSelectionOverlaySegment: Identifiable, Equatable, Sendable {
+    let segment: SunburstSegment
+    let role: SunburstSelectionRole
+
+    var id: SunburstSegment.ID {
+        segment.id
+    }
+}
+
 private struct SunburstChartRenderState {
     var segments: [SunburstSegment]
     var hoveredSegmentID: SunburstSegment.ID?
+    var version: Int
 
     private var segmentLookup: [SunburstSegment.ID: SunburstSegment]
+    private var segmentByNodeID: [String: SunburstSegment]
     private var hitTestIndex: SunburstHitTestIndex
 
-    init(segments: [SunburstSegment] = [], hoveredSegmentID: SunburstSegment.ID? = nil) {
+    init(
+        segments: [SunburstSegment] = [],
+        hoveredSegmentID: SunburstSegment.ID? = nil,
+        version: Int = 0
+    ) {
         self.segments = segments
         self.hoveredSegmentID = hoveredSegmentID
+        self.version = version
         segmentLookup = segments.reduce(into: [:]) { lookup, segment in
             lookup[segment.id] = segment
+        }
+        segmentByNodeID = segments.reduce(into: [:]) { lookup, segment in
+            guard let nodeID = segment.nodeID else { return }
+            lookup[nodeID] = segment
         }
         hitTestIndex = SunburstHitTestIndex(segments: segments)
     }
@@ -159,5 +201,37 @@ private struct SunburstChartRenderState {
 
     func segment(at point: CGPoint, in size: CGSize) -> SunburstSegment? {
         hitTestIndex.segment(at: point, in: size)
+    }
+
+    func selectionOverlaySegments(
+        selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>
+    ) -> [SunburstSelectionOverlaySegment] {
+        guard let selectedNodeID else { return [] }
+
+        var overlaySegments: [SunburstSelectionOverlaySegment] = []
+        overlaySegments.reserveCapacity(selectedAncestorIDs.count)
+
+        for segment in segments {
+            guard let nodeID = segment.nodeID,
+                  nodeID != selectedNodeID,
+                  selectedAncestorIDs.contains(nodeID) else {
+                continue
+            }
+
+            overlaySegments.append(SunburstSelectionOverlaySegment(
+                segment: segment,
+                role: .ancestor
+            ))
+        }
+
+        if let selectedSegment = segmentByNodeID[selectedNodeID] {
+            overlaySegments.append(SunburstSelectionOverlaySegment(
+                segment: selectedSegment,
+                role: .selected
+            ))
+        }
+
+        return overlaySegments
     }
 }

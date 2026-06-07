@@ -330,7 +330,7 @@ struct SunburstHitTestIndex: Sendable {
         let maxOuterRadius: CGFloat
         let segments: [SunburstSegment]
 
-        init(depth: Int, segments: [SunburstSegment]) {
+        nonisolated init(depth: Int, segments: [SunburstSegment]) {
             self.depth = depth
             self.segments = segments
 
@@ -345,7 +345,7 @@ struct SunburstHitTestIndex: Sendable {
             self.maxOuterRadius = maxOuterRadius
         }
 
-        func contains(_ normalizedDistance: CGFloat) -> Bool {
+        nonisolated func contains(_ normalizedDistance: CGFloat) -> Bool {
             normalizedDistance >= minInnerRadius && normalizedDistance <= maxOuterRadius
         }
     }

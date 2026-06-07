@@ -70,17 +70,25 @@ struct SunburstChartView: View {
             ZStack {
                 SunburstBaseCanvas(
                     segments: chartModel.renderedSegments,
-                    selectedNodeID: selectedNodeID,
-                    selectedAncestorIDs: selectedAncestorIDs
+                    renderVersion: chartModel.renderedLayoutVersion
                 )
                 .equatable()
                 .frame(width: chartFrame.width, height: chartFrame.height)
                 .position(x: chartFrame.midX, y: chartFrame.midY)
 
+                SunburstSelectionOverlay(
+                    segments: chartModel.selectionOverlaySegments(
+                        selectedNodeID: selectedNodeID,
+                        selectedAncestorIDs: selectedAncestorIDs
+                    )
+                )
+                .equatable()
+                .frame(width: chartFrame.width, height: chartFrame.height)
+                .position(x: chartFrame.midX, y: chartFrame.midY)
+                .allowsHitTesting(false)
+
                 SunburstHoverOverlay(
-                    segment: chartModel.hoveredSegment,
-                    selectedNodeID: selectedNodeID,
-                    selectedAncestorIDs: selectedAncestorIDs
+                    segment: chartModel.hoveredSegment
                 )
                 .equatable()
                 .frame(width: chartFrame.width, height: chartFrame.height)
@@ -197,19 +205,39 @@ struct SunburstChartView: View {
 
 private struct SunburstBaseCanvas: View, Equatable {
     let segments: [SunburstSegment]
-    let selectedNodeID: String?
-    let selectedAncestorIDs: Set<String>
+    let renderVersion: Int
+
+    static func == (lhs: SunburstBaseCanvas, rhs: SunburstBaseCanvas) -> Bool {
+        lhs.renderVersion == rhs.renderVersion
+    }
 
     var body: some View {
         Canvas { context, size in
             for segment in segments {
                 let path = SunburstRenderer.path(for: segment, in: size)
-                let style = SunburstChartStyler.baseStyle(
-                    for: segment,
-                    selectedNodeID: selectedNodeID,
-                    selectedAncestorIDs: selectedAncestorIDs
-                )
+                let style = SunburstChartStyler.baseStyle(for: segment)
                 context.fill(path, with: .color(style.fillColor))
+                context.stroke(path, with: .color(style.strokeColor), lineWidth: style.strokeWidth)
+            }
+        }
+    }
+}
+
+private struct SunburstSelectionOverlay: View, Equatable {
+    let segments: [SunburstSelectionOverlaySegment]
+
+    var body: some View {
+        Canvas { context, size in
+            for overlaySegment in segments {
+                let segment = overlaySegment.segment
+                let path = SunburstRenderer.path(for: segment, in: size)
+                let style = SunburstChartStyler.selectionOverlayStyle(
+                    for: segment,
+                    role: overlaySegment.role
+                )
+                if style.fillOpacity > 0 {
+                    context.fill(path, with: .color(style.fillColor))
+                }
                 context.stroke(path, with: .color(style.strokeColor), lineWidth: style.strokeWidth)
             }
         }
@@ -218,19 +246,13 @@ private struct SunburstBaseCanvas: View, Equatable {
 
 private struct SunburstHoverOverlay: View, Equatable {
     let segment: SunburstSegment?
-    let selectedNodeID: String?
-    let selectedAncestorIDs: Set<String>
 
     var body: some View {
         Canvas { context, size in
             guard let segment else { return }
 
             let path = SunburstRenderer.path(for: segment, in: size)
-            let style = SunburstChartStyler.hoverOverlayStyle(
-                for: segment,
-                selectedNodeID: selectedNodeID,
-                selectedAncestorIDs: selectedAncestorIDs
-            )
+            let style = SunburstChartStyler.hoverOverlayStyle(for: segment)
             if style.fillOpacity > 0 {
                 context.fill(path, with: .color(style.fillColor))
             }
@@ -261,9 +283,7 @@ private enum SunburstChartStyler {
     ]
 
     static func baseStyle(
-        for segment: SunburstSegment,
-        selectedNodeID: String?,
-        selectedAncestorIDs: Set<String>
+        for segment: SunburstSegment
     ) -> SunburstSegmentDrawingStyle {
         if segment.isAggregate {
             return SunburstSegmentDrawingStyle(
@@ -275,43 +295,45 @@ private enum SunburstChartStyler {
         }
 
         let baseOpacity = standardOpacity(for: segment)
-        let fillOpacity: Double
-        if segment.nodeID == selectedNodeID {
-            fillOpacity = min(baseOpacity + 0.1, 0.9)
-        } else if let nodeID = segment.nodeID, selectedAncestorIDs.contains(nodeID) {
-            fillOpacity = min(baseOpacity + 0.04, 0.84)
-        } else if selectedNodeID != nil {
-            fillOpacity = baseOpacity * 0.82
-        } else {
-            fillOpacity = baseOpacity
-        }
 
         return SunburstSegmentDrawingStyle(
             fillBaseColor: baseColor(for: segment),
-            fillOpacity: fillOpacity,
-            strokeColor: strokeColor(
-                for: segment,
-                selectedNodeID: selectedNodeID,
-                selectedAncestorIDs: selectedAncestorIDs
-            ),
-            strokeWidth: strokeWidth(
-                for: segment,
-                selectedNodeID: selectedNodeID,
-                selectedAncestorIDs: selectedAncestorIDs
-            )
+            fillOpacity: baseOpacity,
+            strokeColor: Color(nsColor: .separatorColor).opacity(0.4),
+            strokeWidth: 1
         )
     }
 
-    static func hoverOverlayStyle(
+    static func selectionOverlayStyle(
         for segment: SunburstSegment,
-        selectedNodeID: String?,
-        selectedAncestorIDs: Set<String>
+        role: SunburstSelectionRole
     ) -> SunburstSegmentDrawingStyle {
-        let base = baseStyle(
-            for: segment,
-            selectedNodeID: selectedNodeID,
-            selectedAncestorIDs: selectedAncestorIDs
+        let base = baseStyle(for: segment)
+        let targetFillOpacity: Double
+        let strokeColor: Color
+        let strokeWidth: CGFloat
+
+        switch role {
+        case .ancestor:
+            targetFillOpacity = min(base.fillOpacity + 0.04, 0.84)
+            strokeColor = Color.white.opacity(0.22)
+            strokeWidth = 1.5
+        case .selected:
+            targetFillOpacity = min(base.fillOpacity + 0.1, 0.9)
+            strokeColor = Color.white.opacity(0.5)
+            strokeWidth = 2.5
+        }
+
+        return SunburstSegmentDrawingStyle(
+            fillBaseColor: base.fillBaseColor,
+            fillOpacity: overlayOpacity(from: base.fillOpacity, to: targetFillOpacity),
+            strokeColor: strokeColor,
+            strokeWidth: strokeWidth
         )
+    }
+
+    static func hoverOverlayStyle(for segment: SunburstSegment) -> SunburstSegmentDrawingStyle {
+        let base = baseStyle(for: segment)
         let targetFillOpacity = hoverFillOpacity(for: segment)
         return SunburstSegmentDrawingStyle(
             fillBaseColor: base.fillBaseColor,
@@ -346,37 +368,6 @@ private enum SunburstChartStyler {
         guard targetOpacity > baseOpacity else { return 0 }
         let remainingOpacity = max(1 - baseOpacity, .leastNonzeroMagnitude)
         return min(max((targetOpacity - baseOpacity) / remainingOpacity, 0), 1)
-    }
-
-    private static func strokeColor(
-        for segment: SunburstSegment,
-        selectedNodeID: String?,
-        selectedAncestorIDs: Set<String>
-    ) -> Color {
-        if segment.isAggregate {
-            return Color(nsColor: .separatorColor).opacity(0.55)
-        }
-        if segment.nodeID == selectedNodeID {
-            return Color.white.opacity(0.5)
-        }
-        if let nodeID = segment.nodeID, selectedAncestorIDs.contains(nodeID) {
-            return Color.white.opacity(0.22)
-        }
-        return Color(nsColor: .separatorColor).opacity(0.4)
-    }
-
-    private static func strokeWidth(
-        for segment: SunburstSegment,
-        selectedNodeID: String?,
-        selectedAncestorIDs: Set<String>
-    ) -> CGFloat {
-        if segment.nodeID == selectedNodeID {
-            return 2.5
-        }
-        if let nodeID = segment.nodeID, selectedAncestorIDs.contains(nodeID) {
-            return 1.5
-        }
-        return 1
     }
 }
 

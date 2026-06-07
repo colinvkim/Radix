@@ -114,6 +114,47 @@ final class SunburstChartModelTests: XCTestCase {
         XCTAssertFalse(didApplyOldLayout)
         XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
     }
+
+    func testSelectionOverlaySegmentsIncludeAncestorsAndSelectedLast() async {
+        let ancestor = makeSegment(id: "ancestor", depth: 0)
+        let selected = makeSegment(id: "selected", depth: 1)
+        let sibling = makeSegment(id: "sibling", depth: 1)
+        let service = ImmediateSunburstLayoutService(segments: [ancestor, selected, sibling])
+        let model = SunburstChartModel(layoutService: service)
+        let store = makeStore()
+
+        let didApplyLayout = await model.loadLayout(
+            treeStore: store,
+            rootID: store.rootID,
+            depthLimit: 2,
+            layoutID: "layout"
+        )
+
+        XCTAssertTrue(didApplyLayout)
+        let overlaySegments = model.selectionOverlaySegments(
+            selectedNodeID: selected.nodeID,
+            selectedAncestorIDs: Set([ancestor.nodeID!, selected.nodeID!, "missing"])
+        )
+
+        XCTAssertEqual(overlaySegments.map(\.segment.id), [ancestor.id, selected.id])
+        XCTAssertEqual(overlaySegments.map(\.role), [.ancestor, .selected])
+    }
+}
+
+private actor ImmediateSunburstLayoutService: SunburstLayouting {
+    private let renderedSegments: [SunburstSegment]
+
+    init(segments: [SunburstSegment]) {
+        renderedSegments = segments
+    }
+
+    func segments(
+        in treeStore: FileTreeStore,
+        rootID: String,
+        depthLimit: Int
+    ) async throws -> [SunburstSegment] {
+        renderedSegments
+    }
 }
 
 private actor ControllableSunburstLayoutService: SunburstLayouting {
@@ -237,7 +278,7 @@ private func makeStore() -> FileTreeStore {
     return FileTreeStore(root: root)
 }
 
-private func makeSegment(id: String) -> SunburstSegment {
+private func makeSegment(id: String, depth: Int = 0) -> SunburstSegment {
     SunburstSegment(
         id: id,
         nodeID: id,
@@ -246,7 +287,7 @@ private func makeSegment(id: String) -> SunburstSegment {
         endAngle: .radians(1),
         innerRadius: 0,
         outerRadius: 1,
-        depth: 0,
+        depth: depth,
         colorKey: id,
         totalSize: 1,
         isAggregate: false
