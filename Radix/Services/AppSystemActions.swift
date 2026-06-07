@@ -36,6 +36,27 @@ struct AppQuickLookActions {
 }
 
 @MainActor
+final class AppEventMonitorToken {
+    private var removeAction: (() -> Void)?
+
+    init(remove: @escaping () -> Void) {
+        removeAction = remove
+    }
+
+    func remove() {
+        guard let removeAction else { return }
+        self.removeAction = nil
+        removeAction()
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            remove()
+        }
+    }
+}
+
+@MainActor
 struct AppSystemActions {
     var open: (URL) throws -> Void
     var reveal: (URL) -> Void
@@ -49,7 +70,7 @@ struct AppSystemActions {
     var isExistingDirectory: (URL) -> Bool
     var preferredSmartTargetIDs: () -> [String]
     var mountedVolumeEvents: () -> AnyPublisher<Void, Never>
-    var installQuickLookKeyMonitor: (@escaping (NSEvent) -> Bool) -> Any?
+    var installQuickLookKeyMonitor: (@escaping (NSEvent) -> Bool) -> AppEventMonitorToken?
 
     static let live = AppSystemActions(
         open: { try SystemIntegration.open($0) },
@@ -84,8 +105,13 @@ struct AppSystemActions {
                 .eraseToAnyPublisher()
         },
         installQuickLookKeyMonitor: { handler in
-            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
                 handler(event) ? nil : event
+            }) else {
+                return nil
+            }
+            return AppEventMonitorToken {
+                NSEvent.removeMonitor(monitor)
             }
         }
     )

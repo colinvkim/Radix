@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import RadixCore
 
@@ -108,6 +109,75 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testInstallsQuickLookKeyMonitorOnInit() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
+
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        XCTAssertEqual(recorder.quickLookKeyHandlers.count, 1)
+        withExtendedLifetime(model) {}
+    }
+
+    @MainActor
+    func testCleanupRemovesQuickLookKeyMonitorOnce() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
+
+        var model: AppModel? = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        model?.cleanup()
+        model?.cleanup()
+        model = nil
+
+        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 1)
+    }
+
+    @MainActor
+    func testDeinitRemovesQuickLookKeyMonitor() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
+
+        var model: AppModel? = AppModel(dependencies: makeDependencies(systemActions: actions))
+        XCTAssertNotNil(model)
+        XCTAssertEqual(recorder.quickLookKeyHandlers.count, 1)
+
+        model = nil
+
+        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 1)
+    }
+
+    @MainActor
+    func testQuickLookKeyMonitorSpaceTogglesSelectedItemThroughDependency() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.quickLook = AppQuickLookActions(
+            isPreviewVisible: { false },
+            isPreviewPanelKeyWindow: { false },
+            present: { _ in },
+            toggle: { recorder.toggledQuickLookURLs.append($0) },
+            updateVisiblePreview: { _ in },
+            close: {}
+        )
+        installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
+        let preferences = SpyAppPreferencesStore(
+            preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: true)
+        )
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didHandleEvent = recorder.quickLookKeyHandlers.first?(makeSpaceKeyEvent())
+
+        XCTAssertEqual(didHandleEvent, true)
+        XCTAssertEqual(recorder.toggledQuickLookURLs, [file.url])
+        XCTAssertNil(model.lastErrorMessage)
+    }
+
+    @MainActor
     func testUnavailableSelectionClearsSelectionAndSkipsInjectedAction() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -200,6 +270,37 @@ private func makeDependencies(
         ),
         systemActions: systemActions
     )
+}
+
+@MainActor
+private func installRecordingQuickLookMonitor(
+    on actions: inout AppSystemActions,
+    recorder: AppModelActionRecorder
+) {
+    actions.installQuickLookKeyMonitor = { handler in
+        recorder.quickLookKeyHandlers.append(handler)
+        return AppEventMonitorToken {
+            recorder.quickLookMonitorRemovalCount += 1
+        }
+    }
+}
+
+private func makeSpaceKeyEvent() -> NSEvent {
+    guard let event = NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: " ",
+        charactersIgnoringModifiers: " ",
+        isARepeat: false,
+        keyCode: 49
+    ) else {
+        fatalError("Failed to create Space key event")
+    }
+    return event
 }
 
 @MainActor
@@ -333,6 +434,8 @@ private final class AppModelActionRecorder {
     var updatedQuickLookURLs: [URL?] = []
     var quickLookCloseCount = 0
     var isQuickLookVisible = false
+    var quickLookKeyHandlers: [(NSEvent) -> Bool] = []
+    var quickLookMonitorRemovalCount = 0
     var defaultTargets: [ScanTarget] = []
     var defaultTargetsCallCount = 0
 }

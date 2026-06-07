@@ -54,7 +54,7 @@ final class AppModel: ObservableObject {
     private let navigationModel = WorkspaceNavigationModel()
 
     private var cancellables = Set<AnyCancellable>()
-    private var quickLookEventMonitor: Any?
+    private var quickLookEventMonitor: AppEventMonitorToken?
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -74,6 +74,16 @@ final class AppModel: ObservableObject {
         observeMountedVolumes()
         observePreferences()
         installQuickLookKeyMonitor()
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            cleanup()
+        }
+    }
+
+    func cleanup() {
+        removeQuickLookKeyMonitor()
     }
 
     var phase: Phase {
@@ -565,12 +575,18 @@ final class AppModel: ObservableObject {
     }
 
     private func installQuickLookKeyMonitor() {
+        removeQuickLookKeyMonitor()
         quickLookEventMonitor = dependencies.systemActions.installQuickLookKeyMonitor { [weak self] event in
             let didHandleEvent = MainActor.assumeIsolated {
                 self?.handleQuickLookKeyDown(event) == true
             }
             return didHandleEvent
         }
+    }
+
+    private func removeQuickLookKeyMonitor() {
+        quickLookEventMonitor?.remove()
+        quickLookEventMonitor = nil
     }
 
     private func handleQuickLookKeyDown(_ event: NSEvent) -> Bool {
