@@ -16,7 +16,6 @@ struct FileBrowserTableView: View {
     @State private var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
     @State private var indexedEntireScanSnapshotID: UUID?
     @State private var entireScanNodeIDs: [FileNodeRecord.ID] = []
-    @State private var entireScanNormalizedHaystacks: [FileNodeRecord.ID: String] = [:]
     @State private var isSearchingEntireScan = false
     @State private var entireScanSearchTask: Task<Void, Never>?
     private var tableSelection: Binding<String?> {
@@ -224,7 +223,6 @@ struct FileBrowserTableView: View {
         .onChange(of: appModel.snapshot?.id) { _, _ in
             indexedEntireScanSnapshotID = nil
             entireScanNodeIDs = []
-            entireScanNormalizedHaystacks = [:]
             refreshDisplayedNodes()
         }
         .onDisappear {
@@ -323,9 +321,6 @@ struct FileBrowserTableView: View {
 
         indexedEntireScanSnapshotID = snapshotID
         entireScanNodeIDs = appModel.fileTreeStore?.indexedNodeIDs(excludingRoot: true) ?? []
-        if appModel.snapshot?.id != snapshotID {
-            entireScanNormalizedHaystacks = [:]
-        }
 
         if appModel.snapshot?.id == snapshotID, isShowingEntireScanResults {
             scheduleEntireScanSearch()
@@ -345,7 +340,7 @@ struct FileBrowserTableView: View {
         let normalizedSearchText = SearchNormalizer.normalize(searchText)
         let snapshotID = appModel.snapshot?.id
         let nodesByID = appModel.fileTreeStore?.nodesByID ?? [:]
-        let cachedHaystacks = entireScanNormalizedHaystacks
+        let includesPath = searchText.contains("/") || searchText.contains("\\")
 
         if nodeIDs.isEmpty {
             isSearchingEntireScan = false
@@ -361,7 +356,6 @@ struct FileBrowserTableView: View {
                 try Task.checkCancellation()
 
                 let searchResult = try await Task.detached(priority: .userInitiated) {
-                    var updatedHaystacks = cachedHaystacks
                     var matchedIDs: [FileNodeRecord.ID] = []
 
                     for (offset, id) in nodeIDs.enumerated() {
@@ -371,15 +365,9 @@ struct FileBrowserTableView: View {
 
                         guard let node = nodesByID[id] else { continue }
 
-                        let haystack: String
-                        if let cached = updatedHaystacks[id] {
-                            haystack = cached
-                        } else {
-                            haystack = SearchNormalizer.normalize(
-                                [node.name, node.url.path, node.itemKind].joined(separator: "\n")
-                            )
-                            updatedHaystacks[id] = haystack
-                        }
+                        let haystack = SearchNormalizer.normalize(
+                            SearchNormalizer.haystack(for: node, includesPath: includesPath)
+                        )
 
                         if haystack.contains(normalizedSearchText) {
                             matchedIDs.append(id)
@@ -387,8 +375,7 @@ struct FileBrowserTableView: View {
                     }
 
                     return EntireScanSearchResult(
-                        matchedIDs: matchedIDs,
-                        normalizedHaystacks: updatedHaystacks
+                        matchedIDs: matchedIDs
                     )
                 }.value
 
@@ -400,7 +387,6 @@ struct FileBrowserTableView: View {
                         return
                     }
 
-                    self.entireScanNormalizedHaystacks = searchResult.normalizedHaystacks
                     let matchedNodes = searchResult.matchedIDs.compactMap { nodesByID[$0] }
                     let sortedNodes = matchedNodes.sorted(using: sortOrder)
                     applyDisplayedNodes(sortedNodes)
@@ -422,7 +408,6 @@ struct FileBrowserTableView: View {
 
 private struct EntireScanSearchResult: Sendable {
     let matchedIDs: [FileNodeRecord.ID]
-    let normalizedHaystacks: [FileNodeRecord.ID: String]
 }
 
 private struct FileNodeTableComparator: SortComparator, Sendable {
@@ -477,6 +462,14 @@ private enum SearchNormalizer {
         value
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .lowercased()
+    }
+
+    nonisolated static func haystack(for node: FileNodeRecord, includesPath: Bool) -> String {
+        if includesPath {
+            return [node.name, node.url.path, node.itemKind].joined(separator: "\n")
+        }
+
+        return [node.name, node.itemKind].joined(separator: "\n")
     }
 }
 
