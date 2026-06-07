@@ -13,7 +13,7 @@ struct SunburstChartView: View {
     let onZoom: (String) -> Void
 
     @State private var hoveredSegment: SunburstSegment?
-    @State private var renderedSegments: [SunburstSegment]
+    @State private var renderedSegments: [SunburstSegment] = []
 
     init(
         rootNode: FileNodeRecord,
@@ -31,7 +31,6 @@ struct SunburstChartView: View {
         self.layoutID = layoutID
         self.onSelect = onSelect
         self.onZoom = onZoom
-        _renderedSegments = State(initialValue: SunburstLayout.segments(in: treeStore, rootID: rootNode.id, depthLimit: depthLimit))
     }
 
     private var displayedNode: FileNodeRecord? {
@@ -80,6 +79,11 @@ struct SunburstChartView: View {
                 }
                 .frame(width: chartFrame.width, height: chartFrame.height)
                 .position(x: chartFrame.midX, y: chartFrame.midY)
+
+                if renderedSegments.isEmpty {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
             .contentShape(Rectangle())
             .overlay {
@@ -122,11 +126,14 @@ struct SunburstChartView: View {
 
     private func updateHover(at location: CGPoint?, in frame: CGRect) {
         guard let location else {
+            guard hoveredSegment != nil else { return }
             hoveredSegment = nil
             return
         }
 
-        hoveredSegment = hitTest(at: location, in: frame)
+        let nextSegment = hitTest(at: location, in: frame)
+        guard nextSegment?.id != hoveredSegment?.id else { return }
+        hoveredSegment = nextSegment
     }
 
     private func handleClick(at location: CGPoint, in frame: CGRect, clickCount: Int) {

@@ -49,6 +49,8 @@ struct SidebarView: View {
 }
 
 private struct SidebarTargetRow: View {
+    @EnvironmentObject private var appModel: AppModel
+
     let target: ScanTarget
 
     var body: some View {
@@ -66,7 +68,7 @@ private struct SidebarTargetRow: View {
         }
         .contextMenu {
             Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
-                SystemIntegration.reveal(target.url)
+                appModel.revealTargetInFinder(target)
             }
         }
         .help(target.url.path)

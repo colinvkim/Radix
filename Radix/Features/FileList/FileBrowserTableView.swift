@@ -7,21 +7,12 @@ struct FileBrowserTableView: View {
     let contentID: String
     @Binding var selection: String?
 
+    @StateObject private var model = FileBrowserModel()
     @FocusState private var isSearchFieldFocused: Bool
-    @State private var currentContentsSearchText = ""
-    @State private var entireScanSearchText = ""
-    @State private var searchScope: FileBrowserFindTarget = .currentContents
-    @State private var sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
-    @State private var displayedNodes: [FileNodeRecord] = []
-    @State private var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
-    @State private var indexedEntireScanSnapshotID: UUID?
-    @State private var entireScanNodeIDs: [FileNodeRecord.ID] = []
-    @State private var isSearchingEntireScan = false
-    @State private var entireScanSearchTask: Task<Void, Never>?
     private var tableSelection: Binding<String?> {
         Binding(
             get: {
-                guard let selection, displayedNodeLookup[selection] != nil else { return nil }
+                guard let selection, model.displayedNodeLookup[selection] != nil else { return nil }
                 return selection
             },
             set: { newValue in
@@ -34,53 +25,29 @@ struct FileBrowserTableView: View {
 
     private var sortOrderBinding: Binding<[FileNodeTableComparator]> {
         Binding(
-            get: { sortOrder },
+            get: { model.sortOrder },
             set: { newValue in
-                sortOrder = newValue
-                refreshDisplayedNodes()
+                model.setSortOrder(newValue)
             }
         )
     }
 
-    private var isShowingEntireScanResults: Bool {
-        searchScope == .entireScan && !trimmedEntireScanSearchText.isEmpty
-    }
-
-    private var isFilteringCurrentContents: Bool {
-        searchScope == .currentContents && !trimmedCurrentContentsSearchText.isEmpty
-    }
-
-    private var trimmedCurrentContentsSearchText: String {
-        currentContentsSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var trimmedEntireScanSearchText: String {
-        entireScanSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var searchScopeBinding: Binding<FileBrowserFindTarget> {
+        Binding(
+            get: { model.searchScope },
+            set: { model.setSearchScope($0) }
+        )
     }
 
     private var activeSearchText: Binding<String> {
         Binding(
-            get: {
-                switch searchScope {
-                case .currentContents:
-                    currentContentsSearchText
-                case .entireScan:
-                    entireScanSearchText
-                }
-            },
-            set: { newValue in
-                switch searchScope {
-                case .currentContents:
-                    currentContentsSearchText = newValue
-                case .entireScan:
-                    entireScanSearchText = newValue
-                }
-            }
+            get: { model.activeSearchText },
+            set: { model.setActiveSearchText($0) }
         )
     }
 
     private var showsTableChrome: Bool {
-        !nodes.isEmpty || isShowingEntireScanResults
+        !nodes.isEmpty || model.isShowingEntireScanResults
     }
 
     var body: some View {
@@ -95,14 +62,14 @@ struct FileBrowserTableView: View {
             } else {
                 VStack(spacing: 0) {
                     SearchFilterBar(
-                        scope: $searchScope,
+                        scope: searchScopeBinding,
                         text: activeSearchText,
                         isFocused: $isSearchFieldFocused
                     )
 
                     Divider()
 
-                    if isShowingEntireScanResults && isSearchingEntireScan && displayedNodes.isEmpty {
+                    if model.isShowingEntireScanResults && model.isSearchingEntireScan && model.displayedNodes.isEmpty {
                         VStack {
                             Spacer()
                             ProgressView("Searching Entire Scan…")
@@ -110,7 +77,7 @@ struct FileBrowserTableView: View {
                             Spacer()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if displayedNodes.isEmpty {
+                    } else if model.displayedNodes.isEmpty {
                         ContentUnavailableView(
                             "No Matching Items",
                             systemImage: "magnifyingglass",
@@ -118,7 +85,7 @@ struct FileBrowserTableView: View {
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        Table(displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
+                        Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
                             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                                 NameCell(
                                     node: node,
@@ -152,7 +119,7 @@ struct FileBrowserTableView: View {
                         .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in. Press Space for Quick Look.")
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
-                               let selectedNode = displayedNodeLookup[selectedID] {
+                               let selectedNode = model.displayedNodeLookup[selectedID] {
                                 Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.previewSelectedWithQuickLook()
@@ -193,7 +160,7 @@ struct FileBrowserTableView: View {
                             }
                         } primaryAction: { selectedIDs in
                             guard let selectedID = selectedIDs.first,
-                                  let selectedNode = displayedNodeLookup[selectedID] else {
+                                  let selectedNode = model.displayedNodeLookup[selectedID] else {
                                 return
                             }
 
@@ -210,39 +177,42 @@ struct FileBrowserTableView: View {
             }
         }
         .focusedSceneValue(\.fileListFilterAction) { target in
-            searchScope = target
+            model.setSearchScope(target)
             isSearchFieldFocused = true
         }
         .onAppear {
-            refreshDisplayedNodes()
+            updateModelContent(forceRefresh: true)
         }
-        .onChange(of: contentID, updateFilter)
-        .onChange(of: currentContentsSearchText, updateFilter)
-        .onChange(of: entireScanSearchText, updateFilter)
-        .onChange(of: searchScope, updateFilter)
+        .onChange(of: contentID) { _, _ in
+            updateModelContent()
+        }
         .onChange(of: appModel.snapshot?.id) { _, _ in
-            indexedEntireScanSnapshotID = nil
-            entireScanNodeIDs = []
-            refreshDisplayedNodes()
+            updateModelContent()
         }
         .onDisappear {
-            entireScanSearchTask?.cancel()
+            model.cancelSearch()
         }
     }
 
     private var noResultsDescription: String {
-        if isShowingEntireScanResults {
+        if model.isShowingEntireScanResults {
             return "No items anywhere in this scan match your search."
         }
         return "Try a different filter or clear the current contents filter."
     }
 
-    private func updateFilter() {
-        refreshDisplayedNodes()
+    private func updateModelContent(forceRefresh: Bool = false) {
+        model.updateContent(
+            nodes: nodes,
+            contentID: contentID,
+            snapshot: appModel.snapshot,
+            fileTreeStore: appModel.fileTreeStore,
+            forceRefresh: forceRefresh
+        )
     }
 
     private func subtitle(for node: FileNodeRecord) -> String? {
-        guard isShowingEntireScanResults else {
+        guard model.isShowingEntireScanResults else {
             return node.secondaryStatusText
         }
 
@@ -264,221 +234,6 @@ struct FileBrowserTableView: View {
         return "1"
     }
 
-    private func refreshDisplayedNodes() {
-        entireScanSearchTask?.cancel()
-        entireScanSearchTask = nil
-
-        if isShowingEntireScanResults {
-            ensureEntireScanIndexThenSearch()
-        } else {
-            isSearchingEntireScan = false
-            rebuildCurrentContentsResults()
-        }
-    }
-
-    private func rebuildCurrentContentsResults() {
-        let sortedNodes = nodes.sorted(using: sortOrder)
-        let searchText = isFilteringCurrentContents ? trimmedCurrentContentsSearchText : ""
-        let filteredNodes: [FileNodeRecord]
-
-        if searchText.isEmpty {
-            filteredNodes = sortedNodes
-        } else {
-            filteredNodes = sortedNodes.filter { node in
-                node.name.localizedStandardContains(searchText) ||
-                    node.url.path.localizedStandardContains(searchText) ||
-                    node.itemKind.localizedStandardContains(searchText)
-            }
-        }
-
-        applyDisplayedNodes(filteredNodes)
-    }
-
-    private func ensureEntireScanIndexThenSearch() {
-        let snapshotID = appModel.snapshot?.id
-
-        guard let snapshotID else {
-            indexedEntireScanSnapshotID = nil
-            entireScanNodeIDs = []
-            isSearchingEntireScan = false
-            applyDisplayedNodes([])
-            return
-        }
-
-        if indexedEntireScanSnapshotID == snapshotID {
-            scheduleEntireScanSearch()
-            return
-        }
-
-        rebuildEntireScanSearchIndex(for: snapshotID)
-    }
-
-    private func rebuildEntireScanSearchIndex(for snapshotID: UUID) {
-        if isShowingEntireScanResults {
-            isSearchingEntireScan = true
-            applyDisplayedNodes([])
-        }
-
-        indexedEntireScanSnapshotID = snapshotID
-        entireScanNodeIDs = appModel.fileTreeStore?.indexedNodeIDs(excludingRoot: true) ?? []
-
-        if appModel.snapshot?.id == snapshotID, isShowingEntireScanResults {
-            scheduleEntireScanSearch()
-        }
-    }
-
-    private func scheduleEntireScanSearch() {
-        let searchText = trimmedEntireScanSearchText
-
-        guard !searchText.isEmpty else {
-            isSearchingEntireScan = false
-            rebuildCurrentContentsResults()
-            return
-        }
-
-        let nodeIDs = entireScanNodeIDs
-        let normalizedSearchText = SearchNormalizer.normalize(searchText)
-        let snapshotID = appModel.snapshot?.id
-        let nodesByID = appModel.fileTreeStore?.nodesByID ?? [:]
-        let includesPath = searchText.contains("/") || searchText.contains("\\")
-
-        if nodeIDs.isEmpty {
-            isSearchingEntireScan = false
-            applyDisplayedNodes([])
-            return
-        }
-
-        isSearchingEntireScan = true
-
-        entireScanSearchTask = Task {
-            do {
-                try await Task.sleep(for: .milliseconds(180))
-                try Task.checkCancellation()
-
-                let searchResult = try await Task.detached(priority: .userInitiated) {
-                    var matchedIDs: [FileNodeRecord.ID] = []
-
-                    for (offset, id) in nodeIDs.enumerated() {
-                        if offset.isMultiple(of: 256) {
-                            try Task.checkCancellation()
-                        }
-
-                        guard let node = nodesByID[id] else { continue }
-
-                        let haystack = SearchNormalizer.normalize(
-                            SearchNormalizer.haystack(for: node, includesPath: includesPath)
-                        )
-
-                        if haystack.contains(normalizedSearchText) {
-                            matchedIDs.append(id)
-                        }
-                    }
-
-                    return EntireScanSearchResult(
-                        matchedIDs: matchedIDs
-                    )
-                }.value
-
-                try Task.checkCancellation()
-
-                await MainActor.run {
-                    guard self.appModel.snapshot?.id == snapshotID,
-                          SearchNormalizer.normalize(self.trimmedEntireScanSearchText) == normalizedSearchText else {
-                        return
-                    }
-
-                    let matchedNodes = searchResult.matchedIDs.compactMap { nodesByID[$0] }
-                    let sortedNodes = matchedNodes.sorted(using: sortOrder)
-                    applyDisplayedNodes(sortedNodes)
-                    isSearchingEntireScan = false
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                return
-            }
-        }
-    }
-
-    private func applyDisplayedNodes(_ nodes: [FileNodeRecord]) {
-        var uniqueNodes: [FileNodeRecord] = []
-        var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
-
-        for node in nodes where lookup[node.id] == nil {
-            lookup[node.id] = node
-            uniqueNodes.append(node)
-        }
-
-        displayedNodes = uniqueNodes
-        displayedNodeLookup = lookup
-    }
-}
-
-private struct EntireScanSearchResult: Sendable {
-    let matchedIDs: [FileNodeRecord.ID]
-}
-
-private struct FileNodeTableComparator: SortComparator, Sendable {
-    enum Field: Sendable {
-        case name
-        case allocatedSize
-        case itemKind
-    }
-
-    let field: Field
-    var order: SortOrder = .forward
-
-    func compare(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord) -> ComparisonResult {
-        let result: ComparisonResult = switch field {
-        case .name:
-            lhs.name.localizedStandardCompare(rhs.name)
-        case .allocatedSize:
-            compare(lhs.allocatedSize, rhs.allocatedSize)
-        case .itemKind:
-            lhs.itemKind.localizedStandardCompare(rhs.itemKind)
-        }
-
-        if order == .forward {
-            return result
-        }
-
-        return switch result {
-        case .orderedAscending:
-            .orderedDescending
-        case .orderedDescending:
-            .orderedAscending
-        case .orderedSame:
-            .orderedSame
-        @unknown default:
-            result
-        }
-    }
-
-    private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
-        if lhs < rhs {
-            return .orderedAscending
-        }
-        if lhs > rhs {
-            return .orderedDescending
-        }
-        return .orderedSame
-    }
-}
-
-private enum SearchNormalizer {
-    nonisolated static func normalize(_ value: String) -> String {
-        value
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-    }
-
-    nonisolated static func haystack(for node: FileNodeRecord, includesPath: Bool) -> String {
-        if includesPath {
-            return [node.name, node.url.path, node.itemKind].joined(separator: "\n")
-        }
-
-        return [node.name, node.itemKind].joined(separator: "\n")
-    }
 }
 
 private struct SearchFilterBar: View {
@@ -541,6 +296,7 @@ private struct SearchFilterBar: View {
                 }
                 .buttonStyle(.plain)
                 .help(scope == .currentContents ? "Clear current contents filter" : "Clear entire scan search")
+                .accessibilityLabel(scope == .currentContents ? "Clear current contents filter" : "Clear entire scan search")
             }
         }
         .padding(.horizontal, 10)
@@ -600,6 +356,8 @@ private struct ExpandSummarizedButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isExpanding)
+        .accessibilityLabel("Expand \(node.name)")
+        .accessibilityHint("Scans all \(node.descendantFileCount) files in this summarized folder.")
         .overlay {
             if isExpanding {
                 ProgressView()

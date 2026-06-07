@@ -9,6 +9,7 @@ import AppKit
 import Foundation
 import QuickLookUI
 
+@MainActor
 extension SystemIntegration {
     static var isQuickLookPreviewVisible: Bool {
         QuickLookPreviewPresenter.shared.isPreviewVisible
@@ -36,7 +37,7 @@ extension SystemIntegration {
 }
 
 @MainActor
-private final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource {
+private final class QuickLookPreviewPresenter: NSObject, @preconcurrency QLPreviewPanelDataSource {
     static let shared = QuickLookPreviewPresenter()
 
     private var previewItems: [NSURL] = []

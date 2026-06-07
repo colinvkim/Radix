@@ -1,10 +1,5 @@
 import SwiftUI
 
-enum FileBrowserFindTarget {
-    case currentContents
-    case entireScan
-}
-
 private struct FileListFilterActionKey: FocusedValueKey {
     typealias Value = (FileBrowserFindTarget) -> Void
 }

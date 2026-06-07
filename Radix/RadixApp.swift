@@ -59,7 +59,7 @@ struct RadixApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("Radix", id: "main") {
             ContentView()
                 .environmentObject(appModel)
                 .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 760, maxHeight: .infinity)

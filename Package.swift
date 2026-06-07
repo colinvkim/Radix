@@ -25,17 +25,24 @@ let package = Package(
                 "Features",
                 "Info.plist",
                 "RadixApp.swift",
-                "Services/SystemIntegration.swift",
-                "Services/QuickLookIntegration.swift",
                 "Shared",
-                "ViewModels",
                 "Views"
             ],
             sources: [
                 "Models/ScanModels.swift",
+                "Services/AppDependencies.swift",
+                "Services/AppPreferencesStore.swift",
+                "Services/AppSystemActions.swift",
+                "Services/FileBrowserModel.swift",
                 "Services/FileSizeFormatter.swift",
+                "Services/QuickLookIntegration.swift",
+                "Services/RecentTargetStore.swift",
+                "Services/ScanCoordinator.swift",
                 "Services/ScanEngine.swift",
-                "Services/SunburstGeometry.swift"
+                "Services/SunburstGeometry.swift",
+                "Services/SystemIntegration.swift",
+                "ViewModels/AppModel.swift",
+                "ViewModels/WorkspaceNavigationModel.swift"
             ]
         ),
         .testTarget(
