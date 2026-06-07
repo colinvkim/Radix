@@ -67,7 +67,11 @@ struct RadixApp: App {
         .defaultSize(width: 1480, height: 920)
         .windowResizability(.contentMinSize)
         .commands {
-            RadixCommands(appModel: appModel)
+            RadixCommands(
+                appModel: appModel,
+                scanState: appModel.scanState,
+                navigation: appModel.navigation
+            )
 
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updater: updaterController.updater)

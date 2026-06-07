@@ -2,22 +2,21 @@ import SwiftUI
 
 struct FileBrowserTableView: View {
     @EnvironmentObject private var appModel: AppModel
-
-    let nodes: [FileNodeRecord]
-    let contentID: String
-    @Binding var selection: String?
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
 
     @StateObject private var model = FileBrowserModel()
     @FocusState private var isSearchFieldFocused: Bool
     private var tableSelection: Binding<String?> {
         Binding(
             get: {
-                guard let selection, model.displayedNodeLookup[selection] != nil else { return nil }
-                return selection
+                guard let selectedNodeID = navigation.selectedNodeID,
+                      model.displayedNodeLookup[selectedNodeID] != nil else { return nil }
+                return selectedNodeID
             },
             set: { newValue in
-                if selection != newValue {
-                    selection = newValue
+                if navigation.selectedNodeID != newValue {
+                    appModel.select(nodeID: newValue)
                 }
             }
         )
@@ -48,6 +47,14 @@ struct FileBrowserTableView: View {
 
     private var showsTableChrome: Bool {
         !nodes.isEmpty || model.isShowingEntireScanResults
+    }
+
+    private var nodes: [FileNodeRecord] {
+        navigation.tableNodes
+    }
+
+    private var contentID: String {
+        navigation.tableContentID
     }
 
     var body: some View {
@@ -186,7 +193,7 @@ struct FileBrowserTableView: View {
         .onChange(of: contentID) { _, _ in
             updateModelContent()
         }
-        .onChange(of: appModel.snapshot?.id) { _, _ in
+        .onChange(of: scanState.snapshot?.id) { _, _ in
             updateModelContent()
         }
         .onDisappear {
@@ -205,8 +212,8 @@ struct FileBrowserTableView: View {
         model.updateContent(
             nodes: nodes,
             contentID: contentID,
-            snapshot: appModel.snapshot,
-            fileTreeStore: appModel.fileTreeStore,
+            snapshot: scanState.snapshot,
+            fileTreeStore: scanState.fileTreeStore,
             forceRefresh: forceRefresh
         )
     }
@@ -216,7 +223,7 @@ struct FileBrowserTableView: View {
             return node.secondaryStatusText
         }
 
-        guard let fileTreeStore = appModel.fileTreeStore else {
+        guard let fileTreeStore = scanState.fileTreeStore else {
             return node.url.deletingLastPathComponent().path
         }
 

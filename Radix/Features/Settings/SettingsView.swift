@@ -12,7 +12,7 @@ struct SettingsView: View {
                 }
                 .tag(SettingsTab.general.rawValue)
 
-            PrivacySettingsPane()
+            PrivacySettingsPane(scanState: appModel.scanState)
                 .tabItem {
                     Label("Privacy", systemImage: "hand.raised")
                 }
@@ -75,6 +75,7 @@ private struct GeneralSettingsPane: View {
 
 private struct PrivacySettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
 
     var body: some View {
         Form {
@@ -87,7 +88,7 @@ private struct PrivacySettingsPane: View {
                     appModel.prepareAndOpenFullDiskAccessSettings()
                 }
 
-                if appModel.shouldSuggestFullDiskAccess {
+                if PermissionAdvisor.shouldSuggestFullDiskAccess(for: scanState.snapshot) {
                     Label("Recent scan results suggest that protected folders were skipped.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .font(.callout)

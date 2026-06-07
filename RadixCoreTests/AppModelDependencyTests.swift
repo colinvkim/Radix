@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 @testable import RadixCore
 
@@ -217,6 +218,40 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.selectedNodeID = nil
         XCTAssertEqual(recorder.quickLookCloseCount, 1)
+    }
+
+    @MainActor
+    func testNarrowStateOwnersStayAlignedWithAppModelFacade() {
+        let model = AppModel(dependencies: makeDependencies())
+        let file = installSelection(on: model, selectNode: false)
+        let target = makeAppModelTarget("/aligned")
+
+        model.selectedTarget = target
+        model.select(nodeID: file.id)
+
+        XCTAssertEqual(model.scanState.selectedTarget, target)
+        XCTAssertEqual(model.scanState.snapshot?.root.id, model.snapshot?.root.id)
+        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+        XCTAssertEqual(model.navigation.selectedNode?.id, model.selectedNode?.id)
+    }
+
+    @MainActor
+    func testAppModelDoesNotRebroadcastNarrowStateOwnerChanges() {
+        let model = AppModel(dependencies: makeDependencies())
+        let file = installSelection(on: model, selectNode: false)
+        var observedAppModelChanges = 0
+
+        let cancellable = model.objectWillChange.sink { _ in
+            observedAppModelChanges += 1
+        }
+
+        var metrics = ScanMetrics()
+        metrics.filesVisited = 12
+        model.scanState.scanMetrics = metrics
+        model.navigation.select(nodeID: file.id)
+
+        XCTAssertEqual(observedAppModelChanges, 0)
+        withExtendedLifetime(cancellable) {}
     }
 
     @MainActor

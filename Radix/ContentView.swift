@@ -15,33 +15,20 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
-            SidebarView()
+            SidebarView(scanState: appModel.scanState)
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
         } detail: {
-            NavigationStack {
-                WorkspaceView()
-                    .toolbar {
-                        ToolbarItemGroup(placement: .navigation) {
-                            Button {
-                                appModel.navigateBack()
-                            } label: {
-                                Label("Back", systemImage: "chevron.backward")
-                            }
-                            .disabled(!appModel.canNavigateBack)
-
-                            Button {
-                                appModel.navigateForward()
-                            } label: {
-                                Label("Forward", systemImage: "chevron.forward")
-                            }
-                            .disabled(!appModel.canNavigateForward)
-                        }
-                    }
-            }
+            WorkspaceDetailView(
+                scanState: appModel.scanState,
+                navigation: appModel.navigation
+            )
         }
         .navigationSplitViewStyle(.balanced)
         .inspector(isPresented: $showsInspector) {
-            SelectionInspectorView()
+            SelectionInspectorView(
+                scanState: appModel.scanState,
+                navigation: appModel.navigation
+            )
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
                 .interactiveDismissDisabled()
         }
@@ -90,6 +77,35 @@ struct ContentView: View {
             }
         } message: { node in
             Text("Radix will ask macOS to move “\(node.name)” to the Trash.")
+        }
+    }
+}
+
+private struct WorkspaceDetailView: View {
+    @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
+
+    var body: some View {
+        NavigationStack {
+            WorkspaceView(scanState: scanState, navigation: navigation)
+                .toolbar {
+                    ToolbarItemGroup(placement: .navigation) {
+                        Button {
+                            appModel.navigateBack()
+                        } label: {
+                            Label("Back", systemImage: "chevron.backward")
+                        }
+                        .disabled(!navigation.canNavigateBack)
+
+                        Button {
+                            appModel.navigateForward()
+                        } label: {
+                            Label("Forward", systemImage: "chevron.forward")
+                        }
+                        .disabled(!navigation.canNavigateForward)
+                    }
+                }
         }
     }
 }

@@ -2,10 +2,12 @@ import SwiftUI
 
 struct SelectionInspectorView: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
 
     var body: some View {
         Group {
-            if let node = appModel.selectedNode {
+            if let node = navigation.selectedNode {
                 Form {
                     Section {
                         InspectorHeader(node: node)
@@ -14,8 +16,8 @@ struct SelectionInspectorView: View {
                     Section("Key Stats") {
                         InspectorKeyStats(
                             allocatedSize: RadixFormatters.size(node.allocatedSize),
-                            percentOfParent: appModel.selectedNodePercentOfParentText ?? "—",
-                            percentOfScan: appModel.selectedNodePercentOfScanText ?? "—"
+                            percentOfParent: selectedNodePercentOfParentText ?? "—",
+                            percentOfScan: selectedNodePercentOfScanText ?? "—"
                         )
                     }
 
@@ -28,7 +30,7 @@ struct SelectionInspectorView: View {
                             Text(RadixFormatters.size(node.logicalSize))
                         }
 
-                        if let parent = appModel.selectedNodeParent {
+                        if let parent = navigation.selectedNodeParent {
                             LabeledContent("Parent") {
                                 Text(parent.name)
                             }
@@ -44,12 +46,12 @@ struct SelectionInspectorView: View {
                     }
 
                     Section("Actions") {
-                        InspectorActionButtons()
+                        InspectorActionButtons(scanState: scanState, navigation: navigation)
                     }
 
-                    if !appModel.largestSelectedChildren.isEmpty {
+                    if !largestSelectedChildren.isEmpty {
                         Section("Largest Children") {
-                            ForEach(appModel.largestSelectedChildren) { child in
+                            ForEach(largestSelectedChildren) { child in
                                 Button {
                                     appModel.select(nodeID: child.id)
                                 } label: {
@@ -60,10 +62,10 @@ struct SelectionInspectorView: View {
                         }
                     }
 
-                    if !appModel.scanWarningsPreview.isEmpty {
+                    if !scanWarningsPreview.isEmpty {
                         WarningsSection(
-                            warnings: appModel.scanWarningsPreview,
-                            shouldSuggestFullDiskAccess: appModel.shouldSuggestFullDiskAccess
+                            warnings: scanWarningsPreview,
+                            shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess
                         ) {
                             appModel.prepareAndOpenFullDiskAccessSettings()
                         }
@@ -72,14 +74,41 @@ struct SelectionInspectorView: View {
                 .formStyle(.grouped)
             } else {
                 NoSelectionInspectorState(
-                    scanWarningsPreview: appModel.scanWarningsPreview,
-                    shouldSuggestFullDiskAccess: appModel.shouldSuggestFullDiskAccess
+                    scanWarningsPreview: scanWarningsPreview,
+                    shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess
                 ) {
                     appModel.prepareAndOpenFullDiskAccessSettings()
                 }
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var scanWarningsPreview: [ScanWarning] {
+        Array((scanState.snapshot?.scanWarnings ?? []).prefix(5))
+    }
+
+    private var shouldSuggestFullDiskAccess: Bool {
+        PermissionAdvisor.shouldSuggestFullDiskAccess(for: scanState.snapshot)
+    }
+
+    private var largestSelectedChildren: [FileNodeRecord] {
+        guard let fileTreeStore = scanState.fileTreeStore,
+              let selectedNode = navigation.selectedNode,
+              selectedNode.isDirectory else { return [] }
+        return Array(fileTreeStore.children(of: selectedNode.id).prefix(8))
+    }
+
+    private var selectedNodePercentOfParentText: String? {
+        guard let selectedNode = navigation.selectedNode,
+              let parent = navigation.selectedNodeParent else { return nil }
+        return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: parent.allocatedSize)
+    }
+
+    private var selectedNodePercentOfScanText: String? {
+        guard let selectedNode = navigation.selectedNode,
+              let root = scanState.snapshot?.root else { return nil }
+        return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: root.allocatedSize)
     }
 }
 
@@ -159,6 +188,8 @@ private struct InspectorStatCard: View {
 
 private struct InspectorActionButtons: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -169,7 +200,7 @@ private struct InspectorActionButtons: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!appModel.canQuickLookSelected)
+            .disabled(!canQuickLookSelected)
 
             Button {
                 appModel.revealSelectedInFinder()
@@ -178,9 +209,9 @@ private struct InspectorActionButtons: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(!appModel.canRevealSelected)
+            .disabled(!canRevealSelected)
 
-            if appModel.canZoomIntoSelection {
+            if navigation.canZoomIntoSelection {
                 Button {
                     appModel.zoomIntoSelection()
                 } label: {
@@ -209,7 +240,7 @@ private struct InspectorActionButtons: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(!appModel.canMoveSelectedToTrash)
+            .disabled(!canMoveSelectedToTrash)
         }
         .controlSize(.regular)
     }
@@ -222,7 +253,7 @@ private struct InspectorActionButtons: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(!appModel.canOpenSelected)
+        .disabled(!canOpenSelected)
     }
 
     private var copyPathButton: some View {
@@ -233,7 +264,27 @@ private struct InspectorActionButtons: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(!appModel.canCopySelectedPath)
+        .disabled(!canCopySelectedPath)
+    }
+
+    private var canOpenSelected: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canQuickLookSelected: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canRevealSelected: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canCopySelectedPath: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canMoveSelectedToTrash: Bool {
+        navigation.selectedNode?.supportsMoveToTrash(activeTarget: scanState.selectedTarget) == true
     }
 }
 

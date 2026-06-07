@@ -91,6 +91,14 @@ final class AppModel: ObservableObject {
         set { scanCoordinator.phase = newValue }
     }
 
+    var scanState: ScanCoordinator {
+        scanCoordinator
+    }
+
+    var navigation: WorkspaceNavigationModel {
+        navigationModel
+    }
+
     var snapshot: ScanSnapshot? {
         get { scanCoordinator.snapshot }
         set {
@@ -660,21 +668,9 @@ final class AppModel: ObservableObject {
         navigationModel.onSelectionChanged = { [weak self] in
             self?.syncVisibleQuickLookPreview()
         }
-
-        navigationModel.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
     }
 
     private func observeScanCoordinator() {
-        scanCoordinator.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
-
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
                 self?.navigationModel.updateScanContext(snapshot: snapshot)

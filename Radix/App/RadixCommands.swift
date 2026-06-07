@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RadixCommands: Commands {
     @ObservedObject var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusedValue(\.fileListFilterAction) private var fileListFilterAction
 
     var body: some Commands {
@@ -12,19 +14,19 @@ struct RadixCommands: Commands {
                 appModel.presentOpenPanelAndScan()
             }
             .keyboardShortcut("o")
-            .disabled(!appModel.canChooseFolder)
+            .disabled(scanState.isScanning)
 
             Button("Rescan", systemImage: "arrow.clockwise") {
                 appModel.rescan()
             }
             .keyboardShortcut("r")
-            .disabled(!appModel.canRescan)
+            .disabled(!scanState.canRescan)
 
             Button("Stop Scan", systemImage: "stop") {
                 appModel.stopScan()
             }
             .keyboardShortcut(".")
-            .disabled(!appModel.canStopScan)
+            .disabled(!scanState.canStopScan)
         }
 
         CommandMenu("Find") {
@@ -46,13 +48,13 @@ struct RadixCommands: Commands {
                 appModel.navigateBack()
             }
             .keyboardShortcut("[", modifiers: [.command])
-            .disabled(!appModel.canNavigateBack)
+            .disabled(!navigation.canNavigateBack)
 
             Button("Forward", systemImage: "chevron.forward") {
                 appModel.navigateForward()
             }
             .keyboardShortcut("]", modifiers: [.command])
-            .disabled(!appModel.canNavigateForward)
+            .disabled(!navigation.canNavigateForward)
 
             Divider()
 
@@ -60,13 +62,13 @@ struct RadixCommands: Commands {
                 appModel.zoomIntoSelection()
             }
             .keyboardShortcut(.return)
-            .disabled(!appModel.canZoomIntoSelection)
+            .disabled(!navigation.canZoomIntoSelection)
 
             Button("Back to Scan Root", systemImage: "arrowshape.turn.up.backward") {
                 appModel.resetFocusToRoot()
             }
             .keyboardShortcut("\\", modifiers: [.command, .option])
-            .disabled(appModel.isFocusedAtRoot)
+            .disabled(navigation.isFocusedAtRoot)
 
             Divider()
 
@@ -74,7 +76,7 @@ struct RadixCommands: Commands {
                 appModel.clearSelection()
             }
             .keyboardShortcut(.escape, modifiers: [])
-            .disabled(!appModel.canClearSelection)
+            .disabled(!navigation.canClearSelection)
         }
 
         CommandMenu("Inspect") {
@@ -82,25 +84,25 @@ struct RadixCommands: Commands {
                 appModel.toggleQuickLookForSelected()
             }
             .keyboardShortcut("y", modifiers: [.command])
-            .disabled(!appModel.canQuickLookSelected)
+            .disabled(!canQuickLookSelected)
 
             Button("Open", systemImage: "arrow.up.forward.app") {
                 appModel.openSelected()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(!appModel.canOpenSelected)
+            .disabled(!canOpenSelected)
 
             Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
                 appModel.revealSelectedInFinder()
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
-            .disabled(!appModel.canRevealSelected)
+            .disabled(!canRevealSelected)
 
             Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
                 appModel.copySelectedPath()
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
-            .disabled(!appModel.canCopySelectedPath)
+            .disabled(!canCopySelectedPath)
 
             Divider()
 
@@ -108,7 +110,27 @@ struct RadixCommands: Commands {
                 appModel.requestMoveSelectedToTrash()
             }
             .keyboardShortcut(.delete, modifiers: [])
-            .disabled(!appModel.canMoveSelectedToTrash)
+            .disabled(!canMoveSelectedToTrash)
         }
+    }
+
+    private var canOpenSelected: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canQuickLookSelected: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canRevealSelected: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canCopySelectedPath: Bool {
+        navigation.selectedNode?.supportsFileActions == true
+    }
+
+    private var canMoveSelectedToTrash: Bool {
+        navigation.selectedNode?.supportsMoveToTrash(activeTarget: scanState.selectedTarget) == true
     }
 }

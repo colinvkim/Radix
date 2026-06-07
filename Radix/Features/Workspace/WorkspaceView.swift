@@ -2,14 +2,21 @@ import SwiftUI
 
 struct WorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
 
     var body: some View {
         Group {
-            if let snapshot = appModel.snapshot,
-               let focusNode = appModel.currentFocusNode {
-                ActiveWorkspaceView(snapshot: snapshot, focusNode: focusNode)
-            } else if appModel.isScanning {
-                ScanningWorkspaceState()
+            if let snapshot = scanState.snapshot,
+               let focusNode = navigation.currentFocusNode {
+                ActiveWorkspaceView(
+                    scanState: scanState,
+                    navigation: navigation,
+                    snapshot: snapshot,
+                    focusNode: focusNode
+                )
+            } else if scanState.isScanning {
+                ScanningWorkspaceState(scanState: scanState)
             } else {
                 EmptyWorkspaceState()
             }
@@ -25,9 +32,9 @@ struct WorkspaceView: View {
                 } label: {
                     Label("Choose Folder", systemImage: "folder.badge.plus")
                 }
-                .disabled(!appModel.canChooseFolder)
+                .disabled(scanState.isScanning)
 
-                if appModel.canStopScan {
+                if scanState.canStopScan {
                     Button {
                         appModel.stopScan()
                     } label: {
@@ -39,7 +46,7 @@ struct WorkspaceView: View {
                     } label: {
                         Label("Rescan", systemImage: "arrow.clockwise")
                     }
-                    .disabled(!appModel.canRescan)
+                    .disabled(!scanState.canRescan)
                 }
             }
         }
@@ -62,17 +69,24 @@ private extension View {
 
 private struct ActiveWorkspaceView: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
 
     var body: some View {
         VStack(spacing: 0) {
-            WorkspaceHeaderView(snapshot: snapshot, focusNode: focusNode)
+            WorkspaceHeaderView(
+                scanState: scanState,
+                navigation: navigation,
+                snapshot: snapshot,
+                focusNode: focusNode
+            )
 
             Divider()
 
-            if appModel.shouldSuggestFullDiskAccess {
+            if PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot) {
                 PermissionBanner()
                 Divider()
             }
@@ -105,7 +119,7 @@ private struct ActiveWorkspaceView: View {
         SunburstChartView(
             rootNode: focusNode,
             treeStore: snapshot.treeStore,
-            selectedNodeID: appModel.selectedNodeID,
+            selectedNodeID: navigation.selectedNodeID,
             depthLimit: appModel.maxRenderedDepth,
             layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(appModel.maxRenderedDepth)",
             onSelect: { appModel.select(nodeID: $0) },
@@ -118,14 +132,16 @@ private struct ActiveWorkspaceView: View {
     private var contentsPane: some View {
         VStack(spacing: 0) {
             FileBrowserTableView(
-                nodes: appModel.tableNodes,
-                contentID: appModel.tableContentID,
-                selection: $appModel.selectedNodeID
+                scanState: scanState,
+                navigation: navigation
             )
 
             if !snapshot.scanWarnings.isEmpty {
                 Divider()
-                WarningFooter(warnings: snapshot.scanWarnings)
+                WarningFooter(
+                    warnings: snapshot.scanWarnings,
+                    shouldSuggestFullDiskAccess: PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot)
+                )
             }
         }
     }
@@ -133,6 +149,8 @@ private struct ActiveWorkspaceView: View {
 
 private struct WorkspaceHeaderView: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
@@ -144,7 +162,7 @@ private struct WorkspaceHeaderView: View {
                     Text(focusNode.name)
                         .font(.title2.weight(.semibold))
 
-                    Text(appModel.statusSubtitle)
+                    Text(statusSubtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -167,27 +185,34 @@ private struct WorkspaceHeaderView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 14) {
                     BreadcrumbBar(
-                        nodes: appModel.breadcrumbNodes,
+                        nodes: navigation.breadcrumbNodes,
                         onSelect: { appModel.focus(nodeID: $0) }
                     )
 
                     Spacer(minLength: 12)
 
-                    MetricStrip(focusNode: focusNode)
+                    MetricStrip(scanState: scanState, focusNode: focusNode)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
                     BreadcrumbBar(
-                        nodes: appModel.breadcrumbNodes,
+                        nodes: navigation.breadcrumbNodes,
                         onSelect: { appModel.focus(nodeID: $0) }
                     )
 
-                    MetricStrip(focusNode: focusNode)
+                    MetricStrip(scanState: scanState, focusNode: focusNode)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+    }
+
+    private var statusSubtitle: String {
+        if let selectedTarget = scanState.selectedTarget {
+            return selectedTarget.url.path
+        }
+        return "Choose a folder or disk to begin"
     }
 }
 
@@ -259,9 +284,9 @@ private struct PaneHeader: View {
 }
 
 private struct MetricStrip: View {
-    let focusNode: FileNodeRecord
+    @ObservedObject var scanState: ScanCoordinator
 
-    @EnvironmentObject private var appModel: AppModel
+    let focusNode: FileNodeRecord
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -271,14 +296,14 @@ private struct MetricStrip: View {
 
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
-                    WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(appModel.displayedAllocatedSize))
-                    WorkspaceMetricView(title: "Files", value: "\(appModel.displayedFileCount)")
-                    WorkspaceMetricView(title: "Folders", value: "\(appModel.displayedDirectoryCount)")
+                    WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(displayedAllocatedSize))
+                    WorkspaceMetricView(title: "Files", value: "\(displayedFileCount)")
+                    WorkspaceMetricView(title: "Folders", value: "\(displayedDirectoryCount)")
                 }
 
                 GridRow {
                     WorkspaceMetricView(title: "Focus", value: focusNode.name)
-                    WorkspaceMetricView(title: "Warnings", value: "\(appModel.warningCount)")
+                    WorkspaceMetricView(title: "Warnings", value: "\(warningCount)")
                     Color.clear
                 }
             }
@@ -287,12 +312,37 @@ private struct MetricStrip: View {
 
     private var metricRow: some View {
         Group {
-            WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(appModel.displayedAllocatedSize))
-            WorkspaceMetricView(title: "Files", value: "\(appModel.displayedFileCount)")
-            WorkspaceMetricView(title: "Folders", value: "\(appModel.displayedDirectoryCount)")
+            WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(displayedAllocatedSize))
+            WorkspaceMetricView(title: "Files", value: "\(displayedFileCount)")
+            WorkspaceMetricView(title: "Folders", value: "\(displayedDirectoryCount)")
             WorkspaceMetricView(title: "Focus", value: focusNode.name)
-            WorkspaceMetricView(title: "Warnings", value: "\(appModel.warningCount)")
+            WorkspaceMetricView(title: "Warnings", value: "\(warningCount)")
         }
+    }
+
+    private var displayedFileCount: Int {
+        if scanState.isScanning {
+            return scanState.scanMetrics.filesVisited
+        }
+        return scanState.snapshot?.aggregateStats.fileCount ?? 0
+    }
+
+    private var displayedDirectoryCount: Int {
+        if scanState.isScanning {
+            return scanState.scanMetrics.directoriesVisited
+        }
+        return scanState.snapshot?.aggregateStats.directoryCount ?? 0
+    }
+
+    private var displayedAllocatedSize: Int64 {
+        if scanState.isScanning {
+            return scanState.scanMetrics.bytesDiscovered
+        }
+        return scanState.snapshot?.aggregateStats.totalAllocatedSize ?? 0
+    }
+
+    private var warningCount: Int {
+        scanState.snapshot?.scanWarnings.count ?? 0
     }
 }
 
@@ -300,6 +350,7 @@ private struct WarningFooter: View {
     @EnvironmentObject private var appModel: AppModel
 
     let warnings: [ScanWarning]
+    let shouldSuggestFullDiskAccess: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -317,7 +368,7 @@ private struct WarningFooter: View {
 
             Spacer()
 
-            if appModel.shouldSuggestFullDiskAccess {
+            if shouldSuggestFullDiskAccess {
                 Button("Open Settings") {
                     appModel.prepareAndOpenFullDiskAccessSettings()
                 }
@@ -369,27 +420,28 @@ private struct EmptyWorkspaceState: View {
 
 private struct ScanningWorkspaceState: View {
     @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var scanState: ScanCoordinator
 
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 6) {
-                ProgressView(value: appModel.scanProgressFraction, total: 1)
+                ProgressView(value: scanProgressFraction, total: 1)
                     .frame(width: 260)
 
-                Text(appModel.scanProgressLabel)
+                Text(scanProgressLabel)
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
-            Text("Scanning \(appModel.selectedTarget?.displayName ?? "Location")")
+            Text("Scanning \(scanState.selectedTarget?.displayName ?? "Location")")
                 .font(.title3.weight(.semibold))
 
-            Text(appModel.scanMetrics.currentPath)
+            Text(scanState.scanMetrics.currentPath)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 540)
 
-            Text("\(appModel.displayedFileCount) files, \(appModel.displayedDirectoryCount) folders")
+            Text("\(scanState.scanMetrics.filesVisited) files, \(scanState.scanMetrics.directoriesVisited) folders")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -399,5 +451,32 @@ private struct ScanningWorkspaceState: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var isFinalizingScan: Bool {
+        scanState.isScanning && scanState.scanMetrics.isFinalizing
+    }
+
+    private var scanProgressFraction: Double {
+        if scanState.isScanning {
+            return scanState.scanMetrics.progressFraction
+        }
+        if scanState.snapshot != nil {
+            return 1
+        }
+        return 0
+    }
+
+    private var scanProgressLabel: String {
+        if isFinalizingScan {
+            return "Finishing \(scanState.scanMetrics.progressPercentage.formatted(.number))%"
+        }
+        if scanState.isScanning {
+            return scanState.scanMetrics.progressPercentage.formatted(.number) + "%"
+        }
+        if scanState.snapshot != nil {
+            return "100%"
+        }
+        return "\(scanState.scanMetrics.progressPercentage)%"
     }
 }

@@ -8,21 +8,21 @@ import Foundation
 
 @MainActor
 final class WorkspaceNavigationModel: ObservableObject {
-    @Published var selectedNodeID: String? {
+    @Published private(set) var selectedNodeID: String? {
         didSet {
             guard oldValue != selectedNodeID else { return }
             onSelectionChanged?()
         }
     }
 
-    @Published var focusedNodeID: String?
+    @Published private(set) var focusedNodeID: String?
 
     var onSelectionChanged: (() -> Void)?
 
-    private var snapshotID: UUID?
-    private var fileTreeStore: FileTreeStore?
-    private var focusBackStack: [String] = []
-    private var focusForwardStack: [String] = []
+    @Published private var snapshotID: UUID?
+    @Published private var fileTreeStore: FileTreeStore?
+    @Published private var focusBackStack: [String] = []
+    @Published private var focusForwardStack: [String] = []
 
     var currentFocusNode: FileNodeRecord? {
         fileTreeStore?.node(id: focusedNodeID) ?? fileTreeStore?.root
