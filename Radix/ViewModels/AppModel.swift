@@ -333,6 +333,11 @@ final class AppModel: ObservableObject {
         autoSummarizeDirectories = true
     }
 
+    func clearRecentTargets() {
+        recentTargets.removeAll()
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.recentTargets)
+    }
+
     /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
     func expandSummarizedNode(_ node: FileNodeRecord, completion: @escaping () -> Void) {
         guard node.isAutoSummarized else {

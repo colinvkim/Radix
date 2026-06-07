@@ -103,6 +103,17 @@ private struct PrivacySettingsPane: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Section("Recent Scans") {
+                Text("Recent scan locations are stored locally so they can appear in the sidebar.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Clear Recent Scans", role: .destructive) {
+                    appModel.clearRecentTargets()
+                }
+                .disabled(appModel.recentTargets.isEmpty)
+            }
         }
         .formStyle(.grouped)
     }
