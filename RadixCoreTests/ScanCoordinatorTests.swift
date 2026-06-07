@@ -296,6 +296,36 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelStopCancelsDeferredScanStart() async throws {
+        let service = ControlledScanService()
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
+
+        model.startScan(makeCoordinatorTarget("/app/deferred-stop"))
+        model.stopScan()
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(model.phase, .idle)
+        XCTAssertFalse(model.canStopScan)
+    }
+
+    @MainActor
+    func testAppModelCleanupCancelsDeferredScanStart() async throws {
+        let service = ControlledScanService()
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
+
+        model.startScan(makeCoordinatorTarget("/app/deferred-cleanup"))
+        model.cleanup()
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(model.phase, .idle)
+        XCTAssertFalse(model.canStopScan)
+    }
+
+    @MainActor
     func testAppModelExpansionPreservesNavigationHistory() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))

@@ -55,6 +55,8 @@ final class AppModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var quickLookEventMonitor: AppEventMonitorToken?
+    private var deferredScanStartTask: Task<Void, Never>?
+    private var deferredScanStartID: UUID?
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -83,6 +85,7 @@ final class AppModel: ObservableObject {
     }
 
     func cleanup() {
+        cancelDeferredScanStart()
         scanCoordinator.stopScan()
         removeQuickLookKeyMonitor()
     }
@@ -385,11 +388,35 @@ final class AppModel: ObservableObject {
     func startScan(_ target: ScanTarget) {
         // Defer state mutations to the next runloop to avoid
         // "Publishing changes from within view updates is not allowed."
-        Task { @MainActor in
-            let options = scanOptions(for: target)
-            scanCoordinator.startScan(target, options: options) {
-                prepareForScan(target)
+        cancelDeferredScanStart()
+
+        let scanStartID = UUID()
+        deferredScanStartID = scanStartID
+        deferredScanStartTask = Task { [weak self] in
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.deferredScanStartID == scanStartID,
+                      !Task.isCancelled else {
+                    return
+                }
+
+                self.deferredScanStartID = nil
+                self.deferredScanStartTask = nil
+                self.startScanNow(target)
             }
+        }
+    }
+
+    private func cancelDeferredScanStart() {
+        deferredScanStartID = nil
+        deferredScanStartTask?.cancel()
+        deferredScanStartTask = nil
+    }
+
+    private func startScanNow(_ target: ScanTarget) {
+        let options = scanOptions(for: target)
+        scanCoordinator.startScan(target, options: options) {
+            prepareForScan(target)
         }
     }
 
@@ -399,6 +426,7 @@ final class AppModel: ObservableObject {
     }
 
     func stopScan(resetState: Bool = true) {
+        cancelDeferredScanStart()
         scanCoordinator.stopScan(resetState: resetState)
     }
 
