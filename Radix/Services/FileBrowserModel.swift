@@ -63,6 +63,10 @@ final class FileBrowserModel: ObservableObject {
         displayState.lookup
     }
 
+    func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
+        displayState.displayValuesByID[node.id] ?? FileBrowserNodeDisplayValues(node: node)
+    }
+
     var isShowingEntireScanResults: Bool {
         searchScope == .entireScan && !trimmedEntireScanSearchText.isEmpty
     }
@@ -251,20 +255,47 @@ final class FileBrowserModel: ObservableObject {
 private struct FileBrowserDisplayState {
     var nodes: [FileNodeRecord]
     var lookup: [FileNodeRecord.ID: FileNodeRecord]
+    var displayValuesByID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues]
 
     init(nodes: [FileNodeRecord] = []) {
         var uniqueNodes: [FileNodeRecord] = []
         var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
+        var displayValuesByID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues] = [:]
         uniqueNodes.reserveCapacity(nodes.count)
         lookup.reserveCapacity(nodes.count)
+        displayValuesByID.reserveCapacity(nodes.count)
 
         for node in nodes where lookup[node.id] == nil {
             lookup[node.id] = node
+            displayValuesByID[node.id] = FileBrowserNodeDisplayValues(node: node)
             uniqueNodes.append(node)
         }
 
         self.nodes = uniqueNodes
         self.lookup = lookup
+        self.displayValuesByID = displayValuesByID
+    }
+}
+
+struct FileBrowserNodeDisplayValues: Equatable, Sendable {
+    let allocatedSize: String
+    let descendantCount: String
+    let modifiedDate: String
+
+    init(node: FileNodeRecord) {
+        allocatedSize = RadixFormatters.size(node.allocatedSize)
+        descendantCount = Self.descendantCountText(for: node)
+        modifiedDate = RadixFormatters.date(node.lastModified)
+    }
+
+    private static func descendantCountText(for node: FileNodeRecord) -> String {
+        if node.isDirectory {
+            return "\(node.descendantFileCount)"
+        }
+        if node.isSynthetic || node.isSymbolicLink {
+            return "—"
+        }
+        return "1"
     }
 }
 

@@ -102,7 +102,7 @@ struct FileBrowserTableView: View {
                             .width(min: 260, ideal: 360)
 
                             TableColumn("Allocated", sortUsing: FileNodeTableComparator(field: .allocatedSize)) { node in
-                                Text(RadixFormatters.size(node.allocatedSize))
+                                Text(model.displayValues(for: node).allocatedSize)
                                     .monospacedDigit()
                             }
                             .width(min: 110, ideal: 130)
@@ -113,12 +113,12 @@ struct FileBrowserTableView: View {
                             .width(min: 110, ideal: 130)
 
                             TableColumn("Files") { node in
-                                Text(descendantCountText(for: node))
+                                Text(model.displayValues(for: node).descendantCount)
                             }
                             .width(min: 70, ideal: 80)
 
                             TableColumn("Modified") { node in
-                                Text(RadixFormatters.date(node.lastModified))
+                                Text(model.displayValues(for: node).modifiedDate)
                             }
                             .width(min: 150, ideal: 180)
                         }
@@ -229,16 +229,6 @@ struct FileBrowserTableView: View {
 
         return fileTreeStore.parentIDByID[node.id]
             .flatMap { fileTreeStore.nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
-    }
-
-    private func descendantCountText(for node: FileNodeRecord) -> String {
-        if node.isDirectory {
-            return "\(node.descendantFileCount)"
-        }
-        if node.isSynthetic || node.isSymbolicLink {
-            return "—"
-        }
-        return "1"
     }
 
 }

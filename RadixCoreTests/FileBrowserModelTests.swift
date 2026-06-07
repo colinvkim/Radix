@@ -66,6 +66,41 @@ final class FileBrowserModelTests: XCTestCase {
         withExtendedLifetime(cancellable) {}
     }
 
+    @MainActor
+    func testDisplayStateBuildsRowPresentationValues() {
+        let modifiedDate = Date(timeIntervalSince1970: 1_234_567)
+        let file = makeBrowserFileNode(
+            id: "/root/file.txt",
+            name: "file.txt",
+            size: 1_024,
+            lastModified: modifiedDate
+        )
+        let folder = makeBrowserDirectoryNode(
+            id: "/root/folder",
+            name: "folder",
+            children: [
+                makeBrowserFileNode(id: "/root/folder/a.txt", name: "a.txt", size: 1),
+                makeBrowserFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 1),
+            ]
+        )
+        let model = FileBrowserModel()
+
+        model.updateContent(
+            nodes: [file, folder],
+            contentID: "snapshot|/root",
+            snapshot: nil,
+            fileTreeStore: nil
+        )
+
+        let fileValues = model.displayValues(for: file)
+        let folderValues = model.displayValues(for: folder)
+
+        XCTAssertEqual(fileValues.allocatedSize, "1 KB")
+        XCTAssertEqual(fileValues.descendantCount, "1")
+        XCTAssertEqual(fileValues.modifiedDate, RadixFormatters.date(modifiedDate))
+        XCTAssertEqual(folderValues.descendantCount, "2")
+    }
+
     func testSearchServiceMatchesNameKindAndPathOnlyForPathQueries() async throws {
         let photo = makeBrowserFileNode(id: "/root/photos/vacation.jpg", name: "vacation.jpg", size: 20)
         let cache = makeBrowserFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 10)
@@ -306,7 +341,12 @@ private func waitForStartCount(
     XCTFail("Timed out waiting for file browser search to start.", file: file, line: line)
 }
 
-private func makeBrowserFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
+private func makeBrowserFileNode(
+    id: String,
+    name: String,
+    size: Int64,
+    lastModified: Date? = nil
+) -> FileNodeRecord {
     FileNodeRecord(
         id: id,
         url: URL(filePath: id),
@@ -316,7 +356,7 @@ private func makeBrowserFileNode(id: String, name: String, size: Int64) -> FileN
         allocatedSize: size,
         logicalSize: size,
         descendantFileCount: 1,
-        lastModified: nil,
+        lastModified: lastModified,
         isPackage: false,
         isAccessible: true,
         isSynthetic: false,
