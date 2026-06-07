@@ -504,6 +504,37 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(cacheNode.secondaryStatusText, "Summarized (20 files)")
     }
 
+    func testDeepTinyFileDirectoryIsAutoSummarized() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for index in 0..<12 {
+            let shardURL = cacheURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: shardURL, withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index), count: 32).write(to: shardURL.appending(path: "payload.tmp"))
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        XCTAssertTrue(cacheNode.isAutoSummarized)
+        XCTAssertFalse(containsChildren(cacheNode, in: snapshot))
+        XCTAssertEqual(cacheNode.descendantFileCount, 12)
+    }
+
     func testAutoSummarizedDirectoryIncludesPackageLeafContents() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

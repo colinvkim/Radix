@@ -286,13 +286,13 @@ actor ScanEngine {
                     let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
                     if options.autoSummarizeDirectories,
                        item.depth >= minDepth,
-                       childEntries.count >= minFileCount,
                        let summary = shouldSummarizeAsAtomicDirectory(
                            url: item.url,
                            childEntries: childEntries,
                            metadata: meta,
                            includeHiddenFiles: options.includeHiddenFiles,
                            treatPackagesAsDirectories: options.treatPackagesAsDirectories,
+                           minFileCount: minFileCount,
                            maxAverageFileSize: maxAvgSize,
                            countedHardLinkIdentities: &countedHardLinkIdentities
                        ) {
@@ -724,36 +724,25 @@ actor ScanEngine {
         metadata: NodeMetadata,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
+        minFileCount: Int,
         maxAverageFileSize: Int64,
         countedHardLinkIdentities: inout Set<FileIdentity>
     ) -> AtomicDirectorySummary? {
         guard !childEntries.isEmpty else { return nil }
 
-        // Quick check: sample files evenly across the directory to estimate average size.
-        let sampleSize = min(100, childEntries.count)
-        let step = max(1, childEntries.count / sampleSize)
-        let sampleEntries = stride(from: 0, to: childEntries.count, by: step)
-            .prefix(sampleSize)
-            .map { childEntries[$0] }
+        let immediateCandidate = childEntries.count >= minFileCount &&
+            immediateChildrenSuggestAtomicDirectory(
+                childEntries,
+                maxAverageFileSize: maxAverageFileSize
+            )
+        let deepCandidate = immediateCandidate || descendantProbeSuggestsAtomicDirectory(
+            at: url,
+            includeHiddenFiles: includeHiddenFiles,
+            minFileCount: minFileCount,
+            maxAverageFileSize: maxAverageFileSize
+        )
 
-        var sampleTotalSize: Int64 = 0
-        var sampleFileCount = 0
-
-        for childEntry in sampleEntries {
-            guard let childMetadata = childEntry.metadata else {
-                return nil
-            }
-
-            if !childMetadata.isDirectory {
-                sampleTotalSize += childMetadata.logicalSize
-                sampleFileCount += 1
-            }
-        }
-
-        // If sample suggests files are large on average, don't summarize
-        guard sampleFileCount > 0 else { return nil }
-        let avgFileSize = sampleTotalSize / Int64(sampleFileCount)
-        guard avgFileSize <= maxAverageFileSize else {
+        guard deepCandidate else {
             return nil
         }
 
@@ -763,7 +752,7 @@ actor ScanEngine {
                 count += 1
             }
         }
-        let canReuseImmediateEntries = directDirectoryCount <= max(8, childEntries.count / 10)
+        let canReuseImmediateEntries = immediateCandidate && directDirectoryCount <= max(8, childEntries.count / 10)
         if canReuseImmediateEntries {
             return summarizeAtomicDirectory(
                 at: url,
@@ -783,6 +772,91 @@ actor ScanEngine {
         ) else { return nil }
         countedHardLinkIdentities = summary.countedHardLinkIdentities
         return summary
+    }
+
+    private func immediateChildrenSuggestAtomicDirectory(
+        _ childEntries: [DirectoryEntry],
+        maxAverageFileSize: Int64
+    ) -> Bool {
+        let sampleSize = min(100, childEntries.count)
+        let step = max(1, childEntries.count / sampleSize)
+        let sampleEntries = stride(from: 0, to: childEntries.count, by: step)
+            .prefix(sampleSize)
+            .map { childEntries[$0] }
+
+        var sampleTotalSize: Int64 = 0
+        var sampleFileCount = 0
+
+        for childEntry in sampleEntries {
+            guard let childMetadata = childEntry.metadata else {
+                return false
+            }
+
+            if !childMetadata.isDirectory {
+                sampleTotalSize += childMetadata.logicalSize
+                sampleFileCount += 1
+            }
+        }
+
+        guard sampleFileCount > 0 else { return false }
+        return (sampleTotalSize / Int64(sampleFileCount)) <= maxAverageFileSize
+    }
+
+    private func descendantProbeSuggestsAtomicDirectory(
+        at url: URL,
+        includeHiddenFiles: Bool,
+        minFileCount: Int,
+        maxAverageFileSize: Int64
+    ) -> Bool {
+        let probeKeys: [URLResourceKey] = [
+            .isDirectoryKey,
+            .isPackageKey,
+            .isSymbolicLinkKey,
+            .fileSizeKey
+        ]
+        var enumeratorOptions: FileManager.DirectoryEnumerationOptions = []
+        if !includeHiddenFiles {
+            enumeratorOptions.insert(.skipsHiddenFiles)
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: probeKeys,
+            options: enumeratorOptions,
+            errorHandler: { _, _ in true }
+        ) else {
+            return false
+        }
+
+        let maxVisitedItems = max(1_000, minFileCount * 2)
+        var visitedItems = 0
+        var fileCount = 0
+        var totalLogicalSize: Int64 = 0
+
+        for case let childURL as URL in enumerator {
+            visitedItems += 1
+            guard visitedItems <= maxVisitedItems else { return false }
+
+            do {
+                let values = try childURL.resourceValues(forKeys: Set(probeKeys))
+                let isDirectory = values.isDirectory ?? false
+                let isSymbolicLink = values.isSymbolicLink ?? false
+
+                guard !isDirectory else { continue }
+                guard !isSymbolicLink else { continue }
+
+                totalLogicalSize += Int64(values.fileSize ?? 0)
+                fileCount += 1
+
+                if fileCount >= minFileCount {
+                    return (totalLogicalSize / Int64(fileCount)) <= maxAverageFileSize
+                }
+            } catch {
+                return false
+            }
+        }
+
+        return false
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
