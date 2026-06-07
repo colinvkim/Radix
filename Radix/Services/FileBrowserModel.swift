@@ -26,9 +26,8 @@ final class FileBrowserModel: ObservableObject {
     @Published private(set) var entireScanSearchText = ""
     @Published private(set) var searchScope: FileBrowserFindTarget = .currentContents
     @Published private(set) var sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
-    @Published private(set) var displayedNodes: [FileNodeRecord] = []
-    @Published private(set) var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
     @Published private(set) var isSearchingEntireScan = false
+    @Published private var displayState = FileBrowserDisplayState()
 
     private let searchService: any FileSearching
     private let searchDebounceDuration: Duration
@@ -56,6 +55,14 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
+    var displayedNodes: [FileNodeRecord] {
+        displayState.nodes
+    }
+
+    var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] {
+        displayState.lookup
+    }
+
     var isShowingEntireScanResults: Bool {
         searchScope == .entireScan && !trimmedEntireScanSearchText.isEmpty
     }
@@ -72,7 +79,7 @@ final class FileBrowserModel: ObservableObject {
         forceRefresh: Bool = false
     ) {
         let nextSnapshotID = snapshot?.id
-        guard forceRefresh || self.contentID != contentID || snapshotID != nextSnapshotID || self.nodes.map(\.id) != nodes.map(\.id) else {
+        guard forceRefresh || self.contentID != contentID || snapshotID != nextSnapshotID || !self.nodes.haveSameIDs(as: nodes) else {
             return
         }
 
@@ -116,7 +123,7 @@ final class FileBrowserModel: ObservableObject {
         searchTask?.cancel()
         searchTask = nil
         if clearLoading {
-            isSearchingEntireScan = false
+            setIsSearchingEntireScan(false)
         }
     }
 
@@ -134,7 +141,7 @@ final class FileBrowserModel: ObservableObject {
         if isShowingEntireScanResults {
             scheduleEntireScanSearch()
         } else {
-            isSearchingEntireScan = false
+            setIsSearchingEntireScan(false)
             rebuildCurrentContentsResults()
         }
     }
@@ -152,14 +159,14 @@ final class FileBrowserModel: ObservableObject {
 
     private func scheduleEntireScanSearch() {
         guard let snapshotID, let fileTreeStore else {
-            isSearchingEntireScan = false
+            setIsSearchingEntireScan(false)
             applyDisplayedNodes([])
             return
         }
 
         let searchText = trimmedEntireScanSearchText
         guard !searchText.isEmpty else {
-            isSearchingEntireScan = false
+            setIsSearchingEntireScan(false)
             rebuildCurrentContentsResults()
             return
         }
@@ -170,7 +177,7 @@ final class FileBrowserModel: ObservableObject {
         let generation = searchGeneration
         let debounceDuration = searchDebounceDuration
 
-        isSearchingEntireScan = true
+        setIsSearchingEntireScan(true)
         searchTask = Task { [searchService] in
             do {
                 try await Task.sleep(for: debounceDuration)
@@ -195,7 +202,7 @@ final class FileBrowserModel: ObservableObject {
 
                     let matchedNodes = matchedIDs.compactMap { fileTreeStore.nodesByID[$0] }
                     applyDisplayedNodes(matchedNodes.sorted(using: sortOrder))
-                    isSearchingEntireScan = false
+                    setIsSearchingEntireScan(false)
                 }
             } catch is CancellationError {
                 return
@@ -211,7 +218,7 @@ final class FileBrowserModel: ObservableObject {
                         return
                     }
 
-                    isSearchingEntireScan = false
+                    setIsSearchingEntireScan(false)
                     applyDisplayedNodes([])
                 }
             }
@@ -232,16 +239,44 @@ final class FileBrowserModel: ObservableObject {
     }
 
     private func applyDisplayedNodes(_ nodes: [FileNodeRecord]) {
+        displayState = FileBrowserDisplayState(nodes: nodes)
+    }
+
+    private func setIsSearchingEntireScan(_ isSearching: Bool) {
+        guard isSearchingEntireScan != isSearching else { return }
+        isSearchingEntireScan = isSearching
+    }
+}
+
+private struct FileBrowserDisplayState {
+    var nodes: [FileNodeRecord]
+    var lookup: [FileNodeRecord.ID: FileNodeRecord]
+
+    init(nodes: [FileNodeRecord] = []) {
         var uniqueNodes: [FileNodeRecord] = []
         var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
+        uniqueNodes.reserveCapacity(nodes.count)
+        lookup.reserveCapacity(nodes.count)
 
         for node in nodes where lookup[node.id] == nil {
             lookup[node.id] = node
             uniqueNodes.append(node)
         }
 
-        displayedNodes = uniqueNodes
-        displayedNodeLookup = lookup
+        self.nodes = uniqueNodes
+        self.lookup = lookup
+    }
+}
+
+private extension [FileNodeRecord] {
+    func haveSameIDs(as other: [FileNodeRecord]) -> Bool {
+        guard count == other.count else { return false }
+
+        for index in indices where self[index].id != other[index].id {
+            return false
+        }
+
+        return true
     }
 }
 

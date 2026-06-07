@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import RadixCore
 
@@ -40,6 +41,29 @@ final class FileBrowserModelTests: XCTestCase {
         )
 
         XCTAssertEqual(result.map(\.id), [largeMatch.id, smallMatch.id])
+    }
+
+    @MainActor
+    func testContentUpdatePublishesRowsAndLookupTogether() {
+        let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
+        let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
+        let model = FileBrowserModel()
+        var publishCount = 0
+        let cancellable = model.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+
+        model.updateContent(
+            nodes: [small, large],
+            contentID: "snapshot|/root",
+            snapshot: nil,
+            fileTreeStore: nil
+        )
+
+        XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, small.id])
+        XCTAssertEqual(model.displayedNodeLookup[small.id]?.name, small.name)
+        XCTAssertEqual(publishCount, 1)
+        withExtendedLifetime(cancellable) {}
     }
 
     func testSearchServiceMatchesNameKindAndPathOnlyForPathQueries() async throws {
