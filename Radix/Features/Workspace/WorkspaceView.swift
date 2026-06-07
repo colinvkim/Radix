@@ -122,6 +122,7 @@ private struct ActiveWorkspaceView: View {
             rootNode: focusNode,
             treeStore: snapshot.treeStore,
             selectedNodeID: navigation.selectedNodeID,
+            selectedAncestorIDs: navigation.selectedAncestorIDs,
             depthLimit: appModel.maxRenderedDepth,
             layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(appModel.maxRenderedDepth)",
             onSelect: { appModel.select(nodeID: $0) },

@@ -13,6 +13,7 @@ final class WorkspaceNavigationModel: ObservableObject {
     @Published private(set) var selectedNodeID: String? {
         didSet {
             guard oldValue != selectedNodeID else { return }
+            refreshSelectedAncestorIDs()
             onSelectionChanged?()
         }
     }
@@ -28,6 +29,7 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     private(set) var tableNodes: [FileNodeRecord] = []
     private(set) var tableContentID = WorkspaceNavigationModel.emptyTableContentID
+    private(set) var selectedAncestorIDs: Set<String> = []
 
     var currentFocusNode: FileNodeRecord? {
         resolvedFocusNode
@@ -71,12 +73,14 @@ final class WorkspaceNavigationModel: ObservableObject {
     func updateScanContext(snapshot: ScanSnapshot?) {
         snapshotID = snapshot?.id
         fileTreeStore = snapshot?.treeStore
+        refreshSelectedAncestorIDs()
         refreshTableState()
     }
 
     func updateFileTreeStore(_ fileTreeStore: FileTreeStore?, snapshotID: UUID?) {
         self.fileTreeStore = fileTreeStore
         self.snapshotID = snapshotID
+        refreshSelectedAncestorIDs()
         refreshTableState()
     }
 
@@ -87,6 +91,7 @@ final class WorkspaceNavigationModel: ObservableObject {
         fileTreeStore = nil
         focusBackStack.removeAll()
         focusForwardStack.removeAll()
+        selectedAncestorIDs = []
         tableNodes = []
         tableContentID = Self.emptyTableContentID
     }
@@ -201,6 +206,15 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     private var resolvedFocusNode: FileNodeRecord? {
         fileTreeStore?.node(id: focusedNodeID) ?? fileTreeStore?.root
+    }
+
+    private func refreshSelectedAncestorIDs() {
+        guard let fileTreeStore, let selectedNodeID else {
+            selectedAncestorIDs = []
+            return
+        }
+
+        selectedAncestorIDs = Set(fileTreeStore.path(to: selectedNodeID).map(\.id))
     }
 
     private func refreshTableState() {

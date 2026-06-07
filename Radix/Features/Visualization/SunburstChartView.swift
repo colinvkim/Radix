@@ -7,6 +7,7 @@ struct SunburstChartView: View {
     let rootNode: FileNodeRecord
     let treeStore: FileTreeStore
     let selectedNodeID: String?
+    let selectedAncestorIDs: Set<String>
     let depthLimit: Int
     let layoutID: String
     let onSelect: (String?) -> Void
@@ -18,6 +19,7 @@ struct SunburstChartView: View {
         rootNode: FileNodeRecord,
         treeStore: FileTreeStore,
         selectedNodeID: String?,
+        selectedAncestorIDs: Set<String>,
         depthLimit: Int,
         layoutID: String,
         onSelect: @escaping (String?) -> Void,
@@ -26,6 +28,7 @@ struct SunburstChartView: View {
         self.rootNode = rootNode
         self.treeStore = treeStore
         self.selectedNodeID = selectedNodeID
+        self.selectedAncestorIDs = selectedAncestorIDs
         self.depthLimit = depthLimit
         self.layoutID = layoutID
         self.onSelect = onSelect
@@ -63,13 +66,12 @@ struct SunburstChartView: View {
     var body: some View {
         GeometryReader { geometry in
             let chartFrame = chartFrame(in: geometry.size)
-            let selectedAncestorIDSet = selectedAncestorIDs
 
             ZStack {
                 SunburstBaseCanvas(
                     segments: chartModel.renderedSegments,
                     selectedNodeID: selectedNodeID,
-                    selectedAncestorIDs: selectedAncestorIDSet
+                    selectedAncestorIDs: selectedAncestorIDs
                 )
                 .equatable()
                 .frame(width: chartFrame.width, height: chartFrame.height)
@@ -78,7 +80,7 @@ struct SunburstChartView: View {
                 SunburstHoverOverlay(
                     segment: chartModel.hoveredSegment,
                     selectedNodeID: selectedNodeID,
-                    selectedAncestorIDs: selectedAncestorIDSet
+                    selectedAncestorIDs: selectedAncestorIDs
                 )
                 .equatable()
                 .frame(width: chartFrame.width, height: chartFrame.height)
@@ -156,11 +158,6 @@ struct SunburstChartView: View {
     private var accessibilityValue: String {
         let node = displayedNode ?? rootNode
         return "\(node.name), \(RadixFormatters.size(node.allocatedSize)), \(node.itemKind)"
-    }
-
-    private var selectedAncestorIDs: Set<String> {
-        guard selectedNodeID != nil else { return [] }
-        return Set(treeStore.path(to: selectedNodeID).map(\.id))
     }
 
     private func chartFrame(in size: CGSize) -> CGRect {

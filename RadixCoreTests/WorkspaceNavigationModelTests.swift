@@ -10,17 +10,21 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.select(nodeID: fixture.docFile.id)
         XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
         XCTAssertEqual(model.selectedNode?.id, fixture.docFile.id)
+        XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
         XCTAssertTrue(model.canClearSelection)
 
         model.select(nodeID: "/missing")
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
         XCTAssertFalse(model.canClearSelection)
 
         model.select(nodeID: fixture.cache.id)
         XCTAssertEqual(model.selectedNodeID, fixture.cache.id)
+        XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.cache.id]))
 
         model.select(nodeID: nil)
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
     }
 
     @MainActor
@@ -161,6 +165,7 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
         XCTAssertEqual(model.selectedNode?.id, fixture.docFile.id)
+        XCTAssertEqual(model.navigation.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
         XCTAssertEqual(model.selectedNodeParent?.id, fixture.docs.id)
         XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
         XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
