@@ -117,13 +117,14 @@ private struct ActiveWorkspaceView: View {
                 Divider()
             }
 
-            visualizationPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VSplitView {
+                visualizationPane
+                    .frame(minHeight: 260, maxHeight: .infinity)
 
-            Divider()
-
-            contentsPane
-                .frame(minHeight: 200, maxHeight: .infinity)
+                contentsPane
+                    .frame(minHeight: 200, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
