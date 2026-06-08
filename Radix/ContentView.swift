@@ -16,7 +16,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
-            SidebarView(scanState: appModel.scanState)
+            SidebarView()
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
         } detail: {
             WorkspaceDetailView(

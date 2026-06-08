@@ -2,14 +2,13 @@ import SwiftUI
 
 struct SidebarView: View {
     @EnvironmentObject private var appModel: AppModel
-    @ObservedObject var scanState: ScanCoordinator
 
     private var selection: Binding<String?> {
         Binding(
-            get: { scanState.selectedTarget?.id },
+            get: { appModel.activeSidebarTargetID },
             set: { newValue in
                 guard let newValue,
-                      newValue != scanState.selectedTarget?.id else { return }
+                      newValue != appModel.activeSidebarTargetID else { return }
                 appModel.selectSidebarTarget(id: newValue)
             }
         )

@@ -88,7 +88,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
     }
 }
 
-struct ScanOptions: Sendable {
+struct ScanOptions: Hashable, Sendable {
     var includeHiddenFiles = false
     var treatPackagesAsDirectories = false
     var autoSummarizeDirectories = true

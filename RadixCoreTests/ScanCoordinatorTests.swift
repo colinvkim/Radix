@@ -38,6 +38,23 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoreCompletedSnapshotDisplaysWithoutScanRequest() {
+        let service = ControlledScanService()
+        let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
+        let target = makeCoordinatorTarget("/scan/cached")
+        let snapshot = makeCoordinatorSnapshot(target: target)
+
+        coordinator.restoreCompletedSnapshot(snapshot)
+
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(coordinator.phase, .displaying)
+        XCTAssertEqual(coordinator.selectedTarget, target)
+        XCTAssertEqual(coordinator.snapshot?.target, target)
+        XCTAssertEqual(coordinator.fileTreeStore?.root.id, snapshot.root.id)
+        XCTAssertEqual(coordinator.scanMetrics.progressFraction, 1, accuracy: 0.0001)
+    }
+
+    @MainActor
     func testStoppingScanCancelsAndIgnoresLateEvents() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -271,6 +288,296 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.scanState.fileTreeStore?.root.id, snapshot.root.id)
         XCTAssertEqual(model.navigation.focusedNodeID, snapshot.root.id)
         XCTAssertEqual(model.recentTargets, [target])
+    }
+
+    @MainActor
+    func testAppModelRestoresCachedSidebarTargetWithoutStartingScan() async throws {
+        let service = ControlledScanService()
+        let firstTarget = makeCoordinatorTarget("/app/sidebar/first")
+        let secondTarget = makeCoordinatorTarget("/app/sidebar/second")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget])
+            )
+        )
+        let firstSnapshot = makeCoordinatorSnapshot(target: firstTarget)
+        let secondSnapshot = makeCoordinatorSnapshot(target: secondTarget)
+
+        model.selectSidebarTarget(id: firstTarget.id)
+        try await waitUntil("first sidebar scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(firstSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("first sidebar scan finished") {
+            model.scanState.snapshot?.target == firstTarget
+        }
+
+        model.selectSidebarTarget(id: secondTarget.id)
+        try await waitUntil("second sidebar scan request") {
+            service.requests.count == 2
+        }
+        service.yield(.finished(secondSnapshot), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("second sidebar scan finished") {
+            model.scanState.snapshot?.target == secondTarget
+        }
+
+        model.selectSidebarTarget(id: firstTarget.id)
+
+        XCTAssertEqual(service.requests.count, 2)
+        XCTAssertEqual(model.scanState.selectedTarget, firstTarget)
+        XCTAssertEqual(model.scanState.snapshot?.target, firstTarget)
+        XCTAssertEqual(model.navigation.focusedNodeID, firstSnapshot.root.id)
+        XCTAssertEqual(model.activeSidebarTargetID, firstTarget.id)
+    }
+
+    @MainActor
+    func testAppModelRescanBypassesSidebarCache() async throws {
+        let service = ControlledScanService()
+        let target = makeCoordinatorTarget("/app/sidebar/rescan")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [target])
+            )
+        )
+        let snapshot = makeCoordinatorSnapshot(target: target)
+
+        model.selectSidebarTarget(id: target.id)
+        try await waitUntil("initial sidebar scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(snapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("initial sidebar scan finished") {
+            model.scanState.phase == .displaying
+        }
+
+        model.rescan()
+
+        try await waitUntil("rescan request") {
+            service.requests.count == 2
+        }
+        XCTAssertEqual(service.requests.map(\.target), [target, target])
+    }
+
+    @MainActor
+    func testAppModelScanOptionChangeMissesSidebarCache() async throws {
+        let service = ControlledScanService()
+        let firstTarget = makeCoordinatorTarget("/app/sidebar/options-first")
+        let secondTarget = makeCoordinatorTarget("/app/sidebar/options-second")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget])
+            )
+        )
+
+        model.selectSidebarTarget(id: firstTarget.id)
+        try await waitUntil("first options scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(makeCoordinatorSnapshot(target: firstTarget)), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("first options scan finished") {
+            model.scanState.snapshot?.target == firstTarget
+        }
+
+        model.selectSidebarTarget(id: secondTarget.id)
+        try await waitUntil("second options scan request") {
+            service.requests.count == 2
+        }
+        service.yield(.finished(makeCoordinatorSnapshot(target: secondTarget)), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("second options scan finished") {
+            model.scanState.snapshot?.target == secondTarget
+        }
+
+        model.treatPackagesAsDirectories = true
+        model.selectSidebarTarget(id: firstTarget.id)
+
+        try await waitUntil("changed options cache miss request") {
+            service.requests.count == 3
+        }
+        XCTAssertEqual(service.requests.last?.target, firstTarget)
+        XCTAssertTrue(service.requests.last?.options.treatPackagesAsDirectories == true)
+    }
+
+    @MainActor
+    func testAppModelTrashActionClearsSidebarSnapshotCache() async throws {
+        let service = ControlledScanService()
+        let firstTarget = makeCoordinatorTarget("/app/sidebar/stale-first")
+        let secondTarget = makeCoordinatorTarget("/app/sidebar/stale-second")
+        var actions = makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget])
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let secondChild = makeCoordinatorFileNode(
+            id: secondTarget.id + "/deleted.txt",
+            name: "deleted.txt",
+            size: 20
+        )
+        let secondRoot = makeCoordinatorDirectoryNode(
+            id: secondTarget.id,
+            name: "stale-second",
+            children: [secondChild]
+        )
+        let secondStore = FileTreeStore(root: secondRoot, childrenByID: [
+            secondRoot.id: [secondChild]
+        ])
+
+        model.selectSidebarTarget(id: firstTarget.id)
+        try await waitUntil("stale first scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(makeCoordinatorSnapshot(target: firstTarget)), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("stale first scan finished") {
+            model.scanState.snapshot?.target == firstTarget
+        }
+
+        model.selectSidebarTarget(id: secondTarget.id)
+        try await waitUntil("stale second scan request") {
+            service.requests.count == 2
+        }
+        service.yield(.finished(makeCoordinatorSnapshot(target: secondTarget, root: secondRoot, store: secondStore)), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("stale second scan finished") {
+            model.scanState.snapshot?.target == secondTarget
+        }
+
+        model.pendingTrashNode = secondChild
+        model.confirmMovePendingNodeToTrash()
+        try await waitUntil("post-trash rescan request") {
+            service.requests.count == 3
+        }
+
+        model.selectSidebarTarget(id: firstTarget.id)
+
+        try await waitUntil("first target scans after cache invalidation") {
+            service.requests.count == 4
+        }
+        XCTAssertEqual(service.requests.last?.target, firstTarget)
+    }
+
+    @MainActor
+    func testAppModelContainedSidebarTargetWinsOverOlderExactCache() async throws {
+        let service = ControlledScanService()
+        let homeTarget = makeCoordinatorTarget("/app/sidebar/cache-home")
+        let downloadsTarget = makeCoordinatorTarget("/app/sidebar/cache-home/Downloads")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
+            )
+        )
+        let downloadFile = makeCoordinatorFileNode(
+            id: downloadsTarget.id + "/file.txt",
+            name: "file.txt",
+            size: 20
+        )
+        let downloadsSnapshot = makeCoordinatorSnapshot(target: downloadsTarget)
+        let downloadsNode = makeCoordinatorDirectoryNode(
+            id: downloadsTarget.id,
+            name: "Downloads",
+            children: [downloadFile]
+        )
+        let homeRoot = makeCoordinatorDirectoryNode(
+            id: homeTarget.id,
+            name: "cache-home",
+            children: [downloadsNode]
+        )
+        let homeStore = FileTreeStore(root: homeRoot, childrenByID: [
+            homeRoot.id: [downloadsNode],
+            downloadsNode.id: [downloadFile]
+        ])
+        let homeSnapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
+
+        model.selectSidebarTarget(id: downloadsTarget.id)
+        try await waitUntil("downloads exact scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(downloadsSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("downloads exact scan finished") {
+            model.scanState.snapshot?.target == downloadsTarget
+        }
+
+        model.selectSidebarTarget(id: homeTarget.id)
+        try await waitUntil("home containing scan request") {
+            service.requests.count == 2
+        }
+        service.yield(.finished(homeSnapshot), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("home containing scan finished") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        model.selectSidebarTarget(id: downloadsTarget.id)
+
+        XCTAssertEqual(service.requests.count, 2)
+        XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
+        XCTAssertEqual(model.scanState.snapshot?.target, homeTarget)
+        XCTAssertEqual(model.navigation.focusedNodeID, downloadsTarget.id)
+        XCTAssertEqual(model.activeSidebarTargetID, downloadsTarget.id)
+    }
+
+    @MainActor
+    func testAppModelContainedSidebarTargetFocusesWithoutChangingScanRoot() async throws {
+        let service = ControlledScanService()
+        let homeTarget = makeCoordinatorTarget("/app/sidebar/home")
+        let downloadsTarget = makeCoordinatorTarget("/app/sidebar/home/Downloads")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
+            )
+        )
+        let downloadFile = makeCoordinatorFileNode(
+            id: downloadsTarget.id + "/file.txt",
+            name: "file.txt",
+            size: 20
+        )
+        let downloadsNode = makeCoordinatorDirectoryNode(
+            id: downloadsTarget.id,
+            name: "Downloads",
+            children: [downloadFile]
+        )
+        let homeRoot = makeCoordinatorDirectoryNode(
+            id: homeTarget.id,
+            name: "home",
+            children: [downloadsNode]
+        )
+        let store = FileTreeStore(root: homeRoot, childrenByID: [
+            homeRoot.id: [downloadsNode],
+            downloadsNode.id: [downloadFile]
+        ])
+        let snapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: store)
+
+        model.selectSidebarTarget(id: homeTarget.id)
+        try await waitUntil("home sidebar scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(snapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("home sidebar scan finished") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        model.selectSidebarTarget(id: downloadsTarget.id)
+
+        XCTAssertEqual(service.requests.count, 1)
+        XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
+        XCTAssertEqual(model.scanState.snapshot?.target, homeTarget)
+        XCTAssertEqual(model.navigation.focusedNodeID, downloadsTarget.id)
+        XCTAssertEqual(model.activeSidebarTargetID, downloadsTarget.id)
     }
 
     @MainActor
@@ -572,6 +879,14 @@ private func waitUntil(
 
 private func makeCoordinatorTarget(_ path: String) -> ScanTarget {
     ScanTarget(url: URL(filePath: path, directoryHint: .isDirectory))
+}
+
+@MainActor
+private func makeCoordinatorSidebarActions(targets: [ScanTarget]) -> AppSystemActions {
+    var actions = AppSystemActions.inert
+    actions.defaultTargets = { targets }
+    actions.preferredSmartTargetIDs = { targets.map(\.id) }
+    return actions
 }
 
 private func makeCoordinatorMetrics(path: String, filesVisited: Int) -> ScanMetrics {

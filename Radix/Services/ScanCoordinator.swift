@@ -147,6 +147,27 @@ final class ScanCoordinator: ObservableObject {
         }
     }
 
+    func restoreCompletedSnapshot(
+        _ snapshot: ScanSnapshot,
+        prepare: () -> Void = {}
+    ) {
+        guard snapshot.isComplete else { return }
+
+        stopScan(resetState: false)
+        prepare()
+
+        selectedTarget = snapshot.target
+        scanErrorMessage = nil
+        resetProgressThrottling()
+        apply(snapshot: snapshot)
+        completedScanSnapshot = snapshot
+
+        var metrics = ScanMetrics()
+        metrics.recalculateProgress(isComplete: true)
+        scanMetrics = metrics
+        phase = .displaying
+    }
+
     func expandSummarizedNode(
         _ node: FileNodeRecord,
         options: ScanOptions,
