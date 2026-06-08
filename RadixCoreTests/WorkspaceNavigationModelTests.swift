@@ -303,6 +303,10 @@ private final class NavigationAppPreferencesStore: AppPreferencesPersisting {
     func markOnboardingComplete() {
         preferences.didCompleteOnboarding = true
     }
+
+    func markOnboardingIncomplete() {
+        preferences.didCompleteOnboarding = false
+    }
 }
 
 private final class NavigationRecentTargetPersistence: RecentTargetPersisting {

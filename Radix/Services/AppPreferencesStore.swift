@@ -33,6 +33,7 @@ protocol AppPreferencesPersisting: AnyObject {
     func loadPreferences() -> AppPreferences
     func saveScanPreferences(_ preferences: AppScanPreferences)
     func markOnboardingComplete()
+    func markOnboardingIncomplete()
 }
 
 final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
@@ -90,5 +91,9 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
 
     func markOnboardingComplete() {
         defaults.set(true, forKey: Key.didCompleteOnboarding)
+    }
+
+    func markOnboardingIncomplete() {
+        defaults.set(false, forKey: Key.didCompleteOnboarding)
     }
 }

@@ -531,6 +531,10 @@ private final class CoordinatorAppPreferencesStore: AppPreferencesPersisting {
     func markOnboardingComplete() {
         preferences.didCompleteOnboarding = true
     }
+
+    func markOnboardingIncomplete() {
+        preferences.didCompleteOnboarding = false
+    }
 }
 
 private final class CoordinatorRecentTargetPersistence: RecentTargetPersisting {

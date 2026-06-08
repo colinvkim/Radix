@@ -84,8 +84,18 @@ private struct PrivacySettingsPane: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button("Open Full Disk Access Settings") {
-                    appModel.prepareAndOpenFullDiskAccessSettings()
+                Label(appModel.fullDiskAccessStatus.settingsSummary, systemImage: appModel.fullDiskAccessStatus.settingsSystemImage)
+                    .foregroundStyle(appModel.fullDiskAccessStatus.settingsColor)
+                    .font(.callout)
+
+                HStack {
+                    Button("Open Full Disk Access Settings") {
+                        appModel.prepareAndOpenFullDiskAccessSettings()
+                    }
+
+                    Button("Recheck") {
+                        appModel.refreshFullDiskAccessStatus()
+                    }
                 }
 
                 if PermissionAdvisor.shouldSuggestFullDiskAccess(for: scanState.snapshot) {
@@ -117,5 +127,40 @@ private struct PrivacySettingsPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+private extension FullDiskAccessStatus {
+    var settingsSummary: String {
+        switch self {
+        case .granted:
+            return "Full Disk Access is enabled."
+        case .notGranted:
+            return "Full Disk Access is not enabled."
+        case .unknown:
+            return "Full Disk Access could not be verified."
+        }
+    }
+
+    var settingsSystemImage: String {
+        switch self {
+        case .granted:
+            return "checkmark.circle.fill"
+        case .notGranted:
+            return "xmark.circle.fill"
+        case .unknown:
+            return "questionmark.circle.fill"
+        }
+    }
+
+    var settingsColor: Color {
+        switch self {
+        case .granted:
+            return .green
+        case .notGranted:
+            return .orange
+        case .unknown:
+            return .secondary
+        }
     }
 }

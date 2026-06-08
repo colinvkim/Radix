@@ -27,6 +27,10 @@ final class AppPreferencesStoreTests: XCTestCase {
         store.markOnboardingComplete()
 
         XCTAssertTrue(store.loadPreferences().didCompleteOnboarding)
+
+        store.markOnboardingIncomplete()
+
+        XCTAssertFalse(store.loadPreferences().didCompleteOnboarding)
     }
 
     func testLoadPreferencesClampsInvalidDepthAndPreservesExplicitFalseValues() {

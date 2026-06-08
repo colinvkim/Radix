@@ -59,6 +59,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableTargets: [ScanTarget] = []
     @Published var recentTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
+    @Published private(set) var fullDiskAccessStatus: FullDiskAccessStatus
     @Published var lastErrorMessage: String? {
         didSet {
             if lastErrorMessage == nil {
@@ -88,6 +89,7 @@ final class AppModel: ObservableObject {
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
         showsOnboarding = !preferences.didCompleteOnboarding
+        fullDiskAccessStatus = dependencies.systemActions.fullDiskAccessStatus()
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
 
         refreshAvailableTargets()
@@ -167,6 +169,10 @@ final class AppModel: ObservableObject {
 
     func presentOnboarding() {
         showsOnboarding = true
+    }
+
+    func refreshFullDiskAccessStatus() {
+        fullDiskAccessStatus = dependencies.systemActions.fullDiskAccessStatus()
     }
 
     func restoreDefaultPreferences() {
@@ -411,6 +417,15 @@ final class AppModel: ObservableObject {
             presentError(FileActionError.fullDiskAccessSettingsUnavailable)
             return
         }
+    }
+
+    func prepareAndOpenFullDiskAccessSettingsFromOnboarding() {
+        guard dependencies.systemActions.prepareAndOpenFullDiskAccessSettings() else {
+            presentError(FileActionError.fullDiskAccessSettingsUnavailable)
+            return
+        }
+
+        dependencies.preferences.markOnboardingIncomplete()
     }
 
     private func presentError(_ error: Error) {

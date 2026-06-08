@@ -4,111 +4,184 @@ struct OnboardingView: View {
     @EnvironmentObject private var appModel: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Radix", systemImage: "scope")
-                    .font(.largeTitle.weight(.bold))
-
-                Text("Scan disks and folders with a native macOS workflow, inspect results when the scan completes, and stay read-only until you explicitly choose a file action.")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(alignment: .top, spacing: 20) {
-                GroupBox("How Radix Works") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        featureRow(
-                            systemImage: "lock.shield",
-                            title: "Read-only by default",
-                            body: "Radix scans and summarizes usage. It only asks macOS to move an item to the Trash when you explicitly choose that action."
-                        )
-                        featureRow(
-                            systemImage: "folder.badge.gearshape",
-                            title: "Built around Finder",
-                            body: "Choose folders with the standard open panel, reveal results in Finder, and drag locations directly into the window."
-                        )
-                        featureRow(
-                            systemImage: "hand.raised",
-                            title: "Full Disk Access is optional",
-                            body: "Grant it only if you want more complete results from protected locations such as Mail, Safari, Messages, and Library content."
-                        )
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 24) {
+                intro
+                Divider()
+                FullDiskAccessSetupCard(
+                    status: appModel.fullDiskAccessStatus,
+                    openSettings: {
+                        appModel.prepareAndOpenFullDiskAccessSettingsFromOnboarding()
+                    },
+                    refreshStatus: {
+                        appModel.refreshFullDiskAccessStatus()
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                GroupBox("Before Your First Scan") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Normal folders can be scanned immediately. Protected system and privacy-sensitive locations require Full Disk Access in System Settings.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            onboardingStep(symbol: "1.circle.fill", text: "Open Full Disk Access Settings.")
-                            onboardingStep(symbol: "2.circle.fill", text: "Find Radix in Privacy & Security > Full Disk Access.")
-                            onboardingStep(symbol: "3.circle.fill", text: "Enable the toggle, then return to Radix.")
-                        }
-
-                        Text("You can scan without this permission and enable it later if a scan reports skipped folders.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                )
             }
+            .padding(.horizontal, 38)
+            .padding(.top, 34)
+            .padding(.bottom, 30)
+
+            Divider()
 
             HStack(spacing: 12) {
-                Button("Choose Folder to Scan") {
+                Spacer()
+
+                Button {
                     appModel.dismissOnboarding()
-                    appModel.presentOpenPanelAndScan()
+                } label: {
+                    Text("Continue")
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 30)
+            .padding(.vertical, 16)
+        }
+        .frame(width: 540, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .background(ModalTerminationBehavior())
+        .onAppear {
+            appModel.refreshFullDiskAccessStatus()
+        }
+    }
 
-                Button("Open Full Disk Access Settings") {
-                    appModel.prepareAndOpenFullDiskAccessSettings()
-                }
-                .buttonStyle(.bordered)
+    private var intro: some View {
+        VStack(spacing: 12) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 62, height: 62)
+                .accessibilityHidden(true)
+
+            Text("Welcome to Radix")
+                .font(.title2.weight(.semibold))
+
+            Text("Scan folders and disks to see where space is going. Radix stays read-only until you choose a file action.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 390)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct FullDiskAccessSetupCard: View {
+    let status: FullDiskAccessStatus
+    let openSettings: () -> Void
+    let refreshStatus: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Full Disk Access")
+                    .font(.headline)
 
                 Spacer()
 
-                Button("Not Now") {
-                    appModel.dismissOnboarding()
-                }
-                .keyboardShortcut(.cancelAction)
+                FullDiskAccessStatusBadge(status: status)
             }
-        }
-        .padding(28)
-        .frame(width: 820, alignment: .topLeading)
-        .frame(minHeight: 500, alignment: .topLeading)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
 
-    private func featureRow(systemImage: String, title: String, body: String) -> some View {
-        Label {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.headline)
-                Text(body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24, alignment: .center)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func onboardingStep(symbol: String, text: String) -> some View {
-        Label {
-            Text(text)
+            Text(statusMessage)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: symbol)
-                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("To enable it:")
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                Text("1. Open Privacy & Security > Full Disk Access.")
+                Text("2. Turn on Radix.")
+                Text("3. Choose Quit & Reopen when macOS asks.")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Button("Open Full Disk Access") {
+                    openSettings()
+                }
+
+                Button("Recheck") {
+                    refreshStatus()
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private var statusMessage: String {
+        switch status {
+        case .granted:
+            return "Radix can currently read protected locations. You can start a complete scan now."
+        case .notGranted:
+            return "Radix does not currently have Full Disk Access. Normal scans still work; protected folders may be skipped."
+        case .unknown:
+            return "Radix could not verify Full Disk Access on this Mac. You can still scan ordinary folders."
+        }
+    }
+
+}
+
+private struct FullDiskAccessStatusBadge: View {
+    let status: FullDiskAccessStatus
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.callout)
+            .foregroundStyle(foregroundStyle)
+            .accessibilityLabel("Full Disk Access \(title)")
+    }
+
+    private var title: String {
+        switch status {
+        case .granted:
+            return "Enabled"
+        case .notGranted:
+            return "Not Enabled"
+        case .unknown:
+            return "Unknown"
+        }
+    }
+
+    private var systemImage: String {
+        switch status {
+        case .granted:
+            return "checkmark.circle.fill"
+        case .notGranted:
+            return "xmark.circle.fill"
+        case .unknown:
+            return "questionmark.circle.fill"
+        }
+    }
+
+    private var foregroundStyle: Color {
+        switch status {
+        case .granted:
+            return .green
+        case .notGranted:
+            return .orange
+        case .unknown:
+            return .secondary
+        }
+    }
+
+}
+
+private struct ModalTerminationBehavior: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        updateWindow(for: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        updateWindow(for: nsView)
+    }
+
+    private func updateWindow(for view: NSView) {
+        DispatchQueue.main.async {
+            view.window?.preventsApplicationTerminationWhenModal = false
         }
     }
 }

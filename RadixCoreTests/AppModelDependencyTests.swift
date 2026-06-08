@@ -24,6 +24,7 @@ final class AppModelDependencyTests: XCTestCase {
         var actions = AppSystemActions.inert
         actions.defaultTargets = { [defaultTarget] }
         actions.preferredSmartTargetIDs = { [defaultTarget.id] }
+        actions.fullDiskAccessStatus = { .notGranted }
 
         let model = AppModel(
             dependencies: AppDependencies(
@@ -44,6 +45,7 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.availableTargets, [defaultTarget])
         XCTAssertEqual(model.smartTargets, [defaultTarget])
         XCTAssertEqual(model.recentTargets, [availableRecent])
+        XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
         XCTAssertEqual(recentPersistence.savedTargets, [[availableRecent]])
     }
 
@@ -74,6 +76,37 @@ final class AppModelDependencyTests: XCTestCase {
         model.presentOnboarding()
         XCTAssertTrue(model.showsOnboarding)
         XCTAssertEqual(preferences.markOnboardingCompleteCount, 1)
+    }
+
+    @MainActor
+    func testFullDiskAccessFromOnboardingShowsWelcomeAfterRelaunch() {
+        let preferences = SpyAppPreferencesStore(
+            preferences: AppPreferences(
+                scan: .defaults,
+                didCompleteOnboarding: true
+            )
+        )
+        var actions = AppSystemActions.inert
+        var openSettingsCount = 0
+        actions.prepareAndOpenFullDiskAccessSettings = {
+            openSettingsCount += 1
+            return true
+        }
+        actions.fullDiskAccessStatus = { .notGranted }
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
+
+        XCTAssertFalse(model.showsOnboarding)
+
+        model.presentOnboarding()
+        model.prepareAndOpenFullDiskAccessSettingsFromOnboarding()
+
+        XCTAssertTrue(model.showsOnboarding)
+        XCTAssertEqual(openSettingsCount, 1)
+        XCTAssertEqual(preferences.markOnboardingIncompleteCount, 1)
+        XCTAssertFalse(preferences.preferences.didCompleteOnboarding)
+
+        let relaunchedModel = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
+        XCTAssertTrue(relaunchedModel.showsOnboarding)
     }
 
     @MainActor
@@ -166,7 +199,10 @@ final class AppModelDependencyTests: XCTestCase {
         )
         installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
         let preferences = SpyAppPreferencesStore(
-            preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: true)
+            preferences: AppPreferences(
+                scan: .defaults,
+                didCompleteOnboarding: true
+            )
         )
         let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
         let file = installSelection(on: model)
@@ -329,6 +365,22 @@ final class AppModelDependencyTests: XCTestCase {
 
         XCTAssertEqual(model.lastErrorMessage, "Radix could not open Full Disk Access settings.")
     }
+
+    @MainActor
+    func testFullDiskAccessStatusCanRefreshThroughInjectedProbe() {
+        var statuses: [FullDiskAccessStatus] = [.notGranted, .granted]
+        var actions = AppSystemActions.inert
+        actions.fullDiskAccessStatus = {
+            statuses.removeFirst()
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
+
+        model.refreshFullDiskAccessStatus()
+
+        XCTAssertEqual(model.fullDiskAccessStatus, .granted)
+    }
 }
 
 @MainActor
@@ -457,6 +509,7 @@ private final class SpyAppPreferencesStore: AppPreferencesPersisting {
     var preferences: AppPreferences
     var savedScanPreferences: [AppScanPreferences] = []
     var markOnboardingCompleteCount = 0
+    var markOnboardingIncompleteCount = 0
 
     init(preferences: AppPreferences) {
         self.preferences = preferences
@@ -474,6 +527,11 @@ private final class SpyAppPreferencesStore: AppPreferencesPersisting {
     func markOnboardingComplete() {
         preferences.didCompleteOnboarding = true
         markOnboardingCompleteCount += 1
+    }
+
+    func markOnboardingIncomplete() {
+        preferences.didCompleteOnboarding = false
+        markOnboardingIncompleteCount += 1
     }
 }
 

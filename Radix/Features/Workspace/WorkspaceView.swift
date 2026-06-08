@@ -275,7 +275,7 @@ private struct PermissionBanner: View {
 
             Spacer()
 
-            Button("Open Settings") {
+            Button("Open Full Disk Access") {
                 actions.openFullDiskAccessSettings()
             }
             .controlSize(.small)
@@ -382,7 +382,7 @@ private struct WarningFooter: View {
             Spacer()
 
             if shouldSuggestFullDiskAccess {
-                Button("Open Settings") {
+                Button("Open Full Disk Access") {
                     actions.openFullDiskAccessSettings()
                 }
             }

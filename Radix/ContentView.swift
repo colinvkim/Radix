@@ -86,8 +86,14 @@ struct ContentView: View {
             appModel.suspendMainWindowActivity()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .background else { return }
-            appModel.suspendMainWindowActivity()
+            switch newPhase {
+            case .active:
+                appModel.refreshFullDiskAccessStatus()
+            case .background:
+                appModel.suspendMainWindowActivity()
+            default:
+                break
+            }
         }
     }
 }

@@ -64,6 +64,7 @@ struct AppSystemActions {
     var moveToTrash: (URL) throws -> Void
     var quickLook: AppQuickLookActions
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
+    var fullDiskAccessStatus: () -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
     var presentOpenPanel: () -> ScanTarget?
     var fileExists: (URL) -> Bool
@@ -80,6 +81,9 @@ struct AppSystemActions {
         quickLook: .live,
         prepareAndOpenFullDiskAccessSettings: {
             SystemIntegration.prepareAndOpenFullDiskAccessSettings()
+        },
+        fullDiskAccessStatus: {
+            SystemIntegration.fullDiskAccessStatus()
         },
         defaultTargets: {
             SystemIntegration.defaultTargets()
@@ -123,6 +127,7 @@ struct AppSystemActions {
         moveToTrash: { _ in },
         quickLook: .disabled,
         prepareAndOpenFullDiskAccessSettings: { true },
+        fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         presentOpenPanel: { nil },
         fileExists: { _ in false },

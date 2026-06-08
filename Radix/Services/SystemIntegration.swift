@@ -8,6 +8,12 @@
 import AppKit
 import Foundation
 
+enum FullDiskAccessStatus: Equatable {
+    case granted
+    case notGranted
+    case unknown
+}
+
 enum SystemIntegration {
     enum SystemIntegrationError: LocalizedError {
         case openFailed(path: String)
@@ -129,33 +135,68 @@ enum SystemIntegration {
     }
 
     static func primeFullDiskAccessListEntry() {
+        _ = probeFullDiskAccess()
+    }
+
+    static func fullDiskAccessStatus() -> FullDiskAccessStatus {
+        probeFullDiskAccess()
+    }
+
+    private static func probeFullDiskAccess() -> FullDiskAccessStatus {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
-        let candidateDirectories = [
-            homeDirectory.appending(path: "Library/Mail", directoryHint: .isDirectory),
-            homeDirectory.appending(path: "Library/Messages", directoryHint: .isDirectory),
-            homeDirectory.appending(path: "Library/Safari", directoryHint: .isDirectory),
-            homeDirectory.appending(path: "Library/HomeKit", directoryHint: .isDirectory),
-            URL(filePath: "/Library/Application Support/com.apple.TCC", directoryHint: .isDirectory)
+        let candidates = [
+            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Mail", directoryHint: .isDirectory), kind: .directory),
+            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Messages", directoryHint: .isDirectory), kind: .directory),
+            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Safari", directoryHint: .isDirectory), kind: .directory),
+            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/HomeKit", directoryHint: .isDirectory), kind: .directory),
+            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Application Support/com.apple.TCC/TCC.db"), kind: .file),
+            ProtectedPathProbe(url: URL(filePath: "/Library/Application Support/com.apple.TCC/TCC.db"), kind: .file)
         ]
 
-        for directory in candidateDirectories where fileManager.fileExists(atPath: directory.path) {
+        var foundProtectedCandidate = false
+
+        for candidate in candidates where fileManager.fileExists(atPath: candidate.url.path) {
+            foundProtectedCandidate = true
+
             do {
-                _ = try fileManager.contentsOfDirectory(
-                    at: directory,
-                    includingPropertiesForKeys: [.isDirectoryKey],
-                    options: [.skipsHiddenFiles]
-                )
+                try candidate.probe(using: fileManager)
+                return .granted
             } catch {
                 continue
             }
         }
+
+        return foundProtectedCandidate ? .notGranted : .unknown
     }
 
     private static func deduplicate(_ targets: [ScanTarget]) -> [ScanTarget] {
         var seen = Set<String>()
         return targets.filter { target in
             seen.insert(target.id).inserted
+        }
+    }
+}
+
+private struct ProtectedPathProbe {
+    enum Kind {
+        case directory
+        case file
+    }
+
+    var url: URL
+    var kind: Kind
+
+    func probe(using fileManager: FileManager) throws {
+        switch kind {
+        case .directory:
+            _ = try fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: nil
+            )
+        case .file:
+            let handle = try FileHandle(forReadingFrom: url)
+            try? handle.close()
         }
     }
 }
