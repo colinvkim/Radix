@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct WorkspaceActions {
@@ -131,13 +132,6 @@ private struct ActiveWorkspaceView: View {
 
     private var visualizationPane: some View {
         VStack(spacing: 0) {
-            PaneHeader(
-                title: "Disk Map",
-                subtitle: "Hover to inspect. Double-click a folder to drill down."
-            )
-
-            Divider()
-
             chartContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -177,11 +171,22 @@ private struct ActiveWorkspaceView: View {
     }
 }
 
+/// Pure SwiftUI replacement for `VSplitView`.
+///
+/// `VSplitView` (NSSplitView-backed) combined with `.inspector` makes AppKit
+/// re-enter the Update Constraints in Window pass until NSWindow throws
+/// `NSGenericException` ("more Update Constraints in Window passes than there
+/// are views in the window"), crashing the app once scan content is visible.
 private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
+    private static var dividerHitHeight: CGFloat { 9 }
+
     let topMinHeight: CGFloat
     let bottomMinHeight: CGFloat
     private let top: Top
     private let bottom: Bottom
+
+    @State private var topFraction: CGFloat = 0.56
+    @State private var dragStartFraction: CGFloat?
 
     init(
         topMinHeight: CGFloat,
@@ -197,24 +202,68 @@ private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
-            VSplitView {
+            let contentHeight = max(proxy.size.height - Self.dividerHitHeight, 0)
+
+            VStack(spacing: 0) {
                 top
-                    .frame(minHeight: minimumTopHeight(for: proxy.size.height), maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: topHeight(forContentHeight: contentHeight))
+                    .clipped()
+
+                divider(contentHeight: contentHeight)
 
                 bottom
-                    .frame(minHeight: minimumBottomHeight(for: proxy.size.height), maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
     }
 
-    private func minimumTopHeight(for totalHeight: CGFloat) -> CGFloat {
-        constrainedMinimumHeights(for: totalHeight).top
+    private func divider(contentHeight: CGFloat) -> some View {
+        ZStack {
+            Divider()
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: Self.dividerHitHeight)
+        .contentShape(Rectangle())
+        .onHover { isHovering in
+            if isHovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    guard contentHeight > 0 else { return }
+
+                    let baseFraction = dragStartFraction ?? topFraction
+                    dragStartFraction = baseFraction
+                    topFraction = clampedFraction(
+                        baseFraction + (value.translation.height / contentHeight),
+                        contentHeight: contentHeight
+                    )
+                }
+                .onEnded { _ in
+                    dragStartFraction = nil
+                }
+        )
+        .accessibilityLabel("Resize panes")
     }
 
-    private func minimumBottomHeight(for totalHeight: CGFloat) -> CGFloat {
-        constrainedMinimumHeights(for: totalHeight).bottom
+    private func topHeight(forContentHeight contentHeight: CGFloat) -> CGFloat {
+        clampedFraction(topFraction, contentHeight: contentHeight) * contentHeight
+    }
+
+    private func clampedFraction(_ fraction: CGFloat, contentHeight: CGFloat) -> CGFloat {
+        guard contentHeight > 0 else { return fraction }
+
+        let minimums = constrainedMinimumHeights(for: contentHeight)
+        let lowerBound = minimums.top / contentHeight
+        let upperBound = max((contentHeight - minimums.bottom) / contentHeight, lowerBound)
+        return min(max(fraction, lowerBound), upperBound)
     }
 
     private func constrainedMinimumHeights(for totalHeight: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
@@ -336,27 +385,6 @@ private struct PermissionBanner: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(Color(nsColor: .controlBackgroundColor))
-    }
-}
-
-private struct PaneHeader: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 }
 
