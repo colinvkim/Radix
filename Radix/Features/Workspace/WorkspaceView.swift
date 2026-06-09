@@ -223,17 +223,11 @@ private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
     private func divider(contentHeight: CGFloat) -> some View {
         ZStack {
             Divider()
+            PaneResizeCursorRect()
         }
         .frame(maxWidth: .infinity)
         .frame(height: Self.dividerHitHeight)
         .contentShape(Rectangle())
-        .onHover { isHovering in
-            if isHovering {
-                NSCursor.resizeUpDown.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -274,6 +268,27 @@ private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
 
         let scale = max(totalHeight, 0) / minimumHeight
         return (topMinHeight * scale, bottomMinHeight * scale)
+    }
+}
+
+private struct PaneResizeCursorRect: NSViewRepresentable {
+    func makeNSView(context: Context) -> CursorRectView {
+        CursorRectView()
+    }
+
+    func updateNSView(_ nsView: CursorRectView, context: Context) {
+        nsView.window?.invalidateCursorRects(for: nsView)
+    }
+
+    final class CursorRectView: NSView {
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            addCursorRect(bounds, cursor: .resizeUpDown)
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
     }
 }
 
