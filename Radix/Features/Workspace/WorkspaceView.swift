@@ -271,7 +271,7 @@ private struct WorkspaceHeaderView: View {
 
                     Spacer(minLength: 12)
 
-                    MetricStrip(snapshot: snapshot, focusNode: focusNode)
+                    MetricStrip(snapshot: snapshot)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -280,7 +280,7 @@ private struct WorkspaceHeaderView: View {
                         onSelect: actions.focusNode
                     )
 
-                    MetricStrip(snapshot: snapshot, focusNode: focusNode)
+                    MetricStrip(snapshot: snapshot)
                 }
             }
         }
@@ -362,7 +362,6 @@ private struct PaneHeader: View {
 
 private struct MetricStrip: View {
     let snapshot: ScanSnapshot
-    let focusNode: FileNodeRecord
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -374,13 +373,11 @@ private struct MetricStrip: View {
                 GridRow {
                     WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(displayedAllocatedSize))
                     WorkspaceMetricView(title: "Files", value: "\(displayedFileCount)")
-                    WorkspaceMetricView(title: "Folders", value: "\(displayedDirectoryCount)")
                 }
 
                 GridRow {
-                    WorkspaceMetricView(title: "Focus", value: focusNode.name)
+                    WorkspaceMetricView(title: "Folders", value: "\(displayedDirectoryCount)")
                     WorkspaceMetricView(title: "Warnings", value: "\(warningCount)")
-                    Color.clear
                 }
             }
         }
@@ -391,7 +388,6 @@ private struct MetricStrip: View {
             WorkspaceMetricView(title: "Scanned", value: RadixFormatters.size(displayedAllocatedSize))
             WorkspaceMetricView(title: "Files", value: "\(displayedFileCount)")
             WorkspaceMetricView(title: "Folders", value: "\(displayedDirectoryCount)")
-            WorkspaceMetricView(title: "Focus", value: focusNode.name)
             WorkspaceMetricView(title: "Warnings", value: "\(warningCount)")
         }
     }
