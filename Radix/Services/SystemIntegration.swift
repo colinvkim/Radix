@@ -19,7 +19,6 @@ enum SystemIntegration {
         case openFailed(path: String)
         case copyPathFailed(path: String)
         case quickLookUnavailable(path: String)
-        case fullDiskAccessSettingsUnavailable
 
         var errorDescription: String? {
             switch self {
@@ -29,8 +28,6 @@ enum SystemIntegration {
                 return "macOS could not copy the path for \(path)."
             case .quickLookUnavailable(let path):
                 return "The item at \(path) is no longer available for Quick Look."
-            case .fullDiskAccessSettingsUnavailable:
-                return "Radix could not open Full Disk Access settings."
             }
         }
     }

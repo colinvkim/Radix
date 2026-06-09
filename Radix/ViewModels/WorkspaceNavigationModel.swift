@@ -77,13 +77,6 @@ final class WorkspaceNavigationModel: ObservableObject {
         refreshTableState()
     }
 
-    func updateFileTreeStore(_ fileTreeStore: FileTreeStore?, snapshotID: UUID?) {
-        self.fileTreeStore = fileTreeStore
-        self.snapshotID = snapshotID
-        refreshSelectedAncestorIDs()
-        refreshTableState()
-    }
-
     func reset() {
         selectedNodeID = nil
         focusedNodeID = nil
