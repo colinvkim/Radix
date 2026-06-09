@@ -111,6 +111,7 @@ final class AppModel: ObservableObject {
     @Published var showsOnboarding: Bool
     @Published private(set) var fullDiskAccessStatus: FullDiskAccessStatus
     @Published private(set) var activeSidebarTargetID: String?
+    @Published private(set) var targetCapacityDescriptions: [String: String] = [:]
     @Published var lastErrorMessage: String? {
         didSet {
             if lastErrorMessage == nil {
@@ -240,6 +241,14 @@ final class AppModel: ObservableObject {
     func clearRecentTargets() {
         recentTargets.removeAll()
         dependencies.recentTargets.clear()
+    }
+
+    func sidebarSubtitle(for target: ScanTarget) -> String {
+        if target.kind == .volume,
+           let capacityDescription = targetCapacityDescriptions[target.id] {
+            return capacityDescription
+        }
+        return target.url.path
     }
 
     /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
@@ -618,6 +627,7 @@ final class AppModel: ObservableObject {
 
     private func refreshAvailableTargets() {
         availableTargets = dependencies.systemActions.defaultTargets()
+        targetCapacityDescriptions = dependencies.systemActions.targetCapacityDescriptions()
     }
 
     private func observeNavigationModel() {

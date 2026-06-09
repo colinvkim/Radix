@@ -25,9 +25,6 @@ extension ScanTarget {
     }
 
     var sidebarSubtitle: String {
-        if kind == .volume, let capacityDescription {
-            return capacityDescription
-        }
         return url.path
     }
 
@@ -52,21 +49,6 @@ extension ScanTarget {
         }
     }
 
-    private var capacityDescription: String? {
-        let values: URLResourceValues
-        do {
-            values = try url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
-        } catch {
-            return nil
-        }
-
-        guard let totalCapacity = values.volumeTotalCapacity,
-              let availableCapacity = values.volumeAvailableCapacityForImportantUsage else { return nil }
-
-        let totalText = RadixFormatters.size(Int64(totalCapacity))
-        let availableText = RadixFormatters.size(Int64(availableCapacity))
-        return "\(availableText) free of \(totalText)"
-    }
 }
 
 extension ScanWarningCategory {

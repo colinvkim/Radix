@@ -57,7 +57,7 @@ private struct SidebarTargetRow: View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.sidebarTitle)
-                Text(target.sidebarSubtitle)
+                Text(appModel.sidebarSubtitle(for: target))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

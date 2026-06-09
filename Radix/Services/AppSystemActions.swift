@@ -66,6 +66,7 @@ struct AppSystemActions {
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
     var fullDiskAccessStatus: () -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
+    var targetCapacityDescriptions: () -> [String: String]
     var presentOpenPanel: () -> ScanTarget?
     var fileExists: (URL) -> Bool
     var isExistingDirectory: (URL) -> Bool
@@ -87,6 +88,9 @@ struct AppSystemActions {
         },
         defaultTargets: {
             SystemIntegration.defaultTargets()
+        },
+        targetCapacityDescriptions: {
+            SystemIntegration.targetCapacityDescriptions()
         },
         presentOpenPanel: {
             SystemIntegration.presentScanPanel()
@@ -129,6 +133,7 @@ struct AppSystemActions {
         prepareAndOpenFullDiskAccessSettings: { true },
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
+        targetCapacityDescriptions: { [:] },
         presentOpenPanel: { nil },
         fileExists: { _ in false },
         isExistingDirectory: { _ in false },

@@ -63,10 +63,10 @@ enum SystemIntegration {
         let applicationsDirectory = URL(filePath: "/Applications", directoryHint: .isDirectory)
         let startupDisk = ScanTarget(url: URL(filePath: "/", directoryHint: .isDirectory), kind: .volume)
 
-        var targets = [startupDisk, ScanTarget(url: homeDirectory)]
+        var targets = [startupDisk, ScanTarget(url: homeDirectory, kind: .folder)]
         for url in [desktopDirectory, documentsDirectory, downloadsDirectory, libraryDirectory, applicationsDirectory] {
             if fileManager.fileExists(atPath: url.path) {
-                targets.append(ScanTarget(url: url))
+                targets.append(ScanTarget(url: url, kind: .folder))
             }
         }
 
@@ -80,6 +80,27 @@ enum SystemIntegration {
         }
 
         return deduplicate(targets)
+    }
+
+    static func targetCapacityDescriptions() -> [String: String] {
+        let fileManager = FileManager.default
+        let mountedVolumes = fileManager.mountedVolumeURLs(
+            includingResourceValuesForKeys: [
+                .volumeTotalCapacityKey,
+                .volumeAvailableCapacityForImportantUsageKey
+            ],
+            options: [.skipHiddenVolumes]
+        ) ?? [URL(filePath: "/", directoryHint: .isDirectory)]
+
+        var descriptions: [String: String] = [:]
+        descriptions.reserveCapacity(mountedVolumes.count)
+
+        for volumeURL in mountedVolumes {
+            guard let description = capacityDescription(for: volumeURL) else { continue }
+            descriptions[volumeURL.standardizedFileURL.path] = description
+        }
+
+        return descriptions
     }
 
     static func reveal(_ url: URL) {
@@ -172,6 +193,27 @@ enum SystemIntegration {
         return targets.filter { target in
             seen.insert(target.id).inserted
         }
+    }
+
+    private static func capacityDescription(for url: URL) -> String? {
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: [
+                .volumeTotalCapacityKey,
+                .volumeAvailableCapacityForImportantUsageKey
+            ])
+        } catch {
+            return nil
+        }
+
+        guard let totalCapacity = values.volumeTotalCapacity,
+              let availableCapacity = values.volumeAvailableCapacityForImportantUsage else {
+            return nil
+        }
+
+        let totalText = RadixFormatters.size(Int64(totalCapacity))
+        let availableText = RadixFormatters.size(Int64(availableCapacity))
+        return "\(availableText) free of \(totalText)"
     }
 }
 
