@@ -7,6 +7,7 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 24) {
                 intro
+                DiskMapTip()
                 Divider()
                 FullDiskAccessSetupCard(
                     status: appModel.fullDiskAccessStatus,
@@ -63,6 +64,23 @@ struct OnboardingView: View {
                 .frame(maxWidth: 390)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+private struct DiskMapTip: View {
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Explore the disk map")
+                    .font(.headline)
+                Text("Hover over segments to inspect them. Double-click a folder segment or table row to drill down.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: "chart.pie.fill")
+                .foregroundStyle(Color.accentColor)
+        }
     }
 }
 
