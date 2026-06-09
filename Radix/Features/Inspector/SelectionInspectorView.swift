@@ -213,7 +213,15 @@ private struct InspectorActionButtons: View {
             .buttonStyle(.bordered)
             .disabled(!canRevealSelected)
 
-            if navigation.canZoomIntoSelection {
+            if canExpandSummarizedSelection {
+                Button {
+                    expandSummarizedSelection()
+                } label: {
+                    Label("Expand Fully", systemImage: "arrowshape.turn.up.right.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else if navigation.canZoomIntoSelection {
                 Button {
                     appModel.zoomIntoSelection()
                 } label: {
@@ -287,6 +295,15 @@ private struct InspectorActionButtons: View {
 
     private var canMoveSelectedToTrash: Bool {
         navigation.selectedNode?.supportsMoveToTrash(activeTarget: scanState.selectedTarget) == true
+    }
+
+    private var canExpandSummarizedSelection: Bool {
+        navigation.selectedNode?.isAutoSummarized == true
+    }
+
+    private func expandSummarizedSelection() {
+        guard let node = navigation.selectedNode else { return }
+        appModel.expandSummarizedNode(node) {}
     }
 }
 

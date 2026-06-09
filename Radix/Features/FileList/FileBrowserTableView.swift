@@ -134,7 +134,7 @@ struct FileBrowserTableView: View {
                             .width(min: 150, ideal: 180)
                         }
                         .accessibilityLabel("Contents table")
-                        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in. Press Space for Quick Look.")
+                        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = model.displayedNodeLookup[selectedID] {
@@ -156,11 +156,18 @@ struct FileBrowserTableView: View {
                                 }
                                 .disabled(!selectedNode.supportsFileActions)
 
-                                Button("Zoom In", systemImage: "magnifyingglass") {
-                                    appModel.select(nodeID: selectedID)
-                                    appModel.zoomIntoSelection()
+                                if selectedNode.isAutoSummarized {
+                                    Button("Expand Fully", systemImage: "arrowshape.turn.up.right.circle.fill") {
+                                        appModel.select(nodeID: selectedID)
+                                        expandSummarizedNode(selectedNode)
+                                    }
+                                } else {
+                                    Button("Zoom In", systemImage: "magnifyingglass") {
+                                        appModel.select(nodeID: selectedID)
+                                        appModel.zoomIntoSelection()
+                                    }
+                                    .disabled(!canRequestZoom(for: selectedNode))
                                 }
-                                .disabled(!selectedNode.isDirectory)
 
                                 Divider()
 
@@ -184,7 +191,9 @@ struct FileBrowserTableView: View {
 
                             appModel.select(nodeID: selectedID)
 
-                            if selectedNode.isDirectory {
+                            if selectedNode.isAutoSummarized {
+                                expandSummarizedNode(selectedNode)
+                            } else if canRequestZoom(for: selectedNode) {
                                 appModel.zoomIntoSelection()
                             } else if selectedNode.supportsFileActions {
                                 appModel.openSelected()
@@ -240,6 +249,25 @@ struct FileBrowserTableView: View {
 
         return fileTreeStore.parentIDByID[node.id]
             .flatMap { fileTreeStore.nodesByID[$0]?.url.path } ?? node.url.deletingLastPathComponent().path
+    }
+
+    private func canZoomInto(node: FileNodeRecord) -> Bool {
+        node.isDirectory && scanState.fileTreeStore?.containsChildren(id: node.id) == true
+    }
+
+    private func canRequestZoom(for node: FileNodeRecord) -> Bool {
+        canZoomInto(node: node) || shouldShowPackageContentsHint(for: node)
+    }
+
+    private func shouldShowPackageContentsHint(for node: FileNodeRecord) -> Bool {
+        node.isPackage &&
+            node.isDirectory &&
+            !node.isAutoSummarized &&
+            (node.descendantFileCount > 0 || node.allocatedSize > 0 || node.logicalSize > 0)
+    }
+
+    private func expandSummarizedNode(_ node: FileNodeRecord) {
+        appModel.expandSummarizedNode(node) {}
     }
 
 }
