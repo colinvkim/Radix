@@ -5,8 +5,19 @@ struct FileBrowserTableView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
 
-    @StateObject private var model = FileBrowserModel()
+    @StateObject private var model: FileBrowserModel
     @FocusState private var isSearchFieldFocused: Bool
+
+    init(
+        scanState: ScanCoordinator,
+        navigation: WorkspaceNavigationModel,
+        model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
+    ) {
+        self.scanState = scanState
+        self.navigation = navigation
+        _model = StateObject(wrappedValue: model())
+    }
+
     private var tableSelection: Binding<String?> {
         Binding(
             get: {

@@ -39,6 +39,7 @@ final class SunburstChartModel: ObservableObject {
     private var layoutGeneration = 0
     private var activeLayoutID: String?
     private var layoutTask: Task<[SunburstSegment], Error>?
+    private var selectionOverlayCache = SunburstSelectionOverlayCache(capacity: 8)
 
     init(layoutService: any SunburstLayouting = SunburstLayoutService()) {
         self.layoutService = layoutService
@@ -75,10 +76,17 @@ final class SunburstChartModel: ObservableObject {
         selectedNodeID: String?,
         selectedAncestorIDs: Set<String>
     ) -> [SunburstSelectionOverlaySegment] {
-        renderState.selectionOverlaySegments(
+        let key = SunburstSelectionOverlayCacheKey(
+            renderVersion: renderedLayoutVersion,
             selectedNodeID: selectedNodeID,
             selectedAncestorIDs: selectedAncestorIDs
         )
+        return selectionOverlayCache.segments(for: key) {
+            renderState.selectionOverlaySegments(
+                selectedNodeID: selectedNodeID,
+                selectedAncestorIDs: selectedAncestorIDs
+            )
+        }
     }
 
     @discardableResult
@@ -142,6 +150,7 @@ final class SunburstChartModel: ObservableObject {
     }
 
     private func apply(_ segments: [SunburstSegment]) {
+        selectionOverlayCache.removeAll()
         renderState = SunburstChartRenderState(
             segments: segments,
             version: renderState.version + 1
@@ -158,6 +167,55 @@ final class SunburstChartModel: ObservableObject {
     private func setIsLayoutPending(_ isPending: Bool) {
         guard isLayoutPending != isPending else { return }
         isLayoutPending = isPending
+    }
+}
+
+private struct SunburstSelectionOverlayCacheKey: Hashable {
+    let renderVersion: Int
+    let selectedNodeID: String?
+    let selectedAncestorIDs: Set<String>
+}
+
+private struct SunburstSelectionOverlayCache {
+    private let capacity: Int
+    private var segmentsByKey: [SunburstSelectionOverlayCacheKey: [SunburstSelectionOverlaySegment]] = [:]
+    private var keysByRecency: [SunburstSelectionOverlayCacheKey] = []
+
+    init(capacity: Int) {
+        self.capacity = max(capacity, 1)
+    }
+
+    mutating func segments(
+        for key: SunburstSelectionOverlayCacheKey,
+        build: () -> [SunburstSelectionOverlaySegment]
+    ) -> [SunburstSelectionOverlaySegment] {
+        if let segments = segmentsByKey[key] {
+            markRecentlyUsed(key)
+            return segments
+        }
+
+        let segments = build()
+        segmentsByKey[key] = segments
+        markRecentlyUsed(key)
+        trimToCapacity()
+        return segments
+    }
+
+    mutating func removeAll() {
+        segmentsByKey.removeAll()
+        keysByRecency.removeAll()
+    }
+
+    private mutating func markRecentlyUsed(_ key: SunburstSelectionOverlayCacheKey) {
+        keysByRecency.removeAll { $0 == key }
+        keysByRecency.append(key)
+    }
+
+    private mutating func trimToCapacity() {
+        while segmentsByKey.count > capacity, let oldestKey = keysByRecency.first {
+            keysByRecency.removeFirst()
+            segmentsByKey[oldestKey] = nil
+        }
     }
 }
 

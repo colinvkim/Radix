@@ -76,6 +76,15 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertNil(index.segment(at: pointInRing(radius: 0.38, in: size), in: size))
     }
 
+    func testHitTestIndexFindsAngleInUnsortedRing() throws {
+        let size = CGSize(width: 300, height: 300)
+        let first = makeSegment(id: "first", startAngle: 0, endAngle: .pi, innerRadius: 0.1, outerRadius: 0.8, depth: 0)
+        let second = makeSegment(id: "second", startAngle: .pi, endAngle: .pi * 2, innerRadius: 0.1, outerRadius: 0.8, depth: 0)
+        let index = SunburstHitTestIndex(segments: [second, first])
+
+        XCTAssertEqual(index.segment(at: pointInside(segment: second, in: size), in: size)?.id, second.id)
+    }
+
     func testStablePaletteIndexIsDeterministicAndBounded() {
         XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 6), 3)
         XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 1), 0)
@@ -129,6 +138,8 @@ private func pointInRing(radius normalizedRadius: CGFloat, in size: CGSize) -> C
 
 private func makeSegment(
     id: String,
+    startAngle: Double = 0,
+    endAngle: Double = .pi * 2,
     innerRadius: CGFloat,
     outerRadius: CGFloat,
     depth: Int
@@ -137,8 +148,8 @@ private func makeSegment(
         id: id,
         nodeID: id,
         label: id,
-        startAngle: .radians(0),
-        endAngle: .radians(.pi * 2),
+        startAngle: .radians(startAngle),
+        endAngle: .radians(endAngle),
         innerRadius: innerRadius,
         outerRadius: outerRadius,
         depth: depth,

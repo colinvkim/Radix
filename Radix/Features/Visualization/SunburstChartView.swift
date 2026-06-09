@@ -13,7 +13,7 @@ struct SunburstChartView: View {
     let onSelect: (String?) -> Void
     let onZoom: (String) -> Void
 
-    @StateObject private var chartModel = SunburstChartModel()
+    @StateObject private var chartModel: SunburstChartModel
 
     init(
         rootNode: FileNodeRecord,
@@ -23,7 +23,8 @@ struct SunburstChartView: View {
         depthLimit: Int,
         layoutID: String,
         onSelect: @escaping (String?) -> Void,
-        onZoom: @escaping (String) -> Void
+        onZoom: @escaping (String) -> Void,
+        chartModel: @autoclosure @escaping () -> SunburstChartModel = SunburstChartModel()
     ) {
         self.rootNode = rootNode
         self.treeStore = treeStore
@@ -33,6 +34,7 @@ struct SunburstChartView: View {
         self.layoutID = layoutID
         self.onSelect = onSelect
         self.onZoom = onZoom
+        _chartModel = StateObject(wrappedValue: chartModel())
     }
 
     private var displayedNode: FileNodeRecord? {

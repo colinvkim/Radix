@@ -333,10 +333,7 @@ struct SunburstHitTestIndex: Sendable {
             radians += (.pi * 2)
         }
 
-        return ring.segments.first { segment in
-            radians >= segment.startAngle.radians &&
-                radians <= segment.endAngle.radians
-        }
+        return ring.segment(containing: radians)
     }
 
     private struct Ring: Sendable {
@@ -347,7 +344,9 @@ struct SunburstHitTestIndex: Sendable {
 
         nonisolated init(depth: Int, segments: [SunburstSegment]) {
             self.depth = depth
-            self.segments = segments
+            self.segments = segments.sorted { lhs, rhs in
+                lhs.startAngle.radians < rhs.startAngle.radians
+            }
 
             var minInnerRadius = CGFloat.greatestFiniteMagnitude
             var maxOuterRadius: CGFloat = 0
@@ -362,6 +361,29 @@ struct SunburstHitTestIndex: Sendable {
 
         nonisolated func contains(_ normalizedDistance: CGFloat) -> Bool {
             normalizedDistance >= minInnerRadius && normalizedDistance <= maxOuterRadius
+        }
+
+        nonisolated func segment(containing radians: Double) -> SunburstSegment? {
+            guard !segments.isEmpty else { return nil }
+
+            var lowerBound = 0
+            var upperBound = segments.count
+            while lowerBound < upperBound {
+                let midpoint = lowerBound + ((upperBound - lowerBound) / 2)
+                if segments[midpoint].startAngle.radians <= radians {
+                    lowerBound = midpoint + 1
+                } else {
+                    upperBound = midpoint
+                }
+            }
+
+            let candidateIndex = max(lowerBound - 1, 0)
+            let candidate = segments[candidateIndex]
+            guard radians >= candidate.startAngle.radians,
+                  radians <= candidate.endAngle.radians else {
+                return nil
+            }
+            return candidate
         }
     }
 }
