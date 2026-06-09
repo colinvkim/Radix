@@ -138,23 +138,25 @@ struct FileBrowserTableView: View {
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = model.displayedNodeLookup[selectedID] {
+                                let actionAvailability = selectedNode.actionAvailability(activeTarget: scanState.selectedTarget)
+
                                 Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.previewSelectedWithQuickLook()
                                 }
-                                .disabled(!selectedNode.supportsFileActions)
+                                .disabled(!actionAvailability.canPreviewWithQuickLook)
 
                                 Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.revealSelectedInFinder()
                                 }
-                                .disabled(!selectedNode.supportsFileActions)
+                                .disabled(!actionAvailability.canRevealInFinder)
 
                                 Button("Open", systemImage: "arrow.up.forward.app") {
                                     appModel.select(nodeID: selectedID)
                                     appModel.openSelected()
                                 }
-                                .disabled(!selectedNode.supportsFileActions)
+                                .disabled(!actionAvailability.canOpen)
 
                                 if selectedNode.isAutoSummarized {
                                     Button("Expand Fully", systemImage: "arrowshape.turn.up.right.circle.fill") {
@@ -175,13 +177,13 @@ struct FileBrowserTableView: View {
                                     appModel.select(nodeID: selectedID)
                                     appModel.requestMoveSelectedToTrash()
                                 }
-                                .disabled(!selectedNode.supportsMoveToTrash)
+                                .disabled(!actionAvailability.canMoveToTrash)
 
                                 Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
                                     appModel.select(nodeID: selectedID)
                                     appModel.copySelectedPath()
                                 }
-                                .disabled(!selectedNode.supportsFileActions)
+                                .disabled(!actionAvailability.canCopyPath)
                             }
                         } primaryAction: { selectedIDs in
                             guard let selectedID = selectedIDs.first,
@@ -195,7 +197,7 @@ struct FileBrowserTableView: View {
                                 expandSummarizedNode(selectedNode)
                             } else if canRequestZoom(for: selectedNode) {
                                 appModel.zoomIntoSelection()
-                            } else if selectedNode.supportsFileActions {
+                            } else if selectedNode.actionAvailability(activeTarget: scanState.selectedTarget).canOpen {
                                 appModel.openSelected()
                             }
                         }

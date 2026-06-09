@@ -202,7 +202,7 @@ private struct InspectorActionButtons: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!canQuickLookSelected)
+            .disabled(!selectedActionAvailability.canPreviewWithQuickLook)
 
             Button {
                 appModel.revealSelectedInFinder()
@@ -211,7 +211,7 @@ private struct InspectorActionButtons: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(!canRevealSelected)
+            .disabled(!selectedActionAvailability.canRevealInFinder)
 
             if canExpandSummarizedSelection {
                 Button {
@@ -250,7 +250,7 @@ private struct InspectorActionButtons: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(!canMoveSelectedToTrash)
+            .disabled(!selectedActionAvailability.canMoveToTrash)
         }
         .controlSize(.regular)
     }
@@ -263,7 +263,7 @@ private struct InspectorActionButtons: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(!canOpenSelected)
+        .disabled(!selectedActionAvailability.canOpen)
     }
 
     private var copyPathButton: some View {
@@ -274,27 +274,14 @@ private struct InspectorActionButtons: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(!canCopySelectedPath)
+        .disabled(!selectedActionAvailability.canCopyPath)
     }
 
-    private var canOpenSelected: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canQuickLookSelected: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canRevealSelected: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canCopySelectedPath: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canMoveSelectedToTrash: Bool {
-        navigation.selectedNode?.supportsMoveToTrash(activeTarget: scanState.selectedTarget) == true
+    private var selectedActionAvailability: FileNodeActionAvailability {
+        FileNodeActionAvailability(
+            node: navigation.selectedNode,
+            activeTarget: scanState.selectedTarget
+        )
     }
 
     private var canExpandSummarizedSelection: Bool {

@@ -526,7 +526,8 @@ final class AppModel: ObservableObject {
     private func syncVisibleQuickLookPreview() {
         guard dependencies.systemActions.quickLook.isPreviewVisible() else { return }
 
-        guard let selectedNode = navigationModel.selectedNode, selectedNode.supportsFileActions else {
+        guard let selectedNode = navigationModel.selectedNode,
+              selectedNode.actionAvailability(activeTarget: scanCoordinator.selectedTarget).canPreviewWithQuickLook else {
             dependencies.systemActions.quickLook.close()
             return
         }
@@ -554,7 +555,9 @@ final class AppModel: ObservableObject {
         guard !showsOnboarding, pendingTrashNode == nil else { return false }
         guard !dependencies.systemActions.quickLook.isPreviewPanelKeyWindow() else { return false }
         guard !Self.shouldPreserveSpaceKey(for: event.window?.firstResponder) else { return false }
-        guard navigationModel.selectedNode?.supportsFileActions == true else { return false }
+        guard navigationModel.selectedNode?.actionAvailability(
+            activeTarget: scanCoordinator.selectedTarget
+        ).canPreviewWithQuickLook == true else { return false }
 
         toggleQuickLookForSelected()
         return true

@@ -42,6 +42,45 @@ final class ScanModelTests: XCTestCase {
         XCTAssertTrue(childNode.supportsMoveToTrash(activeTarget: volumeTarget))
     }
 
+    func testActionAvailabilityUsesSharedFileActionRules() {
+        let volumeTarget = ScanTarget(
+            url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
+            kind: .volume
+        )
+        let volumeRootNode = makeNode(id: volumeTarget.id, isDirectory: true, isSynthetic: false, isAccessible: true)
+        let regularFile = makeNode(id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let syntheticNode = makeNode(id: volumeTarget.id + "/system", isDirectory: false, isSynthetic: true, isAccessible: true)
+
+        let volumeRootAvailability = volumeRootNode.actionAvailability(activeTarget: volumeTarget)
+        XCTAssertTrue(volumeRootAvailability.canOpen)
+        XCTAssertTrue(volumeRootAvailability.canPreviewWithQuickLook)
+        XCTAssertTrue(volumeRootAvailability.canRevealInFinder)
+        XCTAssertTrue(volumeRootAvailability.canCopyPath)
+        XCTAssertFalse(volumeRootAvailability.canMoveToTrash)
+
+        let regularFileAvailability = regularFile.actionAvailability(activeTarget: volumeTarget)
+        XCTAssertTrue(regularFileAvailability.canOpen)
+        XCTAssertTrue(regularFileAvailability.canMoveToTrash)
+
+        let syntheticAvailability = syntheticNode.actionAvailability(activeTarget: volumeTarget)
+        XCTAssertFalse(syntheticAvailability.canOpen)
+        XCTAssertFalse(syntheticAvailability.canPreviewWithQuickLook)
+        XCTAssertFalse(syntheticAvailability.canRevealInFinder)
+        XCTAssertFalse(syntheticAvailability.canCopyPath)
+        XCTAssertFalse(syntheticAvailability.canMoveToTrash)
+
+        XCTAssertEqual(
+            FileNodeActionAvailability(node: nil, activeTarget: volumeTarget),
+            FileNodeActionAvailability(
+                canOpen: false,
+                canPreviewWithQuickLook: false,
+                canRevealInFinder: false,
+                canCopyPath: false,
+                canMoveToTrash: false
+            )
+        )
+    }
+
     func testAccessPresentationReflectsAccessibilityAndSyntheticState() {
         let readableNode = makeNode(id: "/Users/example/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
         let limitedNode = makeNode(id: "/Users/example/private", isDirectory: true, isSynthetic: false, isAccessible: false)

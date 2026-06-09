@@ -626,6 +626,39 @@ struct FileTreeStore: Sendable {
     }
 }
 
+struct FileNodeActionAvailability: Equatable, Sendable {
+    let canOpen: Bool
+    let canPreviewWithQuickLook: Bool
+    let canRevealInFinder: Bool
+    let canCopyPath: Bool
+    let canMoveToTrash: Bool
+
+    init(
+        canOpen: Bool,
+        canPreviewWithQuickLook: Bool,
+        canRevealInFinder: Bool,
+        canCopyPath: Bool,
+        canMoveToTrash: Bool
+    ) {
+        self.canOpen = canOpen
+        self.canPreviewWithQuickLook = canPreviewWithQuickLook
+        self.canRevealInFinder = canRevealInFinder
+        self.canCopyPath = canCopyPath
+        self.canMoveToTrash = canMoveToTrash
+    }
+
+    init(node: FileNodeRecord?, activeTarget: ScanTarget?) {
+        let supportsFileActions = node?.supportsFileActions == true
+        self.init(
+            canOpen: supportsFileActions,
+            canPreviewWithQuickLook: supportsFileActions,
+            canRevealInFinder: supportsFileActions,
+            canCopyPath: supportsFileActions,
+            canMoveToTrash: node?.supportsMoveToTrash(activeTarget: activeTarget) == true
+        )
+    }
+}
+
 extension FileNodeRecord {
     var systemImageName: String {
         if isSynthetic {
@@ -668,5 +701,9 @@ extension FileNodeRecord {
         guard supportsMoveToTrash else { return false }
         guard let activeTarget else { return true }
         return !(activeTarget.kind == .volume && activeTarget.id == id)
+    }
+
+    func actionAvailability(activeTarget: ScanTarget?) -> FileNodeActionAvailability {
+        FileNodeActionAvailability(node: self, activeTarget: activeTarget)
     }
 }

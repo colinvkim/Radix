@@ -84,25 +84,25 @@ struct RadixCommands: Commands {
                 appModel.toggleQuickLookForSelected()
             }
             .keyboardShortcut("y", modifiers: [.command])
-            .disabled(!canQuickLookSelected)
+            .disabled(!selectedActionAvailability.canPreviewWithQuickLook)
 
             Button("Open", systemImage: "arrow.up.forward.app") {
                 appModel.openSelected()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(!canOpenSelected)
+            .disabled(!selectedActionAvailability.canOpen)
 
             Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
                 appModel.revealSelectedInFinder()
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
-            .disabled(!canRevealSelected)
+            .disabled(!selectedActionAvailability.canRevealInFinder)
 
             Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
                 appModel.copySelectedPath()
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
-            .disabled(!canCopySelectedPath)
+            .disabled(!selectedActionAvailability.canCopyPath)
 
             Divider()
 
@@ -110,27 +110,14 @@ struct RadixCommands: Commands {
                 appModel.requestMoveSelectedToTrash()
             }
             .keyboardShortcut(.delete, modifiers: [])
-            .disabled(!canMoveSelectedToTrash)
+            .disabled(!selectedActionAvailability.canMoveToTrash)
         }
     }
 
-    private var canOpenSelected: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canQuickLookSelected: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canRevealSelected: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canCopySelectedPath: Bool {
-        navigation.selectedNode?.supportsFileActions == true
-    }
-
-    private var canMoveSelectedToTrash: Bool {
-        navigation.selectedNode?.supportsMoveToTrash(activeTarget: scanState.selectedTarget) == true
+    private var selectedActionAvailability: FileNodeActionAvailability {
+        FileNodeActionAvailability(
+            node: navigation.selectedNode,
+            activeTarget: scanState.selectedTarget
+        )
     }
 }
