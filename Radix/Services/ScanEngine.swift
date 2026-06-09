@@ -433,12 +433,14 @@ actor ScanEngine {
         var resolvedNodeByKey: [Int: FileNodeRecord] = [:]
         var childIDsByID: [String: [String]] = [:]
         var parentIDByID: [String: String] = [:]
+        var nodesByID: [String: FileNodeRecord] = [:]
+        nodesByID.reserveCapacity(completedByKey.count)
         for key in (0..<nextKey).reversed() {
-            guard let completed = completedByKey[key] else { continue }
+            guard let completed = completedByKey.removeValue(forKey: key) else { continue }
 
             if completed.isTraversable {
                 // Traversable directories must still be materialized when empty.
-                let childKeys = childrenKeysByKey[key] ?? []
+                let childKeys = childrenKeysByKey.removeValue(forKey: key) ?? []
                 let childNodes = childKeys.compactMap { resolvedNodeByKey[$0] }
                 let sortedChildren = FileTreeStore.sortedChildren(childNodes)
                 let assembled = FileNodeRecord.directory(
@@ -452,13 +454,28 @@ actor ScanEngine {
                     childrenAreSorted: true
                 )
                 resolvedNodeByKey[key] = assembled
+                insertNode(
+                    assembled,
+                    into: &nodesByID,
+                    warnings: &warnings,
+                    continuation: continuation
+                )
                 childIDsByID[assembled.id] = sortedChildren.map(\.id)
                 for child in sortedChildren {
                     parentIDByID[child.id] = assembled.id
                 }
+                for childKey in childKeys {
+                    resolvedNodeByKey[childKey] = nil
+                }
             } else if let onlyChild = completed.children.first {
                 // Leaf node or inaccessible directory: use the child directly.
                 resolvedNodeByKey[key] = onlyChild
+                insertNode(
+                    onlyChild,
+                    into: &nodesByID,
+                    warnings: &warnings,
+                    continuation: continuation
+                )
             }
         }
 
@@ -470,12 +487,6 @@ actor ScanEngine {
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-        let nodesByID = makeNodesByID(
-            from: resolvedNodeByKey,
-            keyCount: nextKey,
-            warnings: &warnings,
-            continuation: continuation
-        )
         return FileTreeStore(
             rootID: rootNode.id,
             nodesByID: nodesByID,
@@ -517,32 +528,24 @@ actor ScanEngine {
         return metadata.allocatedSize
     }
 
-    private func makeNodesByID(
-        from resolvedNodeByKey: [Int: FileNodeRecord],
-        keyCount: Int,
+    private func insertNode(
+        _ node: FileNodeRecord,
+        into nodesByID: inout [String: FileNodeRecord],
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
-    ) -> [String: FileNodeRecord] {
-        var nodesByID: [String: FileNodeRecord] = [:]
-        nodesByID.reserveCapacity(resolvedNodeByKey.count)
-
-        for key in 0..<keyCount {
-            guard let node = resolvedNodeByKey[key] else { continue }
-            guard nodesByID[node.id] == nil else {
-                let warning = ScanWarning(
-                    path: node.url.path,
-                    message: "A duplicate filesystem path was collapsed in the scan results.",
-                    category: .fileSystem
-                )
-                warnings.append(warning)
-                continuation.yield(.warning(warning))
-                continue
-            }
-
-            nodesByID[node.id] = node
+    ) {
+        guard nodesByID[node.id] == nil else {
+            let warning = ScanWarning(
+                path: node.url.path,
+                message: "A duplicate filesystem path was collapsed in the scan results.",
+                category: .fileSystem
+            )
+            warnings.append(warning)
+            continuation.yield(.warning(warning))
+            return
         }
 
-        return nodesByID
+        nodesByID[node.id] = node
     }
 
     private func recordUnavailableItem(

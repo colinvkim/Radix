@@ -338,6 +338,10 @@ struct FileTreeStore: Sendable {
         return root
     }
 
+    nonisolated var nodeCount: Int {
+        nodesByID.count
+    }
+
     nonisolated var aggregateStats: ScanAggregateStats {
         var fileCount = 0
         var directoryCount = 0

@@ -22,12 +22,15 @@ final class AppModel: ObservableObject {
     }
 
     private struct CompletedScanCache {
-        private let capacity: Int
+        private let maxSnapshotCount: Int
+        private let maxTotalNodeCount: Int
         private var snapshotsByKey: [ScanCacheKey: ScanSnapshot] = [:]
+        private var nodeCountsByKey: [ScanCacheKey: Int] = [:]
         private var keysByRecency: [ScanCacheKey] = []
 
-        init(capacity: Int) {
-            self.capacity = max(capacity, 1)
+        init(maxSnapshotCount: Int, maxTotalNodeCount: Int) {
+            self.maxSnapshotCount = max(maxSnapshotCount, 1)
+            self.maxTotalNodeCount = max(maxTotalNodeCount, 1)
         }
 
         mutating func snapshot(for key: ScanCacheKey) -> ScanSnapshot? {
@@ -38,13 +41,21 @@ final class AppModel: ObservableObject {
 
         mutating func store(_ snapshot: ScanSnapshot, for key: ScanCacheKey) {
             guard snapshot.isComplete else { return }
+            let nodeCount = snapshot.treeStore.nodeCount
+            guard nodeCount <= maxTotalNodeCount else {
+                removeSnapshot(for: key)
+                return
+            }
+
             snapshotsByKey[key] = snapshot
+            nodeCountsByKey[key] = nodeCount
             markRecentlyUsed(key)
-            trimToCapacity()
+            trimToBudget()
         }
 
         mutating func removeAll() {
             snapshotsByKey.removeAll()
+            nodeCountsByKey.removeAll()
             keysByRecency.removeAll()
         }
 
@@ -53,11 +64,21 @@ final class AppModel: ObservableObject {
             keysByRecency.append(key)
         }
 
-        private mutating func trimToCapacity() {
-            while snapshotsByKey.count > capacity, let oldestKey = keysByRecency.first {
-                keysByRecency.removeFirst()
-                snapshotsByKey[oldestKey] = nil
+        private var totalNodeCount: Int {
+            nodeCountsByKey.values.reduce(0, +)
+        }
+
+        private mutating func trimToBudget() {
+            while (snapshotsByKey.count > maxSnapshotCount || totalNodeCount > maxTotalNodeCount),
+                  let oldestKey = keysByRecency.first {
+                removeSnapshot(for: oldestKey)
             }
+        }
+
+        private mutating func removeSnapshot(for key: ScanCacheKey) {
+            snapshotsByKey[key] = nil
+            nodeCountsByKey[key] = nil
+            keysByRecency.removeAll { $0 == key }
         }
     }
 
@@ -125,7 +146,7 @@ final class AppModel: ObservableObject {
     private let scanCoordinator: ScanCoordinator
     private let navigationModel = WorkspaceNavigationModel()
     private var lastActionErrorTitle: String?
-    private var completedScanCache = CompletedScanCache(capacity: 6)
+    private var completedScanCache = CompletedScanCache(maxSnapshotCount: 2, maxTotalNodeCount: 250_000)
     private var activeScanCacheKey: ScanCacheKey?
 
     private var cancellables = Set<AnyCancellable>()
