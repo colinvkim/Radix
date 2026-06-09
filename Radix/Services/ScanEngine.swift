@@ -679,9 +679,12 @@ actor ScanEngine {
             options.insert(.skipsHiddenFiles)
         }
 
+        let prefetchKeys = Self.shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
+            ? nil
+            : Array(scanResourceKeys)
         let contents = try fileManager.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: Array(scanResourceKeys),
+            includingPropertiesForKeys: prefetchKeys,
             options: options
         )
 
@@ -700,20 +703,27 @@ actor ScanEngine {
         }
     }
 
+    private nonisolated static func shouldFilterStartupVolumeInternals(under parentURL: URL, behavior: ScanBehavior) -> Bool {
+        behavior.excludesStartupVolumeInternals && ["/", "/System"].contains(parentURL.path)
+    }
+
     nonisolated static func includedChildURL(_ childURL: URL, under parentURL: URL, behavior: ScanBehavior) -> Bool {
-        if parentURL.path == "/" && [".nofollow", ".resolve"].contains(childURL.lastPathComponent) {
+        let parentPath = parentURL.path
+        let childName = childURL.lastPathComponent
+
+        if parentPath == "/" && [".nofollow", ".resolve"].contains(childName) {
             return false
         }
 
         if behavior.excludesStartupVolumeInternals &&
-            parentURL.path == "/" &&
-            childURL.lastPathComponent == "Volumes" {
+            parentPath == "/" &&
+            [".file", ".vol", "dev", "Volumes"].contains(childName) {
             return false
         }
 
         if behavior.excludesStartupVolumeInternals &&
-            parentURL.path == "/System" &&
-            childURL.lastPathComponent == "Volumes" {
+            parentPath == "/System" &&
+            childName == "Volumes" {
             return false
         }
 

@@ -272,7 +272,28 @@ final class ScanEngineTests: XCTestCase {
 
         XCTAssertFalse(
             ScanEngine.includedChildURL(
+                URL(filePath: "/.file"),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
+                behavior: startupBehavior
+            )
+        )
+        XCTAssertFalse(
+            ScanEngine.includedChildURL(
                 URL(filePath: "/.nofollow", directoryHint: .isDirectory),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
+                behavior: startupBehavior
+            )
+        )
+        XCTAssertFalse(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/dev", directoryHint: .isDirectory),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
+                behavior: startupBehavior
+            )
+        )
+        XCTAssertFalse(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/.vol", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: startupBehavior
             )
@@ -302,6 +323,27 @@ final class ScanEngineTests: XCTestCase {
             ScanEngine.includedChildURL(
                 URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
                 under: URL(filePath: "/System", directoryHint: .isDirectory),
+                behavior: standardBehavior
+            )
+        )
+        XCTAssertTrue(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/.file"),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
+                behavior: standardBehavior
+            )
+        )
+        XCTAssertTrue(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/dev", directoryHint: .isDirectory),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
+                behavior: standardBehavior
+            )
+        )
+        XCTAssertTrue(
+            ScanEngine.includedChildURL(
+                URL(filePath: "/.vol", directoryHint: .isDirectory),
+                under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: standardBehavior
             )
         )
