@@ -33,7 +33,7 @@ actor SunburstLayoutService: SunburstLayouting {
 @MainActor
 final class SunburstChartModel: ObservableObject {
     @Published private var renderState = SunburstChartRenderState()
-    private(set) var isLayoutPending = false
+    @Published private(set) var isLayoutPending = false
 
     private let layoutService: any SunburstLayouting
     private var layoutGeneration = 0
@@ -92,6 +92,7 @@ final class SunburstChartModel: ObservableObject {
         let generation = layoutGeneration
         activeLayoutID = layoutID
         layoutTask?.cancel()
+        clearHover()
         setIsLayoutPending(true)
 
         let task = Task(priority: .userInitiated) { [layoutService] in
@@ -145,6 +146,13 @@ final class SunburstChartModel: ObservableObject {
             segments: segments,
             version: renderState.version + 1
         )
+    }
+
+    private func clearHover() {
+        guard hoveredSegmentID != nil else { return }
+        var nextState = renderState
+        nextState.hoveredSegmentID = nil
+        renderState = nextState
     }
 
     private func setIsLayoutPending(_ isPending: Bool) {

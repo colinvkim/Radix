@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class SunburstChartModelTests: XCTestCase {
-    func testStartingLayoutDoesNotPublishUntilRenderStateChanges() async {
+    func testStartingLayoutPublishesPendingState() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
         let store = makeStore()
@@ -24,7 +24,7 @@ final class SunburstChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(1)
 
         XCTAssertTrue(model.isLayoutPending)
-        XCTAssertEqual(publishCount, 0)
+        XCTAssertGreaterThanOrEqual(publishCount, 1)
 
         let segment = makeSegment(id: "segment")
         let didCompleteRequest = await service.completeRequest(id: 0, with: [segment])
@@ -34,7 +34,7 @@ final class SunburstChartModelTests: XCTestCase {
         XCTAssertTrue(didApplyLayout)
         XCTAssertFalse(model.isLayoutPending)
         XCTAssertEqual(model.renderedSegments.map(\.id), [segment.id])
-        XCTAssertEqual(publishCount, 1)
+        XCTAssertGreaterThanOrEqual(publishCount, 2)
         withExtendedLifetime(cancellable) {}
     }
 
@@ -73,6 +73,49 @@ final class SunburstChartModelTests: XCTestCase {
         let didApplyNewLayout = await newTask.value
         XCTAssertTrue(didApplyNewLayout)
         XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
+    }
+
+    func testStartingNewLayoutClearsHoverState() async {
+        let service = ControllableSunburstLayoutService()
+        let model = SunburstChartModel(layoutService: service)
+        let store = makeStore()
+
+        let firstTask = Task {
+            await model.loadLayout(
+                treeStore: store,
+                rootID: store.rootID,
+                depthLimit: 1,
+                layoutID: "old"
+            )
+        }
+        await service.waitForIssuedRequestCount(1)
+
+        let oldSegment = makeSegment(id: "old-segment")
+        let didCompleteFirstRequest = await service.completeRequest(id: 0, with: [oldSegment])
+        XCTAssertTrue(didCompleteFirstRequest)
+        let didApplyFirstLayout = await firstTask.value
+        XCTAssertTrue(didApplyFirstLayout)
+        model.setHoveredSegmentID(oldSegment.id)
+        XCTAssertEqual(model.hoveredSegmentID, oldSegment.id)
+
+        let secondTask = Task {
+            await model.loadLayout(
+                treeStore: store,
+                rootID: store.rootID,
+                depthLimit: 1,
+                layoutID: "new"
+            )
+        }
+        await service.waitForIssuedRequestCount(2)
+
+        XCTAssertNil(model.hoveredSegmentID)
+        XCTAssertTrue(model.isLayoutPending)
+
+        let newSegment = makeSegment(id: "new-segment")
+        let didCompleteSecondRequest = await service.completeRequest(id: 1, with: [newSegment])
+        XCTAssertTrue(didCompleteSecondRequest)
+        let didApplySecondLayout = await secondTask.value
+        XCTAssertTrue(didApplySecondLayout)
     }
 
     func testStaleLayoutResultDoesNotReplaceNewerSegments() async {

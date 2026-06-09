@@ -95,7 +95,14 @@ struct SunburstChartView: View {
                 .position(x: chartFrame.midX, y: chartFrame.midY)
                 .allowsHitTesting(false)
 
-                if chartModel.renderedSegments.isEmpty {
+                if chartModel.isLayoutPending {
+                    Color(nsColor: .windowBackgroundColor)
+                        .opacity(0.28)
+                        .allowsHitTesting(false)
+
+                    ProgressView("Loading Disk Map…")
+                        .controlSize(.small)
+                } else if chartModel.renderedSegments.isEmpty {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -104,13 +111,16 @@ struct SunburstChartView: View {
             .overlay {
                 SunburstInteractionOverlay(
                     onHover: { location in
+                        guard !chartModel.isLayoutPending else { return }
                         updateHover(at: location, in: chartFrame)
                     },
                     onClick: { location, clickCount in
+                        guard !chartModel.isLayoutPending else { return }
                         handleClick(at: location, in: chartFrame, clickCount: clickCount)
                     }
                 )
                 .accessibilityHidden(true)
+                .allowsHitTesting(!chartModel.isLayoutPending)
             }
             .overlay(alignment: .topLeading) {
                 if let hoverSummary {
