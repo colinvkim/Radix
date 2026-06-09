@@ -117,14 +117,15 @@ private struct ActiveWorkspaceView: View {
                 Divider()
             }
 
-            VSplitView {
-                visualizationPane
-                    .frame(minHeight: 260, maxHeight: .infinity)
+            resizableWorkspacePanes
+        }
+    }
 
-                contentsPane
-                    .frame(minHeight: 200, maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var resizableWorkspacePanes: some View {
+        WorkspaceSplitView(topMinHeight: 260, bottomMinHeight: 200) {
+            visualizationPane
+        } bottom: {
+            contentsPane
         }
     }
 
@@ -173,6 +174,57 @@ private struct ActiveWorkspaceView: View {
                 )
             }
         }
+    }
+}
+
+private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
+    let topMinHeight: CGFloat
+    let bottomMinHeight: CGFloat
+    private let top: Top
+    private let bottom: Bottom
+
+    init(
+        topMinHeight: CGFloat,
+        bottomMinHeight: CGFloat,
+        @ViewBuilder top: () -> Top,
+        @ViewBuilder bottom: () -> Bottom
+    ) {
+        self.topMinHeight = topMinHeight
+        self.bottomMinHeight = bottomMinHeight
+        self.top = top()
+        self.bottom = bottom()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            VSplitView {
+                top
+                    .frame(minHeight: minimumTopHeight(for: proxy.size.height), maxHeight: .infinity)
+
+                bottom
+                    .frame(minHeight: minimumBottomHeight(for: proxy.size.height), maxHeight: .infinity)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+    }
+
+    private func minimumTopHeight(for totalHeight: CGFloat) -> CGFloat {
+        constrainedMinimumHeights(for: totalHeight).top
+    }
+
+    private func minimumBottomHeight(for totalHeight: CGFloat) -> CGFloat {
+        constrainedMinimumHeights(for: totalHeight).bottom
+    }
+
+    private func constrainedMinimumHeights(for totalHeight: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
+        let minimumHeight = topMinHeight + bottomMinHeight
+        guard minimumHeight > 0, totalHeight < minimumHeight else {
+            return (topMinHeight, bottomMinHeight)
+        }
+
+        let scale = max(totalHeight, 0) / minimumHeight
+        return (topMinHeight * scale, bottomMinHeight * scale)
     }
 }
 
