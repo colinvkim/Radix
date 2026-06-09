@@ -21,6 +21,21 @@ struct SunburstSegment: Identifiable, Hashable, Sendable {
     let isAggregate: Bool
 }
 
+enum StablePaletteIndex {
+    nonisolated static func index(for key: String, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+
+        let fnvPrime: UInt64 = 1_099_511_628_211
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in key.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= fnvPrime
+        }
+
+        return Int(hash % UInt64(count))
+    }
+}
+
 enum SunburstLayout {
     typealias CancellationCheck = () throws -> Void
 

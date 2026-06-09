@@ -358,7 +358,7 @@ private enum SunburstChartStyler {
             return Color(nsColor: .tertiaryLabelColor)
         }
 
-        let paletteIndex = Int(segment.colorKey.hashValue.magnitude % UInt(palette.count))
+        let paletteIndex = StablePaletteIndex.index(for: segment.colorKey, count: palette.count)
         return palette[paletteIndex]
     }
 

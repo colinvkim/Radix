@@ -76,6 +76,12 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertNil(index.segment(at: pointInRing(radius: 0.38, in: size), in: size))
     }
 
+    func testStablePaletteIndexIsDeterministicAndBounded() {
+        XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 6), 3)
+        XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 1), 0)
+        XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 0), 0)
+    }
+
     func testLayoutStopsWhenCancellationCheckThrows() throws {
         let children = (0..<100).map { index in
             makeFileNode(id: "/root/file-\(index)", name: "file-\(index)", size: 1)
