@@ -153,6 +153,8 @@ final class AppModel: ObservableObject {
     private var quickLookEventMonitor: AppEventMonitorToken?
     private var deferredScanStartTask: Task<Void, Never>?
     private var deferredScanStartID: UUID?
+    private var fullDiskAccessRefreshTask: Task<Void, Never>?
+    private var sidebarTargetMetadataRefreshTask: Task<Void, Never>?
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -164,10 +166,15 @@ final class AppModel: ObservableObject {
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
         showsOnboarding = !preferences.didCompleteOnboarding
-        fullDiskAccessStatus = dependencies.systemActions.fullDiskAccessStatus()
+        fullDiskAccessStatus = dependencies.systemActions.usesAsyncFullDiskAccessStatus
+            ? .unknown
+            : dependencies.systemActions.currentFullDiskAccessStatus()
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
 
         refreshAvailableTargets()
+        if dependencies.systemActions.usesAsyncFullDiskAccessStatus {
+            refreshFullDiskAccessStatus()
+        }
         observeNavigationModel()
         observeScanCoordinator()
         observeMountedVolumes()
@@ -183,6 +190,10 @@ final class AppModel: ObservableObject {
 
     func cleanup() {
         cancelDeferredScanStart()
+        fullDiskAccessRefreshTask?.cancel()
+        fullDiskAccessRefreshTask = nil
+        sidebarTargetMetadataRefreshTask?.cancel()
+        sidebarTargetMetadataRefreshTask = nil
         activeScanCacheKey = nil
         scanCoordinator.stopScan()
         removeQuickLookKeyMonitor()
@@ -249,7 +260,21 @@ final class AppModel: ObservableObject {
     }
 
     func refreshFullDiskAccessStatus() {
-        fullDiskAccessStatus = dependencies.systemActions.fullDiskAccessStatus()
+        fullDiskAccessRefreshTask?.cancel()
+
+        guard dependencies.systemActions.usesAsyncFullDiskAccessStatus else {
+            fullDiskAccessStatus = dependencies.systemActions.currentFullDiskAccessStatus()
+            fullDiskAccessRefreshTask = nil
+            return
+        }
+
+        fullDiskAccessRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            let status = await self.dependencies.systemActions.loadCurrentFullDiskAccessStatus()
+            guard !Task.isCancelled else { return }
+            self.fullDiskAccessStatus = status
+            self.fullDiskAccessRefreshTask = nil
+        }
     }
 
     func restoreDefaultPreferences() {
@@ -647,8 +672,26 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshAvailableTargets() {
-        availableTargets = dependencies.systemActions.defaultTargets()
-        targetCapacityDescriptions = dependencies.systemActions.targetCapacityDescriptions()
+        sidebarTargetMetadataRefreshTask?.cancel()
+
+        guard dependencies.systemActions.usesAsyncSidebarTargetMetadata else {
+            applySidebarTargetMetadata(dependencies.systemActions.currentSidebarTargetMetadata())
+            sidebarTargetMetadataRefreshTask = nil
+            return
+        }
+
+        sidebarTargetMetadataRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            let metadata = await self.dependencies.systemActions.loadCurrentSidebarTargetMetadata()
+            guard !Task.isCancelled else { return }
+            self.applySidebarTargetMetadata(metadata)
+            self.sidebarTargetMetadataRefreshTask = nil
+        }
+    }
+
+    private func applySidebarTargetMetadata(_ metadata: AppSidebarTargetMetadata) {
+        availableTargets = metadata.targets
+        targetCapacityDescriptions = metadata.capacityDescriptions
     }
 
     private func observeNavigationModel() {

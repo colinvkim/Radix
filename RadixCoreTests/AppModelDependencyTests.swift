@@ -381,6 +381,100 @@ final class AppModelDependencyTests: XCTestCase {
 
         XCTAssertEqual(model.fullDiskAccessStatus, .granted)
     }
+
+    @MainActor
+    func testAsyncFullDiskAccessRefreshAppliesLatestProbe() async throws {
+        var actions = AppSystemActions.inert
+        actions.asyncFullDiskAccessStatus = {
+            .granted
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        XCTAssertEqual(model.fullDiskAccessStatus, .unknown)
+
+        try await waitForAppModelCondition("async full disk access refresh applies") {
+            model.fullDiskAccessStatus == .granted
+        }
+    }
+
+    @MainActor
+    func testCleanupCancelsAsyncMetadataRefresh() async throws {
+        let probe = AsyncValueProbe<AppSidebarTargetMetadata>()
+        let loadedTarget = makeAppModelTarget("/async-loaded")
+        var actions = AppSystemActions.inert
+        actions.asyncSidebarTargetMetadata = {
+            await probe.wait()
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        try await waitForAsyncCondition("async sidebar metadata refresh starts") {
+            await probe.isWaiting
+        }
+
+        model.cleanup()
+        await probe.resume(
+            returning: AppSidebarTargetMetadata(
+                targets: [loadedTarget],
+                capacityDescriptions: [loadedTarget.id: "1 GB free of 2 GB"]
+            )
+        )
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertTrue(model.availableTargets.isEmpty)
+        XCTAssertTrue(model.targetCapacityDescriptions.isEmpty)
+    }
+}
+
+@MainActor
+private func waitForAppModelCondition(
+    _ description: String,
+    timeout: TimeInterval = 1,
+    condition: @escaping @MainActor () -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        if Date() > deadline {
+            XCTFail("Timed out waiting for \(description)")
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+@MainActor
+private func waitForAsyncCondition(
+    _ description: String,
+    timeout: TimeInterval = 1,
+    condition: @escaping @MainActor () async -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !(await condition()) {
+        if Date() > deadline {
+            XCTFail("Timed out waiting for \(description)")
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+private actor AsyncValueProbe<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    var isWaiting: Bool {
+        continuation != nil
+    }
+
+    func wait() async -> Value {
+        await withCheckedContinuation { pendingContinuation in
+            continuation = pendingContinuation
+        }
+    }
+
+    func resume(returning value: Value) {
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
 }
 
 @MainActor

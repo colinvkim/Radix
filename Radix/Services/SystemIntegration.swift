@@ -8,7 +8,7 @@
 import AppKit
 import Foundation
 
-enum FullDiskAccessStatus: Equatable {
+enum FullDiskAccessStatus: Equatable, Sendable {
     case granted
     case notGranted
     case unknown
@@ -53,7 +53,7 @@ enum SystemIntegration {
         return ScanTarget(url: url)
     }
 
-    static func defaultTargets() -> [ScanTarget] {
+    nonisolated static func defaultTargets() -> [ScanTarget] {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         let downloadsDirectory = homeDirectory.appending(path: "Downloads", directoryHint: .isDirectory)
@@ -82,7 +82,7 @@ enum SystemIntegration {
         return deduplicate(targets)
     }
 
-    static func targetCapacityDescriptions() -> [String: String] {
+    nonisolated static func targetCapacityDescriptions() -> [String: String] {
         let fileManager = FileManager.default
         let mountedVolumes = fileManager.mountedVolumeURLs(
             includingResourceValuesForKeys: [
@@ -156,11 +156,11 @@ enum SystemIntegration {
         _ = probeFullDiskAccess()
     }
 
-    static func fullDiskAccessStatus() -> FullDiskAccessStatus {
+    nonisolated static func fullDiskAccessStatus() -> FullDiskAccessStatus {
         probeFullDiskAccess()
     }
 
-    private static func probeFullDiskAccess() -> FullDiskAccessStatus {
+    private nonisolated static func probeFullDiskAccess() -> FullDiskAccessStatus {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         let candidates = [
@@ -188,14 +188,14 @@ enum SystemIntegration {
         return foundProtectedCandidate ? .notGranted : .unknown
     }
 
-    private static func deduplicate(_ targets: [ScanTarget]) -> [ScanTarget] {
+    private nonisolated static func deduplicate(_ targets: [ScanTarget]) -> [ScanTarget] {
         var seen = Set<String>()
         return targets.filter { target in
             seen.insert(target.id).inserted
         }
     }
 
-    private static func capacityDescription(for url: URL) -> String? {
+    private nonisolated static func capacityDescription(for url: URL) -> String? {
         let values: URLResourceValues
         do {
             values = try url.resourceValues(forKeys: [
@@ -211,9 +211,18 @@ enum SystemIntegration {
             return nil
         }
 
-        let totalText = RadixFormatters.size(Int64(totalCapacity))
-        let availableText = RadixFormatters.size(Int64(availableCapacity))
+        let totalText = capacityText(Int64(totalCapacity))
+        let availableText = capacityText(Int64(availableCapacity))
         return "\(availableText) free of \(totalText)"
+    }
+
+    private nonisolated static func capacityText(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB, .useTB]
+        formatter.countStyle = .file
+        formatter.includesActualByteCount = false
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -226,7 +235,7 @@ private struct ProtectedPathProbe {
     var url: URL
     var kind: Kind
 
-    func probe(using fileManager: FileManager) throws {
+    nonisolated func probe(using fileManager: FileManager) throws {
         switch kind {
         case .directory:
             _ = try fileManager.contentsOfDirectory(

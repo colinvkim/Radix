@@ -7,6 +7,13 @@ import AppKit
 import Combine
 import Foundation
 
+struct AppSidebarTargetMetadata: Equatable, Sendable {
+    var targets: [ScanTarget]
+    var capacityDescriptions: [String: String]
+
+    static let empty = AppSidebarTargetMetadata(targets: [], capacityDescriptions: [:])
+}
+
 @MainActor
 struct AppQuickLookActions {
     var isPreviewVisible: () -> Bool
@@ -67,6 +74,8 @@ struct AppSystemActions {
     var fullDiskAccessStatus: () -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
     var targetCapacityDescriptions: () -> [String: String]
+    var asyncFullDiskAccessStatus: (@Sendable () async -> FullDiskAccessStatus)?
+    var asyncSidebarTargetMetadata: (@Sendable () async -> AppSidebarTargetMetadata)?
     var presentOpenPanel: () -> ScanTarget?
     var fileExists: (URL) -> Bool
     var isExistingDirectory: (URL) -> Bool
@@ -91,6 +100,19 @@ struct AppSystemActions {
         },
         targetCapacityDescriptions: {
             SystemIntegration.targetCapacityDescriptions()
+        },
+        asyncFullDiskAccessStatus: {
+            await Task.detached(priority: .utility) {
+                SystemIntegration.fullDiskAccessStatus()
+            }.value
+        },
+        asyncSidebarTargetMetadata: {
+            await Task.detached(priority: .utility) {
+                AppSidebarTargetMetadata(
+                    targets: SystemIntegration.defaultTargets(),
+                    capacityDescriptions: SystemIntegration.targetCapacityDescriptions()
+                )
+            }.value
         },
         presentOpenPanel: {
             SystemIntegration.presentScanPanel()
@@ -134,6 +156,8 @@ struct AppSystemActions {
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         targetCapacityDescriptions: { [:] },
+        asyncFullDiskAccessStatus: nil,
+        asyncSidebarTargetMetadata: nil,
         presentOpenPanel: { nil },
         fileExists: { _ in false },
         isExistingDirectory: { _ in false },
@@ -171,5 +195,40 @@ struct AppSystemActions {
         } catch {
             return false
         }
+    }
+}
+
+extension AppSystemActions {
+    var usesAsyncFullDiskAccessStatus: Bool {
+        asyncFullDiskAccessStatus != nil
+    }
+
+    var usesAsyncSidebarTargetMetadata: Bool {
+        asyncSidebarTargetMetadata != nil
+    }
+
+    func currentFullDiskAccessStatus() -> FullDiskAccessStatus {
+        fullDiskAccessStatus()
+    }
+
+    func loadCurrentFullDiskAccessStatus() async -> FullDiskAccessStatus {
+        if let asyncFullDiskAccessStatus {
+            return await asyncFullDiskAccessStatus()
+        }
+        return fullDiskAccessStatus()
+    }
+
+    func currentSidebarTargetMetadata() -> AppSidebarTargetMetadata {
+        AppSidebarTargetMetadata(
+            targets: defaultTargets(),
+            capacityDescriptions: targetCapacityDescriptions()
+        )
+    }
+
+    func loadCurrentSidebarTargetMetadata() async -> AppSidebarTargetMetadata {
+        if let asyncSidebarTargetMetadata {
+            return await asyncSidebarTargetMetadata()
+        }
+        return currentSidebarTargetMetadata()
     }
 }

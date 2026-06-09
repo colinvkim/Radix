@@ -19,7 +19,11 @@ struct SidebarView: View {
             if !appModel.smartTargets.isEmpty {
                 Section("Smart Locations") {
                     ForEach(appModel.smartTargets) { target in
-                        SidebarTargetRow(target: target)
+                        SidebarTargetRow(
+                            target: target,
+                            subtitle: appModel.sidebarSubtitle(for: target),
+                            revealInFinder: { appModel.revealTargetInFinder(target) }
+                        )
                             .tag(target.id)
                     }
                 }
@@ -28,7 +32,11 @@ struct SidebarView: View {
             if !appModel.mountedVolumeTargets.isEmpty {
                 Section("Volumes") {
                     ForEach(appModel.mountedVolumeTargets) { target in
-                        SidebarTargetRow(target: target)
+                        SidebarTargetRow(
+                            target: target,
+                            subtitle: appModel.sidebarSubtitle(for: target),
+                            revealInFinder: { appModel.revealTargetInFinder(target) }
+                        )
                             .tag(target.id)
                     }
                 }
@@ -37,7 +45,11 @@ struct SidebarView: View {
             if !appModel.recentScanTargets.isEmpty {
                 Section("Recent Scans") {
                     ForEach(appModel.recentScanTargets) { target in
-                        SidebarTargetRow(target: target)
+                        SidebarTargetRow(
+                            target: target,
+                            subtitle: appModel.sidebarSubtitle(for: target),
+                            revealInFinder: { appModel.revealTargetInFinder(target) }
+                        )
                             .tag(target.id)
                     }
                 }
@@ -49,15 +61,15 @@ struct SidebarView: View {
 }
 
 private struct SidebarTargetRow: View {
-    @EnvironmentObject private var appModel: AppModel
-
     let target: ScanTarget
+    let subtitle: String
+    let revealInFinder: () -> Void
 
     var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.sidebarTitle)
-                Text(appModel.sidebarSubtitle(for: target))
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -68,7 +80,7 @@ private struct SidebarTargetRow: View {
         }
         .contextMenu {
             Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
-                appModel.revealTargetInFinder(target)
+                revealInFinder()
             }
         }
         .help(target.url.path)

@@ -82,17 +82,9 @@ struct ContentView: View {
         } message: { node in
             Text("Radix will ask macOS to move “\(node.name)” to the Trash.")
         }
-        .onDisappear {
-            appModel.suspendMainWindowActivity()
-        }
         .onChange(of: scenePhase) { _, newPhase in
-            switch newPhase {
-            case .active:
+            if newPhase == .active {
                 appModel.refreshFullDiskAccessStatus()
-            case .background:
-                appModel.suspendMainWindowActivity()
-            default:
-                break
             }
         }
     }

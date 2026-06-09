@@ -18,7 +18,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
     let displayName: String
     let kind: ScanTargetKind
 
-    init(
+    nonisolated init(
         url: URL,
         kind: ScanTargetKind? = nil
     ) {
@@ -29,7 +29,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         self.kind = kind ?? ScanTarget.inferredKind(for: normalizedURL)
     }
 
-    private static func normalizedURL(from url: URL) -> URL {
+    private nonisolated static func normalizedURL(from url: URL) -> URL {
         let standardizedURL = url.standardizedFileURL
         let path = standardizedURL.path
 
@@ -48,7 +48,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         return normalizedRootURL(from: standardizedURL)
     }
 
-    private static func normalizedRootURL(from url: URL) -> URL {
+    private nonisolated static func normalizedRootURL(from url: URL) -> URL {
         let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
         return URL(fileURLWithPath: resolvedURL.path, isDirectory: url.hasDirectoryPath).standardizedFileURL
     }
