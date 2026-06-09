@@ -59,20 +59,59 @@ final class FileBrowserModelTests: XCTestCase {
             snapshot: nil,
             fileTreeStore: nil
         )
+        XCTAssertFalse(model.isDisplayingCurrentResults)
         try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertTrue(model.isDisplayingCurrentResults)
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, other.id, small.id])
 
         model.setActiveSearchText("small")
         XCTAssertTrue(model.isRefreshingCurrentContents)
+        XCTAssertFalse(model.isDisplayingCurrentResults)
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, other.id, small.id])
 
         model.setActiveSearchText("large")
 
         try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertTrue(model.isDisplayingCurrentResults)
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id])
 
         try await Task.sleep(for: .milliseconds(60))
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id])
+    }
+
+    @MainActor
+    func testLargeCurrentContentsUpdateWithSameContentIDMarksRowsStale() async throws {
+        let old = makeBrowserFileNode(id: "/root/old.txt", name: "old.txt", size: 10)
+        let new = makeBrowserFileNode(id: "/root/new.txt", name: "new.txt", size: 20)
+        let model = FileBrowserModel(
+            searchDebounceDuration: .milliseconds(40),
+            currentContentsAsyncThreshold: 1
+        )
+
+        model.updateContent(
+            nodes: [old],
+            contentID: "snapshot|/root",
+            snapshot: nil,
+            fileTreeStore: nil
+        )
+        try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertTrue(model.isDisplayingCurrentResults)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [old.id])
+
+        model.updateContent(
+            nodes: [new],
+            contentID: "snapshot|/root",
+            snapshot: nil,
+            fileTreeStore: nil
+        )
+
+        XCTAssertTrue(model.isRefreshingCurrentContents)
+        XCTAssertFalse(model.isDisplayingCurrentResults)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [old.id])
+
+        try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertTrue(model.isDisplayingCurrentResults)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [new.id])
     }
 
     @MainActor
@@ -197,8 +236,10 @@ final class FileBrowserModelTests: XCTestCase {
         )
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
+        XCTAssertFalse(model.isDisplayingCurrentResults)
 
         try await waitForSearchToFinish(model)
+        XCTAssertTrue(model.isDisplayingCurrentResults)
         XCTAssertEqual(model.displayedNodes.map(\.id), [target.id])
     }
 

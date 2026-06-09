@@ -38,6 +38,7 @@ final class FileBrowserModel: ObservableObject {
     private var searchGeneration = 0
     private var nodes: [FileNodeRecord] = []
     private var contentID = ""
+    private var contentRevision = 0
     private var snapshotID: UUID?
     private var fileTreeStore: FileTreeStore?
 
@@ -68,6 +69,10 @@ final class FileBrowserModel: ObservableObject {
         displayState.lookup
     }
 
+    var isDisplayingCurrentResults: Bool {
+        displayState.context == currentDisplayContext
+    }
+
     func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
         displayState.displayValuesByID[node.id] ?? FileBrowserNodeDisplayValues(node: node)
     }
@@ -92,6 +97,7 @@ final class FileBrowserModel: ObservableObject {
             return
         }
 
+        contentRevision += 1
         self.nodes = nodes
         self.contentID = contentID
         snapshotID = nextSnapshotID
@@ -145,6 +151,26 @@ final class FileBrowserModel: ObservableObject {
         entireScanSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var currentDisplayContext: FileBrowserDisplayContext {
+        FileBrowserDisplayContext(
+            contentID: contentID,
+            contentRevision: contentRevision,
+            snapshotID: snapshotID,
+            searchScope: searchScope,
+            searchText: activeTrimmedSearchText,
+            sortOrder: sortOrder
+        )
+    }
+
+    private var activeTrimmedSearchText: String {
+        switch searchScope {
+        case .currentContents:
+            trimmedCurrentContentsSearchText
+        case .entireScan:
+            trimmedEntireScanSearchText
+        }
+    }
+
     private func refreshDisplayedNodes() {
         cancelPendingSearch(clearLoading: false)
 
@@ -159,6 +185,7 @@ final class FileBrowserModel: ObservableObject {
 
     private func rebuildCurrentContentsResults() {
         let searchText = isFilteringCurrentContents ? trimmedCurrentContentsSearchText : ""
+        let displayContext = currentDisplayContext
 
         guard shouldRefreshCurrentContentsAsynchronously else {
             setIsRefreshingCurrentContents(false)
@@ -167,19 +194,23 @@ final class FileBrowserModel: ObservableObject {
                     nodes,
                     searchText: searchText,
                     sortOrder: sortOrder
-                )
+                ),
+                context: displayContext
             )
             return
         }
 
-        scheduleCurrentContentsRefresh(searchText: searchText)
+        scheduleCurrentContentsRefresh(searchText: searchText, displayContext: displayContext)
     }
 
     private var shouldRefreshCurrentContentsAsynchronously: Bool {
         !nodes.isEmpty && nodes.count >= currentContentsAsyncThreshold
     }
 
-    private func scheduleCurrentContentsRefresh(searchText: String) {
+    private func scheduleCurrentContentsRefresh(
+        searchText: String,
+        displayContext: FileBrowserDisplayContext
+    ) {
         let nodes = nodes
         let contentID = contentID
         let snapshotID = snapshotID
@@ -210,7 +241,7 @@ final class FileBrowserModel: ObservableObject {
                         return
                     }
 
-                    applyDisplayedNodes(refreshedNodes)
+                    applyDisplayedNodes(refreshedNodes, context: displayContext)
                     setIsRefreshingCurrentContents(false)
                 }
             } catch is CancellationError {
@@ -252,7 +283,7 @@ final class FileBrowserModel: ObservableObject {
     private func scheduleEntireScanSearch() {
         guard let snapshotID, let fileTreeStore else {
             setIsSearchingEntireScan(false)
-            applyDisplayedNodes([])
+            applyDisplayedNodes([], context: currentDisplayContext)
             return
         }
 
@@ -268,6 +299,7 @@ final class FileBrowserModel: ObservableObject {
         let sortOrder = sortOrder
         let generation = searchGeneration
         let debounceDuration = searchDebounceDuration
+        let displayContext = currentDisplayContext
 
         setIsSearchingEntireScan(true)
         searchTask = Task { [searchService] in
@@ -293,7 +325,7 @@ final class FileBrowserModel: ObservableObject {
                     }
 
                     let matchedNodes = matchedIDs.compactMap { fileTreeStore.nodesByID[$0] }
-                    applyDisplayedNodes(matchedNodes.sorted(using: sortOrder))
+                    applyDisplayedNodes(matchedNodes.sorted(using: sortOrder), context: displayContext)
                     setIsSearchingEntireScan(false)
                 }
             } catch is CancellationError {
@@ -311,7 +343,7 @@ final class FileBrowserModel: ObservableObject {
                     }
 
                     setIsSearchingEntireScan(false)
-                    applyDisplayedNodes([])
+                    applyDisplayedNodes([], context: displayContext)
                 }
             }
         }
@@ -330,8 +362,11 @@ final class FileBrowserModel: ObservableObject {
             self.sortOrder == sortOrder
     }
 
-    private func applyDisplayedNodes(_ nodes: [FileNodeRecord]) {
-        displayState = FileBrowserDisplayState(nodes: nodes)
+    private func applyDisplayedNodes(
+        _ nodes: [FileNodeRecord],
+        context: FileBrowserDisplayContext
+    ) {
+        displayState = FileBrowserDisplayState(nodes: nodes, context: context)
     }
 
     private func setIsSearchingEntireScan(_ isSearching: Bool) {
@@ -343,6 +378,24 @@ final class FileBrowserModel: ObservableObject {
         guard isRefreshingCurrentContents != isRefreshing else { return }
         isRefreshingCurrentContents = isRefreshing
     }
+}
+
+private struct FileBrowserDisplayContext: Equatable {
+    let contentID: String
+    let contentRevision: Int
+    let snapshotID: UUID?
+    let searchScope: FileBrowserFindTarget
+    let searchText: String
+    let sortOrder: [FileNodeTableComparator]
+
+    static let empty = FileBrowserDisplayContext(
+        contentID: "",
+        contentRevision: 0,
+        snapshotID: nil,
+        searchScope: .currentContents,
+        searchText: "",
+        sortOrder: []
+    )
 }
 
 private actor CurrentContentsSearchService {
@@ -366,10 +419,14 @@ private actor CurrentContentsSearchService {
 
 private struct FileBrowserDisplayState {
     var nodes: [FileNodeRecord]
+    var context: FileBrowserDisplayContext
     var lookup: [FileNodeRecord.ID: FileNodeRecord]
     var displayValuesByID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues]
 
-    init(nodes: [FileNodeRecord] = []) {
+    init(
+        nodes: [FileNodeRecord] = [],
+        context: FileBrowserDisplayContext = .empty
+    ) {
         var uniqueNodes: [FileNodeRecord] = []
         var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
         var displayValuesByID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues] = [:]
@@ -384,6 +441,7 @@ private struct FileBrowserDisplayState {
         }
 
         self.nodes = uniqueNodes
+        self.context = context
         self.lookup = lookup
         self.displayValuesByID = displayValuesByID
     }

@@ -77,7 +77,7 @@ struct FileBrowserTableView: View {
 
                     Divider()
 
-                    if model.isRefreshingCurrentContents && model.displayedNodes.isEmpty {
+                    if model.isRefreshingCurrentContents && !model.isDisplayingCurrentResults {
                         VStack {
                             Spacer()
                             ProgressView("Loading Contents…")
@@ -85,7 +85,9 @@ struct FileBrowserTableView: View {
                             Spacer()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if model.isShowingEntireScanResults && model.isSearchingEntireScan && model.displayedNodes.isEmpty {
+                    } else if model.isShowingEntireScanResults &&
+                        model.isSearchingEntireScan &&
+                        !model.isDisplayingCurrentResults {
                         VStack {
                             Spacer()
                             ProgressView("Searching Entire Scan…")
