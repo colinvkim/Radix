@@ -103,6 +103,18 @@ actor ScanEngine {
         .volumeAvailableCapacityKey,
         .volumeTotalCapacityKey
     ]
+    private static let atomicSummaryResourceKeys: [URLResourceKey] = [
+        .isDirectoryKey,
+        .isPackageKey,
+        .isSymbolicLinkKey,
+        .fileAllocatedSizeKey,
+        .totalFileAllocatedSizeKey,
+        .fileSizeKey,
+        .isReadableKey,
+        .linkCountKey,
+        .fileResourceIdentifierKey
+    ]
+    private static let atomicSummaryResourceKeySet = Set(atomicSummaryResourceKeys)
 
     /// Thresholds for automatically summarizing directories with many small files.
     /// Directories exceeding BOTH thresholds are treated as atomic (not expanded).
@@ -992,7 +1004,7 @@ actor ScanEngine {
     ) throws -> AtomicDirectorySummary? {
         try cancellationCheck()
         let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
-        state.isAccessible = rootMetadata.isReadable
+        updateAtomicAccessibility(rootMetadata.isReadable, in: state)
 
         for childEntry in childEntries {
             try cancellationCheck()
@@ -1003,8 +1015,7 @@ actor ScanEngine {
                 do {
                     childMetadata = try metadata(for: childEntry.url)
                 } catch {
-                    state.isAccessible = false
-                    state.warnings.append(Self.makeWarning(for: childEntry.url, error: error))
+                    recordAtomicWarning(for: childEntry.url, error: error, in: state)
                     continue
                 }
             }
@@ -1020,14 +1031,7 @@ actor ScanEngine {
         }
         countedHardLinkIdentities = state.countedHardLinkIdentities
 
-        return AtomicDirectorySummary(
-            allocatedSize: state.allocatedSize,
-            logicalSize: state.logicalSize,
-            descendantFileCount: state.descendantFileCount,
-            isAccessible: state.isAccessible,
-            warnings: state.warnings,
-            countedHardLinkIdentities: state.countedHardLinkIdentities
-        )
+        return makeAtomicSummary(from: state)
     }
 
     private func accumulateAtomicSummary(
@@ -1039,7 +1043,7 @@ actor ScanEngine {
         cancellationCheck: CancellationCheck
     ) throws {
         try cancellationCheck()
-        state.isAccessible = state.isAccessible && metadata.isReadable
+        updateAtomicAccessibility(metadata.isReadable, in: state)
 
         if metadata.isDirectory {
             let nestedTreatsPackagesAsDirectories = metadata.isPackage ? true : treatPackagesAsDirectories
@@ -1057,12 +1061,7 @@ actor ScanEngine {
             return
         }
 
-        state.allocatedSize += adjustedAllocatedSize(for: metadata, countedHardLinkIdentities: &state.countedHardLinkIdentities)
-        state.logicalSize += metadata.logicalSize
-
-        if !metadata.isSymbolicLink {
-            state.descendantFileCount += 1
-        }
+        accumulateAtomicFile(metadata, into: state)
     }
 
     private func merge(_ summary: AtomicDirectorySummary, into state: AtomicDirectorySummaryState) {
@@ -1086,28 +1085,14 @@ actor ScanEngine {
         cancellationCheck: CancellationCheck
     ) throws -> AtomicDirectorySummary? {
         try cancellationCheck()
-        let summaryKeys: [URLResourceKey] = [
-            .isDirectoryKey,
-            .isPackageKey,
-            .isSymbolicLinkKey,
-            .fileAllocatedSizeKey,
-            .totalFileAllocatedSizeKey,
-            .fileSizeKey,
-            .isReadableKey,
-            .linkCountKey,
-            .fileResourceIdentifierKey
-        ]
-        let summaryKeySet = Set(summaryKeys)
-
         let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
 
         do {
             try cancellationCheck()
-            let rootValues = try url.resourceValues(forKeys: summaryKeySet)
-            state.isAccessible = state.isAccessible && (rootValues.isReadable ?? false)
+            let rootValues = try url.resourceValues(forKeys: Self.atomicSummaryResourceKeySet)
+            updateAtomicAccessibility(rootValues.isReadable ?? false, in: state)
         } catch {
-            state.isAccessible = false
-            state.warnings.append(Self.makeWarning(for: url, error: error))
+            recordAtomicWarning(for: url, error: error, in: state)
         }
 
         var enumeratorOptions: FileManager.DirectoryEnumerationOptions = []
@@ -1117,7 +1102,7 @@ actor ScanEngine {
 
         guard let enumerator = fileManager.enumerator(
             at: url,
-            includingPropertiesForKeys: summaryKeys,
+            includingPropertiesForKeys: Self.atomicSummaryResourceKeys,
             options: enumeratorOptions,
             errorHandler: { childURL, error in
                 state.isAccessible = false
@@ -1131,41 +1116,88 @@ actor ScanEngine {
         for case let childURL as URL in enumerator {
             try cancellationCheck()
             do {
-                let childValues = try childURL.resourceValues(forKeys: summaryKeySet)
-                let childMetadata = metadata(for: childURL, resourceValues: childValues)
-
-                state.isAccessible = state.isAccessible && childMetadata.isReadable
-
-                if childMetadata.isDirectory {
-                    if childMetadata.isPackage && !treatPackagesAsDirectories {
-                        if let packageSummary = try summarizeAtomicDirectory(
-                            at: childURL,
-                            includeHiddenFiles: includeHiddenFiles,
-                            treatPackagesAsDirectories: true,
-                            countedHardLinkIdentities: state.countedHardLinkIdentities,
-                            cancellationCheck: cancellationCheck
-                        ) {
-                            merge(packageSummary, into: state)
-                            enumerator.skipDescendants()
-                        }
+                let childMetadata = try atomicSummaryMetadata(for: childURL)
+                try accumulateEnumeratedAtomicSummary(
+                    for: childURL,
+                    metadata: childMetadata,
+                    into: state,
+                    includeHiddenFiles: includeHiddenFiles,
+                    treatPackagesAsDirectories: treatPackagesAsDirectories,
+                    cancellationCheck: cancellationCheck,
+                    skipDescendants: {
+                        enumerator.skipDescendants()
                     }
-                } else {
-                    state.allocatedSize += adjustedAllocatedSize(
-                        for: childMetadata,
-                        countedHardLinkIdentities: &state.countedHardLinkIdentities
-                    )
-                    state.logicalSize += childMetadata.logicalSize
-
-                    if !childMetadata.isSymbolicLink {
-                        state.descendantFileCount += 1
-                    }
-                }
+                )
             } catch {
-                state.isAccessible = false
-                state.warnings.append(Self.makeWarning(for: childURL, error: error))
+                recordAtomicWarning(for: childURL, error: error, in: state)
             }
         }
 
+        return makeAtomicSummary(from: state)
+    }
+
+    private func atomicSummaryMetadata(for url: URL) throws -> NodeMetadata {
+        let values = try url.resourceValues(forKeys: Self.atomicSummaryResourceKeySet)
+        return metadata(for: url, resourceValues: values)
+    }
+
+    private func accumulateEnumeratedAtomicSummary(
+        for url: URL,
+        metadata: NodeMetadata,
+        into state: AtomicDirectorySummaryState,
+        includeHiddenFiles: Bool,
+        treatPackagesAsDirectories: Bool,
+        cancellationCheck: CancellationCheck,
+        skipDescendants: () -> Void
+    ) throws {
+        try cancellationCheck()
+        updateAtomicAccessibility(metadata.isReadable, in: state)
+
+        guard metadata.isDirectory else {
+            accumulateAtomicFile(metadata, into: state)
+            return
+        }
+
+        guard metadata.isPackage, !treatPackagesAsDirectories else { return }
+
+        if let packageSummary = try summarizeAtomicDirectory(
+            at: url,
+            includeHiddenFiles: includeHiddenFiles,
+            treatPackagesAsDirectories: true,
+            countedHardLinkIdentities: state.countedHardLinkIdentities,
+            cancellationCheck: cancellationCheck
+        ) {
+            merge(packageSummary, into: state)
+            skipDescendants()
+        }
+    }
+
+    private func updateAtomicAccessibility(_ isReadable: Bool, in state: AtomicDirectorySummaryState) {
+        state.isAccessible = state.isAccessible && isReadable
+    }
+
+    private func recordAtomicWarning(
+        for url: URL,
+        error: Error,
+        in state: AtomicDirectorySummaryState
+    ) {
+        state.isAccessible = false
+        state.warnings.append(Self.makeWarning(for: url, error: error))
+    }
+
+    private func accumulateAtomicFile(_ metadata: NodeMetadata, into state: AtomicDirectorySummaryState) {
+        state.allocatedSize += adjustedAllocatedSize(
+            for: metadata,
+            countedHardLinkIdentities: &state.countedHardLinkIdentities
+        )
+        state.logicalSize += metadata.logicalSize
+
+        if !metadata.isSymbolicLink {
+            state.descendantFileCount += 1
+        }
+    }
+
+    private func makeAtomicSummary(from state: AtomicDirectorySummaryState) -> AtomicDirectorySummary {
         return AtomicDirectorySummary(
             allocatedSize: state.allocatedSize,
             logicalSize: state.logicalSize,
