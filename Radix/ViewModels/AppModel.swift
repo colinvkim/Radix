@@ -392,18 +392,17 @@ final class AppModel: ObservableObject {
 
         let scanStartID = UUID()
         deferredScanStartID = scanStartID
-        deferredScanStartTask = Task { [weak self] in
-            await MainActor.run { [weak self] in
-                guard let self,
-                      self.deferredScanStartID == scanStartID,
-                      !Task.isCancelled else {
-                    return
-                }
-
-                self.deferredScanStartID = nil
-                self.deferredScanStartTask = nil
-                self.startScanNow(target)
+        deferredScanStartTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self,
+                  self.deferredScanStartID == scanStartID,
+                  !Task.isCancelled else {
+                return
             }
+
+            self.deferredScanStartID = nil
+            self.deferredScanStartTask = nil
+            self.startScanNow(target)
         }
     }
 
