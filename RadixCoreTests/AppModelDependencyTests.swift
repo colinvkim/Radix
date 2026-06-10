@@ -249,12 +249,43 @@ final class AppModelDependencyTests: XCTestCase {
         )
         let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
         let file = installSelection(on: model)
+        model.setWorkspaceWindowNumber(100)
 
-        let didHandleEvent = recorder.quickLookKeyHandlers.first?(makeSpaceKeyEvent())
+        let didHandleEvent = recorder.quickLookKeyHandlers.first?(makeSpaceKeyEvent(windowNumber: 100))
 
         XCTAssertEqual(didHandleEvent, true)
         XCTAssertEqual(recorder.toggledQuickLookURLs, [file.url])
         XCTAssertNil(model.lastErrorMessage)
+    }
+
+    @MainActor
+    func testQuickLookKeyMonitorIgnoresSpaceOutsideWorkspaceWindow() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.quickLook = AppQuickLookActions(
+            isPreviewVisible: { false },
+            isPreviewPanelKeyWindow: { false },
+            present: { _ in },
+            toggle: { recorder.toggledQuickLookURLs.append($0) },
+            updateVisiblePreview: { _ in },
+            close: {}
+        )
+        installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
+        let preferences = SpyAppPreferencesStore(
+            preferences: AppPreferences(
+                scan: .defaults,
+                didCompleteOnboarding: true
+            )
+        )
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
+        installSelection(on: model)
+        model.setWorkspaceWindowNumber(100)
+
+        let didHandleEvent = recorder.quickLookKeyHandlers.first?(makeSpaceKeyEvent(windowNumber: 200))
+
+        XCTAssertEqual(didHandleEvent, false)
+        XCTAssertTrue(recorder.toggledQuickLookURLs.isEmpty)
     }
 
     @MainActor
@@ -575,13 +606,13 @@ private func installRecordingQuickLookMonitor(
     }
 }
 
-private func makeSpaceKeyEvent() -> NSEvent {
+private func makeSpaceKeyEvent(windowNumber: Int = 0) -> NSEvent {
     guard let event = NSEvent.keyEvent(
         with: .keyDown,
         location: .zero,
         modifierFlags: [],
         timestamp: 0,
-        windowNumber: 0,
+        windowNumber: windowNumber,
         context: nil,
         characters: " ",
         charactersIgnoringModifiers: " ",

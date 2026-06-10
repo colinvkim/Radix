@@ -167,6 +167,7 @@ final class AppModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var quickLookEventMonitor: AppEventMonitorToken?
+    private var workspaceWindowNumber: Int?
     private var deferredScanStartTask: Task<Void, Never>?
     private var deferredScanStartID: UUID?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
@@ -212,6 +213,7 @@ final class AppModel: ObservableObject {
         targetCapacityDescriptionsRefreshTask = nil
         activeScanCacheKey = nil
         displayedScanCacheKey = nil
+        workspaceWindowNumber = nil
         scanCoordinator.stopScan()
         removeQuickLookKeyMonitor()
     }
@@ -421,6 +423,10 @@ final class AppModel: ObservableObject {
 
     func clearSelection() {
         navigationModel.clearSelection()
+    }
+
+    func setWorkspaceWindowNumber(_ windowNumber: Int?) {
+        workspaceWindowNumber = windowNumber
     }
 
     func zoomIntoSelection() {
@@ -644,6 +650,7 @@ final class AppModel: ObservableObject {
 
     private func handleQuickLookKeyDown(_ event: NSEvent) -> Bool {
         guard Self.isPlainSpaceKey(event) else { return false }
+        guard isWorkspaceKeyEvent(event) else { return false }
         guard !showsOnboarding, pendingTrashNode == nil else { return false }
         guard !dependencies.systemActions.quickLook.isPreviewPanelKeyWindow() else { return false }
         guard !Self.shouldPreserveSpaceKey(for: event.window?.firstResponder) else { return false }
@@ -659,6 +666,11 @@ final class AppModel: ObservableObject {
         let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
         guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else { return false }
         return event.keyCode == 49 || event.charactersIgnoringModifiers == " "
+    }
+
+    private func isWorkspaceKeyEvent(_ event: NSEvent) -> Bool {
+        guard let workspaceWindowNumber else { return false }
+        return event.windowNumber == workspaceWindowNumber
     }
 
     private static func shouldPreserveSpaceKey(for responder: NSResponder?) -> Bool {

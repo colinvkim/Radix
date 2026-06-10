@@ -5,6 +5,7 @@
 //  Created by Colin Kim on 4/1/26.
 //
 
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -28,6 +29,9 @@ struct ContentView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+        .background(WorkspaceWindowObserver { window in
+            appModel.setWorkspaceWindowNumber(window?.windowNumber)
+        })
         .inspector(isPresented: $showsInspector) {
             SelectionInspectorView(
                 scanState: appModel.scanState,
@@ -83,6 +87,7 @@ struct ContentView: View {
             Text("Radix will ask macOS to move “\(node.name)” to the Trash.")
         }
         .onDisappear {
+            appModel.setWorkspaceWindowNumber(nil)
             appModel.suspendMainWindowActivity()
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -93,6 +98,37 @@ struct ContentView: View {
                 appModel.suspendMainWindowActivity()
             default:
                 break
+            }
+        }
+    }
+}
+
+private struct WorkspaceWindowObserver: NSViewRepresentable {
+    let onWindowChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> WindowView {
+        let view = WindowView()
+        view.onWindowChange = onWindowChange
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowView, context: Context) {
+        nsView.onWindowChange = onWindowChange
+        nsView.reportWindow()
+    }
+
+    final class WindowView: NSView {
+        var onWindowChange: (NSWindow?) -> Void = { _ in }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reportWindow()
+        }
+
+        func reportWindow() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.onWindowChange(self.window)
             }
         }
     }
