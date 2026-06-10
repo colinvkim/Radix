@@ -118,7 +118,8 @@ struct FileBrowserTableView: View {
                             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                                 NameCell(
                                     node: node,
-                                    subtitleOverride: subtitle(for: node)
+                                    subtitleOverride: subtitle(for: node),
+                                    isExpanding: isExpanding(node)
                                 )
                             }
                             .width(min: 260, ideal: 360)
@@ -170,10 +171,15 @@ struct FileBrowserTableView: View {
                                 .disabled(!actionAvailability.canOpen)
 
                                 if selectedNode.isAutoSummarized {
-                                    Button("Expand Fully", systemImage: "arrowshape.turn.up.right.circle.fill") {
+                                    let expansionIsActive = isExpanding(selectedNode)
+                                    Button(
+                                        expansionIsActive ? "Expanding…" : "Expand Fully",
+                                        systemImage: "arrowshape.turn.up.right.circle.fill"
+                                    ) {
                                         appModel.select(nodeID: selectedID)
                                         expandSummarizedNode(selectedNode)
                                     }
+                                    .disabled(expansionIsActive)
                                 } else {
                                     Button("Zoom In", systemImage: "magnifyingglass") {
                                         appModel.select(nodeID: selectedID)
@@ -204,7 +210,7 @@ struct FileBrowserTableView: View {
 
                             appModel.select(nodeID: selectedID)
 
-                            if selectedNode.isAutoSummarized {
+                            if selectedNode.isAutoSummarized && !isExpanding(selectedNode) {
                                 expandSummarizedNode(selectedNode)
                             } else if canRequestZoom(for: selectedNode) {
                                 appModel.zoomIntoSelection()
@@ -268,6 +274,10 @@ struct FileBrowserTableView: View {
         canZoomInto(node: node) || shouldShowPackageContentsHint(for: node)
     }
 
+    private func isExpanding(_ node: FileNodeRecord) -> Bool {
+        scanState.expandingNodeID == node.id
+    }
+
     private func shouldShowPackageContentsHint(for node: FileNodeRecord) -> Bool {
         node.isPackage &&
             node.isDirectory &&
@@ -276,6 +286,7 @@ struct FileBrowserTableView: View {
     }
 
     private func expandSummarizedNode(_ node: FileNodeRecord) {
+        guard !isExpanding(node) else { return }
         appModel.expandSummarizedNode(node) {}
     }
 
@@ -360,6 +371,7 @@ private struct SearchFilterBar: View {
 private struct NameCell: View {
     let node: FileNodeRecord
     let subtitleOverride: String?
+    let isExpanding: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -379,7 +391,7 @@ private struct NameCell: View {
             }
 
             if node.isAutoSummarized {
-                ExpandSummarizedButton(node: node)
+                ExpandSummarizedButton(node: node, isExpanding: isExpanding)
             }
         }
         .accessibilityElement(children: .combine)
@@ -396,8 +408,8 @@ private struct NameCell: View {
 /// Button that appears next to auto-summarized directories, allowing users to expand them fully.
 private struct ExpandSummarizedButton: View {
     let node: FileNodeRecord
+    let isExpanding: Bool
     @EnvironmentObject private var appModel: AppModel
-    @State private var isExpanding = false
 
     var body: some View {
         Button(action: expandFolder) {
@@ -418,9 +430,6 @@ private struct ExpandSummarizedButton: View {
     }
 
     private func expandFolder() {
-        isExpanding = true
-        appModel.expandSummarizedNode(node) {
-            isExpanding = false
-        }
+        appModel.expandSummarizedNode(node) {}
     }
 }

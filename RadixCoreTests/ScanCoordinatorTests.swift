@@ -239,6 +239,7 @@ final class ScanCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(service.requests.last?.target, ScanTarget(url: summarizedNode.url))
         XCTAssertEqual(service.requests.last?.options.autoSummarizeDirectories, false)
+        XCTAssertEqual(coordinator.expandingNodeID, summarizedNode.id)
 
         service.yield(.finished(expandedSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
@@ -258,6 +259,7 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(updatedSnapshot.treeStore.children(of: summarizedNode.id).map(\.id), [expandedFile.id])
         XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [existingWarning.path, expansionWarning.path])
         XCTAssertEqual(coordinator.fileTreeStore?.root.id, root.id)
+        XCTAssertNil(coordinator.expandingNodeID)
     }
 
     @MainActor

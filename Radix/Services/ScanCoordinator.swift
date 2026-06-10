@@ -43,6 +43,7 @@ final class ScanCoordinator: ObservableObject {
     @Published var fileTreeStore: FileTreeStore?
     @Published private(set) var completedScanSnapshot: ScanSnapshot?
     @Published private(set) var scanErrorMessage: String?
+    @Published private(set) var expandingNodeID: FileNodeRecord.ID?
 
     let progress: ScanProgressState
 
@@ -183,6 +184,7 @@ final class ScanCoordinator: ObservableObject {
 
         let expansionID = UUID()
         activeExpansionID = expansionID
+        expandingNodeID = node.id
         expansionCompletion = completion
 
         let target = ScanTarget(url: node.url)
@@ -393,6 +395,7 @@ final class ScanCoordinator: ObservableObject {
 
     private func cancelExpansion(completeWith result: ScanExpansionResult?) {
         activeExpansionID = nil
+        expandingNodeID = nil
         expandTask?.cancel()
         expandTask = nil
 
@@ -409,6 +412,7 @@ final class ScanCoordinator: ObservableObject {
         guard activeExpansionID == id else { return }
 
         activeExpansionID = nil
+        expandingNodeID = nil
         expandTask = nil
         guard let completion = expansionCompletion else { return }
         expansionCompletion = nil
