@@ -398,30 +398,55 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testCleanupCancelsAsyncMetadataRefresh() async throws {
-        let probe = AsyncValueProbe<AppSidebarTargetMetadata>()
+    func testAsyncCapacityDescriptionsDoNotDelayAvailableTargets() async throws {
+        let probe = AsyncValueProbe<[String: String]>()
         let loadedTarget = makeAppModelTarget("/async-loaded")
         var actions = AppSystemActions.inert
-        actions.asyncSidebarTargetMetadata = {
+        actions.defaultTargets = {
+            [loadedTarget]
+        }
+        actions.asyncTargetCapacityDescriptions = {
             await probe.wait()
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
-        try await waitForAsyncCondition("async sidebar metadata refresh starts") {
+        XCTAssertEqual(model.availableTargets, [loadedTarget])
+        XCTAssertTrue(model.targetCapacityDescriptions.isEmpty)
+
+        try await waitForAsyncCondition("async capacity description refresh starts") {
+            await probe.isWaiting
+        }
+
+        await probe.resume(returning: [loadedTarget.id: "1 GB free of 2 GB"])
+
+        try await waitForAppModelCondition("async capacity descriptions apply") {
+            model.targetCapacityDescriptions == [loadedTarget.id: "1 GB free of 2 GB"]
+        }
+    }
+
+    @MainActor
+    func testCleanupCancelsAsyncCapacityDescriptionRefresh() async throws {
+        let probe = AsyncValueProbe<[String: String]>()
+        let loadedTarget = makeAppModelTarget("/async-loaded")
+        var actions = AppSystemActions.inert
+        actions.defaultTargets = {
+            [loadedTarget]
+        }
+        actions.asyncTargetCapacityDescriptions = {
+            await probe.wait()
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        try await waitForAsyncCondition("async capacity description refresh starts") {
             await probe.isWaiting
         }
 
         model.cleanup()
-        await probe.resume(
-            returning: AppSidebarTargetMetadata(
-                targets: [loadedTarget],
-                capacityDescriptions: [loadedTarget.id: "1 GB free of 2 GB"]
-            )
-        )
+        await probe.resume(returning: [loadedTarget.id: "1 GB free of 2 GB"])
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertTrue(model.availableTargets.isEmpty)
+        XCTAssertEqual(model.availableTargets, [loadedTarget])
         XCTAssertTrue(model.targetCapacityDescriptions.isEmpty)
     }
 }

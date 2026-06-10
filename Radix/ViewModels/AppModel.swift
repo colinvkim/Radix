@@ -154,7 +154,7 @@ final class AppModel: ObservableObject {
     private var deferredScanStartTask: Task<Void, Never>?
     private var deferredScanStartID: UUID?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
-    private var sidebarTargetMetadataRefreshTask: Task<Void, Never>?
+    private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -192,8 +192,8 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
-        sidebarTargetMetadataRefreshTask?.cancel()
-        sidebarTargetMetadataRefreshTask = nil
+        targetCapacityDescriptionsRefreshTask?.cancel()
+        targetCapacityDescriptionsRefreshTask = nil
         activeScanCacheKey = nil
         scanCoordinator.stopScan()
         removeQuickLookKeyMonitor()
@@ -672,26 +672,22 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshAvailableTargets() {
-        sidebarTargetMetadataRefreshTask?.cancel()
+        targetCapacityDescriptionsRefreshTask?.cancel()
+        availableTargets = dependencies.systemActions.defaultTargets()
 
-        guard dependencies.systemActions.usesAsyncSidebarTargetMetadata else {
-            applySidebarTargetMetadata(dependencies.systemActions.currentSidebarTargetMetadata())
-            sidebarTargetMetadataRefreshTask = nil
+        guard dependencies.systemActions.usesAsyncTargetCapacityDescriptions else {
+            targetCapacityDescriptions = dependencies.systemActions.currentTargetCapacityDescriptions()
+            targetCapacityDescriptionsRefreshTask = nil
             return
         }
 
-        sidebarTargetMetadataRefreshTask = Task { [weak self] in
+        targetCapacityDescriptionsRefreshTask = Task { [weak self] in
             guard let self else { return }
-            let metadata = await self.dependencies.systemActions.loadCurrentSidebarTargetMetadata()
+            let descriptions = await self.dependencies.systemActions.loadCurrentTargetCapacityDescriptions()
             guard !Task.isCancelled else { return }
-            self.applySidebarTargetMetadata(metadata)
-            self.sidebarTargetMetadataRefreshTask = nil
+            self.targetCapacityDescriptions = descriptions
+            self.targetCapacityDescriptionsRefreshTask = nil
         }
-    }
-
-    private func applySidebarTargetMetadata(_ metadata: AppSidebarTargetMetadata) {
-        availableTargets = metadata.targets
-        targetCapacityDescriptions = metadata.capacityDescriptions
     }
 
     private func observeNavigationModel() {
