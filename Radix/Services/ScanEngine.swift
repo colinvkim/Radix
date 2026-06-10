@@ -859,6 +859,9 @@ actor ScanEngine {
         if immediateCandidate {
             deepCandidate = true
         } else {
+            guard shouldRunDescendantAtomicProbe(childEntries: childEntries, minFileCount: minFileCount) else {
+                return nil
+            }
             deepCandidate = try descendantProbeSuggestsAtomicDirectory(
                 at: url,
                 includeHiddenFiles: includeHiddenFiles,
@@ -900,6 +903,12 @@ actor ScanEngine {
         ) else { return nil }
         countedHardLinkIdentities = summary.countedHardLinkIdentities
         return summary
+    }
+
+    private func shouldRunDescendantAtomicProbe(childEntries: [DirectoryEntry], minFileCount: Int) -> Bool {
+        // Sparse parents are cheaper to traverse normally; dense descendants can still summarize themselves.
+        let minimumImmediateEntries = max(1, min(minFileCount, minFileCount / 10))
+        return childEntries.count >= minimumImmediateEntries
     }
 
     private func immediateChildrenSuggestAtomicDirectory(
