@@ -539,6 +539,10 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.selectSidebarTarget(id: downloadsTarget.id)
 
+        try await waitUntil("downloads target scoped from home") {
+            model.scanState.snapshot?.target == downloadsTarget
+        }
+
         XCTAssertEqual(service.requests.count, 2)
         XCTAssertEqual(model.scanState.selectedTarget, downloadsTarget)
         XCTAssertEqual(model.scanState.snapshot?.target, downloadsTarget)
@@ -591,6 +595,10 @@ final class ScanCoordinatorTests: XCTestCase {
         }
 
         model.selectSidebarTarget(id: downloadsTarget.id)
+
+        try await waitUntil("downloads target scoped from active snapshot") {
+            model.scanState.snapshot?.target == downloadsTarget
+        }
 
         XCTAssertEqual(service.requests.count, 1)
         XCTAssertEqual(model.scanState.selectedTarget, downloadsTarget)
@@ -663,9 +671,15 @@ final class ScanCoordinatorTests: XCTestCase {
         }
 
         model.selectSidebarTarget(id: downloadsTarget.id)
-        XCTAssertEqual(model.scanState.snapshot?.target, downloadsTarget)
+        try await waitUntil("downloads sibling target scoped") {
+            model.scanState.snapshot?.target == downloadsTarget
+        }
 
         model.selectSidebarTarget(id: documentsTarget.id)
+
+        try await waitUntil("documents sibling target scoped") {
+            model.scanState.snapshot?.target == documentsTarget
+        }
 
         XCTAssertEqual(service.requests.count, 1)
         XCTAssertEqual(model.scanState.selectedTarget, documentsTarget)

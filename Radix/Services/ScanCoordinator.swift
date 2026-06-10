@@ -47,6 +47,7 @@ final class ScanCoordinator: ObservableObject {
     let progress: ScanProgressState
 
     private let scanService: any ScanEventStreaming
+    private let snapshotTransformService = ScanSnapshotTransformService()
     private let progressThrottleDuration: Duration
     private let progressClock = ContinuousClock()
 
@@ -232,7 +233,12 @@ final class ScanCoordinator: ObservableObject {
                 return
             }
 
-            let replacementRootID = replaceNodeInTree(node, with: expandedSnapshot)
+            let replacementRootID = try await replaceNodeInTree(
+                node,
+                with: expandedSnapshot,
+                expansionID: expansionID
+            )
+            guard activeExpansionID == expansionID else { return }
             if let replacementRootID {
                 completeExpansion(id: expansionID, result: .expanded(replacementRootID: replacementRootID))
             } else {
@@ -410,13 +416,24 @@ final class ScanCoordinator: ObservableObject {
     }
 
     @discardableResult
-    private func replaceNodeInTree(_ oldNode: FileNodeRecord, with expandedSnapshot: ScanSnapshot) -> FileNodeRecord.ID? {
+    private func replaceNodeInTree(
+        _ oldNode: FileNodeRecord,
+        with expandedSnapshot: ScanSnapshot,
+        expansionID: UUID
+    ) async throws -> FileNodeRecord.ID? {
         guard let currentSnapshot = snapshot else { return nil }
-        guard let updatedSnapshot = currentSnapshot.replacingNode(
+        let currentSnapshotID = currentSnapshot.id
+        guard let updatedSnapshot = try await snapshotTransformService.replacingNode(
+            in: currentSnapshot,
             id: oldNode.id,
             with: expandedSnapshot.treeStore,
             additionalWarnings: expandedSnapshot.scanWarnings
         ) else { return nil }
+        try Task.checkCancellation()
+        guard activeExpansionID == expansionID,
+              snapshot?.id == currentSnapshotID else {
+            return nil
+        }
 
         snapshot = updatedSnapshot
         fileTreeStore = updatedSnapshot.treeStore

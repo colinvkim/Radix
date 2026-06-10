@@ -222,7 +222,26 @@ struct ScanSnapshot: Identifiable, Sendable {
         with replacement: FileTreeStore,
         additionalWarnings: [ScanWarning] = []
     ) -> ScanSnapshot? {
-        guard let updatedStore = treeStore.replacingSubtree(id: targetID, with: replacement) else { return nil }
+        try? replacingNode(
+            id: targetID,
+            with: replacement,
+            additionalWarnings: additionalWarnings,
+            cancellationCheck: {}
+        )
+    }
+
+    nonisolated func replacingNode(
+        id targetID: String,
+        with replacement: FileTreeStore,
+        additionalWarnings: [ScanWarning] = [],
+        cancellationCheck: () throws -> Void
+    ) throws -> ScanSnapshot? {
+        try cancellationCheck()
+        guard let updatedStore = try treeStore.replacingSubtree(
+            id: targetID,
+            with: replacement,
+            cancellationCheck: cancellationCheck
+        ) else { return nil }
 
         return ScanSnapshot(
             target: target,
@@ -236,14 +255,34 @@ struct ScanSnapshot: Identifiable, Sendable {
     }
 
     nonisolated func scoped(to target: ScanTarget) -> ScanSnapshot? {
-        guard let scopedStore = treeStore.subtree(rootedAt: target.id) else { return nil }
+        try? scoped(to: target, cancellationCheck: {})
+    }
+
+    nonisolated func scoped(
+        to target: ScanTarget,
+        cancellationCheck: () throws -> Void
+    ) throws -> ScanSnapshot? {
+        try cancellationCheck()
+        guard let scopedStore = try treeStore.subtree(
+            rootedAt: target.id,
+            cancellationCheck: cancellationCheck
+        ) else { return nil }
+
+        var scopedWarnings: [ScanWarning] = []
+        scopedWarnings.reserveCapacity(scanWarnings.count)
+        for warning in scanWarnings {
+            try cancellationCheck()
+            if Self.path(warning.path, isContainedIn: target.id) {
+                scopedWarnings.append(warning)
+            }
+        }
 
         return ScanSnapshot(
             target: target,
             treeStore: scopedStore,
             startedAt: startedAt,
             finishedAt: finishedAt,
-            scanWarnings: scanWarnings.filter { Self.path($0.path, isContainedIn: target.id) },
+            scanWarnings: scopedWarnings,
             aggregateStats: scopedStore.aggregateStats,
             isComplete: isComplete
         )
@@ -273,6 +312,36 @@ struct ScanSnapshot: Identifiable, Sendable {
     private nonisolated static func path(_ path: String, isContainedIn rootPath: String) -> Bool {
         guard rootPath != "/" else { return true }
         return path == rootPath || path.hasPrefix(rootPath + "/")
+    }
+}
+
+actor ScanSnapshotTransformService {
+    func replacingNode(
+        in snapshot: ScanSnapshot,
+        id targetID: String,
+        with replacement: FileTreeStore,
+        additionalWarnings: [ScanWarning] = []
+    ) throws -> ScanSnapshot? {
+        try snapshot.replacingNode(
+            id: targetID,
+            with: replacement,
+            additionalWarnings: additionalWarnings,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
+    }
+
+    func scopedSnapshot(
+        _ snapshot: ScanSnapshot,
+        to target: ScanTarget
+    ) throws -> ScanSnapshot? {
+        try snapshot.scoped(
+            to: target,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
     }
 }
 
@@ -570,23 +639,53 @@ struct FileTreeStore: Sendable {
     }
 
     nonisolated func replacingSubtree(id targetID: String, with replacement: FileTreeStore) -> FileTreeStore? {
+        try? replacingSubtree(id: targetID, with: replacement, cancellationCheck: {})
+    }
+
+    nonisolated func replacingSubtree(
+        id targetID: String,
+        with replacement: FileTreeStore,
+        cancellationCheck: () throws -> Void
+    ) throws -> FileTreeStore? {
+        try cancellationCheck()
         guard nodesByID[targetID] != nil else { return nil }
 
         let oldParentID = parentIDByID[targetID]
-        let oldSubtreeIDs = Set(subtreeNodeIDs(rootedAt: targetID))
+        let oldSubtreeIDs = Set(try subtreeNodeIDs(
+            rootedAt: targetID,
+            cancellationCheck: cancellationCheck
+        ))
         var updatedNodes = nodesByID
         var updatedChildIDs = childIDsByID
         var updatedParentIDs = parentIDByID
 
-        for oldID in oldSubtreeIDs {
+        for (offset, oldID) in oldSubtreeIDs.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
             updatedNodes.removeValue(forKey: oldID)
             updatedChildIDs.removeValue(forKey: oldID)
             updatedParentIDs.removeValue(forKey: oldID)
         }
 
-        updatedNodes.merge(replacement.nodesByID) { _, new in new }
-        updatedChildIDs.merge(replacement.childIDsByID) { _, new in new }
-        updatedParentIDs.merge(replacement.parentIDByID) { _, new in new }
+        for (offset, entry) in replacement.nodesByID.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            updatedNodes[entry.key] = entry.value
+        }
+        for (offset, entry) in replacement.childIDsByID.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            updatedChildIDs[entry.key] = entry.value
+        }
+        for (offset, entry) in replacement.parentIDByID.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            updatedParentIDs[entry.key] = entry.value
+        }
 
         let updatedRootID: String
         if let oldParentID {
@@ -603,6 +702,7 @@ struct FileTreeStore: Sendable {
 
         var cursor = oldParentID
         while let currentID = cursor {
+            try cancellationCheck()
             guard let current = updatedNodes[currentID] else { break }
             let childRecords = (updatedChildIDs[currentID] ?? []).compactMap { updatedNodes[$0] }
             let sortedChildRecords = Self.sortedChildren(childRecords)
@@ -629,24 +729,44 @@ struct FileTreeStore: Sendable {
     }
 
     nonisolated func subtree(rootedAt targetID: String) -> FileTreeStore? {
+        try? subtree(rootedAt: targetID, cancellationCheck: {})
+    }
+
+    nonisolated func subtree(
+        rootedAt targetID: String,
+        cancellationCheck: () throws -> Void
+    ) throws -> FileTreeStore? {
+        try cancellationCheck()
         guard nodesByID[targetID] != nil else { return nil }
 
-        let subtreeIDs = Set(subtreeNodeIDs(rootedAt: targetID))
-        let scopedNodes = nodesByID.filter { subtreeIDs.contains($0.key) }
-        let scopedChildIDs = childIDsByID.reduce(into: [String: [String]]()) { result, entry in
-            guard subtreeIDs.contains(entry.key) else { return }
-            let childIDs = entry.value.filter { subtreeIDs.contains($0) }
-            if !childIDs.isEmpty {
-                result[entry.key] = childIDs
+        var scopedNodes: [String: FileNodeRecord] = [:]
+        var scopedChildIDs: [String: [String]] = [:]
+        var scopedParentIDs: [String: String] = [:]
+        var stack = [targetID]
+
+        while let currentID = stack.popLast() {
+            try cancellationCheck()
+            guard let node = nodesByID[currentID] else { continue }
+            scopedNodes[currentID] = node
+
+            let childIDs = childIDsByID[currentID] ?? []
+            guard !childIDs.isEmpty else { continue }
+
+            var scopedChildren: [String] = []
+            scopedChildren.reserveCapacity(childIDs.count)
+            for (offset, childID) in childIDs.enumerated() {
+                if offset.isMultiple(of: 256) {
+                    try cancellationCheck()
+                }
+                guard nodesByID[childID] != nil else { continue }
+                scopedChildren.append(childID)
+                scopedParentIDs[childID] = currentID
+                stack.append(childID)
             }
-        }
-        let scopedParentIDs = parentIDByID.reduce(into: [String: String]()) { result, entry in
-            guard entry.key != targetID,
-                  subtreeIDs.contains(entry.key),
-                  subtreeIDs.contains(entry.value) else {
-                return
+
+            if !scopedChildren.isEmpty {
+                scopedChildIDs[currentID] = scopedChildren
             }
-            result[entry.key] = entry.value
         }
 
         return FileTreeStore(
@@ -658,10 +778,18 @@ struct FileTreeStore: Sendable {
     }
 
     private nonisolated func subtreeNodeIDs(rootedAt id: String) -> [String] {
+        (try? subtreeNodeIDs(rootedAt: id, cancellationCheck: {})) ?? []
+    }
+
+    private nonisolated func subtreeNodeIDs(
+        rootedAt id: String,
+        cancellationCheck: () throws -> Void
+    ) throws -> [String] {
         var result: [String] = []
         var stack = [id]
 
         while let currentID = stack.popLast() {
+            try cancellationCheck()
             result.append(currentID)
             let childIDs = childIDsByID[currentID] ?? []
             stack.append(contentsOf: childIDs)
