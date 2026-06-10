@@ -35,7 +35,8 @@ struct SidebarView: View {
                         SidebarTargetRow(
                             target: target,
                             subtitle: appModel.sidebarSubtitle(for: target),
-                            revealInFinder: { appModel.revealTargetInFinder(target) }
+                            revealInFinder: { appModel.revealTargetInFinder(target) },
+                            removeFromRecentScans: { appModel.removeRecentTarget(target) }
                         )
                             .tag(target.id)
                     }
@@ -51,6 +52,19 @@ private struct SidebarTargetRow: View {
     let target: ScanTarget
     let subtitle: String
     let revealInFinder: () -> Void
+    let removeFromRecentScans: (() -> Void)?
+
+    init(
+        target: ScanTarget,
+        subtitle: String,
+        revealInFinder: @escaping () -> Void,
+        removeFromRecentScans: (() -> Void)? = nil
+    ) {
+        self.target = target
+        self.subtitle = subtitle
+        self.revealInFinder = revealInFinder
+        self.removeFromRecentScans = removeFromRecentScans
+    }
 
     var body: some View {
         Label {
@@ -68,6 +82,12 @@ private struct SidebarTargetRow: View {
         .contextMenu {
             Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
                 revealInFinder()
+            }
+
+            if let removeFromRecentScans {
+                Button("Remove from Recent Scans", systemImage: "minus.circle", role: .destructive) {
+                    removeFromRecentScans()
+                }
             }
         }
         .help(target.url.path)

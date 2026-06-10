@@ -313,6 +313,14 @@ final class AppModel: ObservableObject {
         dependencies.recentTargets.clear()
     }
 
+    func removeRecentTarget(_ target: ScanTarget) {
+        recentTargets = dependencies.recentTargets.remove(target, currentTargets: recentTargets)
+        if activeSidebarTargetID == target.id,
+           !smartTargets.contains(where: { $0.id == target.id }) {
+            activeSidebarTargetID = nil
+        }
+    }
+
     func sidebarSubtitle(for target: ScanTarget) -> String {
         if target.kind == .volume,
            let capacityDescription = targetCapacityDescriptions[target.id] {

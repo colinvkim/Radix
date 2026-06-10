@@ -50,6 +50,26 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoveRecentTargetPersistsRemainingTargets() {
+        let first = makeAppModelTarget("/recent/first")
+        let removed = makeAppModelTarget("/recent/removed")
+        let last = makeAppModelTarget("/recent/last")
+        let recentPersistence = SpyRecentTargetPersistence(targets: [first, removed, last])
+        let model = AppModel(
+            dependencies: makeDependencies(
+                recentPersistence: recentPersistence,
+                availableRecentIDs: Set([first.id, removed.id, last.id])
+            )
+        )
+
+        model.removeRecentTarget(removed)
+
+        XCTAssertEqual(model.recentTargets, [first, last])
+        XCTAssertEqual(model.recentScanTargets, [first, last])
+        XCTAssertEqual(recentPersistence.savedTargets, [[first, last]])
+    }
+
+    @MainActor
     func testSmartTargetsIncludeMountedVolumesBelowStartupDisk() {
         let startupDisk = makeAppModelTarget("/", kind: .volume)
         let externalVolume = makeAppModelTarget("/Volumes/External SSD", kind: .volume)

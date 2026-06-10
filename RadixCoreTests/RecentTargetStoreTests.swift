@@ -57,6 +57,27 @@ final class RecentTargetStoreTests: XCTestCase {
         XCTAssertEqual(persistence.savedTargets, [[available]])
     }
 
+    func testRemoveTargetPrunesAndPersistsRemainingTargets() {
+        let first = makeRecentTarget("/recent/first")
+        let removed = makeRecentTarget("/recent/removed")
+        let missing = makeRecentTarget("/recent/missing")
+        let last = makeRecentTarget("/recent/last")
+        let persistence = InMemoryRecentTargetPersistence()
+        let availableIDs = Set([first.id, removed.id, last.id])
+        let store = RecentTargetStore(
+            persistence: persistence,
+            isAvailable: { availableIDs.contains($0.id) }
+        )
+
+        let updatedTargets = store.remove(
+            removed,
+            currentTargets: [first, removed, missing, last]
+        )
+
+        XCTAssertEqual(updatedTargets, [first, last])
+        XCTAssertEqual(persistence.savedTargets, [[first, last]])
+    }
+
     func testClearDelegatesToPersistence() {
         let persistence = InMemoryRecentTargetPersistence(targets: [makeRecentTarget("/recent/item")])
         let store = RecentTargetStore(

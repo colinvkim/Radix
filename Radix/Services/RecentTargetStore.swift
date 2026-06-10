@@ -106,6 +106,15 @@ struct RecentTargetStore {
         return updatedTargets
     }
 
+    func remove(_ target: ScanTarget, currentTargets: [ScanTarget]) -> [ScanTarget] {
+        let updatedTargets = currentTargets.filter { existingTarget in
+            existingTarget.id != target.id && isAvailable(existingTarget)
+        }
+
+        persistence.saveRecentTargets(updatedTargets)
+        return updatedTargets
+    }
+
     func availableTargets(from targets: [ScanTarget]) -> [ScanTarget] {
         targets.filter(isAvailable)
     }
