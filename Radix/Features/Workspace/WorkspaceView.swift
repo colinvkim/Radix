@@ -223,27 +223,25 @@ private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
     private func divider(contentHeight: CGFloat) -> some View {
         ZStack {
             Divider()
-            PaneResizeCursorRect()
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.dividerHitHeight)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
+            PaneResizeHandle(
+                onDragChanged: { translationHeight in
                     guard contentHeight > 0 else { return }
 
                     let baseFraction = dragStartFraction ?? topFraction
                     dragStartFraction = baseFraction
                     topFraction = clampedFraction(
-                        baseFraction + (value.translation.height / contentHeight),
+                        baseFraction + (translationHeight / contentHeight),
                         contentHeight: contentHeight
                     )
-                }
-                .onEnded { _ in
+                },
+                onDragEnded: {
                     dragStartFraction = nil
                 }
-        )
+            )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: Self.dividerHitHeight)
         .accessibilityLabel("Resize panes")
     }
 
@@ -271,23 +269,125 @@ private struct WorkspaceSplitView<Top: View, Bottom: View>: View {
     }
 }
 
-private struct PaneResizeCursorRect: NSViewRepresentable {
-    func makeNSView(context: Context) -> CursorRectView {
-        CursorRectView()
+private struct PaneResizeHandle: NSViewRepresentable {
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: () -> Void
+
+    func makeNSView(context: Context) -> HandleView {
+        let view = HandleView()
+        updateNSView(view, context: context)
+        return view
     }
 
-    func updateNSView(_ nsView: CursorRectView, context: Context) {
-        nsView.window?.invalidateCursorRects(for: nsView)
+    func updateNSView(_ nsView: HandleView, context: Context) {
+        nsView.onDragChanged = onDragChanged
+        nsView.onDragEnded = onDragEnded
+        nsView.invalidateCursorRects()
     }
 
-    final class CursorRectView: NSView {
+    final class HandleView: NSView {
+        var onDragChanged: (CGFloat) -> Void = { _ in }
+        var onDragEnded: () -> Void = {}
+
+        private var dragStartY: CGFloat?
+        private var trackingArea: NSTrackingArea?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            refreshTracking()
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            refreshTracking()
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+            }
+
+            guard !bounds.isEmpty else {
+                trackingArea = nil
+                return
+            }
+
+            let options: NSTrackingArea.Options = [
+                .activeAlways,
+                .cursorUpdate,
+                .enabledDuringMouseDrag,
+                .inVisibleRect,
+                .mouseEnteredAndExited,
+                .mouseMoved
+            ]
+            let trackingArea = NSTrackingArea(
+                rect: bounds,
+                options: options,
+                owner: self
+            )
+            addTrackingArea(trackingArea)
+            self.trackingArea = trackingArea
+        }
+
         override func resetCursorRects() {
             super.resetCursorRects()
             addCursorRect(bounds, cursor: .resizeUpDown)
         }
 
+        override func cursorUpdate(with event: NSEvent) {
+            showResizeCursor()
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            showResizeCursor()
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            showResizeCursor()
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            if dragStartY == nil {
+                NSCursor.arrow.set()
+            }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            dragStartY = event.locationInWindow.y
+            showResizeCursor()
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            let dragStartY = dragStartY ?? event.locationInWindow.y
+            self.dragStartY = dragStartY
+
+            onDragChanged(dragStartY - event.locationInWindow.y)
+            showResizeCursor()
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            dragStartY = nil
+            onDragEnded()
+            showResizeCursor()
+        }
+
         override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
+            bounds.contains(point) ? self : nil
+        }
+
+        func refreshTracking() {
+            invalidateCursorRects()
+            updateTrackingAreas()
+        }
+
+        func invalidateCursorRects() {
+            window?.invalidateCursorRects(for: self)
+        }
+
+        private func showResizeCursor() {
+            NSCursor.resizeUpDown.set()
         }
     }
 }
