@@ -42,7 +42,6 @@ final class FileBrowserModel: ObservableObject {
     private var contentRevision = 0
     private var snapshotID: UUID?
     private var fileTreeStore: FileTreeStore?
-    private var displayValueCache = FileBrowserDisplayValueCache(capacity: 2_048)
 
     init(
         searchService: any FileSearching = FileSearchService(),
@@ -76,7 +75,7 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
-        displayValueCache.values(for: node)
+        displayState.displayValuesByNodeID[node.id] ?? FileBrowserNodeDisplayValues(node: node)
     }
 
     var isShowingEntireScanResults: Bool {
@@ -423,6 +422,7 @@ private struct FileBrowserDisplayState {
     var nodes: [FileNodeRecord]
     var context: FileBrowserDisplayContext
     var lookup: [FileNodeRecord.ID: FileNodeRecord]
+    var displayValuesByNodeID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues]
 
     init(
         nodes: [FileNodeRecord] = [],
@@ -430,73 +430,21 @@ private struct FileBrowserDisplayState {
     ) {
         var uniqueNodes: [FileNodeRecord] = []
         var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
+        var displayValuesByNodeID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues] = [:]
         uniqueNodes.reserveCapacity(nodes.count)
         lookup.reserveCapacity(nodes.count)
+        displayValuesByNodeID.reserveCapacity(nodes.count)
 
         for node in nodes where lookup[node.id] == nil {
             lookup[node.id] = node
+            displayValuesByNodeID[node.id] = FileBrowserNodeDisplayValues(node: node)
             uniqueNodes.append(node)
         }
 
         self.nodes = uniqueNodes
         self.context = context
         self.lookup = lookup
-    }
-}
-
-private struct FileBrowserDisplayValueCache {
-    private let capacity: Int
-    private var valuesByKey: [FileBrowserDisplayValueKey: FileBrowserNodeDisplayValues] = [:]
-    private var keysByRecency: [FileBrowserDisplayValueKey] = []
-
-    init(capacity: Int) {
-        self.capacity = max(capacity, 1)
-    }
-
-    mutating func values(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
-        let key = FileBrowserDisplayValueKey(node: node)
-        if let values = valuesByKey[key] {
-            markRecentlyUsed(key)
-            return values
-        }
-
-        let values = FileBrowserNodeDisplayValues(node: node)
-        valuesByKey[key] = values
-        markRecentlyUsed(key)
-        trimToCapacity()
-        return values
-    }
-
-    private mutating func markRecentlyUsed(_ key: FileBrowserDisplayValueKey) {
-        keysByRecency.removeAll { $0 == key }
-        keysByRecency.append(key)
-    }
-
-    private mutating func trimToCapacity() {
-        while valuesByKey.count > capacity, let oldestKey = keysByRecency.first {
-            keysByRecency.removeFirst()
-            valuesByKey[oldestKey] = nil
-        }
-    }
-}
-
-private struct FileBrowserDisplayValueKey: Hashable {
-    let id: FileNodeRecord.ID
-    let allocatedSize: Int64
-    let descendantFileCount: Int
-    let lastModified: Date?
-    let isDirectory: Bool
-    let isSynthetic: Bool
-    let isSymbolicLink: Bool
-
-    init(node: FileNodeRecord) {
-        id = node.id
-        allocatedSize = node.allocatedSize
-        descendantFileCount = node.descendantFileCount
-        lastModified = node.lastModified
-        isDirectory = node.isDirectory
-        isSynthetic = node.isSynthetic
-        isSymbolicLink = node.isSymbolicLink
+        self.displayValuesByNodeID = displayValuesByNodeID
     }
 }
 
