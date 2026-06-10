@@ -336,6 +336,104 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelRestoresOversizedCachedParentAfterScopingSidebarTarget() async throws {
+        let service = ControlledScanService()
+        let homeTarget = makeCoordinatorTarget("/app/sidebar/oversized-home")
+        let downloadsTarget = makeCoordinatorTarget("/app/sidebar/oversized-home/Downloads")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
+            ),
+            completedScanCacheMaxSnapshotCount: 2,
+            completedScanCacheMaxTotalNodeCount: 3
+        )
+        let homeSnapshot = makeCoordinatorHomeSnapshot(
+            target: homeTarget,
+            downloadsTarget: downloadsTarget,
+            rootName: "oversized-home"
+        )
+        XCTAssertGreaterThan(homeSnapshot.treeStore.nodeCount, 3)
+
+        model.selectSidebarTarget(id: homeTarget.id)
+        try await waitUntil("oversized home scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(homeSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("oversized home scan finished") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        model.selectSidebarTarget(id: downloadsTarget.id)
+        try await waitUntil("downloads scoped from oversized home") {
+            model.scanState.snapshot?.target == downloadsTarget
+        }
+
+        model.selectSidebarTarget(id: homeTarget.id)
+        try await waitUntil("oversized home restored from cache") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        XCTAssertEqual(service.requests.count, 1)
+        XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
+        XCTAssertEqual(model.scanState.snapshot?.root.id, homeTarget.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, homeTarget.id)
+    }
+
+    @MainActor
+    func testAppModelKeepsOversizedCachedScanAfterAnotherScan() async throws {
+        let service = ControlledScanService()
+        let homeTarget = makeCoordinatorTarget("/app/sidebar/oversized-recent-home")
+        let downloadsTarget = makeCoordinatorTarget("/app/sidebar/oversized-recent-home/Downloads")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
+            ),
+            completedScanCacheMaxSnapshotCount: 2,
+            completedScanCacheMaxTotalNodeCount: 3
+        )
+        let homeSnapshot = makeCoordinatorHomeSnapshot(
+            target: homeTarget,
+            downloadsTarget: downloadsTarget,
+            rootName: "oversized-recent-home"
+        )
+        let downloadsSnapshot = makeCoordinatorSnapshot(target: downloadsTarget)
+        XCTAssertGreaterThan(homeSnapshot.treeStore.nodeCount, 3)
+
+        model.startScan(homeTarget)
+        try await waitUntil("oversized recent home scan request") {
+            service.requests.count == 1
+        }
+        service.yield(.finished(homeSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("oversized recent home scan finished") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        model.startScan(downloadsTarget)
+        try await waitUntil("downloads exact scan request") {
+            service.requests.count == 2
+        }
+        service.yield(.finished(downloadsSnapshot), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("downloads exact scan finished") {
+            model.scanState.snapshot?.target == downloadsTarget
+        }
+
+        model.selectSidebarTarget(id: homeTarget.id)
+        try await waitUntil("oversized recent home restored from cache") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        XCTAssertEqual(service.requests.count, 2)
+        XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
+        XCTAssertEqual(model.scanState.snapshot?.root.id, homeTarget.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, homeTarget.id)
+    }
+
+    @MainActor
     func testAppModelRescanBypassesSidebarCache() async throws {
         let service = ControlledScanService()
         let target = makeCoordinatorTarget("/app/sidebar/rescan")
@@ -1058,6 +1156,38 @@ private func makeCoordinatorSnapshot(target: ScanTarget) -> ScanSnapshot {
     let root = makeCoordinatorDirectoryNode(id: target.id, name: target.displayName, children: [file])
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
     return makeCoordinatorSnapshot(target: target, root: root, store: store)
+}
+
+private func makeCoordinatorHomeSnapshot(
+    target homeTarget: ScanTarget,
+    downloadsTarget: ScanTarget,
+    rootName: String
+) -> ScanSnapshot {
+    let downloadFile = makeCoordinatorFileNode(
+        id: downloadsTarget.id + "/download.txt",
+        name: "download.txt",
+        size: 20
+    )
+    let siblingFile = makeCoordinatorFileNode(
+        id: homeTarget.id + "/notes.txt",
+        name: "notes.txt",
+        size: 10
+    )
+    let downloadsNode = makeCoordinatorDirectoryNode(
+        id: downloadsTarget.id,
+        name: "Downloads",
+        children: [downloadFile]
+    )
+    let homeRoot = makeCoordinatorDirectoryNode(
+        id: homeTarget.id,
+        name: rootName,
+        children: [downloadsNode, siblingFile]
+    )
+    let homeStore = FileTreeStore(root: homeRoot, childrenByID: [
+        homeRoot.id: [downloadsNode, siblingFile],
+        downloadsNode.id: [downloadFile],
+    ])
+    return makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
 }
 
 private func makeCoordinatorSnapshot(

@@ -57,10 +57,6 @@ final class AppModel: ObservableObject {
         mutating func store(_ snapshot: ScanSnapshot, for key: ScanCacheKey) {
             guard snapshot.isComplete else { return }
             let nodeCount = snapshot.treeStore.nodeCount
-            guard nodeCount <= maxTotalNodeCount else {
-                removeSnapshot(for: key)
-                return
-            }
 
             snapshotsByKey[key] = snapshot
             nodeCountsByKey[key] = nodeCount
@@ -83,8 +79,20 @@ final class AppModel: ObservableObject {
             nodeCountsByKey.values.reduce(0, +)
         }
 
+        private var minimumRetainedSnapshotCount: Int {
+            min(maxSnapshotCount, 2)
+        }
+
         private mutating func trimToBudget() {
-            while (snapshotsByKey.count > maxSnapshotCount || totalNodeCount > maxTotalNodeCount),
+            while snapshotsByKey.count > maxSnapshotCount,
+                  let oldestKey = keysByRecency.first {
+                removeSnapshot(for: oldestKey)
+            }
+
+            // Keep the most recent scans even when one is larger than the soft
+            // node budget, so sidebar back-and-forth does not forget a large parent.
+            while totalNodeCount > maxTotalNodeCount,
+                  snapshotsByKey.count > minimumRetainedSnapshotCount,
                   let oldestKey = keysByRecency.first {
                 removeSnapshot(for: oldestKey)
             }
@@ -172,7 +180,7 @@ final class AppModel: ObservableObject {
     private let snapshotTransformService = ScanSnapshotTransformService()
     private let navigationModel = WorkspaceNavigationModel()
     private var lastActionErrorTitle: String?
-    private var completedScanCache = CompletedScanCache(maxSnapshotCount: 2, maxTotalNodeCount: 250_000)
+    private var completedScanCache: CompletedScanCache
     private var activeScanCacheKey: ScanCacheKey?
     private var displayedScanCacheKey: ScanCacheKey?
 
@@ -186,9 +194,17 @@ final class AppModel: ObservableObject {
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
 
-    init(dependencies: AppDependencies = .live) {
+    init(
+        dependencies: AppDependencies = .live,
+        completedScanCacheMaxSnapshotCount: Int = 2,
+        completedScanCacheMaxTotalNodeCount: Int = 250_000
+    ) {
         self.dependencies = dependencies
         self.scanCoordinator = ScanCoordinator(scanService: dependencies.scanService)
+        self.completedScanCache = CompletedScanCache(
+            maxSnapshotCount: completedScanCacheMaxSnapshotCount,
+            maxTotalNodeCount: completedScanCacheMaxTotalNodeCount
+        )
 
         let preferences = dependencies.preferences.loadPreferences()
         showHiddenFiles = preferences.scan.showHiddenFiles
