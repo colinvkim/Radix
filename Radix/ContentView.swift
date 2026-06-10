@@ -114,21 +114,34 @@ private struct WorkspaceWindowObserver: NSViewRepresentable {
 
     func updateNSView(_ nsView: WindowView, context: Context) {
         nsView.onWindowChange = onWindowChange
-        nsView.reportWindow()
+        nsView.reportWindowIfNeeded()
     }
 
     final class WindowView: NSView {
         var onWindowChange: (NSWindow?) -> Void = { _ in }
+        private var hasReportedWindow = false
+        private var lastReportedWindowID: ObjectIdentifier?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            reportWindow()
+            reportWindowIfNeeded()
         }
 
-        func reportWindow() {
+        func reportWindowIfNeeded() {
+            let reportedWindow = window
+            let reportedWindowID = reportedWindow.map(ObjectIdentifier.init)
+            guard !hasReportedWindow || reportedWindowID != lastReportedWindowID else { return }
+
+            hasReportedWindow = true
+            lastReportedWindowID = reportedWindowID
+
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.onWindowChange(self.window)
+                guard self.window.map(ObjectIdentifier.init) == reportedWindowID else {
+                    self.reportWindowIfNeeded()
+                    return
+                }
+                self.onWindowChange(reportedWindow)
             }
         }
     }
