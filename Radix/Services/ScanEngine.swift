@@ -48,6 +48,44 @@ actor ScanEngine {
         let countedHardLinkIdentities: Set<FileIdentity>
     }
 
+    private struct AggregateStatsAccumulator {
+        private(set) var fileCount = 0
+        private(set) var directoryCount = 0
+        private(set) var accessibleItemCount = 0
+        private(set) var inaccessibleItemCount = 0
+
+        mutating func include(_ node: FileNodeRecord, hasChildren: Bool) {
+            if node.isDirectory {
+                directoryCount += 1
+                if node.isPackage && !hasChildren {
+                    fileCount += node.descendantFileCount
+                }
+                if node.isAutoSummarized {
+                    fileCount += node.descendantFileCount
+                }
+            } else if !node.isSymbolicLink && !node.isSynthetic {
+                fileCount += 1
+            }
+
+            if node.isAccessible {
+                accessibleItemCount += 1
+            } else {
+                inaccessibleItemCount += 1
+            }
+        }
+
+        func makeStats(root: FileNodeRecord) -> ScanAggregateStats {
+            ScanAggregateStats(
+                totalAllocatedSize: root.allocatedSize,
+                totalLogicalSize: root.logicalSize,
+                fileCount: fileCount,
+                directoryCount: directoryCount,
+                accessibleItemCount: accessibleItemCount,
+                inaccessibleItemCount: inaccessibleItemCount
+            )
+        }
+    }
+
     private typealias CancellationCheck = () throws -> Void
 
     /// A work item for the iterative scanner.
@@ -70,7 +108,7 @@ actor ScanEngine {
 
     /// A completed directory scan awaiting parent assembly.
     private struct CompletedDirScan {
-        let children: [FileNodeRecord]    // For leaves: the leaf node. For dirs: empty (resolved in phase 2).
+        let node: FileNodeRecord?     // Leaves carry a node; traversable dirs are resolved in phase 2.
         let metadata: NodeMetadata
         let url: URL
         let isTraversable: Bool     // True if this was a directory we intended to traverse.
@@ -349,7 +387,7 @@ actor ScanEngine {
                         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
                         completedByKey[itemKey] = CompletedDirScan(
-                            children: [atomicNode],
+                            node: atomicNode,
                             metadata: meta,
                             url: item.url,
                             isTraversable: false
@@ -371,7 +409,7 @@ actor ScanEngine {
                     // Register this directory so phase 2 can assemble it.
                     // childrenKeysByKey will be populated after the loop by scanning parentKey references.
                     completedByKey[itemKey] = CompletedDirScan(
-                        children: [],
+                        node: nil,
                         metadata: meta,
                         url: item.url,
                         isTraversable: true
@@ -400,7 +438,7 @@ actor ScanEngine {
                         isAutoSummarized: false
                     )
                     completedByKey[itemKey] = CompletedDirScan(
-                        children: [inaccessibleNode],
+                        node: inaccessibleNode,
                         metadata: meta,
                         url: item.url,
                         isTraversable: false
@@ -429,7 +467,7 @@ actor ScanEngine {
                 maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
                 completedByKey[itemKey] = CompletedDirScan(
-                    children: [leafResult.node],
+                    node: leafResult.node,
                     metadata: meta,
                     url: item.url,
                     isTraversable: false
@@ -439,19 +477,45 @@ actor ScanEngine {
 
         // Phase 2: Assemble the tree bottom-up from completed results.
         // Process keys in reverse order (children always have higher keys than parents).
+        metrics.currentPath = "Summarizing results…"
+        metrics.isFinalizing = true
+        metrics.recalculateProgress()
+        continuation.yield(.progress(metrics))
+
+        let finalizationTotal = max(completedByKey.count, 1)
+        let finalizationProgressInterval = 512
+        var finalizedItems = 0
         var resolvedNodeByKey: [Int: FileNodeRecord] = [:]
         var childIDsByID: [String: [String]] = [:]
         var parentIDByID: [String: String] = [:]
         var nodesByID: [String: FileNodeRecord] = [:]
+        var aggregateStats = AggregateStatsAccumulator()
+        resolvedNodeByKey.reserveCapacity(completedByKey.count)
+        childIDsByID.reserveCapacity(completedByKey.count)
+        parentIDByID.reserveCapacity(completedByKey.count)
         nodesByID.reserveCapacity(completedByKey.count)
         for key in (0..<nextKey).reversed() {
+            if finalizedItems.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
             guard let completed = completedByKey.removeValue(forKey: key) else { continue }
+            finalizedItems += 1
 
             if completed.isTraversable {
                 // Traversable directories must still be materialized when empty.
                 let childKeys = childrenKeysByKey.removeValue(forKey: key) ?? []
-                let childNodes = childKeys.compactMap { resolvedNodeByKey[$0] }
+                var childNodes: [FileNodeRecord] = []
+                childNodes.reserveCapacity(childKeys.count)
+                for (offset, childKey) in childKeys.enumerated() {
+                    if offset.isMultiple(of: 256) {
+                        try Task.checkCancellation()
+                    }
+                    if let childNode = resolvedNodeByKey.removeValue(forKey: childKey) {
+                        childNodes.append(childNode)
+                    }
+                }
                 let sortedChildren = FileTreeStore.sortedChildren(childNodes)
+                try Task.checkCancellation()
                 let assembled = FileNodeRecord.directory(
                     id: completed.url.path,
                     url: completed.url,
@@ -463,28 +527,44 @@ actor ScanEngine {
                     childrenAreSorted: true
                 )
                 resolvedNodeByKey[key] = assembled
-                insertNode(
+                if insertNode(
                     assembled,
                     into: &nodesByID,
                     warnings: &warnings,
                     continuation: continuation
-                )
-                childIDsByID[assembled.id] = sortedChildren.map(\.id)
-                for child in sortedChildren {
+                ) {
+                    aggregateStats.include(assembled, hasChildren: !sortedChildren.isEmpty)
+                }
+
+                var sortedChildIDs: [String] = []
+                sortedChildIDs.reserveCapacity(sortedChildren.count)
+                for (offset, child) in sortedChildren.enumerated() {
+                    if offset.isMultiple(of: 256) {
+                        try Task.checkCancellation()
+                    }
+                    sortedChildIDs.append(child.id)
                     parentIDByID[child.id] = assembled.id
                 }
-                for childKey in childKeys {
-                    resolvedNodeByKey[childKey] = nil
-                }
-            } else if let onlyChild = completed.children.first {
+                childIDsByID[assembled.id] = sortedChildIDs
+
+                metrics.completedItems = min(metrics.discoveredItems, metrics.completedItems + 1)
+            } else if let onlyChild = completed.node {
                 // Leaf node or inaccessible directory: use the child directly.
                 resolvedNodeByKey[key] = onlyChild
-                insertNode(
+                if insertNode(
                     onlyChild,
                     into: &nodesByID,
                     warnings: &warnings,
                     continuation: continuation
-                )
+                ) {
+                    aggregateStats.include(onlyChild, hasChildren: false)
+                }
+            }
+
+            if finalizedItems.isMultiple(of: finalizationProgressInterval) || finalizedItems == finalizationTotal {
+                try Task.checkCancellation()
+                metrics.recalculateProgress()
+                continuation.yield(.progress(metrics))
             }
         }
 
@@ -492,7 +572,7 @@ actor ScanEngine {
             throw ScanEngineError.missingRootNode
         }
 
-        metrics.completedItems += 1
+        metrics.completedItems = max(metrics.completedItems, metrics.discoveredItems)
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
@@ -500,7 +580,8 @@ actor ScanEngine {
             rootID: rootNode.id,
             nodesByID: nodesByID,
             childIDsByID: childIDsByID,
-            parentIDByID: parentIDByID
+            parentIDByID: parentIDByID,
+            aggregateStats: aggregateStats.makeStats(root: rootNode)
         )
     }
 
@@ -542,7 +623,7 @@ actor ScanEngine {
         into nodesByID: inout [String: FileNodeRecord],
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
-    ) {
+    ) -> Bool {
         guard nodesByID[node.id] == nil else {
             let warning = ScanWarning(
                 path: node.url.path,
@@ -551,10 +632,11 @@ actor ScanEngine {
             )
             warnings.append(warning)
             continuation.yield(.warning(warning))
-            return
+            return false
         }
 
         nodesByID[node.id] = node
+        return true
     }
 
     private func recordUnavailableItem(
@@ -575,7 +657,7 @@ actor ScanEngine {
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
         completedByKey[itemKey] = CompletedDirScan(
-            children: [makeUnavailableNode(for: item.url)],
+            node: makeUnavailableNode(for: item.url),
             metadata: NodeMetadata(
                 isDirectory: item.url.hasDirectoryPath,
                 isPackage: false,
@@ -1372,11 +1454,22 @@ actor ScanEngine {
         var parentIDByID = treeStore.parentIDByID
         parentIDByID[unattributedNode.id] = root.id
 
+        let baseStats = treeStore.aggregateStats
+        let reconciledStats = ScanAggregateStats(
+            totalAllocatedSize: reconciledRoot.allocatedSize,
+            totalLogicalSize: reconciledRoot.logicalSize,
+            fileCount: baseStats.fileCount,
+            directoryCount: baseStats.directoryCount,
+            accessibleItemCount: baseStats.accessibleItemCount + 1,
+            inaccessibleItemCount: baseStats.inaccessibleItemCount
+        )
+
         return FileTreeStore(
             rootID: treeStore.rootID,
             nodesByID: nodesByID,
             childIDsByID: childIDsByID,
-            parentIDByID: parentIDByID
+            parentIDByID: parentIDByID,
+            aggregateStats: reconciledStats
         )
     }
 

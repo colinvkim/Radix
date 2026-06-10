@@ -349,6 +349,7 @@ struct FileTreeStore: Sendable {
     let childIDsByID: [String: [String]]
     let parentIDByID: [String: String]
     private let orderedNodeIDs: [String]
+    private let precomputedAggregateStats: ScanAggregateStats?
 
     nonisolated var root: FileNodeRecord {
         guard let root = nodesByID[rootID] else {
@@ -362,6 +363,14 @@ struct FileTreeStore: Sendable {
     }
 
     nonisolated var aggregateStats: ScanAggregateStats {
+        if let precomputedAggregateStats {
+            return precomputedAggregateStats
+        }
+
+        return computedAggregateStats()
+    }
+
+    private nonisolated func computedAggregateStats() -> ScanAggregateStats {
         var fileCount = 0
         var directoryCount = 0
         var accessibleItemCount = 0
@@ -438,12 +447,14 @@ struct FileTreeStore: Sendable {
         rootID: String,
         nodesByID: [String: FileNodeRecord],
         childIDsByID: [String: [String]],
-        parentIDByID: [String: String]
+        parentIDByID: [String: String],
+        aggregateStats: ScanAggregateStats? = nil
     ) {
         self.rootID = rootID
         self.nodesByID = nodesByID
         self.childIDsByID = childIDsByID
         self.parentIDByID = parentIDByID
+        self.precomputedAggregateStats = aggregateStats
         self.orderedNodeIDs = Self.makeOrderedNodeIDs(rootID: rootID, childIDsByID: childIDsByID, nodesByID: nodesByID)
     }
 

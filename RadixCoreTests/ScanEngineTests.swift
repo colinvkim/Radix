@@ -433,6 +433,38 @@ final class ScanEngineTests: XCTestCase {
         }
     }
 
+    func testFinalizationProgressIsEmittedDuringAssembly() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        for index in 0..<700 {
+            let directoryURL = rootURL.appending(path: "Folder-\(index)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+
+        let engine = ScanEngine()
+        var finalizingProgress: [ScanMetrics] = []
+        var didFinish = false
+
+        for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+            switch event {
+            case .progress(let metrics) where metrics.isFinalizing:
+                finalizingProgress.append(metrics)
+            case .finished:
+                didFinish = true
+            case .progress, .warning:
+                break
+            }
+        }
+
+        XCTAssertTrue(didFinish)
+        XCTAssertGreaterThanOrEqual(finalizingProgress.count, 2)
+
+        for pair in zip(finalizingProgress, finalizingProgress.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(pair.1.progressFraction, pair.0.progressFraction)
+        }
+    }
+
     func testEmptyDirectoryScanProducesEmptyRootNode() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
