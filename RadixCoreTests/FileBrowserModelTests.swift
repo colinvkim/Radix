@@ -423,6 +423,35 @@ final class FileBrowserModelTests: XCTestCase {
         XCTAssertEqual(startCount, 1)
         model.cancelSearch()
     }
+
+    @MainActor
+    func testSnapshotChangesPruneSearchIndexes() async throws {
+        let firstRoot = makeBrowserDirectoryNode(id: "/first", name: "first", children: [])
+        let firstStore = FileTreeStore(root: firstRoot)
+        let firstSnapshot = makeBrowserSnapshot(root: firstRoot, store: firstStore)
+        let secondRoot = makeBrowserDirectoryNode(id: "/second", name: "second", children: [])
+        let secondStore = FileTreeStore(root: secondRoot)
+        let secondSnapshot = makeBrowserSnapshot(root: secondRoot, store: secondStore)
+        let service = PruningFileSearchService()
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+
+        model.updateContent(
+            nodes: [],
+            contentID: "\(firstSnapshot.id.uuidString)|\(firstRoot.id)",
+            snapshot: firstSnapshot,
+            fileTreeStore: firstStore
+        )
+        model.updateContent(
+            nodes: [],
+            contentID: "\(secondSnapshot.id.uuidString)|\(secondRoot.id)",
+            snapshot: secondSnapshot,
+            fileTreeStore: secondStore
+        )
+
+        try await waitForPruneCount(service, count: 1)
+        let retainedSnapshotIDs = await service.retainedSnapshotIDs()
+        XCTAssertEqual(retainedSnapshotIDs, [secondSnapshot.id])
+    }
 }
 
 @MainActor
@@ -454,6 +483,21 @@ private func waitForStartCount(
         try await Task.sleep(for: .milliseconds(10))
     }
     XCTFail("Timed out waiting for file browser search to start.", file: file, line: line)
+}
+
+private func waitForPruneCount(
+    _ service: PruningFileSearchService,
+    count: Int,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async throws {
+    for _ in 0..<100 {
+        if await service.retainedSnapshotIDs().count >= count {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTFail("Timed out waiting for file browser search index pruning.", file: file, line: line)
 }
 
 @MainActor
@@ -580,5 +624,27 @@ private actor DelayedFileSearchService: FileSearching {
         startCountByQuery[query, default: 0] += 1
         startedQueries.insert(query)
         waitersByQuery.removeValue(forKey: query)?.forEach { $0.resume() }
+    }
+}
+
+private actor PruningFileSearchService: FileSearching {
+    private var retainedIDs: [UUID?] = []
+
+    func search(
+        snapshotID: UUID,
+        treeStore: FileTreeStore,
+        normalizedQuery: String,
+        includesPath: Bool,
+        sortOrder: [FileNodeTableComparator]
+    ) async throws -> [FileNodeRecord] {
+        []
+    }
+
+    func pruneIndexes(keeping snapshotID: UUID?) {
+        retainedIDs.append(snapshotID)
+    }
+
+    func retainedSnapshotIDs() -> [UUID?] {
+        retainedIDs
     }
 }

@@ -19,6 +19,12 @@ protocol FileSearching: Sendable {
         includesPath: Bool,
         sortOrder: [FileNodeTableComparator]
     ) async throws -> [FileNodeRecord]
+
+    func pruneIndexes(keeping snapshotID: UUID?) async
+}
+
+extension FileSearching {
+    func pruneIndexes(keeping snapshotID: UUID?) async {}
 }
 
 @MainActor
@@ -36,6 +42,7 @@ final class FileBrowserModel: ObservableObject {
     private let searchDebounceDuration: Duration
     private let currentContentsAsyncThreshold: Int
     private var searchTask: Task<Void, Never>?
+    private var searchIndexPruneTask: Task<Void, Never>?
     private var searchGeneration = 0
     private var nodes: [FileNodeRecord] = []
     private var contentID = ""
@@ -67,15 +74,19 @@ final class FileBrowserModel: ObservableObject {
     }
 
     var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] {
-        displayState.lookup
+        displayState.nodeLookup()
     }
 
     var isDisplayingCurrentResults: Bool {
         displayState.context == currentDisplayContext
     }
 
+    func displayedNode(id: FileNodeRecord.ID) -> FileNodeRecord? {
+        displayState.node(id: id)
+    }
+
     func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
-        displayState.displayValuesByNodeID[node.id] ?? FileBrowserNodeDisplayValues(node: node)
+        displayState.displayValues(for: node) ?? FileBrowserNodeDisplayValues(node: node)
     }
 
     var isShowingEntireScanResults: Bool {
@@ -94,6 +105,7 @@ final class FileBrowserModel: ObservableObject {
         forceRefresh: Bool = false
     ) {
         let nextSnapshotID = snapshot?.id
+        let previousSnapshotID = snapshotID
         guard forceRefresh || self.contentID != contentID || snapshotID != nextSnapshotID || !self.nodes.haveSameIDs(as: nodes) else {
             return
         }
@@ -103,6 +115,7 @@ final class FileBrowserModel: ObservableObject {
         self.contentID = contentID
         snapshotID = nextSnapshotID
         self.fileTreeStore = fileTreeStore
+        pruneSearchIndexesIfNeeded(previousSnapshotID: previousSnapshotID, nextSnapshotID: nextSnapshotID)
         refreshDisplayedNodes()
     }
 
@@ -132,6 +145,17 @@ final class FileBrowserModel: ObservableObject {
 
     func cancelSearch() {
         cancelPendingSearch(clearLoading: true)
+    }
+
+    private func pruneSearchIndexesIfNeeded(previousSnapshotID: UUID?, nextSnapshotID: UUID?) {
+        guard previousSnapshotID != nil,
+              previousSnapshotID != nextSnapshotID else { return }
+
+        searchIndexPruneTask?.cancel()
+        searchIndexPruneTask = Task { [searchService] in
+            guard !Task.isCancelled else { return }
+            await searchService.pruneIndexes(keeping: nextSnapshotID)
+        }
     }
 
     private func cancelPendingSearch(clearLoading: Bool) {
@@ -421,30 +445,50 @@ private actor CurrentContentsSearchService {
 private struct FileBrowserDisplayState {
     var nodes: [FileNodeRecord]
     var context: FileBrowserDisplayContext
-    var lookup: [FileNodeRecord.ID: FileNodeRecord]
-    var displayValuesByNodeID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues]
+    var indexesByNodeID: [FileNodeRecord.ID: Int]
+    var displayValues: [FileBrowserNodeDisplayValues]
 
     init(
         nodes: [FileNodeRecord] = [],
         context: FileBrowserDisplayContext = .empty
     ) {
         var uniqueNodes: [FileNodeRecord] = []
-        var lookup: [FileNodeRecord.ID: FileNodeRecord] = [:]
-        var displayValuesByNodeID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues] = [:]
+        var indexesByNodeID: [FileNodeRecord.ID: Int] = [:]
+        var displayValues: [FileBrowserNodeDisplayValues] = []
         uniqueNodes.reserveCapacity(nodes.count)
-        lookup.reserveCapacity(nodes.count)
-        displayValuesByNodeID.reserveCapacity(nodes.count)
+        indexesByNodeID.reserveCapacity(nodes.count)
+        displayValues.reserveCapacity(nodes.count)
 
-        for node in nodes where lookup[node.id] == nil {
-            lookup[node.id] = node
-            displayValuesByNodeID[node.id] = FileBrowserNodeDisplayValues(node: node)
+        for node in nodes where indexesByNodeID[node.id] == nil {
+            indexesByNodeID[node.id] = uniqueNodes.count
+            displayValues.append(FileBrowserNodeDisplayValues(node: node))
             uniqueNodes.append(node)
         }
 
         self.nodes = uniqueNodes
         self.context = context
-        self.lookup = lookup
-        self.displayValuesByNodeID = displayValuesByNodeID
+        self.indexesByNodeID = indexesByNodeID
+        self.displayValues = displayValues
+    }
+
+    func node(id: FileNodeRecord.ID) -> FileNodeRecord? {
+        guard let index = indexesByNodeID[id],
+              nodes.indices.contains(index) else {
+            return nil
+        }
+        return nodes[index]
+    }
+
+    func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues? {
+        guard let index = indexesByNodeID[node.id],
+              displayValues.indices.contains(index) else {
+            return nil
+        }
+        return displayValues[index]
+    }
+
+    func nodeLookup() -> [FileNodeRecord.ID: FileNodeRecord] {
+        Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     }
 }
 
@@ -542,6 +586,15 @@ actor FileSearchService: FileSearching {
         let sortedNodes = matchedNodes.sorted(using: sortOrder)
         try Task.checkCancellation()
         return sortedNodes
+    }
+
+    func pruneIndexes(keeping snapshotID: UUID?) {
+        guard let snapshotID else {
+            indexes.removeAll()
+            return
+        }
+
+        indexes = indexes.filter { $0.key == snapshotID }
     }
 
     private func makeIndex(treeStore: FileTreeStore) async throws -> FileSearchIndex {

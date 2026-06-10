@@ -22,7 +22,7 @@ struct FileBrowserTableView: View {
         Binding(
             get: {
                 guard let selectedNodeID = navigation.selectedNodeID,
-                      model.displayedNodeLookup[selectedNodeID] != nil else { return nil }
+                      model.displayedNode(id: selectedNodeID) != nil else { return nil }
                 return selectedNodeID
             },
             set: { newValue in
@@ -148,7 +148,7 @@ struct FileBrowserTableView: View {
                         .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
-                               let selectedNode = model.displayedNodeLookup[selectedID] {
+                               let selectedNode = model.displayedNode(id: selectedID) {
                                 let actionAvailability = selectedNode.actionAvailability(activeTarget: scanState.selectedTarget)
 
                                 Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
@@ -198,7 +198,7 @@ struct FileBrowserTableView: View {
                             }
                         } primaryAction: { selectedIDs in
                             guard let selectedID = selectedIDs.first,
-                                  let selectedNode = model.displayedNodeLookup[selectedID] else {
+                                  let selectedNode = model.displayedNode(id: selectedID) else {
                                 return
                             }
 
