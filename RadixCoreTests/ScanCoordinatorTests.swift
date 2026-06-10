@@ -697,6 +697,49 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelSuspendingBackgroundActivityKeepsActiveScanAndClosesQuickLook() async throws {
+        let service = ControlledScanService()
+        let recorder = CoordinatorLifecycleActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.quickLook = AppQuickLookActions(
+            isPreviewVisible: { true },
+            isPreviewPanelKeyWindow: { false },
+            present: { _ in },
+            toggle: { _ in },
+            updateVisiblePreview: { _ in },
+            close: { recorder.quickLookCloseCount += 1 }
+        )
+        actions.installQuickLookKeyMonitor = { _ in
+            AppEventMonitorToken {
+                recorder.quickLookMonitorRemovalCount += 1
+            }
+        }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let target = makeCoordinatorTarget("/app/background-suspend")
+
+        model.startScan(target)
+
+        try await waitUntil("AppModel start scan before background suspension") {
+            model.scanState.phase == .scanning && service.requests.count == 1
+        }
+
+        model.suspendBackgroundActivity()
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertEqual(service.terminationCount, 0)
+        XCTAssertEqual(model.scanState.phase, .scanning)
+        XCTAssertTrue(model.scanState.canStopScan)
+        XCTAssertEqual(recorder.quickLookCloseCount, 1)
+        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 0)
+    }
+
+    @MainActor
     func testAppModelSuspendingMainWindowActivityCancelsActiveScanAndClosesQuickLook() async throws {
         let service = ControlledScanService()
         let recorder = CoordinatorLifecycleActionRecorder()

@@ -95,7 +95,7 @@ struct ContentView: View {
             case .active:
                 appModel.refreshFullDiskAccessStatus()
             case .background:
-                appModel.suspendMainWindowActivity()
+                appModel.suspendBackgroundActivity()
             default:
                 break
             }

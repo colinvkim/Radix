@@ -229,6 +229,10 @@ final class AppModel: ObservableObject {
         dependencies.systemActions.quickLook.close()
     }
 
+    func suspendBackgroundActivity() {
+        dependencies.systemActions.quickLook.close()
+    }
+
     var scanState: ScanCoordinator {
         scanCoordinator
     }
