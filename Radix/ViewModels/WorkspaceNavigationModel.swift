@@ -247,7 +247,7 @@ private extension WorkspaceNavigationState {
 
 @MainActor
 final class WorkspaceNavigationModel: ObservableObject {
-    nonisolated static let emptyTableContentID = WorkspaceNavigationState.emptyTableContentID
+    nonisolated static let emptyTableContentID = "no-snapshot|no-focus"
 
     @Published private(set) var state = WorkspaceNavigationState.empty
 
