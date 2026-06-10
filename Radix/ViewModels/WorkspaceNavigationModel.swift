@@ -98,11 +98,11 @@ private extension WorkspaceNavigationState {
         guard let nodeID,
               fileTreeStore?.node(id: nodeID) != nil else {
             next.selectedNodeID = nil
-            return next.refreshedDerivedState()
+            return next.refreshedSelectionState()
         }
 
         next.selectedNodeID = nodeID
-        return next.refreshedDerivedState()
+        return next.refreshedSelectionState()
     }
 
     func settingFocusedNodeID(_ nodeID: FileNodeRecord.ID?) -> WorkspaceNavigationState {
@@ -170,7 +170,7 @@ private extension WorkspaceNavigationState {
 
         var next = focusing(rootID, recordHistory: true)
         next.selectedNodeID = nil
-        return next.refreshedDerivedState()
+        return next.refreshedSelectionState()
     }
 
     mutating func clearMissingNavigationReferences() {
@@ -201,6 +201,25 @@ private extension WorkspaceNavigationState {
     }
 
     func refreshedDerivedState() -> WorkspaceNavigationState {
+        refreshedSelectionState().refreshedTableState()
+    }
+
+    func refreshedSelectionState() -> WorkspaceNavigationState {
+        var next = self
+
+        guard let fileTreeStore,
+              let selectedNodeID,
+              fileTreeStore.node(id: selectedNodeID) != nil else {
+            next.selectedNodeID = nil
+            next.selectedAncestorIDs = []
+            return next
+        }
+
+        next.selectedAncestorIDs = Set(fileTreeStore.path(to: selectedNodeID).map(\.id))
+        return next
+    }
+
+    func refreshedTableState() -> WorkspaceNavigationState {
         var next = self
         let focusNode = next.resolvedFocusNode
         next.tableContentID = [
@@ -211,15 +230,7 @@ private extension WorkspaceNavigationState {
         guard let fileTreeStore,
               let focusNode else {
             next.tableNodes = []
-            next.selectedAncestorIDs = []
             return next
-        }
-
-        if let selectedNodeID,
-           fileTreeStore.node(id: selectedNodeID) != nil {
-            next.selectedAncestorIDs = Set(fileTreeStore.path(to: selectedNodeID).map(\.id))
-        } else {
-            next.selectedAncestorIDs = []
         }
 
         if focusNode.isDirectory {

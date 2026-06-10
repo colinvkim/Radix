@@ -160,6 +160,43 @@ final class WorkspaceNavigationModelTests: XCTestCase {
     }
 
     @MainActor
+    func testSelectionPublishesAncestorsWithoutReplacingTableState() throws {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+        let initialTableContentID = model.tableContentID
+        let initialTableNodeIDs = model.tableNodes.map(\.id)
+        let initialTableStorageAddress = try XCTUnwrap(tableStorageAddress(of: model.state.tableNodes))
+        var publishedStates: [WorkspaceNavigationState] = []
+        var cancellables = Set<AnyCancellable>()
+
+        model.$state
+            .dropFirst()
+            .sink { publishedStates.append($0) }
+            .store(in: &cancellables)
+
+        model.select(nodeID: fixture.docFile.id)
+
+        XCTAssertEqual(publishedStates.count, 1)
+        var state = try XCTUnwrap(publishedStates.first)
+        XCTAssertEqual(state.selectedNodeID, fixture.docFile.id)
+        XCTAssertEqual(state.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
+        XCTAssertEqual(state.tableContentID, initialTableContentID)
+        XCTAssertEqual(state.tableNodes.map(\.id), initialTableNodeIDs)
+        XCTAssertEqual(tableStorageAddress(of: state.tableNodes), initialTableStorageAddress)
+
+        publishedStates.removeAll()
+        model.clearSelection()
+
+        XCTAssertEqual(publishedStates.count, 1)
+        state = try XCTUnwrap(publishedStates.first)
+        XCTAssertNil(state.selectedNodeID)
+        XCTAssertTrue(state.selectedAncestorIDs.isEmpty)
+        XCTAssertEqual(state.tableContentID, initialTableContentID)
+        XCTAssertEqual(state.tableNodes.map(\.id), initialTableNodeIDs)
+        XCTAssertEqual(tableStorageAddress(of: state.tableNodes), initialTableStorageAddress)
+    }
+
+    @MainActor
     func testTableStateTracksRootFallbackAndFocusedFiles() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -365,6 +402,13 @@ private func makeNavigationDirectoryNode(
         isPackage: false,
         isAccessible: true
     )
+}
+
+private func tableStorageAddress(of nodes: [FileNodeRecord]) -> UnsafeRawPointer? {
+    nodes.withUnsafeBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress else { return nil }
+        return UnsafeRawPointer(baseAddress)
+    }
 }
 
 private final class NavigationAppPreferencesStore: AppPreferencesPersisting {
