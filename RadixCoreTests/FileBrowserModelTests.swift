@@ -190,15 +190,17 @@ final class FileBrowserModelTests: XCTestCase {
             snapshotID: snapshotID,
             treeStore: store,
             normalizedQuery: SearchNormalizer.normalize("vacation"),
-            includesPath: false
+            includesPath: false,
+            sortOrder: [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
         )
-        XCTAssertEqual(photoMatches, [photo.id])
+        XCTAssertEqual(photoMatches.map(\.id), [photo.id])
 
         let nonPathMatches = try await service.search(
             snapshotID: snapshotID,
             treeStore: store,
             normalizedQuery: SearchNormalizer.normalize("/Library/Caches"),
-            includesPath: false
+            includesPath: false,
+            sortOrder: [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
         )
         XCTAssertTrue(nonPathMatches.isEmpty)
 
@@ -206,17 +208,19 @@ final class FileBrowserModelTests: XCTestCase {
             snapshotID: snapshotID,
             treeStore: store,
             normalizedQuery: SearchNormalizer.normalize("/Library/Caches"),
-            includesPath: true
+            includesPath: true,
+            sortOrder: [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
         )
-        XCTAssertEqual(pathMatches, [cache.id])
+        XCTAssertEqual(pathMatches.map(\.id), [cache.id])
     }
 
     @MainActor
     func testModelRunsEntireScanSearchThroughService() async throws {
-        let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 5)
+        let smallTarget = makeBrowserFileNode(id: "/root/target-small.txt", name: "target-small.txt", size: 5)
+        let largeTarget = makeBrowserFileNode(id: "/root/target-large.txt", name: "target-large.txt", size: 50)
         let other = makeBrowserFileNode(id: "/root/other.log", name: "other.log", size: 10)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target, other])
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [target, other]])
+        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [smallTarget, largeTarget, other])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [smallTarget, largeTarget, other]])
         let snapshot = ScanSnapshot(
             target: ScanTarget(url: root.url),
             treeStore: store,
@@ -240,7 +244,7 @@ final class FileBrowserModelTests: XCTestCase {
 
         try await waitForSearchToFinish(model)
         XCTAssertTrue(model.isDisplayingCurrentResults)
-        XCTAssertEqual(model.displayedNodes.map(\.id), [target.id])
+        XCTAssertEqual(model.displayedNodes.map(\.id), [largeTarget.id, smallTarget.id])
     }
 
     @MainActor
@@ -504,16 +508,22 @@ private actor DelayedFileSearchService: FileSearching {
         snapshotID: UUID,
         treeStore: FileTreeStore,
         normalizedQuery: String,
-        includesPath: Bool
-    ) async throws -> [FileNodeRecord.ID] {
+        includesPath: Bool,
+        sortOrder: [FileNodeTableComparator]
+    ) async throws -> [FileNodeRecord] {
         markStarted(normalizedQuery)
 
+        let matchedIDs: [FileNodeRecord.ID]
         if normalizedQuery == delayedQuery {
             try? await Task.sleep(for: .milliseconds(40))
-            return delayedIDs
+            matchedIDs = delayedIDs
+        } else {
+            matchedIDs = immediateIDsByQuery[normalizedQuery] ?? []
         }
 
-        return immediateIDsByQuery[normalizedQuery] ?? []
+        return matchedIDs
+            .compactMap { treeStore.nodesByID[$0] }
+            .sorted(using: sortOrder)
     }
 
     func waitUntilStarted(_ query: String) async {

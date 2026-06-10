@@ -16,8 +16,9 @@ protocol FileSearching: Sendable {
         snapshotID: UUID,
         treeStore: FileTreeStore,
         normalizedQuery: String,
-        includesPath: Bool
-    ) async throws -> [FileNodeRecord.ID]
+        includesPath: Bool,
+        sortOrder: [FileNodeTableComparator]
+    ) async throws -> [FileNodeRecord]
 }
 
 @MainActor
@@ -306,11 +307,12 @@ final class FileBrowserModel: ObservableObject {
         searchTask = Task { [searchService] in
             do {
                 try await Task.sleep(for: debounceDuration)
-                let matchedIDs = try await searchService.search(
+                let matchedNodes = try await searchService.search(
                     snapshotID: snapshotID,
                     treeStore: fileTreeStore,
                     normalizedQuery: normalizedSearchText,
-                    includesPath: includesPath
+                    includesPath: includesPath,
+                    sortOrder: sortOrder
                 )
                 try Task.checkCancellation()
 
@@ -321,12 +323,11 @@ final class FileBrowserModel: ObservableObject {
                             snapshotID: snapshotID,
                             normalizedSearchText: normalizedSearchText,
                             sortOrder: sortOrder
-                          ) else {
+                    ) else {
                         return
                     }
 
-                    let matchedNodes = matchedIDs.compactMap { fileTreeStore.nodesByID[$0] }
-                    applyDisplayedNodes(matchedNodes.sorted(using: sortOrder), context: displayContext)
+                    applyDisplayedNodes(matchedNodes, context: displayContext)
                     setIsSearchingEntireScan(false)
                 }
             } catch is CancellationError {
@@ -540,8 +541,9 @@ actor FileSearchService: FileSearching {
         snapshotID: UUID,
         treeStore: FileTreeStore,
         normalizedQuery: String,
-        includesPath: Bool
-    ) async throws -> [FileNodeRecord.ID] {
+        includesPath: Bool,
+        sortOrder: [FileNodeTableComparator]
+    ) async throws -> [FileNodeRecord] {
         guard !normalizedQuery.isEmpty else { return [] }
 
         var index: FileSearchIndex
@@ -552,8 +554,8 @@ actor FileSearchService: FileSearching {
             indexes = [snapshotID: index]
         }
 
-        var matchedIDs: [FileNodeRecord.ID] = []
-        matchedIDs.reserveCapacity(min(index.entries.count, 256))
+        var matchedNodes: [FileNodeRecord] = []
+        matchedNodes.reserveCapacity(min(index.entries.count, 256))
 
         for (offset, entry) in index.entries.enumerated() {
             if offset.isMultiple(of: 256) {
@@ -561,7 +563,9 @@ actor FileSearchService: FileSearching {
             }
 
             if entry.normalizedNameKindHaystack.contains(normalizedQuery) {
-                matchedIDs.append(entry.id)
+                if let node = treeStore.nodesByID[entry.id] {
+                    matchedNodes.append(node)
+                }
                 continue
             }
 
@@ -576,7 +580,9 @@ actor FileSearchService: FileSearching {
             }
 
             if normalizedPath.contains(normalizedQuery) {
-                matchedIDs.append(entry.id)
+                if let node = treeStore.nodesByID[entry.id] {
+                    matchedNodes.append(node)
+                }
             }
         }
 
@@ -584,7 +590,10 @@ actor FileSearchService: FileSearching {
             indexes[snapshotID] = index
         }
 
-        return matchedIDs
+        try Task.checkCancellation()
+        let sortedNodes = matchedNodes.sorted(using: sortOrder)
+        try Task.checkCancellation()
+        return sortedNodes
     }
 
     private func makeIndex(treeStore: FileTreeStore) async throws -> FileSearchIndex {
