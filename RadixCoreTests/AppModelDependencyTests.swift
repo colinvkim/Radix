@@ -70,6 +70,33 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testSidebarTargetReadsUseCachedRecentAvailability() {
+        let recent = makeAppModelTarget("/recent/cached")
+        let recentPersistence = SpyRecentTargetPersistence(targets: [recent])
+        var availabilityCheckCount = 0
+
+        let model = AppModel(
+            dependencies: AppDependencies(
+                preferences: SpyAppPreferencesStore(preferences: .defaults),
+                recentTargets: RecentTargetStore(
+                    persistence: recentPersistence,
+                    isAvailable: { _ in
+                        availabilityCheckCount += 1
+                        return true
+                    }
+                ),
+                systemActions: .inert
+            )
+        )
+        let checksAfterInitialization = availabilityCheckCount
+
+        XCTAssertEqual(model.recentScanTargets, [recent])
+        XCTAssertEqual(model.recentScanTargets, [recent])
+        XCTAssertTrue(model.smartTargets.isEmpty)
+        XCTAssertEqual(availabilityCheckCount, checksAfterInitialization)
+    }
+
+    @MainActor
     func testSmartTargetsIncludeMountedVolumesBelowStartupDisk() {
         let startupDisk = makeAppModelTarget("/", kind: .volume)
         let externalVolume = makeAppModelTarget("/Volumes/External SSD", kind: .volume)

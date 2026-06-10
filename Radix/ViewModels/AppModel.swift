@@ -142,8 +142,18 @@ final class AppModel: ObservableObject {
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
-    @Published private(set) var availableTargets: [ScanTarget] = []
-    @Published var recentTargets: [ScanTarget] = []
+    @Published private(set) var availableTargets: [ScanTarget] = [] {
+        didSet {
+            rebuildSidebarTargets()
+        }
+    }
+    @Published var recentTargets: [ScanTarget] = [] {
+        didSet {
+            rebuildSidebarTargets()
+        }
+    }
+    @Published private(set) var smartTargets: [ScanTarget] = []
+    @Published private(set) var recentScanTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
     @Published private(set) var fullDiskAccessStatus: FullDiskAccessStatus
     @Published private(set) var activeSidebarTargetID: String?
@@ -192,6 +202,7 @@ final class AppModel: ObservableObject {
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
 
         refreshAvailableTargets()
+        rebuildSidebarTargets()
         if dependencies.systemActions.usesAsyncFullDiskAccessStatus {
             refreshFullDiskAccessStatus()
         }
@@ -249,7 +260,7 @@ final class AppModel: ObservableObject {
         availableTargets.first(where: { $0.kind == .volume && $0.url.path == "/" })
     }
 
-    var smartTargets: [ScanTarget] {
+    private func makeSmartTargets() -> [ScanTarget] {
         let indexedTargets = Dictionary(uniqueKeysWithValues: availableTargets.map { ($0.id, $0) })
         let preferredTargets = preferredSmartTargetPaths.compactMap { indexedTargets[$0] }
         let preferredTargetIDs = Set(preferredTargets.map(\.id))
@@ -266,9 +277,12 @@ final class AppModel: ObservableObject {
         return targets
     }
 
-    var recentScanTargets: [ScanTarget] {
+    private func rebuildSidebarTargets() {
+        let smartTargets = makeSmartTargets()
         let excluded = Set(smartTargets.map(\.id))
-        return dependencies.recentTargets
+
+        self.smartTargets = smartTargets
+        recentScanTargets = dependencies.recentTargets
             .availableTargets(from: recentTargets)
             .filter { !excluded.contains($0.id) }
     }
