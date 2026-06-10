@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import RadixCore
 
@@ -66,16 +67,25 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.navigateBack()
         XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
+        XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
         XCTAssertTrue(model.canNavigateBack)
         XCTAssertTrue(model.canNavigateForward)
 
         model.navigateBack()
         XCTAssertEqual(model.focusedNodeID, fixture.root.id)
+        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         XCTAssertFalse(model.canNavigateBack)
         XCTAssertTrue(model.canNavigateForward)
 
         model.navigateForward()
         XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
+        XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
         XCTAssertTrue(model.canNavigateBack)
         XCTAssertTrue(model.canNavigateForward)
     }
@@ -92,6 +102,9 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         XCTAssertEqual(model.focusedNodeID, fixture.root.id)
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         XCTAssertTrue(model.isFocusedAtRoot)
         XCTAssertTrue(model.canNavigateBack)
 
@@ -111,7 +124,39 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         XCTAssertEqual(model.focusedNodeID, fixture.cache.id)
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
+        XCTAssertEqual(model.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.cache.id])
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.cacheFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
         XCTAssertFalse(model.canClearSelection)
+    }
+
+    @MainActor
+    func testFocusPublishesSingleCoherentState() throws {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+        var publishedStates: [WorkspaceNavigationState] = []
+        var cancellables = Set<AnyCancellable>()
+
+        model.focus(nodeID: fixture.docs.id)
+        model.select(nodeID: fixture.docFile.id)
+
+        model.$state
+            .dropFirst()
+            .sink { publishedStates.append($0) }
+            .store(in: &cancellables)
+
+        model.focus(nodeID: fixture.cache.id)
+
+        XCTAssertEqual(publishedStates.count, 1)
+        let state = try XCTUnwrap(publishedStates.first)
+        XCTAssertEqual(state.focusedNodeID, fixture.cache.id)
+        XCTAssertNil(state.selectedNodeID)
+        XCTAssertTrue(state.selectedAncestorIDs.isEmpty)
+        XCTAssertEqual(state.tableNodes.map(\.id), [fixture.cacheFile.id])
+        XCTAssertEqual(state.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
+        XCTAssertEqual(state.focusBackStack, [fixture.root.id, fixture.docs.id])
+        XCTAssertTrue(state.focusForwardStack.isEmpty)
     }
 
     @MainActor
@@ -149,9 +194,42 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         XCTAssertEqual(model.focusedNodeID, replacement.root.id)
         XCTAssertEqual(model.currentFocusNode?.id, replacement.root.id)
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
+        XCTAssertEqual(model.tableNodes.map(\.id), [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
+        XCTAssertEqual(model.tableContentID, "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
         XCTAssertFalse(model.canNavigateBack)
         XCTAssertFalse(model.canNavigateForward)
         XCTAssertTrue(model.tableContentID.hasPrefix(replacement.snapshot.id.uuidString))
+    }
+
+    @MainActor
+    func testSnapshotReconciliationPublishesSingleCoherentState() throws {
+        let fixture = makeNavigationFixture()
+        let replacement = makeNavigationFixture(rootID: "/replacement")
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+        var publishedStates: [WorkspaceNavigationState] = []
+        var cancellables = Set<AnyCancellable>()
+
+        model.focus(nodeID: fixture.docs.id)
+        model.select(nodeID: fixture.docFile.id)
+
+        model.$state
+            .dropFirst()
+            .sink { publishedStates.append($0) }
+            .store(in: &cancellables)
+
+        model.reconcileAfterSnapshotApplied(replacement.snapshot)
+
+        XCTAssertEqual(publishedStates.count, 1)
+        let state = try XCTUnwrap(publishedStates.first)
+        XCTAssertEqual(state.snapshotID, replacement.snapshot.id)
+        XCTAssertEqual(state.focusedNodeID, replacement.root.id)
+        XCTAssertNil(state.selectedNodeID)
+        XCTAssertTrue(state.selectedAncestorIDs.isEmpty)
+        XCTAssertEqual(state.tableNodes.map(\.id), [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
+        XCTAssertEqual(state.tableContentID, "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
+        XCTAssertTrue(state.focusBackStack.isEmpty)
+        XCTAssertTrue(state.focusForwardStack.isEmpty)
     }
 
     @MainActor
