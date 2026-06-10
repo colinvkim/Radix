@@ -50,6 +50,29 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testSmartTargetsIncludeMountedVolumesBelowStartupDisk() {
+        let startupDisk = makeAppModelTarget("/", kind: .volume)
+        let externalVolume = makeAppModelTarget("/Volumes/External SSD", kind: .volume)
+        let home = makeAppModelTarget("/Users/example")
+        let desktop = makeAppModelTarget("/Users/example/Desktop")
+        var actions = AppSystemActions.inert
+        actions.defaultTargets = { [startupDisk, home, desktop, externalVolume] }
+        actions.preferredSmartTargetIDs = { [startupDisk.id, home.id, desktop.id] }
+        actions.targetCapacityDescriptions = {
+            [
+                startupDisk.id: "128 GB free of 1 TB",
+                externalVolume.id: "512 GB free of 2 TB"
+            ]
+        }
+
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        XCTAssertEqual(model.smartTargets, [startupDisk, externalVolume, home, desktop])
+        XCTAssertEqual(model.sidebarSubtitle(for: startupDisk), "128 GB free of 1 TB")
+        XCTAssertEqual(model.sidebarSubtitle(for: externalVolume), "512 GB free of 2 TB")
+    }
+
+    @MainActor
     func testPreferenceChangesPersistThroughInjectedStore() {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))

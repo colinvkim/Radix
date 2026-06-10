@@ -241,16 +241,23 @@ final class AppModel: ObservableObject {
 
     var smartTargets: [ScanTarget] {
         let indexedTargets = Dictionary(uniqueKeysWithValues: availableTargets.map { ($0.id, $0) })
-        return preferredSmartTargetPaths.compactMap { indexedTargets[$0] }
-    }
+        let preferredTargets = preferredSmartTargetPaths.compactMap { indexedTargets[$0] }
+        let preferredTargetIDs = Set(preferredTargets.map(\.id))
+        let additionalVolumeTargets = availableTargets.filter { target in
+            target.kind == .volume && !preferredTargetIDs.contains(target.id)
+        }
 
-    var mountedVolumeTargets: [ScanTarget] {
-        let excluded = Set(smartTargets.map(\.id))
-        return availableTargets.filter { $0.kind == .volume && !excluded.contains($0.id) }
+        guard let startupDiskIndex = preferredTargets.firstIndex(where: { $0.url.path == "/" }) else {
+            return additionalVolumeTargets + preferredTargets
+        }
+
+        var targets = preferredTargets
+        targets.insert(contentsOf: additionalVolumeTargets, at: startupDiskIndex + 1)
+        return targets
     }
 
     var recentScanTargets: [ScanTarget] {
-        let excluded = Set((smartTargets + mountedVolumeTargets).map(\.id))
+        let excluded = Set(smartTargets.map(\.id))
         return dependencies.recentTargets
             .availableTargets(from: recentTargets)
             .filter { !excluded.contains($0.id) }

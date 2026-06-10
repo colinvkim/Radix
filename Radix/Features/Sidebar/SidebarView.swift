@@ -29,19 +29,6 @@ struct SidebarView: View {
                 }
             }
 
-            if !appModel.mountedVolumeTargets.isEmpty {
-                Section("Volumes") {
-                    ForEach(appModel.mountedVolumeTargets) { target in
-                        SidebarTargetRow(
-                            target: target,
-                            subtitle: appModel.sidebarSubtitle(for: target),
-                            revealInFinder: { appModel.revealTargetInFinder(target) }
-                        )
-                            .tag(target.id)
-                    }
-                }
-            }
-
             if !appModel.recentScanTargets.isEmpty {
                 Section("Recent Scans") {
                     ForEach(appModel.recentScanTargets) { target in

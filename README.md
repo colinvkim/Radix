@@ -35,7 +35,7 @@ It's built from scratch in Swift and SwiftUI, designed to feel like a natural pa
 ### Built for macOS
 
 - **Native SwiftUI app** — no web views, no Electron
-- **Sidebar** with Smart Locations (Home, Desktop, Documents, Downloads, Library, Applications), mounted volumes, and recent scans
+- **Sidebar** with Smart Locations (Macintosh HD, mounted volumes, Home, Desktop, Documents, Downloads, Library, Applications) and recent scans
 - **Inspector panel** showing detailed metadata: allocated vs. logical size, parent directory, access level, largest children
 - **File actions** — Reveal in Finder, Open, Copy Path, Move to Trash, all from context menus or the inspector
 - **Drag & drop** any folder into the window to scan it
