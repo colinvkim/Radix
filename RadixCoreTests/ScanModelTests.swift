@@ -218,6 +218,73 @@ final class ScanModelTests: XCTestCase {
         XCTAssertNil(snapshot.replacingNode(id: "/root/missing", with: treeStore))
     }
 
+    func testSnapshotScopedToDescendantUsesSubtreeAndFiltersWarnings() throws {
+        let docsFile = makeNode(id: "/root/Documents/report.pdf", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let cacheFile = makeNode(id: "/root/Library/cache.db", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let docs = FileNodeRecord.directory(
+            id: "/root/Documents",
+            url: URL(filePath: "/root/Documents", directoryHint: .isDirectory),
+            name: "Documents",
+            children: [docsFile],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let library = FileNodeRecord.directory(
+            id: "/root/Library",
+            url: URL(filePath: "/root/Library", directoryHint: .isDirectory),
+            name: "Library",
+            children: [cacheFile],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let root = FileNodeRecord.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: [docs, library],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let treeStore = FileTreeStore(root: root, childrenByID: [
+            root.id: [docs, library],
+            docs.id: [docsFile],
+            library.id: [cacheFile],
+        ])
+        let docsWarning = ScanWarning(path: "/root/Documents/private", message: "docs", category: .permissionDenied)
+        let libraryWarning = ScanWarning(path: "/root/Library/private", message: "library", category: .permissionDenied)
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore, warnings: [docsWarning, libraryWarning])
+        let docsTarget = ScanTarget(url: docs.url)
+
+        let scopedSnapshot = try XCTUnwrap(snapshot.scoped(to: docsTarget))
+
+        XCTAssertEqual(scopedSnapshot.target, docsTarget)
+        XCTAssertEqual(scopedSnapshot.root.id, docs.id)
+        XCTAssertEqual(scopedSnapshot.treeStore.children(of: docs.id).map(\.id), [docsFile.id])
+        XCTAssertNil(scopedSnapshot.treeStore.node(id: library.id))
+        XCTAssertEqual(scopedSnapshot.aggregateStats.totalAllocatedSize, docs.allocatedSize)
+        XCTAssertEqual(scopedSnapshot.aggregateStats.fileCount, 1)
+        XCTAssertEqual(scopedSnapshot.scanWarnings.map(\.path), [docsWarning.path])
+    }
+
+    func testSnapshotScopedToMissingTargetReturnsNil() {
+        let root = FileNodeRecord.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: [],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let treeStore = FileTreeStore(root: root)
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore)
+
+        XCTAssertNil(snapshot.scoped(to: ScanTarget(url: URL(filePath: "/root/Missing", directoryHint: .isDirectory))))
+    }
+
     func testPostTrashActionMatchesCurrentSelectionPolicy() {
         XCTAssertEqual(
             ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root"),

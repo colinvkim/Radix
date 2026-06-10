@@ -235,6 +235,20 @@ struct ScanSnapshot: Identifiable, Sendable {
         )
     }
 
+    nonisolated func scoped(to target: ScanTarget) -> ScanSnapshot? {
+        guard let scopedStore = treeStore.subtree(rootedAt: target.id) else { return nil }
+
+        return ScanSnapshot(
+            target: target,
+            treeStore: scopedStore,
+            startedAt: startedAt,
+            finishedAt: finishedAt,
+            scanWarnings: scanWarnings.filter { Self.path($0.path, isContainedIn: target.id) },
+            aggregateStats: scopedStore.aggregateStats,
+            isComplete: isComplete
+        )
+    }
+
     private nonisolated static func mergedWarnings(
         existing: [ScanWarning],
         additional: [ScanWarning]
@@ -254,6 +268,11 @@ struct ScanSnapshot: Identifiable, Sendable {
         }
 
         return result
+    }
+
+    private nonisolated static func path(_ path: String, isContainedIn rootPath: String) -> Bool {
+        guard rootPath != "/" else { return true }
+        return path == rootPath || path.hasPrefix(rootPath + "/")
     }
 }
 
@@ -595,6 +614,35 @@ struct FileTreeStore: Sendable {
             nodesByID: updatedNodes,
             childIDsByID: updatedChildIDs,
             parentIDByID: updatedParentIDs
+        )
+    }
+
+    nonisolated func subtree(rootedAt targetID: String) -> FileTreeStore? {
+        guard nodesByID[targetID] != nil else { return nil }
+
+        let subtreeIDs = Set(subtreeNodeIDs(rootedAt: targetID))
+        let scopedNodes = nodesByID.filter { subtreeIDs.contains($0.key) }
+        let scopedChildIDs = childIDsByID.reduce(into: [String: [String]]()) { result, entry in
+            guard subtreeIDs.contains(entry.key) else { return }
+            let childIDs = entry.value.filter { subtreeIDs.contains($0) }
+            if !childIDs.isEmpty {
+                result[entry.key] = childIDs
+            }
+        }
+        let scopedParentIDs = parentIDByID.reduce(into: [String: String]()) { result, entry in
+            guard entry.key != targetID,
+                  subtreeIDs.contains(entry.key),
+                  subtreeIDs.contains(entry.value) else {
+                return
+            }
+            result[entry.key] = entry.value
+        }
+
+        return FileTreeStore(
+            rootID: targetID,
+            nodesByID: scopedNodes,
+            childIDsByID: scopedChildIDs,
+            parentIDByID: scopedParentIDs
         )
     }
 
