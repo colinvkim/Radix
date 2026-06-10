@@ -228,7 +228,10 @@ actor ScanEngine {
                 metadata: rootMetadata,
                 options: options,
                 countedHardLinkIdentities: &countedHardLinkIdentities,
-                cancellationCheck: cancellationCheck
+                cancellationCheck: cancellationCheck,
+                metrics: &metrics,
+                continuation: continuation,
+                emissionState: &emissionState
             )
             applyLeafMetrics(leafResult.node, metrics: &metrics)
             if !leafResult.warnings.isEmpty {
@@ -315,7 +318,10 @@ actor ScanEngine {
                            minFileCount: minFileCount,
                            maxAverageFileSize: maxAvgSize,
                            countedHardLinkIdentities: &countedHardLinkIdentities,
-                           cancellationCheck: cancellationCheck
+                           cancellationCheck: cancellationCheck,
+                           metrics: &metrics,
+                           continuation: continuation,
+                           emissionState: &emissionState
                        ) {
                         // Treat as atomic: create a leaf node with summary stats
                         let atomicNode = FileNodeRecord(
@@ -408,7 +414,10 @@ actor ScanEngine {
                     metadata: meta,
                     options: options,
                     countedHardLinkIdentities: &countedHardLinkIdentities,
-                    cancellationCheck: cancellationCheck
+                    cancellationCheck: cancellationCheck,
+                    metrics: &metrics,
+                    continuation: continuation,
+                    emissionState: &emissionState
                 )
                 applyLeafMetrics(leafResult.node, metrics: &metrics)
                 if !leafResult.warnings.isEmpty {
@@ -772,7 +781,10 @@ actor ScanEngine {
         metadata: NodeMetadata,
         options: ScanOptions,
         countedHardLinkIdentities: inout Set<FileIdentity>,
-        cancellationCheck: CancellationCheck
+        cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws -> (node: FileNodeRecord, warnings: [ScanWarning]) {
         try cancellationCheck()
         guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
@@ -791,7 +803,10 @@ actor ScanEngine {
             includeHiddenFiles: options.includeHiddenFiles,
             treatPackagesAsDirectories: true,
             countedHardLinkIdentities: countedHardLinkIdentities,
-            cancellationCheck: cancellationCheck
+            cancellationCheck: cancellationCheck,
+            metrics: &metrics,
+            continuation: continuation,
+            emissionState: &emissionState
         ) else {
             return (
                 makeFileNode(
@@ -839,7 +854,10 @@ actor ScanEngine {
         minFileCount: Int,
         maxAverageFileSize: Int64,
         countedHardLinkIdentities: inout Set<FileIdentity>,
-        cancellationCheck: CancellationCheck
+        cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws -> AtomicDirectorySummary? {
         try cancellationCheck()
         guard !childEntries.isEmpty else { return nil }
@@ -867,7 +885,10 @@ actor ScanEngine {
                 includeHiddenFiles: includeHiddenFiles,
                 minFileCount: minFileCount,
                 maxAverageFileSize: maxAverageFileSize,
-                cancellationCheck: cancellationCheck
+                cancellationCheck: cancellationCheck,
+                metrics: &metrics,
+                continuation: continuation,
+                emissionState: &emissionState
             )
         }
 
@@ -890,7 +911,10 @@ actor ScanEngine {
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
                 countedHardLinkIdentities: &countedHardLinkIdentities,
-                cancellationCheck: cancellationCheck
+                cancellationCheck: cancellationCheck,
+                metrics: &metrics,
+                continuation: continuation,
+                emissionState: &emissionState
             )
         }
 
@@ -899,7 +923,10 @@ actor ScanEngine {
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
             countedHardLinkIdentities: countedHardLinkIdentities,
-            cancellationCheck: cancellationCheck
+            cancellationCheck: cancellationCheck,
+            metrics: &metrics,
+            continuation: continuation,
+            emissionState: &emissionState
         ) else { return nil }
         countedHardLinkIdentities = summary.countedHardLinkIdentities
         return summary
@@ -947,7 +974,10 @@ actor ScanEngine {
         includeHiddenFiles: Bool,
         minFileCount: Int,
         maxAverageFileSize: Int64,
-        cancellationCheck: CancellationCheck
+        cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws -> Bool {
         try cancellationCheck()
         let probeKeys: [URLResourceKey] = [
@@ -978,6 +1008,14 @@ actor ScanEngine {
         for case let childURL as URL in enumerator {
             try cancellationCheck()
             visitedItems += 1
+            if visitedItems == 1 || visitedItems.isMultiple(of: 64) {
+                emitProgressHeartbeat(
+                    currentURL: childURL,
+                    metrics: &metrics,
+                    continuation: continuation,
+                    emissionState: &emissionState
+                )
+            }
             guard visitedItems <= maxVisitedItems else { return false }
 
             do {
@@ -1012,14 +1050,25 @@ actor ScanEngine {
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
         countedHardLinkIdentities: inout Set<FileIdentity>,
-        cancellationCheck: CancellationCheck
+        cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws -> AtomicDirectorySummary? {
         try cancellationCheck()
         let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
         updateAtomicAccessibility(rootMetadata.isReadable, in: state)
 
-        for childEntry in childEntries {
+        for (index, childEntry) in childEntries.enumerated() {
             try cancellationCheck()
+            if index == 0 || index.isMultiple(of: 64) {
+                emitProgressHeartbeat(
+                    currentURL: childEntry.url,
+                    metrics: &metrics,
+                    continuation: continuation,
+                    emissionState: &emissionState
+                )
+            }
             let childMetadata: NodeMetadata
             if let preloadedMetadata = childEntry.metadata {
                 childMetadata = preloadedMetadata
@@ -1038,7 +1087,10 @@ actor ScanEngine {
                 into: state,
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
-                cancellationCheck: cancellationCheck
+                cancellationCheck: cancellationCheck,
+                metrics: &metrics,
+                continuation: continuation,
+                emissionState: &emissionState
             )
         }
         countedHardLinkIdentities = state.countedHardLinkIdentities
@@ -1052,7 +1104,10 @@ actor ScanEngine {
         into state: AtomicDirectorySummaryState,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
-        cancellationCheck: CancellationCheck
+        cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws {
         try cancellationCheck()
         updateAtomicAccessibility(metadata.isReadable, in: state)
@@ -1065,7 +1120,10 @@ actor ScanEngine {
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories,
                     countedHardLinkIdentities: state.countedHardLinkIdentities,
-                    cancellationCheck: cancellationCheck
+                    cancellationCheck: cancellationCheck,
+                    metrics: &metrics,
+                    continuation: continuation,
+                    emissionState: &emissionState
                 ) {
                     merge(nestedSummary, into: state)
                 }
@@ -1094,7 +1152,10 @@ actor ScanEngine {
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
         countedHardLinkIdentities: Set<FileIdentity>,
-        cancellationCheck: CancellationCheck
+        cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
     ) throws -> AtomicDirectorySummary? {
         try cancellationCheck()
         let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
@@ -1125,8 +1186,18 @@ actor ScanEngine {
             return nil
         }
 
+        var visitedItems = 0
         for case let childURL as URL in enumerator {
             try cancellationCheck()
+            visitedItems += 1
+            if visitedItems == 1 || visitedItems.isMultiple(of: 64) {
+                emitProgressHeartbeat(
+                    currentURL: childURL,
+                    metrics: &metrics,
+                    continuation: continuation,
+                    emissionState: &emissionState
+                )
+            }
             do {
                 let childMetadata = try atomicSummaryMetadata(for: childURL)
                 try accumulateEnumeratedAtomicSummary(
@@ -1136,6 +1207,9 @@ actor ScanEngine {
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: treatPackagesAsDirectories,
                     cancellationCheck: cancellationCheck,
+                    metrics: &metrics,
+                    continuation: continuation,
+                    emissionState: &emissionState,
                     skipDescendants: {
                         enumerator.skipDescendants()
                     }
@@ -1160,6 +1234,9 @@ actor ScanEngine {
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
         cancellationCheck: CancellationCheck,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState,
         skipDescendants: () -> Void
     ) throws {
         try cancellationCheck()
@@ -1177,7 +1254,10 @@ actor ScanEngine {
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: true,
             countedHardLinkIdentities: state.countedHardLinkIdentities,
-            cancellationCheck: cancellationCheck
+            cancellationCheck: cancellationCheck,
+            metrics: &metrics,
+            continuation: continuation,
+            emissionState: &emissionState
         ) {
             merge(packageSummary, into: state)
             skipDescendants()
@@ -1310,6 +1390,20 @@ actor ScanEngine {
         let elapsed = now.timeIntervalSince(emissionState.lastProgressEmission)
         let shouldEmit = visitedItems <= 2 || visitedItems.isMultiple(of: 1_000) || elapsed >= 0.15
         guard shouldEmit else { return }
+
+        emissionState.lastProgressEmission = now
+        continuation.yield(.progress(metrics))
+    }
+
+    private func emitProgressHeartbeat(
+        currentURL: URL,
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
+    ) {
+        metrics.currentPath = currentURL.path
+        let now = Date()
+        guard now.timeIntervalSince(emissionState.lastProgressEmission) >= 0.15 else { return }
 
         emissionState.lastProgressEmission = now
         continuation.yield(.progress(metrics))
