@@ -221,16 +221,13 @@ struct FileBrowserTableView: View {
             isSearchFieldFocused = true
         }
         .onAppear {
-            updateModelContent(forceRefresh: true)
+            updateModelContent()
         }
         .onChange(of: contentID) { _, _ in
             updateModelContent()
         }
         .onChange(of: scanState.snapshot?.id) { _, _ in
             updateModelContent()
-        }
-        .onDisappear {
-            model.cancelSearch()
         }
     }
 
@@ -241,13 +238,12 @@ struct FileBrowserTableView: View {
         return "Try a different filter or clear the current contents filter."
     }
 
-    private func updateModelContent(forceRefresh: Bool = false) {
+    private func updateModelContent() {
         model.updateContent(
             nodes: nodes,
             contentID: contentID,
             snapshot: scanState.snapshot,
-            fileTreeStore: scanState.fileTreeStore,
-            forceRefresh: forceRefresh
+            fileTreeStore: scanState.fileTreeStore
         )
     }
 

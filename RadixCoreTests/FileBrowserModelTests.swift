@@ -385,6 +385,44 @@ final class FileBrowserModelTests: XCTestCase {
         XCTAssertTrue(model.isSearchingEntireScan)
         model.cancelSearch()
     }
+
+    @MainActor
+    func testSameContentUpdateDoesNotRestartActiveSearch() async throws {
+        let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
+        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let query = SearchNormalizer.normalize("target")
+        let service = DelayedFileSearchService(
+            delayedQuery: query,
+            delayedIDs: [target.id],
+            immediateIDsByQuery: [:]
+        )
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+        let contentID = "\(snapshot.id.uuidString)|\(root.id)"
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: contentID,
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+        await service.waitUntilStarted(query)
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: contentID,
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+
+        try await Task.sleep(for: .milliseconds(20))
+        let startCount = await service.startCount(for: query)
+        XCTAssertEqual(startCount, 1)
+        model.cancelSearch()
+    }
 }
 
 @MainActor
