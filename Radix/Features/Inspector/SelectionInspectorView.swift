@@ -11,61 +11,36 @@ struct SelectionInspectorView: View {
         Group {
             if let node = navigation.selectedNode {
                 Form {
-                    Section {
-                        InspectorHeader(node: node)
-                    }
+                    InspectorSummarySection(node: node)
 
-                    Section("Key Stats") {
-                        InspectorKeyStats(
-                            allocatedSize: RadixFormatters.size(node.allocatedSize),
-                            percentOfParent: selectedNodePercentOfParentText ?? "—",
-                            percentOfScan: selectedNodePercentOfScanText ?? "—"
-                        )
-                    }
+                    InspectorStorageSection(
+                        node: node,
+                        parentName: navigation.selectedNodeParent?.name,
+                        percentOfParent: selectedNodePercentOfParentText ?? "—",
+                        percentOfScan: selectedNodePercentOfScanText ?? "—"
+                    )
 
-                    Section("Metadata") {
-                        LabeledContent("Kind") {
-                            Text(node.itemKind)
-                        }
-
-                        LabeledContent("Logical Size") {
-                            Text(RadixFormatters.size(node.logicalSize))
-                        }
-
-                        if let parent = navigation.selectedNodeParent {
-                            LabeledContent("Parent") {
-                                Text(parent.name)
-                            }
-                        }
-
-                        LabeledContent("Modified") {
-                            Text(RadixFormatters.date(node.lastModified))
-                        }
-
-                        LabeledContent("Access") {
-                            Text(node.accessDescription)
-                        }
-                    }
-
-                    Section("Actions") {
-                        InspectorActionButtons(scanState: scanState, navigation: navigation)
-                    }
+                    InspectorActionsSection(
+                        availability: selectedActionAvailability,
+                        canExpandSummarizedSelection: canExpandSummarizedSelection,
+                        canZoomIntoSelection: navigation.canZoomIntoSelection,
+                        quickLookAction: { appModel.previewSelectedWithQuickLook() },
+                        revealAction: { appModel.revealSelectedInFinder() },
+                        expandAction: { expandSummarizedSelection() },
+                        zoomAction: { appModel.zoomIntoSelection() },
+                        openAction: { appModel.openSelected() },
+                        copyPathAction: { appModel.copySelectedPath() },
+                        trashAction: { appModel.requestMoveSelectedToTrash() }
+                    )
 
                     if !largestChildren.isEmpty {
-                        Section("Largest Children") {
-                            ForEach(largestChildren) { child in
-                                Button {
-                                    appModel.selectAfterViewUpdate(nodeID: child.id)
-                                } label: {
-                                    LargestChildRow(node: child)
-                                }
-                                .buttonStyle(.plain)
-                            }
+                        InspectorLargestChildrenSection(children: largestChildren) { child in
+                            appModel.selectAfterViewUpdate(nodeID: child.id)
                         }
                     }
 
                     if !scanWarningsPreview.isEmpty {
-                        WarningsSection(
+                        InspectorWarningsSection(
                             warnings: scanWarningsPreview,
                             shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess
                         ) {
@@ -112,170 +87,6 @@ struct SelectionInspectorView: View {
               let root = scanState.snapshot?.root else { return nil }
         return RadixFormatters.percentage(part: selectedNode.allocatedSize, total: root.allocatedSize)
     }
-}
-
-private struct InspectorHeader: View {
-    let node: FileNodeRecord
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: node.systemImageName)
-                .font(.title2)
-                .foregroundStyle(node.isDirectory ? Color.accentColor : Color.secondary)
-                .frame(width: 28, height: 28)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(node.name)
-                    .font(.headline)
-                    .lineLimit(3)
-
-                if node.isSynthetic {
-                    Text("Estimated storage that macOS reports as used but that Radix could not attribute to a regular file path.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(node.url.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-}
-
-private struct InspectorKeyStats: View {
-    let allocatedSize: String
-    let percentOfParent: String
-    let percentOfScan: String
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                InspectorStatCard(title: "Allocated", value: allocatedSize)
-                InspectorStatCard(title: "% Parent", value: percentOfParent)
-                InspectorStatCard(title: "% Scan", value: percentOfScan)
-            }
-
-            VStack(spacing: 8) {
-                InspectorStatCard(title: "Allocated", value: allocatedSize)
-                InspectorStatCard(title: "% Parent", value: percentOfParent)
-                InspectorStatCard(title: "% Scan", value: percentOfScan)
-            }
-        }
-    }
-}
-
-private struct InspectorStatCard: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text(value)
-                .font(.headline.monospacedDigit())
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-}
-
-private struct InspectorActionButtons: View {
-    @EnvironmentObject private var appModel: AppModel
-    @ObservedObject var scanState: ScanCoordinator
-    @ObservedObject var navigation: WorkspaceNavigationModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                appModel.previewSelectedWithQuickLook()
-            } label: {
-                Label("Quick Look", systemImage: RadixSystemImages.quickLook)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!selectedActionAvailability.canPreviewWithQuickLook)
-
-            Button {
-                appModel.revealSelectedInFinder()
-            } label: {
-                Label("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!selectedActionAvailability.canRevealInFinder)
-
-            if canExpandSummarizedSelection {
-                Button {
-                    expandSummarizedSelection()
-                } label: {
-                    Label("Expand Fully", systemImage: "arrowshape.turn.up.right.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            } else if navigation.canZoomIntoSelection {
-                Button {
-                    appModel.zoomIntoSelection()
-                } label: {
-                    Label("Zoom Into Folder", systemImage: "plus.magnifyingglass")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            }
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    openButton
-                    copyPathButton
-                }
-
-                VStack(spacing: 8) {
-                    openButton
-                    copyPathButton
-                }
-            }
-
-            Button(role: .destructive) {
-                appModel.requestMoveSelectedToTrash()
-            } label: {
-                Label("Move to Trash", systemImage: "trash")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!selectedActionAvailability.canMoveToTrash)
-        }
-        .controlSize(.regular)
-    }
-
-    private var openButton: some View {
-        Button {
-            appModel.openSelected()
-        } label: {
-            Label("Open", systemImage: "arrow.up.forward.app")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .disabled(!selectedActionAvailability.canOpen)
-    }
-
-    private var copyPathButton: some View {
-        Button {
-            appModel.copySelectedPath()
-        } label: {
-            Label("Copy Path", systemImage: RadixSystemImages.copyPath)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .disabled(!selectedActionAvailability.canCopyPath)
-    }
 
     private var selectedActionAvailability: FileNodeActionAvailability {
         FileNodeActionAvailability(
@@ -291,94 +102,5 @@ private struct InspectorActionButtons: View {
     private func expandSummarizedSelection() {
         guard let node = navigation.selectedNode else { return }
         appModel.expandSummarizedNode(node) {}
-    }
-}
-
-private struct LargestChildRow: View {
-    let node: FileNodeRecord
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: node.systemImageName)
-                .foregroundStyle(node.isDirectory ? Color.accentColor : Color.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(node.name)
-                    .lineLimit(1)
-                Text(node.itemKind)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Text(RadixFormatters.size(node.allocatedSize))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .contentShape(Rectangle())
-    }
-}
-
-private struct WarningsSection: View {
-    let warnings: [ScanWarning]
-    let shouldSuggestFullDiskAccess: Bool
-    let openFullDiskAccessSettings: () -> Void
-
-    var body: some View {
-        Section("Warnings") {
-            ForEach(warnings) { warning in
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(warning.path, systemImage: warning.category.symbolName)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(2)
-                    Text(warning.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            if shouldSuggestFullDiskAccess {
-                Button("Open Full Disk Access Settings") {
-                    openFullDiskAccessSettings()
-                }
-            }
-        }
-    }
-}
-
-private struct NoSelectionInspectorState: View {
-    let scanWarningsPreview: [ScanWarning]
-    let shouldSuggestFullDiskAccess: Bool
-    let openFullDiskAccessSettings: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            ContentUnavailableView {
-                Label("No Selection", systemImage: "sidebar.trailing")
-            } description: {
-                Text("Select a chart segment or table row to inspect metadata and file actions.")
-            }
-            .frame(maxWidth: .infinity)
-            .frame(maxHeight: .infinity)
-
-            if !scanWarningsPreview.isEmpty {
-                Divider()
-
-                Form {
-                    WarningsSection(
-                        warnings: scanWarningsPreview,
-                        shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess,
-                        openFullDiskAccessSettings: openFullDiskAccessSettings
-                    )
-                }
-                .formStyle(.grouped)
-                .frame(maxHeight: 240)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
