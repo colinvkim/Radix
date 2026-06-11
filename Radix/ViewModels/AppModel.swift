@@ -22,14 +22,14 @@ final class AppModel: ObservableObject {
     }
 
     private struct CompletedScanCache {
-        private let maxSnapshotCount: Int
+        private let minimumRetainedSnapshotCount: Int
         private let maxTotalNodeCount: Int
         private var snapshotsByKey: [ScanCacheKey: ScanSnapshot] = [:]
         private var nodeCountsByKey: [ScanCacheKey: Int] = [:]
         private var keysByRecency: [ScanCacheKey] = []
 
-        init(maxSnapshotCount: Int, maxTotalNodeCount: Int) {
-            self.maxSnapshotCount = max(maxSnapshotCount, 1)
+        init(minimumRetainedSnapshotCount: Int, maxTotalNodeCount: Int) {
+            self.minimumRetainedSnapshotCount = max(minimumRetainedSnapshotCount, 1)
             self.maxTotalNodeCount = max(maxTotalNodeCount, 1)
         }
 
@@ -79,16 +79,7 @@ final class AppModel: ObservableObject {
             nodeCountsByKey.values.reduce(0, +)
         }
 
-        private var minimumRetainedSnapshotCount: Int {
-            min(maxSnapshotCount, 2)
-        }
-
         private mutating func trimToBudget() {
-            while snapshotsByKey.count > maxSnapshotCount,
-                  let oldestKey = keysByRecency.first {
-                removeSnapshot(for: oldestKey)
-            }
-
             // Keep the most recent scans even when one is larger than the soft
             // node budget, so sidebar back-and-forth does not forget a large parent.
             while totalNodeCount > maxTotalNodeCount,
@@ -210,13 +201,13 @@ final class AppModel: ObservableObject {
 
     init(
         dependencies: AppDependencies = .live,
-        completedScanCacheMaxSnapshotCount: Int = 2,
+        completedScanCacheMinimumRetainedSnapshotCount: Int = 2,
         completedScanCacheMaxTotalNodeCount: Int = 250_000
     ) {
         self.dependencies = dependencies
         self.scanCoordinator = ScanCoordinator(scanService: dependencies.scanService)
         self.completedScanCache = CompletedScanCache(
-            maxSnapshotCount: completedScanCacheMaxSnapshotCount,
+            minimumRetainedSnapshotCount: completedScanCacheMinimumRetainedSnapshotCount,
             maxTotalNodeCount: completedScanCacheMaxTotalNodeCount
         )
 

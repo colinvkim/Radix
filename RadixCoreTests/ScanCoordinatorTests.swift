@@ -336,6 +336,45 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelKeepsSmallCachedSidebarTargetsBeyondTwoScans() async throws {
+        let service = ControlledScanService()
+        let firstTarget = makeCoordinatorTarget("/app/sidebar/small-first")
+        let secondTarget = makeCoordinatorTarget("/app/sidebar/small-second")
+        let thirdTarget = makeCoordinatorTarget("/app/sidebar/small-third")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget, thirdTarget])
+            )
+        )
+        let targets = [firstTarget, secondTarget, thirdTarget]
+        let snapshots = targets.map(makeCoordinatorSnapshot)
+
+        for (index, target) in targets.enumerated() {
+            model.selectSidebarTarget(id: target.id)
+            try await waitUntil("small sidebar scan request \(index)") {
+                service.requests.count == index + 1
+            }
+            service.yield(.finished(snapshots[index]), scanIndex: index)
+            service.finish(scanIndex: index)
+            try await waitUntil("small sidebar scan finished \(index)") {
+                model.scanState.snapshot?.target == target
+            }
+        }
+
+        model.selectSidebarTarget(id: firstTarget.id)
+        try await waitUntil("first small scan restored or rescanned") {
+            model.scanState.snapshot?.target == firstTarget || service.requests.count > targets.count
+        }
+
+        XCTAssertEqual(service.requests.count, targets.count)
+        XCTAssertEqual(model.scanState.selectedTarget, firstTarget)
+        XCTAssertEqual(model.scanState.snapshot?.target, firstTarget)
+        XCTAssertEqual(model.navigation.focusedNodeID, snapshots[0].root.id)
+        XCTAssertEqual(model.activeSidebarTargetID, firstTarget.id)
+    }
+
+    @MainActor
     func testAppModelRestoresOversizedCachedParentAfterScopingSidebarTarget() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/oversized-home")
@@ -345,7 +384,7 @@ final class ScanCoordinatorTests: XCTestCase {
                 scanService: service,
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
             ),
-            completedScanCacheMaxSnapshotCount: 2,
+            completedScanCacheMinimumRetainedSnapshotCount: 2,
             completedScanCacheMaxTotalNodeCount: 3
         )
         let homeSnapshot = makeCoordinatorHomeSnapshot(
@@ -391,7 +430,7 @@ final class ScanCoordinatorTests: XCTestCase {
                 scanService: service,
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
             ),
-            completedScanCacheMaxSnapshotCount: 2,
+            completedScanCacheMinimumRetainedSnapshotCount: 2,
             completedScanCacheMaxTotalNodeCount: 3
         )
         let homeSnapshot = makeCoordinatorHomeSnapshot(
