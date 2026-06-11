@@ -13,7 +13,7 @@ struct SelectionInspectorView: View {
                 Form {
                     InspectorSummarySection(node: node)
 
-                    InspectorStorageSection(
+                    InspectorDetailsSections(
                         node: node,
                         parentName: navigation.selectedNodeParent?.name,
                         percentOfParent: selectedNodePercentOfParentText ?? "—",
@@ -50,7 +50,7 @@ struct SelectionInspectorView: View {
                 }
                 .formStyle(.grouped)
             } else {
-                NoSelectionInspectorState(
+                InspectorNoSelectionView(
                     scanWarningsPreview: scanWarningsPreview,
                     shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess
                 ) {

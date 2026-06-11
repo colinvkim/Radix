@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct InspectorStorageSection: View {
+struct InspectorDetailsSections: View {
     let node: FileNodeRecord
     let parentName: String?
     let percentOfParent: String

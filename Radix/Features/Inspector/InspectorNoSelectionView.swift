@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct NoSelectionInspectorState: View {
+struct InspectorNoSelectionView: View {
     let scanWarningsPreview: [ScanWarning]
     let shouldSuggestFullDiskAccess: Bool
     let openFullDiskAccessSettings: () -> Void
