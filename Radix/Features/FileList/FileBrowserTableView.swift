@@ -79,7 +79,7 @@ struct FileBrowserTableView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
-                    SearchFilterBar(
+                    FileBrowserSearchFilterBar(
                         scope: searchScopeBinding,
                         text: activeSearchText,
                         isLoading: model.isRefreshingCurrentContents,
@@ -116,7 +116,7 @@ struct FileBrowserTableView: View {
                     } else {
                         Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
                             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
-                                NameCell(
+                                FileBrowserNameCell(
                                     node: node,
                                     subtitleOverride: subtitle(for: node),
                                     isExpanding: isExpanding(node)
@@ -287,149 +287,6 @@ struct FileBrowserTableView: View {
 
     private func expandSummarizedNode(_ node: FileNodeRecord) {
         guard !isExpanding(node) else { return }
-        appModel.expandSummarizedNode(node) {}
-    }
-
-}
-
-private struct SearchFilterBar: View {
-    @Binding var scope: FileBrowserFindTarget
-    @Binding var text: String
-    let isLoading: Bool
-    @FocusState.Binding var isFocused: Bool
-
-    private var scopeLabel: String {
-        switch scope {
-        case .currentContents:
-            "Current Contents"
-        case .entireScan:
-            "Entire Scan"
-        }
-    }
-
-    private var prompt: String {
-        switch scope {
-        case .currentContents:
-            "Filter current contents"
-        case .entireScan:
-            "Search entire scan"
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Menu {
-                Button("Current Contents") {
-                    scope = .currentContents
-                    isFocused = true
-                }
-
-                Button("Entire Scan") {
-                    scope = .entireScan
-                    isFocused = true
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: scope == .currentContents ? "line.3.horizontal.decrease.circle" : "magnifyingglass")
-                    Text(scopeLabel)
-                    Image(systemName: "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            }
-            .menuStyle(.borderlessButton)
-
-            TextField(prompt, text: $text)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help(scope == .currentContents ? "Clear current contents filter" : "Clear entire scan search")
-                .accessibilityLabel(scope == .currentContents ? "Clear current contents filter" : "Clear entire scan search")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .controlSize(.small)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-    }
-}
-
-private struct NameCell: View {
-    let node: FileNodeRecord
-    let subtitleOverride: String?
-    let isExpanding: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: node.systemImageName)
-                .foregroundStyle(node.isDirectory || node.isSynthetic ? Color.accentColor : Color.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(node.name)
-                    .lineLimit(1)
-
-                if let statusText = subtitleOverride ?? node.secondaryStatusText {
-                    Text(statusText)
-                        .font(.caption)
-                        .foregroundStyle(searchSubtitleColor)
-                        .lineLimit(1)
-                }
-            }
-
-            if node.isAutoSummarized {
-                ExpandSummarizedButton(node: node, isExpanding: isExpanding)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var searchSubtitleColor: Color {
-        if subtitleOverride != nil {
-            return .secondary
-        }
-        return node.isSynthetic ? .secondary : .orange
-    }
-}
-
-/// Button that appears next to auto-summarized directories, allowing users to expand them fully.
-private struct ExpandSummarizedButton: View {
-    let node: FileNodeRecord
-    let isExpanding: Bool
-    @EnvironmentObject private var appModel: AppModel
-
-    var body: some View {
-        Button(action: expandFolder) {
-            Image(systemName: "arrowshape.turn.up.right.circle.fill")
-                .foregroundStyle(.blue)
-                .help("Expand '\(node.name)' to scan all \(node.descendantFileCount) files")
-        }
-        .buttonStyle(.plain)
-        .disabled(isExpanding)
-        .accessibilityLabel("Expand \(node.name)")
-        .accessibilityHint("Scans all \(node.descendantFileCount) files in this summarized folder.")
-        .overlay {
-            if isExpanding {
-                ProgressView()
-                    .controlSize(.small)
-            }
-        }
-    }
-
-    private func expandFolder() {
         appModel.expandSummarizedNode(node) {}
     }
 }

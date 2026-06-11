@@ -85,6 +85,11 @@ Rationale:
 - Workspace view coordinates several major surfaces, so extraction should wait until command/state boundaries are clear.
 - Sunburst chart has rendering and interaction logic where accidental behavior changes are easier to miss.
 
+Completed slices:
+
+- `SelectionInspectorView`: extracted stable inspector sections and empty-state composition.
+- `FileBrowserTableView`: extracted the search/filter bar, table name cell, and summarized-folder expansion button. Row commands and context menu logic remain in `FileBrowserTableView`.
+
 ## Plan For SelectionInspectorView
 
 Likely extraction candidates:
