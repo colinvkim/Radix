@@ -48,6 +48,18 @@ actor ScanEngine {
         let countedHardLinkIdentities: Set<FileIdentity>
     }
 
+    private struct AtomicDirectoryProbeProfile {
+        var observedFileCount = 0
+        var observedDirectoryCount = 0
+        var totalSampledLogicalSize: Int64 = 0
+        var observedNodeDependencyLayout = false
+
+        func suggestsAtomicDirectory(minFileCount: Int, maxAverageFileSize: Int64) -> Bool {
+            guard observedFileCount > 0, observedFileCount >= minFileCount else { return false }
+            return (totalSampledLogicalSize / Int64(observedFileCount)) <= maxAverageFileSize
+        }
+    }
+
     private struct AggregateStatsAccumulator {
         private(set) var fileCount = 0
         private(set) var directoryCount = 0
@@ -345,14 +357,19 @@ actor ScanEngine {
                     let minFileCount = options.autoSummarizeMinFileCount ?? AtomicDirectoryThresholds.minFileCount
                     let maxAvgSize = options.autoSummarizeMaxAverageFileSize ?? AtomicDirectoryThresholds.maxAverageFileSize
                     let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
+                    let isNodeDependencyLayout = isNodeDependencyLayoutDirectory(at: item.url)
+                    let canProbeForAutoSummary =
+                        item.depth >= minDepth ||
+                        (item.depth >= 1 && isNodeDependencyLayout)
                     if options.autoSummarizeDirectories,
-                       item.depth >= minDepth,
+                       canProbeForAutoSummary,
                        let summary = try shouldSummarizeAsAtomicDirectory(
                            url: item.url,
                            childEntries: childEntries,
                            metadata: meta,
                            includeHiddenFiles: options.includeHiddenFiles,
                            treatPackagesAsDirectories: options.treatPackagesAsDirectories,
+                           isNodeDependencyLayout: isNodeDependencyLayout,
                            minFileCount: minFileCount,
                            maxAverageFileSize: maxAvgSize,
                            countedHardLinkIdentities: &countedHardLinkIdentities,
@@ -933,6 +950,7 @@ actor ScanEngine {
         metadata: NodeMetadata,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
+        isNodeDependencyLayout: Bool,
         minFileCount: Int,
         maxAverageFileSize: Int64,
         countedHardLinkIdentities: inout Set<FileIdentity>,
@@ -959,18 +977,27 @@ actor ScanEngine {
         if immediateCandidate {
             deepCandidate = true
         } else {
-            guard shouldRunDescendantAtomicProbe(childEntries: childEntries, minFileCount: minFileCount) else {
+            guard shouldRunDescendantAtomicProbe(
+                childEntries: childEntries,
+                minFileCount: minFileCount,
+                isNodeDependencyLayout: isNodeDependencyLayout
+            ) else {
                 return nil
             }
-            deepCandidate = try descendantProbeSuggestsAtomicDirectory(
+            let profile = try descendantAtomicProbeProfile(
                 at: url,
                 includeHiddenFiles: includeHiddenFiles,
+                isNodeDependencyLayout: isNodeDependencyLayout,
                 minFileCount: minFileCount,
                 maxAverageFileSize: maxAverageFileSize,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
                 continuation: continuation,
                 emissionState: &emissionState
+            )
+            deepCandidate = profile.suggestsAtomicDirectory(
+                minFileCount: minFileCount,
+                maxAverageFileSize: maxAverageFileSize
             )
         }
 
@@ -1014,7 +1041,15 @@ actor ScanEngine {
         return summary
     }
 
-    private func shouldRunDescendantAtomicProbe(childEntries: [DirectoryEntry], minFileCount: Int) -> Bool {
+    private func shouldRunDescendantAtomicProbe(
+        childEntries: [DirectoryEntry],
+        minFileCount: Int,
+        isNodeDependencyLayout: Bool
+    ) -> Bool {
+        if isNodeDependencyLayout {
+            return true
+        }
+
         // Sparse parents are cheaper to traverse normally; dense descendants can still summarize themselves.
         let minimumImmediateEntries = max(1, min(minFileCount, minFileCount / 10))
         return childEntries.count >= minimumImmediateEntries
@@ -1051,16 +1086,17 @@ actor ScanEngine {
         return (sampleTotalSize / Int64(sampleFileCount)) <= maxAverageFileSize
     }
 
-    private func descendantProbeSuggestsAtomicDirectory(
+    private func descendantAtomicProbeProfile(
         at url: URL,
         includeHiddenFiles: Bool,
+        isNodeDependencyLayout: Bool,
         minFileCount: Int,
         maxAverageFileSize: Int64,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> Bool {
+    ) throws -> AtomicDirectoryProbeProfile {
         try cancellationCheck()
         let probeKeys: [URLResourceKey] = [
             .isDirectoryKey,
@@ -1079,13 +1115,14 @@ actor ScanEngine {
             options: enumeratorOptions,
             errorHandler: { _, _ in true }
         ) else {
-            return false
+            return AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
         }
 
-        let maxVisitedItems = max(1_000, minFileCount * 2)
+        let maxVisitedItems = isNodeDependencyLayout
+            ? max(5_000, minFileCount * 8)
+            : max(1_000, minFileCount * 2)
         var visitedItems = 0
-        var fileCount = 0
-        var totalLogicalSize: Int64 = 0
+        var profile = AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
 
         for case let childURL as URL in enumerator {
             try cancellationCheck()
@@ -1098,28 +1135,57 @@ actor ScanEngine {
                     emissionState: &emissionState
                 )
             }
-            guard visitedItems <= maxVisitedItems else { return false }
+            guard visitedItems <= maxVisitedItems else { return profile }
+
+            if isNodeDependencyLayoutDirectory(at: childURL) {
+                profile.observedNodeDependencyLayout = true
+            }
 
             do {
                 let values = try childURL.resourceValues(forKeys: Set(probeKeys))
                 let isDirectory = values.isDirectory ?? false
                 let isSymbolicLink = values.isSymbolicLink ?? false
 
-                guard !isDirectory else { continue }
+                guard !isDirectory else {
+                    profile.observedDirectoryCount += 1
+                    continue
+                }
                 guard !isSymbolicLink else { continue }
 
-                totalLogicalSize += Int64(values.fileSize ?? 0)
-                fileCount += 1
+                profile.totalSampledLogicalSize += Int64(values.fileSize ?? 0)
+                profile.observedFileCount += 1
 
-                if fileCount >= minFileCount {
-                    return (totalLogicalSize / Int64(fileCount)) <= maxAverageFileSize
+                if profile.suggestsAtomicDirectory(
+                    minFileCount: minFileCount,
+                    maxAverageFileSize: maxAverageFileSize
+                ) {
+                    return profile
                 }
             } catch {
-                return false
+                return profile
             }
         }
 
-        return false
+        return profile
+    }
+
+    private func isNodeDependencyLayoutDirectory(at url: URL) -> Bool {
+        let components = Self.normalizedPathComponents(for: url)
+        guard let name = components.last else { return false }
+
+        if name == "node_modules" || name == ".pnpm" {
+            return true
+        }
+
+        guard name.hasPrefix("@"), components.count >= 2 else { return false }
+        let parentName = components[components.count - 2]
+        return parentName == "node_modules" || parentName == ".pnpm"
+    }
+
+    private nonisolated static func normalizedPathComponents(for url: URL) -> [String] {
+        url.standardizedFileURL.pathComponents.filter { component in
+            component != "/" && !component.isEmpty
+        }
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.

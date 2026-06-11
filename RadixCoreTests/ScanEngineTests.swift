@@ -660,6 +660,99 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(cacheNode.descendantFileCount, 12)
     }
 
+    func testNodeModulesPnpmStoreAutoSummarizesAtShallowDepth() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL
+            .appending(path: "node_modules", directoryHint: .isDirectory)
+            .appending(path: ".pnpm/left-pad@1.3.0/node_modules/left-pad", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        for index in 0..<20 {
+            try Data(repeating: UInt8(index), count: 32)
+                .write(to: packageURL.appending(path: "file-\(index).js"))
+        }
+
+        var options = ScanOptions(includeHiddenFiles: true)
+        options.autoSummarizeMinFileCount = 20
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let nodeModulesNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "node_modules" }))
+        XCTAssertTrue(nodeModulesNode.isAutoSummarized)
+        XCTAssertFalse(containsChildren(nodeModulesNode, in: snapshot))
+        XCTAssertEqual(nodeModulesNode.descendantFileCount, 20)
+    }
+
+    func testScopedNodePackageContainerAutoSummarizesAtShallowDepth() async throws {
+        let nodeModulesURL = try makeTemporaryDirectory().appending(path: "node_modules", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: nodeModulesURL.deletingLastPathComponent()) }
+
+        let packageURL = nodeModulesURL
+            .appending(path: "@radix-ui/colors/dist", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        for index in 0..<20 {
+            try Data(repeating: UInt8(index), count: 24)
+                .write(to: packageURL.appending(path: "token-\(index).js"))
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 20
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: nodeModulesURL),
+            options: options
+        )
+
+        let scopeNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "@radix-ui" }))
+        XCTAssertTrue(scopeNode.isAutoSummarized)
+        XCTAssertFalse(containsChildren(scopeNode, in: snapshot))
+        XCTAssertEqual(scopeNode.descendantFileCount, 20)
+    }
+
+    func testNestedNodeModulesForestAutoSummarizesThroughSparseParent() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let nodeModulesURL = rootURL
+            .appending(path: "workspace/packages/app/node_modules", directoryHint: .isDirectory)
+        let packageURL = nodeModulesURL
+            .appending(path: "vite/dist/client", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        for index in 0..<20 {
+            try Data(repeating: UInt8(index), count: 40)
+                .write(to: packageURL.appending(path: "chunk-\(index).js"))
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 20
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let workspaceNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "workspace" }))
+        let packagesNode = try XCTUnwrap(children(of: workspaceNode, in: snapshot).first(where: { $0.name == "packages" }))
+        let appNode = try XCTUnwrap(children(of: packagesNode, in: snapshot).first(where: { $0.name == "app" }))
+        let nodeModulesNode = try XCTUnwrap(children(of: appNode, in: snapshot).first(where: { $0.name == "node_modules" }))
+        XCTAssertTrue(nodeModulesNode.isAutoSummarized)
+        XCTAssertFalse(containsChildren(nodeModulesNode, in: snapshot))
+        XCTAssertEqual(nodeModulesNode.descendantFileCount, 20)
+    }
+
     func testSparseAncestorDefersAutoSummarizationToDenseDescendant() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -792,6 +885,35 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with large files should not be auto-summarized")
         XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
         XCTAssertEqual(children(of: cacheNode, in: snapshot).count, 20)
+    }
+
+    func testNodeDependencyLayoutNotAutoSummarizedWhenFilesAreLarge() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL
+            .appending(path: "node_modules", directoryHint: .isDirectory)
+            .appending(path: ".pnpm/large-payload@1.0.0/node_modules/large-payload", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        for index in 0..<20 {
+            try Data(repeating: UInt8(index), count: 8_192)
+                .write(to: packageURL.appending(path: "asset-\(index).dat"))
+        }
+
+        var options = ScanOptions(includeHiddenFiles: true)
+        options.autoSummarizeMinFileCount = 20
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let nodeModulesNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "node_modules" }))
+        XCTAssertFalse(nodeModulesNode.isAutoSummarized)
+        XCTAssertTrue(containsChildren(nodeModulesNode, in: snapshot))
     }
 
     func testAutoSummarizedDirectoryExcludesHiddenFilesWhenHiddenFilesDisabled() async throws {
