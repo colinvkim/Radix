@@ -9,7 +9,7 @@ struct SidebarView: View {
             set: { newValue in
                 guard let newValue,
                       newValue != appModel.activeSidebarTargetID else { return }
-                appModel.selectSidebarTarget(id: newValue)
+                appModel.selectSidebarTargetAfterViewUpdate(id: newValue)
             }
         )
     }

@@ -27,7 +27,7 @@ struct FileBrowserTableView: View {
             },
             set: { newValue in
                 if navigation.selectedNodeID != newValue {
-                    appModel.select(nodeID: newValue)
+                    appModel.selectAfterViewUpdate(nodeID: newValue)
                 }
             }
         )

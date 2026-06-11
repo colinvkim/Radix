@@ -9,6 +9,7 @@ struct WorkspaceActions {
     let handleDroppedURLs: ([URL]) -> Bool
     let selectNode: (String?) -> Void
     let focusNode: (String?) -> Void
+    let selectAndFocusNode: (String) -> Void
     let navigateBack: () -> Void
     let navigateForward: () -> Void
     let openFullDiskAccessSettings: () -> Void
@@ -146,7 +147,7 @@ private struct ActiveWorkspaceView: View {
             depthLimit: maxRenderedDepth,
             layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(maxRenderedDepth)",
             onSelect: actions.selectNode,
-            onZoom: actions.focusNode
+            onZoom: actions.selectAndFocusNode
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(18)

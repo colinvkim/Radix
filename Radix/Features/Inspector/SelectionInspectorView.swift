@@ -55,7 +55,7 @@ struct SelectionInspectorView: View {
                         Section("Largest Children") {
                             ForEach(largestChildren) { child in
                                 Button {
-                                    appModel.select(nodeID: child.id)
+                                    appModel.selectAfterViewUpdate(nodeID: child.id)
                                 } label: {
                                     LargestChildRow(node: child)
                                 }

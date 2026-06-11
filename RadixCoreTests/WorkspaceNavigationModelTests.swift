@@ -160,6 +160,31 @@ final class WorkspaceNavigationModelTests: XCTestCase {
     }
 
     @MainActor
+    func testSelectAndFocusPublishesSingleCoherentState() throws {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+        var publishedStates: [WorkspaceNavigationState] = []
+        var cancellables = Set<AnyCancellable>()
+
+        model.$state
+            .dropFirst()
+            .sink { publishedStates.append($0) }
+            .store(in: &cancellables)
+
+        model.selectAndFocus(nodeID: fixture.docs.id)
+
+        XCTAssertEqual(publishedStates.count, 1)
+        let state = try XCTUnwrap(publishedStates.first)
+        XCTAssertEqual(state.selectedNodeID, fixture.docs.id)
+        XCTAssertEqual(state.focusedNodeID, fixture.docs.id)
+        XCTAssertEqual(state.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id]))
+        XCTAssertEqual(state.tableNodes.map(\.id), [fixture.docFile.id])
+        XCTAssertEqual(state.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
+        XCTAssertEqual(state.focusBackStack, [fixture.root.id])
+        XCTAssertTrue(state.focusForwardStack.isEmpty)
+    }
+
+    @MainActor
     func testSelectionPublishesAncestorsWithoutReplacingTableState() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -304,6 +329,76 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.navigateBack()
         XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
+    }
+
+    @MainActor
+    func testAppModelDeferredSelectionPublishesAfterViewUpdate() async throws {
+        let fixture = makeNavigationFixture()
+        let model = AppModel(dependencies: makeNavigationAppDependencies())
+
+        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
+
+        model.selectAfterViewUpdate(nodeID: fixture.docFile.id)
+
+        XCTAssertNil(model.navigation.selectedNodeID)
+
+        try await waitUntil("deferred selection") {
+            model.navigation.selectedNodeID == fixture.docFile.id
+        }
+    }
+
+    @MainActor
+    func testAppModelDeferredSelectAndFocusKeepsZoomedSelection() async throws {
+        let fixture = makeNavigationFixture()
+        let model = AppModel(dependencies: makeNavigationAppDependencies())
+
+        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
+
+        model.selectAfterViewUpdate(nodeID: fixture.docs.id)
+        model.selectAndFocusAfterViewUpdate(nodeID: fixture.docs.id)
+
+        XCTAssertNil(model.navigation.selectedNodeID)
+        XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
+
+        try await waitUntil("deferred select and focus") {
+            model.navigation.selectedNodeID == fixture.docs.id &&
+                model.navigation.focusedNodeID == fixture.docs.id
+        }
+    }
+
+    @MainActor
+    func testAppModelDirectNavigationCancelsDeferredSelection() async throws {
+        let fixture = makeNavigationFixture()
+        let model = AppModel(dependencies: makeNavigationAppDependencies())
+
+        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
+
+        model.selectAfterViewUpdate(nodeID: fixture.docFile.id)
+        model.clearSelection()
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertNil(model.navigation.selectedNodeID)
+    }
+}
+
+@MainActor
+private func waitUntil(
+    _ description: String,
+    timeout: TimeInterval = 1,
+    condition: () -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        if Date() >= deadline {
+            XCTFail("Timed out waiting for \(description).")
+            return
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
     }
 }
 

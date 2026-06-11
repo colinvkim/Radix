@@ -105,6 +105,25 @@ private extension WorkspaceNavigationState {
         return next.refreshedSelectionState()
     }
 
+    func selectingAndFocusing(_ nodeID: FileNodeRecord.ID) -> WorkspaceNavigationState {
+        guard fileTreeStore?.node(id: nodeID) != nil else {
+            return selecting(nil)
+        }
+
+        var next = self
+        next.selectedNodeID = nodeID
+
+        if next.focusedNodeID != nodeID {
+            if let currentFocusID = next.focusedNodeID {
+                next.focusBackStack.append(currentFocusID)
+            }
+            next.focusForwardStack.removeAll()
+            next.focusedNodeID = nodeID
+        }
+
+        return next.refreshedDerivedState()
+    }
+
     func settingFocusedNodeID(_ nodeID: FileNodeRecord.ID?) -> WorkspaceNavigationState {
         guard let nodeID else {
             var next = self
@@ -322,6 +341,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     func select(nodeID: String?) {
         publish(state.selecting(nodeID))
+    }
+
+    func selectAndFocus(nodeID: String) {
+        publish(state.selectingAndFocusing(nodeID))
     }
 
     func setFocusedNodeID(_ nodeID: String?) {

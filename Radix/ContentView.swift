@@ -193,8 +193,9 @@ private extension ContentView {
             stopScan: { appModel.stopScan() },
             rescan: { appModel.rescan() },
             handleDroppedURLs: { appModel.handleDroppedURLs($0) },
-            selectNode: { appModel.select(nodeID: $0) },
-            focusNode: { appModel.focus(nodeID: $0) },
+            selectNode: { appModel.selectAfterViewUpdate(nodeID: $0) },
+            focusNode: { appModel.focusAfterViewUpdate(nodeID: $0) },
+            selectAndFocusNode: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             navigateBack: { appModel.navigateBack() },
             navigateForward: { appModel.navigateForward() },
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }

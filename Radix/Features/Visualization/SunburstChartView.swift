@@ -167,11 +167,11 @@ struct SunburstChartView: View {
             return
         }
 
-        onSelect(nodeID)
-
         if clickCount >= 2,
            treeStore.node(id: nodeID)?.isDirectory == true {
             onZoom(nodeID)
+        } else {
+            onSelect(nodeID)
         }
     }
 

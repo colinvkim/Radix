@@ -913,6 +913,47 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelDeferredSidebarSelectionStartsAfterViewUpdate() async throws {
+        let service = ControlledScanService()
+        let target = makeCoordinatorTarget("/app/deferred-sidebar")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [target])
+            )
+        )
+
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
+
+        XCTAssertNil(model.activeSidebarTargetID)
+        XCTAssertTrue(service.requests.isEmpty)
+
+        try await waitUntil("deferred sidebar selection starts scan") {
+            model.activeSidebarTargetID == target.id && service.requests.count == 1
+        }
+    }
+
+    @MainActor
+    func testAppModelStopCancelsDeferredSidebarSelection() async throws {
+        let service = ControlledScanService()
+        let target = makeCoordinatorTarget("/app/deferred-sidebar-cancel")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [target])
+            )
+        )
+
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
+        model.stopScan()
+
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertNil(model.activeSidebarTargetID)
+        XCTAssertTrue(service.requests.isEmpty)
+    }
+
+    @MainActor
     func testAppModelCleanupCancelsDeferredScanStart() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))

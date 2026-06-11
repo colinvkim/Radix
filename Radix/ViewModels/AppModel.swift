@@ -105,6 +105,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private enum NavigationAction: Sendable {
+        case select(FileNodeRecord.ID?)
+        case focus(FileNodeRecord.ID?)
+        case selectAndFocus(FileNodeRecord.ID)
+        case navigateBack
+        case navigateForward
+        case resetFocusToRoot
+        case clearSelection
+    }
+
     private enum FileActionError: LocalizedError {
         case noSelection
         case unavailable(path: String)
@@ -189,6 +199,10 @@ final class AppModel: ObservableObject {
     private var workspaceWindowNumber: Int?
     private var deferredScanStartTask: Task<Void, Never>?
     private var deferredScanStartID: UUID?
+    private var deferredSidebarSelectionTask: Task<Void, Never>?
+    private var deferredSidebarSelectionID: UUID?
+    private var deferredNavigationActionTask: Task<Void, Never>?
+    private var deferredNavigationActionID: UUID?
     private var sidebarScopeTask: Task<Void, Never>?
     private var sidebarScopeID: UUID?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
@@ -237,6 +251,8 @@ final class AppModel: ObservableObject {
 
     func cleanup() {
         cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
+        cancelDeferredNavigationAction()
         cancelSidebarScopeTask()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
@@ -251,6 +267,8 @@ final class AppModel: ObservableObject {
 
     func suspendMainWindowActivity() {
         cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
+        cancelDeferredNavigationAction()
         activeScanCacheKey = nil
         if scanCoordinator.canStopScan {
             scanCoordinator.stopScan()
@@ -404,12 +422,13 @@ final class AppModel: ObservableObject {
         // Defer state mutations to the next runloop to avoid
         // "Publishing changes from within view updates is not allowed."
         cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
         cancelSidebarScopeTask()
 
         let scanStartID = UUID()
         deferredScanStartID = scanStartID
         deferredScanStartTask = Task { @MainActor [weak self] in
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
             guard let self,
                   self.deferredScanStartID == scanStartID,
                   !Task.isCancelled else {
@@ -426,6 +445,18 @@ final class AppModel: ObservableObject {
         deferredScanStartID = nil
         deferredScanStartTask?.cancel()
         deferredScanStartTask = nil
+    }
+
+    private func cancelDeferredSidebarSelection() {
+        deferredSidebarSelectionID = nil
+        deferredSidebarSelectionTask?.cancel()
+        deferredSidebarSelectionTask = nil
+    }
+
+    private func cancelDeferredNavigationAction() {
+        deferredNavigationActionID = nil
+        deferredNavigationActionTask?.cancel()
+        deferredNavigationActionTask = nil
     }
 
     private func cancelSidebarScopeTask() {
@@ -450,6 +481,8 @@ final class AppModel: ObservableObject {
 
     func stopScan(resetState: Bool = true) {
         cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
+        cancelDeferredNavigationAction()
         cancelSidebarScopeTask()
         activeScanCacheKey = nil
         if resetState, scanCoordinator.snapshot == nil {
@@ -459,15 +492,30 @@ final class AppModel: ObservableObject {
     }
 
     func select(nodeID: String?) {
-        navigationModel.select(nodeID: nodeID)
+        cancelDeferredNavigationAction()
+        performNavigationAction(.select(nodeID))
+    }
+
+    func selectAfterViewUpdate(nodeID: String?) {
+        scheduleDeferredNavigationAction(.select(nodeID))
     }
 
     func focus(nodeID: String?) {
-        navigationModel.focus(nodeID: nodeID)
+        cancelDeferredNavigationAction()
+        performNavigationAction(.focus(nodeID))
+    }
+
+    func focusAfterViewUpdate(nodeID: String?) {
+        scheduleDeferredNavigationAction(.focus(nodeID))
+    }
+
+    func selectAndFocusAfterViewUpdate(nodeID: String) {
+        scheduleDeferredNavigationAction(.selectAndFocus(nodeID))
     }
 
     func clearSelection() {
-        navigationModel.clearSelection()
+        cancelDeferredNavigationAction()
+        performNavigationAction(.clearSelection)
     }
 
     func setWorkspaceWindowNumber(_ windowNumber: Int?) {
@@ -490,18 +538,83 @@ final class AppModel: ObservableObject {
     }
 
     func navigateBack() {
-        navigationModel.navigateBack()
+        cancelDeferredNavigationAction()
+        performNavigationAction(.navigateBack)
     }
 
     func navigateForward() {
-        navigationModel.navigateForward()
+        cancelDeferredNavigationAction()
+        performNavigationAction(.navigateForward)
     }
 
     func resetFocusToRoot() {
-        navigationModel.resetFocusToRoot()
+        cancelDeferredNavigationAction()
+        performNavigationAction(.resetFocusToRoot)
+    }
+
+    private func scheduleDeferredNavigationAction(_ action: NavigationAction) {
+        cancelDeferredNavigationAction()
+
+        let actionID = UUID()
+        deferredNavigationActionID = actionID
+        deferredNavigationActionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(1))
+            guard let self,
+                  self.deferredNavigationActionID == actionID,
+                  !Task.isCancelled else {
+                return
+            }
+
+            self.deferredNavigationActionID = nil
+            self.deferredNavigationActionTask = nil
+            self.performNavigationAction(action)
+        }
+    }
+
+    private func performNavigationAction(_ action: NavigationAction) {
+        switch action {
+        case .select(let nodeID):
+            navigationModel.select(nodeID: nodeID)
+        case .focus(let nodeID):
+            navigationModel.focus(nodeID: nodeID)
+        case .selectAndFocus(let nodeID):
+            navigationModel.selectAndFocus(nodeID: nodeID)
+        case .navigateBack:
+            navigationModel.navigateBack()
+        case .navigateForward:
+            navigationModel.navigateForward()
+        case .resetFocusToRoot:
+            navigationModel.resetFocusToRoot()
+        case .clearSelection:
+            navigationModel.clearSelection()
+        }
     }
 
     func selectSidebarTarget(id: String?) {
+        cancelDeferredSidebarSelection()
+        selectSidebarTargetNow(id: id)
+    }
+
+    func selectSidebarTargetAfterViewUpdate(id: String?) {
+        cancelDeferredSidebarSelection()
+
+        let selectionID = UUID()
+        deferredSidebarSelectionID = selectionID
+        deferredSidebarSelectionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(1))
+            guard let self,
+                  self.deferredSidebarSelectionID == selectionID,
+                  !Task.isCancelled else {
+                return
+            }
+
+            self.deferredSidebarSelectionID = nil
+            self.deferredSidebarSelectionTask = nil
+            self.selectSidebarTargetNow(id: id)
+        }
+    }
+
+    private func selectSidebarTargetNow(id: String?) {
         guard let id,
               let target = sidebarTarget(id: id) else {
             return
