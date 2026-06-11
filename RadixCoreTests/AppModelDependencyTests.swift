@@ -409,6 +409,39 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testRequestMoveSelectedToTrashRejectsProtectedRoots() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let protectedRoot = makeAppModelDirectoryNode(
+            id: "/Applications",
+            name: "Applications",
+            children: []
+        )
+        let store = FileTreeStore(root: protectedRoot)
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(url: protectedRoot.url),
+            treeStore: store,
+            startedAt: Date(),
+            finishedAt: Date(),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.select(nodeID: protectedRoot.id)
+
+        model.requestMoveSelectedToTrash()
+
+        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
     func testFullDiskAccessFailureUsesInjectedActionResult() {
         var actions = AppSystemActions.inert
         actions.prepareAndOpenFullDiskAccessSettings = { false }

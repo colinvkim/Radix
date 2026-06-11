@@ -19,6 +19,7 @@ enum SystemIntegration {
         case openFailed(path: String)
         case copyPathFailed(path: String)
         case quickLookUnavailable(path: String)
+        case protectedTrashLocation(path: String)
 
         var errorDescription: String? {
             switch self {
@@ -28,6 +29,8 @@ enum SystemIntegration {
                 return "macOS could not copy the path for \(path)."
             case .quickLookUnavailable(let path):
                 return "The item at \(path) is no longer available for Quick Look."
+            case .protectedTrashLocation(let path):
+                return "Radix will not move the protected location at \(path) to the Trash."
             }
         }
     }
@@ -125,8 +128,15 @@ enum SystemIntegration {
     }
 
     static func moveToTrash(_ url: URL) throws {
+        try validateCanMoveToTrash(url)
         var resultingItemURL: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingItemURL)
+    }
+
+    static func validateCanMoveToTrash(_ url: URL) throws {
+        if let reason = TrashSafetyPolicy.blockReason(for: url) {
+            throw SystemIntegrationError.protectedTrashLocation(path: reason.path)
+        }
     }
 
     @discardableResult

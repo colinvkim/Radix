@@ -30,6 +30,61 @@ final class ScanModelTests: XCTestCase {
         XCTAssertTrue(folderNode.supportsMoveToTrash)
     }
 
+    func testTrashSafetyPolicyRejectsProtectedRoots() {
+        let policy = makeTrashSafetyPolicy()
+        let protectedPaths = [
+            "/",
+            "/System",
+            "/Library",
+            "/Applications",
+            "/Users",
+            "/Volumes",
+            "/Users/example",
+            "/System/Volumes/Data/Users/example",
+            "/System/Volumes/Data/Applications",
+            "/Volumes/External",
+            "/ExampleFirmlink",
+            "/System/Volumes/Data/ExampleFirmlink",
+            "/System/Library/Caches",
+            "/System/Volumes/Data/System/Library/Caches"
+        ]
+
+        for path in protectedPaths {
+            let reason = policy.blockReason(for: URL(filePath: path, directoryHint: .isDirectory))
+            XCTAssertEqual(reason?.path, standardizedTestPath(path), path)
+        }
+    }
+
+    func testTrashSafetyPolicyAllowsDescendantsOfProtectedRoots() {
+        let policy = makeTrashSafetyPolicy()
+        let allowedPaths = [
+            "/Applications/Example.app",
+            "/Users/example/Downloads/file.dmg",
+            "/Volumes/External/file.txt",
+            "/ExampleFirmlink/child",
+            "/System/Volumes/Data/Applications/Example.app"
+        ]
+
+        for path in allowedPaths {
+            XCTAssertNil(
+                policy.blockReason(for: URL(filePath: path)),
+                path
+            )
+        }
+    }
+
+    func testSupportsMoveToTrashRejectsTrashSafetyProtectedRoots() {
+        let systemNode = makeNode(id: "/System", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let libraryNode = makeNode(id: "/Library", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let applicationsNode = makeNode(id: "/Applications", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let applicationsChildNode = makeNode(id: "/Applications/Example.app", isDirectory: true, isSynthetic: false, isAccessible: true)
+
+        XCTAssertFalse(systemNode.supportsMoveToTrash)
+        XCTAssertFalse(libraryNode.supportsMoveToTrash)
+        XCTAssertFalse(applicationsNode.supportsMoveToTrash)
+        XCTAssertTrue(applicationsChildNode.supportsMoveToTrash)
+    }
+
     func testSupportsMoveToTrashRejectsActiveVolumeRoot() {
         let volumeTarget = ScanTarget(
             url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
@@ -400,5 +455,32 @@ final class ScanModelTests: XCTestCase {
             isSynthetic: isSynthetic,
             isAutoSummarized: isAutoSummarized
         )
+    }
+
+    private func makeTrashSafetyPolicy() -> TrashSafetyPolicy {
+        TrashSafetyPolicy(
+            homeDirectory: URL(filePath: "/Users/example", directoryHint: .isDirectory),
+            mountedVolumeURLs: [
+                URL(filePath: "/Volumes/External", directoryHint: .isDirectory)
+            ],
+            firmlinkEntries: [
+                TrashSafetyPolicy.FirmlinkEntry(
+                    visiblePath: "/Applications",
+                    dataRelativePath: "Applications"
+                ),
+                TrashSafetyPolicy.FirmlinkEntry(
+                    visiblePath: "/ExampleFirmlink",
+                    dataRelativePath: "ExampleFirmlink"
+                ),
+                TrashSafetyPolicy.FirmlinkEntry(
+                    visiblePath: "/System/Library/Caches",
+                    dataRelativePath: "System/Library/Caches"
+                )
+            ]
+        )
+    }
+
+    private func standardizedTestPath(_ path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
     }
 }
