@@ -1,0 +1,79 @@
+import SwiftUI
+
+struct ActiveWorkspaceView: View {
+    let scanState: ScanCoordinator
+    @ObservedObject var navigation: WorkspaceNavigationModel
+
+    let snapshot: ScanSnapshot
+    let focusNode: FileNodeRecord
+    let maxRenderedDepth: Int
+    let actions: WorkspaceActions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            WorkspaceHeaderView(
+                navigation: navigation,
+                snapshot: snapshot,
+                focusNode: focusNode,
+                actions: actions
+            )
+
+            Divider()
+
+            if PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot) {
+                PermissionBanner(actions: actions)
+                Divider()
+            }
+
+            resizableWorkspacePanes
+        }
+    }
+
+    private var resizableWorkspacePanes: some View {
+        WorkspaceSplitView(topMinHeight: 260, bottomMinHeight: 200) {
+            visualizationPane
+        } bottom: {
+            contentsPane
+        }
+    }
+
+    private var visualizationPane: some View {
+        VStack(spacing: 0) {
+            chartContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var chartContent: some View {
+        SunburstChartView(
+            rootNode: focusNode,
+            treeStore: snapshot.treeStore,
+            selectedNodeID: navigation.selectedNodeID,
+            selectedAncestorIDs: navigation.selectedAncestorIDs,
+            depthLimit: maxRenderedDepth,
+            layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(maxRenderedDepth)",
+            onSelect: actions.selectNode,
+            onZoom: actions.selectAndFocusNode
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(18)
+    }
+
+    private var contentsPane: some View {
+        VStack(spacing: 0) {
+            FileBrowserTableView(
+                scanState: scanState,
+                navigation: navigation
+            )
+
+            if !snapshot.scanWarnings.isEmpty {
+                Divider()
+                WarningFooter(
+                    warnings: snapshot.scanWarnings,
+                    shouldSuggestFullDiskAccess: PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot),
+                    actions: actions
+                )
+            }
+        }
+    }
+}

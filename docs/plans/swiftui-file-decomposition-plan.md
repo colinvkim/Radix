@@ -89,7 +89,7 @@ Completed slices:
 
 - `SelectionInspectorView`: extracted stable inspector sections and empty-state composition.
 - `FileBrowserTableView`: extracted the search/filter bar, table name cell, and summarized-folder expansion button. Row commands and context menu logic remain in `FileBrowserTableView`.
-- `WorkspaceView`: extracted split-pane resizing, header metrics, and permission banner helpers.
+- `WorkspaceView`: extracted split-pane resizing, header metrics, permission banner helpers, active content panes, warning footer, empty state, and scanning state.
 
 ## Plan For SelectionInspectorView
 
