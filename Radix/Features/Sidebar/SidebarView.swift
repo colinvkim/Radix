@@ -1,44 +1,51 @@
 import SwiftUI
 
+struct SidebarActions {
+    let selectTargetAfterViewUpdate: (String?) -> Void
+    let revealInFinder: (ScanTarget) -> Void
+    let removeRecentTarget: (ScanTarget) -> Void
+}
+
 struct SidebarView: View {
-    @EnvironmentObject private var appModel: AppModel
+    @ObservedObject var model: SidebarModel
+    let actions: SidebarActions
 
     private var selection: Binding<String?> {
         Binding(
-            get: { appModel.activeSidebarTargetID },
+            get: { model.activeTargetID },
             set: { newValue in
                 guard let newValue,
-                      newValue != appModel.activeSidebarTargetID else { return }
-                appModel.selectSidebarTargetAfterViewUpdate(id: newValue)
+                      newValue != model.activeTargetID else { return }
+                actions.selectTargetAfterViewUpdate(newValue)
             }
         )
     }
 
     var body: some View {
         List(selection: selection) {
-            if !appModel.smartTargets.isEmpty {
+            if !model.smartTargetRows.isEmpty {
                 Section("Smart Locations") {
-                    ForEach(appModel.smartTargets) { target in
+                    ForEach(model.smartTargetRows) { row in
                         SidebarTargetRow(
-                            target: target,
-                            subtitle: appModel.sidebarSubtitle(for: target),
-                            revealInFinder: { appModel.revealTargetInFinder(target) }
+                            target: row.target,
+                            subtitle: row.subtitle,
+                            revealInFinder: { actions.revealInFinder(row.target) }
                         )
-                            .tag(target.id)
+                            .tag(row.id)
                     }
                 }
             }
 
-            if !appModel.recentScanTargets.isEmpty {
+            if !model.recentScanTargetRows.isEmpty {
                 Section("Recent Scans") {
-                    ForEach(appModel.recentScanTargets) { target in
+                    ForEach(model.recentScanTargetRows) { row in
                         SidebarTargetRow(
-                            target: target,
-                            subtitle: appModel.sidebarSubtitle(for: target),
-                            revealInFinder: { appModel.revealTargetInFinder(target) },
-                            removeFromRecentScans: { appModel.removeRecentTarget(target) }
+                            target: row.target,
+                            subtitle: row.subtitle,
+                            revealInFinder: { actions.revealInFinder(row.target) },
+                            removeFromRecentScans: { actions.removeRecentTarget(row.target) }
                         )
-                            .tag(target.id)
+                            .tag(row.id)
                     }
                 }
             }

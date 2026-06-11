@@ -153,20 +153,16 @@ final class AppModel: ObservableObject {
     @Published var autoSummarizeDirectories = true
     @Published private(set) var availableTargets: [ScanTarget] = [] {
         didSet {
-            rebuildSidebarTargets()
+            refreshSidebarTargetSections()
         }
     }
     @Published var recentTargets: [ScanTarget] = [] {
         didSet {
-            rebuildSidebarTargets()
+            refreshSidebarTargetSections()
         }
     }
-    @Published private(set) var smartTargets: [ScanTarget] = []
-    @Published private(set) var recentScanTargets: [ScanTarget] = []
     @Published var showsOnboarding: Bool
     @Published private(set) var fullDiskAccessStatus: FullDiskAccessStatus
-    @Published private(set) var activeSidebarTargetID: String?
-    @Published private(set) var targetCapacityDescriptions: [String: String] = [:]
     @Published var lastErrorMessage: String? {
         didSet {
             if lastErrorMessage == nil {
@@ -178,6 +174,7 @@ final class AppModel: ObservableObject {
 
     private let dependencies: AppDependencies
     private let scanCoordinator: ScanCoordinator
+    private let sidebarModel: SidebarModel
     private let snapshotTransformService = ScanSnapshotTransformService()
     private let navigationModel = WorkspaceNavigationModel()
     private var lastActionErrorTitle: String?
@@ -206,6 +203,10 @@ final class AppModel: ObservableObject {
     ) {
         self.dependencies = dependencies
         self.scanCoordinator = ScanCoordinator(scanService: dependencies.scanService)
+        self.sidebarModel = SidebarModel(
+            recentTargetStore: dependencies.recentTargets,
+            preferredSmartTargetIDs: dependencies.systemActions.preferredSmartTargetIDs
+        )
         self.completedScanCache = CompletedScanCache(
             minimumRetainedSnapshotCount: completedScanCacheMinimumRetainedSnapshotCount,
             maxTotalNodeCount: completedScanCacheMaxTotalNodeCount
@@ -223,7 +224,7 @@ final class AppModel: ObservableObject {
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
 
         refreshAvailableTargets()
-        rebuildSidebarTargets()
+        refreshSidebarTargetSections()
         if dependencies.systemActions.usesAsyncFullDiskAccessStatus {
             refreshFullDiskAccessStatus()
         }
@@ -281,35 +282,35 @@ final class AppModel: ObservableObject {
         navigationModel
     }
 
+    var sidebar: SidebarModel {
+        sidebarModel
+    }
+
     var startupDiskTarget: ScanTarget? {
         availableTargets.first(where: { $0.kind == .volume && $0.url.path == "/" })
     }
 
-    private func makeSmartTargets() -> [ScanTarget] {
-        let indexedTargets = Dictionary(uniqueKeysWithValues: availableTargets.map { ($0.id, $0) })
-        let preferredTargets = preferredSmartTargetPaths.compactMap { indexedTargets[$0] }
-        let preferredTargetIDs = Set(preferredTargets.map(\.id))
-        let additionalVolumeTargets = availableTargets.filter { target in
-            target.kind == .volume && !preferredTargetIDs.contains(target.id)
-        }
-
-        guard let startupDiskIndex = preferredTargets.firstIndex(where: { $0.url.path == "/" }) else {
-            return additionalVolumeTargets + preferredTargets
-        }
-
-        var targets = preferredTargets
-        targets.insert(contentsOf: additionalVolumeTargets, at: startupDiskIndex + 1)
-        return targets
+    var smartTargets: [ScanTarget] {
+        sidebarModel.smartTargets
     }
 
-    private func rebuildSidebarTargets() {
-        let smartTargets = makeSmartTargets()
-        let excluded = Set(smartTargets.map(\.id))
+    var recentScanTargets: [ScanTarget] {
+        sidebarModel.recentScanTargets
+    }
 
-        self.smartTargets = smartTargets
-        recentScanTargets = dependencies.recentTargets
-            .availableTargets(from: recentTargets)
-            .filter { !excluded.contains($0.id) }
+    var activeSidebarTargetID: String? {
+        sidebarModel.activeTargetID
+    }
+
+    var targetCapacityDescriptions: [String: String] {
+        sidebarModel.targetCapacityDescriptions
+    }
+
+    private func refreshSidebarTargetSections() {
+        sidebarModel.refreshTargetSections(
+            availableTargets: availableTargets,
+            recentTargets: recentTargets
+        )
     }
 
     var errorAlertTitle: String {
@@ -364,18 +365,7 @@ final class AppModel: ObservableObject {
 
     func removeRecentTarget(_ target: ScanTarget) {
         recentTargets = dependencies.recentTargets.remove(target, currentTargets: recentTargets)
-        if activeSidebarTargetID == target.id,
-           !smartTargets.contains(where: { $0.id == target.id }) {
-            activeSidebarTargetID = nil
-        }
-    }
-
-    func sidebarSubtitle(for target: ScanTarget) -> String {
-        if target.kind == .volume,
-           let capacityDescription = targetCapacityDescriptions[target.id] {
-            return capacityDescription
-        }
-        return target.url.path
+        sidebarModel.clearActiveTargetIfNeededAfterRemovingRecentTarget(target)
     }
 
     /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
@@ -612,7 +602,7 @@ final class AppModel: ObservableObject {
         }
 
         cancelSidebarScopeTask()
-        activeSidebarTargetID = target.id
+        sidebarModel.setActiveTargetID(target.id)
         guard applyCachedOrContainedSidebarTarget(target) else { return }
         startScan(target)
     }
@@ -703,7 +693,7 @@ final class AppModel: ObservableObject {
             case .clearActiveScan:
                 scanCoordinator.clearScan()
                 navigationModel.reset()
-                activeSidebarTargetID = nil
+                sidebarModel.setActiveTargetID(nil)
                 displayedScanCacheKey = nil
             case .rescanActiveScan:
                 rescan()
@@ -845,7 +835,7 @@ final class AppModel: ObservableObject {
         lastErrorMessage = nil
         navigationModel.reset()
         pendingTrashNode = nil
-        activeSidebarTargetID = target.id
+        sidebarModel.setActiveTargetID(target.id)
 
         registerRecentTarget(target)
         refreshAvailableTargets()
@@ -866,16 +856,14 @@ final class AppModel: ObservableObject {
         recentTargets = dependencies.recentTargets.record(target, currentTargets: recentTargets)
     }
 
-    private var preferredSmartTargetPaths: [String] {
-        dependencies.systemActions.preferredSmartTargetIDs()
-    }
-
     private func refreshAvailableTargets() {
         targetCapacityDescriptionsRefreshTask?.cancel()
         availableTargets = dependencies.systemActions.defaultTargets()
 
         guard dependencies.systemActions.usesAsyncTargetCapacityDescriptions else {
-            targetCapacityDescriptions = dependencies.systemActions.currentTargetCapacityDescriptions()
+            sidebarModel.replaceTargetCapacityDescriptions(
+                dependencies.systemActions.currentTargetCapacityDescriptions()
+            )
             targetCapacityDescriptionsRefreshTask = nil
             return
         }
@@ -884,7 +872,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             let descriptions = await self.dependencies.systemActions.loadCurrentTargetCapacityDescriptions()
             guard !Task.isCancelled else { return }
-            self.targetCapacityDescriptions = descriptions
+            self.sidebarModel.replaceTargetCapacityDescriptions(descriptions)
             self.targetCapacityDescriptionsRefreshTask = nil
         }
     }
@@ -986,7 +974,7 @@ final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 guard let self,
                       sidebarScopeID == scopeID,
-                      activeSidebarTargetID == target.id else {
+                      sidebarModel.activeTargetID == target.id else {
                     return
                 }
 
@@ -1003,7 +991,7 @@ final class AppModel: ObservableObject {
             } catch {
                 guard let self,
                       sidebarScopeID == scopeID,
-                      activeSidebarTargetID == target.id else {
+                      sidebarModel.activeTargetID == target.id else {
                     return
                 }
 
@@ -1038,7 +1026,7 @@ final class AppModel: ObservableObject {
     }
 
     private func sidebarTarget(id: String) -> ScanTarget? {
-        (availableTargets + recentScanTargets).first { $0.id == id }
+        sidebarModel.target(id: id)
     }
 
     private func observeMountedVolumes() {

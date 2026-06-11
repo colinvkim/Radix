@@ -43,6 +43,7 @@ let package = Package(
                 "Services/SunburstGeometry.swift",
                 "Services/SystemIntegration.swift",
                 "ViewModels/AppModel.swift",
+                "ViewModels/SidebarModel.swift",
                 "ViewModels/WorkspaceNavigationModel.swift"
             ]
         ),

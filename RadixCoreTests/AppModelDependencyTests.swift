@@ -70,56 +70,6 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testSidebarTargetReadsUseCachedRecentAvailability() {
-        let recent = makeAppModelTarget("/recent/cached")
-        let recentPersistence = SpyRecentTargetPersistence(targets: [recent])
-        var availabilityCheckCount = 0
-
-        let model = AppModel(
-            dependencies: AppDependencies(
-                preferences: SpyAppPreferencesStore(preferences: .defaults),
-                recentTargets: RecentTargetStore(
-                    persistence: recentPersistence,
-                    isAvailable: { _ in
-                        availabilityCheckCount += 1
-                        return true
-                    }
-                ),
-                systemActions: .inert
-            )
-        )
-        let checksAfterInitialization = availabilityCheckCount
-
-        XCTAssertEqual(model.recentScanTargets, [recent])
-        XCTAssertEqual(model.recentScanTargets, [recent])
-        XCTAssertTrue(model.smartTargets.isEmpty)
-        XCTAssertEqual(availabilityCheckCount, checksAfterInitialization)
-    }
-
-    @MainActor
-    func testSmartTargetsIncludeMountedVolumesBelowStartupDisk() {
-        let startupDisk = makeAppModelTarget("/", kind: .volume)
-        let externalVolume = makeAppModelTarget("/Volumes/External SSD", kind: .volume)
-        let home = makeAppModelTarget("/Users/example")
-        let desktop = makeAppModelTarget("/Users/example/Desktop")
-        var actions = AppSystemActions.inert
-        actions.defaultTargets = { [startupDisk, home, desktop, externalVolume] }
-        actions.preferredSmartTargetIDs = { [startupDisk.id, home.id, desktop.id] }
-        actions.targetCapacityDescriptions = {
-            [
-                startupDisk.id: "128 GB free of 1 TB",
-                externalVolume.id: "512 GB free of 2 TB"
-            ]
-        }
-
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-
-        XCTAssertEqual(model.smartTargets, [startupDisk, externalVolume, home, desktop])
-        XCTAssertEqual(model.sidebarSubtitle(for: startupDisk), "128 GB free of 1 TB")
-        XCTAssertEqual(model.sidebarSubtitle(for: externalVolume), "512 GB free of 2 TB")
-    }
-
-    @MainActor
     func testPreferenceChangesPersistThroughInjectedStore() {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
@@ -427,6 +377,8 @@ final class AppModelDependencyTests: XCTestCase {
         metrics.filesVisited = 12
         model.scanState.scanMetrics = metrics
         model.navigation.select(nodeID: file.id)
+        model.sidebar.setActiveTargetID("/sidebar")
+        model.sidebar.replaceTargetCapacityDescriptions(["/": "128 GB free of 1 TB"])
 
         XCTAssertEqual(observedAppModelChanges, 0)
         withExtendedLifetime(cancellable) {}

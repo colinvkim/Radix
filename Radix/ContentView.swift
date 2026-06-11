@@ -17,7 +17,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
-            SidebarView()
+            SidebarView(model: appModel.sidebar, actions: sidebarActions)
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
         } detail: {
             WorkspaceDetailView(
@@ -100,6 +100,16 @@ struct ContentView: View {
                 break
             }
         }
+    }
+}
+
+private extension ContentView {
+    var sidebarActions: SidebarActions {
+        SidebarActions(
+            selectTargetAfterViewUpdate: { appModel.selectSidebarTargetAfterViewUpdate(id: $0) },
+            revealInFinder: { appModel.revealTargetInFinder($0) },
+            removeRecentTarget: { appModel.removeRecentTarget($0) }
+        )
     }
 }
 
