@@ -94,9 +94,17 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testPreferenceChangesPersistThroughInjectedStore() {
+    func testPreferenceChangesPersistThroughInjectedStore() async throws {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        let expectedPreferences = AppScanPreferences(
+            showHiddenFiles: false,
+            treatPackagesAsDirectories: true,
+            maxRenderedDepth: 10,
+            autoSummarizeDirectories: false,
+            useScanExclusions: true,
+            exclusionPatterns: ["node_modules"]
+        )
 
         model.showHiddenFiles = false
         model.treatPackagesAsDirectories = true
@@ -105,17 +113,9 @@ final class AppModelDependencyTests: XCTestCase {
         model.useScanExclusions = true
         model.exclusionPatterns = ["node_modules"]
 
-        XCTAssertEqual(
-            preferences.savedScanPreferences.last,
-            AppScanPreferences(
-                showHiddenFiles: false,
-                treatPackagesAsDirectories: true,
-                maxRenderedDepth: 10,
-                autoSummarizeDirectories: false,
-                useScanExclusions: true,
-                exclusionPatterns: ["node_modules"]
-            )
-        )
+        try await waitUntil("coalesced preference persistence") {
+            preferences.savedScanPreferences == [expectedPreferences]
+        }
 
         model.dismissOnboarding()
         XCTAssertFalse(model.showsOnboarding)
@@ -662,6 +662,23 @@ private func makeSpaceKeyEvent(windowNumber: Int = 0) -> NSEvent {
         fatalError("Failed to create Space key event")
     }
     return event
+}
+
+@MainActor
+private func waitUntil(
+    _ description: String,
+    timeout: TimeInterval = 1,
+    condition: () -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        if Date() >= deadline {
+            XCTFail("Timed out waiting for \(description).")
+            return
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+    }
 }
 
 @MainActor

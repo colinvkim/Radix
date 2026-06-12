@@ -184,6 +184,9 @@ final class AppModel: ObservableObject {
     private var activeScanCacheKey: ScanCacheKey?
     private var displayedScanCacheKey: ScanCacheKey?
 
+    private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
+    private static let scanPreferencePersistenceDebounce: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+
     private var cancellables = Set<AnyCancellable>()
     private var quickLookEventMonitor: AppEventMonitorToken?
     private var workspaceWindowNumber: Int?
@@ -416,19 +419,11 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelSidebarScopeTask()
 
-        let scanStartID = UUID()
-        deferredScanStartID = scanStartID
-        deferredScanStartTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(1))
-            guard let self,
-                  self.deferredScanStartID == scanStartID,
-                  !Task.isCancelled else {
-                return
-            }
-
-            self.deferredScanStartID = nil
-            self.deferredScanStartTask = nil
-            self.startScanNow(target)
+        scheduleDeferredViewUpdate(
+            id: \.deferredScanStartID,
+            task: \.deferredScanStartTask
+        ) { model in
+            model.startScanNow(target)
         }
     }
 
@@ -454,6 +449,27 @@ final class AppModel: ObservableObject {
         sidebarScopeID = nil
         sidebarScopeTask?.cancel()
         sidebarScopeTask = nil
+    }
+
+    private func scheduleDeferredViewUpdate(
+        id idKeyPath: ReferenceWritableKeyPath<AppModel, UUID?>,
+        task taskKeyPath: ReferenceWritableKeyPath<AppModel, Task<Void, Never>?>,
+        perform: @MainActor @Sendable @escaping (AppModel) -> Void
+    ) {
+        let actionID = UUID()
+        self[keyPath: idKeyPath] = actionID
+        self[keyPath: taskKeyPath] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.viewUpdateDeferralDelay)
+            guard let self,
+                  self[keyPath: idKeyPath] == actionID,
+                  !Task.isCancelled else {
+                return
+            }
+
+            self[keyPath: idKeyPath] = nil
+            self[keyPath: taskKeyPath] = nil
+            perform(self)
+        }
     }
 
     private func startScanNow(_ target: ScanTarget) {
@@ -546,19 +562,11 @@ final class AppModel: ObservableObject {
     private func scheduleDeferredNavigationAction(_ action: NavigationAction) {
         cancelDeferredNavigationAction()
 
-        let actionID = UUID()
-        deferredNavigationActionID = actionID
-        deferredNavigationActionTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(1))
-            guard let self,
-                  self.deferredNavigationActionID == actionID,
-                  !Task.isCancelled else {
-                return
-            }
-
-            self.deferredNavigationActionID = nil
-            self.deferredNavigationActionTask = nil
-            self.performNavigationAction(action)
+        scheduleDeferredViewUpdate(
+            id: \.deferredNavigationActionID,
+            task: \.deferredNavigationActionTask
+        ) { model in
+            model.performNavigationAction(action)
         }
     }
 
@@ -589,19 +597,11 @@ final class AppModel: ObservableObject {
     func selectSidebarTargetAfterViewUpdate(id: String?) {
         cancelDeferredSidebarSelection()
 
-        let selectionID = UUID()
-        deferredSidebarSelectionID = selectionID
-        deferredSidebarSelectionTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(1))
-            guard let self,
-                  self.deferredSidebarSelectionID == selectionID,
-                  !Task.isCancelled else {
-                return
-            }
-
-            self.deferredSidebarSelectionID = nil
-            self.deferredSidebarSelectionTask = nil
-            self.selectSidebarTargetNow(id: id)
+        scheduleDeferredViewUpdate(
+            id: \.deferredSidebarSelectionID,
+            task: \.deferredSidebarSelectionTask
+        ) { model in
+            model.selectSidebarTargetNow(id: id)
         }
     }
 
@@ -1079,54 +1079,24 @@ final class AppModel: ObservableObject {
     }
 
     private func observePreferences() {
-        $showHiddenFiles
+        Publishers.CombineLatest3($showHiddenFiles, $treatPackagesAsDirectories, $maxRenderedDepth)
+            .combineLatest(Publishers.CombineLatest3($autoSummarizeDirectories, $useScanExclusions, $exclusionPatterns))
+            .map { scanBasics, scanFilters in
+                AppScanPreferences(
+                    showHiddenFiles: scanBasics.0,
+                    treatPackagesAsDirectories: scanBasics.1,
+                    maxRenderedDepth: scanBasics.2,
+                    autoSummarizeDirectories: scanFilters.0,
+                    useScanExclusions: scanFilters.1,
+                    exclusionPatterns: scanFilters.2
+                )
+            }
             .dropFirst()
-            .sink { [weak self] value in self?.persistScanPreferences(showHiddenFiles: value) }
+            .removeDuplicates()
+            .debounce(for: Self.scanPreferencePersistenceDebounce, scheduler: RunLoop.main)
+            .sink { [weak self] preferences in
+                self?.dependencies.preferences.saveScanPreferences(preferences)
+            }
             .store(in: &cancellables)
-
-        $treatPackagesAsDirectories
-            .dropFirst()
-            .sink { [weak self] value in self?.persistScanPreferences(treatPackagesAsDirectories: value) }
-            .store(in: &cancellables)
-
-        $maxRenderedDepth
-            .dropFirst()
-            .sink { [weak self] value in self?.persistScanPreferences(maxRenderedDepth: value) }
-            .store(in: &cancellables)
-
-        $autoSummarizeDirectories
-            .dropFirst()
-            .sink { [weak self] value in self?.persistScanPreferences(autoSummarizeDirectories: value) }
-            .store(in: &cancellables)
-
-        $useScanExclusions
-            .dropFirst()
-            .sink { [weak self] value in self?.persistScanPreferences(useScanExclusions: value) }
-            .store(in: &cancellables)
-
-        $exclusionPatterns
-            .dropFirst()
-            .sink { [weak self] value in self?.persistScanPreferences(exclusionPatterns: value) }
-            .store(in: &cancellables)
-    }
-
-    private func persistScanPreferences(
-        showHiddenFiles: Bool? = nil,
-        treatPackagesAsDirectories: Bool? = nil,
-        maxRenderedDepth: Int? = nil,
-        autoSummarizeDirectories: Bool? = nil,
-        useScanExclusions: Bool? = nil,
-        exclusionPatterns: [String]? = nil
-    ) {
-        dependencies.preferences.saveScanPreferences(
-            AppScanPreferences(
-                showHiddenFiles: showHiddenFiles ?? self.showHiddenFiles,
-                treatPackagesAsDirectories: treatPackagesAsDirectories ?? self.treatPackagesAsDirectories,
-                maxRenderedDepth: maxRenderedDepth ?? self.maxRenderedDepth,
-                autoSummarizeDirectories: autoSummarizeDirectories ?? self.autoSummarizeDirectories,
-                useScanExclusions: useScanExclusions ?? self.useScanExclusions,
-                exclusionPatterns: exclusionPatterns ?? self.exclusionPatterns
-            )
-        )
     }
 }

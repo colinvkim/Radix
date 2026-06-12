@@ -389,7 +389,7 @@ targets absent from both smart and recent rows while preserving active smart
 targets. Added SidebarModel and AppModel clear-recents coverage. All
 validations passed.
 
-### 12. [ ] AppModel deferral and preference persistence
+### 12. [x] AppModel deferral and preference persistence
 
 Original findings: 10, 11. Severity: Low.
 
@@ -416,6 +416,12 @@ Validate:
 - `rtk swift test --filter AppModelDependencyTests`
 - `rtk swift test --filter ScanCoordinatorTests`
 - `rtk swift test`
+
+Completion note: Verified AppModel had three separate one-millisecond deferred
+task bodies and six independent scan-preference persistence publishers.
+Centralized view-update deferral behind one helper, collapsed scan preferences
+into a single debounced `AppScanPreferences` publisher, and updated coverage to
+assert multi-field changes persist as one coherent save. All validations passed.
 
 ### 13. [ ] Detail `NavigationStack`
 
