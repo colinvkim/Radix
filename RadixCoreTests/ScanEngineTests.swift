@@ -128,7 +128,8 @@ final class ScanEngineTests: XCTestCase {
         try Data("visible".utf8).write(to: readableFileURL)
         try FileManager.default.createDirectory(at: unreadableDirectoryURL, withIntermediateDirectories: true)
         try Data("secret".utf8).write(to: unreadableFileURL)
-        let engine = ScanEngine(directoryContents: { url, keys, options in
+        let engine = ScanEngine(directoryContents: { url, keys, options, cancellationCheck in
+            try cancellationCheck()
             if url.lastPathComponent == "Locked" {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
             }
@@ -592,6 +593,68 @@ final class ScanEngineTests: XCTestCase {
         }
 
         XCTAssertTrue(followUpFinished)
+    }
+
+    func testEnumeratedDirectoryContentsChecksCancellationBeforeMaterializingAllURLs() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let cancellation = DirectoryEnumerationCancellation()
+        let enumerator = SlowDirectoryObjectEnumerator(rootURL: rootURL, totalCount: 10_000)
+        let enumerationTask = Task {
+            try ScanEngine.enumeratedDirectoryContents(
+                url: rootURL,
+                keys: nil,
+                options: [],
+                cancellationCheck: { try cancellation.check() },
+                makeEnumerator: { _, _, _ in enumerator }
+            )
+        }
+
+        try await enumerator.waitUntilProduced(64)
+        cancellation.cancel()
+
+        do {
+            _ = try await withTimeout(.seconds(1)) {
+                try await enumerationTask.value
+            }
+            XCTFail("Expected directory enumeration to stop after cancellation.")
+        } catch is CancellationError {
+            XCTAssertLessThan(enumerator.producedCount, enumerator.totalCount)
+        }
+    }
+
+    func testCancellingScanStopsInjectedDirectoryEnumerationBeforeMaterialization() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let probe = CancellableDirectoryContentsProbe(totalCount: 10_000)
+        let engine = ScanEngine(directoryContents: { url, _, _, cancellationCheck in
+            guard url == rootURL else { return [] }
+            return try probe.contents(for: url, cancellationCheck: cancellationCheck)
+        })
+        let scanTask = Task {
+            var didFinish = false
+            do {
+                for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+                    if case .finished = event {
+                        didFinish = true
+                    }
+                }
+            } catch is CancellationError {
+                return false
+            }
+            return didFinish
+        }
+
+        try await probe.waitUntilProduced(64)
+        scanTask.cancel()
+        let didFinishCancelledScan = try await withTimeout(.seconds(1)) {
+            try await scanTask.value
+        }
+
+        XCTAssertFalse(didFinishCancelledScan)
+        XCTAssertLessThan(probe.producedCount, probe.totalCount)
     }
 
     func testSymbolicLinksAreNotTraversed() async throws {
@@ -1431,6 +1494,123 @@ private func makeScanEngineFileNode(id: String, name: String, size: Int64) -> Fi
 
 private enum AsyncTestTimeout: Error {
     case timedOut
+}
+
+private final class DirectoryEnumerationCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isCancelled = false
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        lock.unlock()
+    }
+
+    func check() throws {
+        lock.lock()
+        let isCancelled = isCancelled
+        lock.unlock()
+        if isCancelled {
+            throw CancellationError()
+        }
+    }
+}
+
+private final class SlowDirectoryObjectEnumerator: ScanEngine.DirectoryObjectEnumerating, @unchecked Sendable {
+    let totalCount: Int
+    private let rootURL: URL
+    private let lock = NSLock()
+    private var nextIndex = 0
+
+    init(rootURL: URL, totalCount: Int) {
+        self.rootURL = rootURL
+        self.totalCount = totalCount
+    }
+
+    var producedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return nextIndex
+    }
+
+    func nextObject() -> Any? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard nextIndex < totalCount else { return nil }
+        let childURL = rootURL.appending(path: "payload-\(nextIndex).tmp")
+        nextIndex += 1
+        Thread.sleep(forTimeInterval: 0.0005)
+        return childURL
+    }
+
+    func waitUntilProduced(
+        _ minimumCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<200 {
+            if producedCount >= minimumCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for directory object enumeration.", file: file, line: line)
+    }
+}
+
+private final class CancellableDirectoryContentsProbe: @unchecked Sendable {
+    let totalCount: Int
+    private let lock = NSLock()
+    private var produced = 0
+
+    init(totalCount: Int) {
+        self.totalCount = totalCount
+    }
+
+    var producedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return produced
+    }
+
+    func contents(
+        for url: URL,
+        cancellationCheck: @Sendable () throws -> Void
+    ) throws -> [URL] {
+        var urls: [URL] = []
+        urls.reserveCapacity(totalCount)
+
+        for index in 0..<totalCount {
+            if index.isMultiple(of: 8) {
+                try cancellationCheck()
+            }
+            recordProducedChild()
+            Thread.sleep(forTimeInterval: 0.0005)
+            urls.append(url.appending(path: "payload-\(index).tmp"))
+        }
+
+        return urls
+    }
+
+    func waitUntilProduced(
+        _ minimumCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<200 {
+            if producedCount >= minimumCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for directory contents production.", file: file, line: line)
+    }
+
+    private func recordProducedChild() {
+        lock.lock()
+        produced += 1
+        lock.unlock()
+    }
 }
 
 private func withTimeout<T: Sendable>(

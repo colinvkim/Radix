@@ -9,6 +9,10 @@ import Darwin
 import Foundation
 
 actor ScanEngine {
+    protocol DirectoryObjectEnumerating: AnyObject {
+        func nextObject() -> Any?
+    }
+
     private enum ScanEngineError: LocalizedError {
         case missingRootNode
 
@@ -98,7 +102,7 @@ actor ScanEngine {
         }
     }
 
-    private typealias CancellationCheck = () throws -> Void
+    private typealias CancellationCheck = @Sendable () throws -> Void
 
     /// A work item for the iterative scanner.
     /// `parentKey` links this item back to its parent for bottom-up assembly.
@@ -111,7 +115,7 @@ actor ScanEngine {
     }
 
     /// A child discovered during directory enumeration.
-    /// `contentsOfDirectory` prefetches resource values, so carrying decoded metadata forward
+    /// Directory enumeration prefetches resource values, so carrying decoded metadata forward
     /// avoids asking each URL for the same values again when the child is scanned.
     private struct DirectoryEntry: Sendable {
         let url: URL
@@ -129,7 +133,8 @@ actor ScanEngine {
     typealias DirectoryContentsProvider = @Sendable (
         URL,
         [URLResourceKey]?,
-        FileManager.DirectoryEnumerationOptions
+        FileManager.DirectoryEnumerationOptions,
+        @Sendable () throws -> Void
     ) throws -> [URL]
 
     private let fileManager = FileManager.default
@@ -173,14 +178,73 @@ actor ScanEngine {
     ]
     private static let atomicSummaryResourceKeySet = Set(atomicSummaryResourceKeys)
 
-    init(directoryContents: @escaping DirectoryContentsProvider = { url, keys, options in
-        try FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: keys,
-            options: options
-        )
-    }) {
+    init(directoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
         self.directoryContents = directoryContents
+    }
+
+    private nonisolated static func defaultDirectoryContents(
+        url: URL,
+        keys: [URLResourceKey]?,
+        options: FileManager.DirectoryEnumerationOptions,
+        cancellationCheck: @Sendable () throws -> Void
+    ) throws -> [URL] {
+        var enumerationError: Error?
+        return try enumeratedDirectoryContents(
+            url: url,
+            keys: keys,
+            options: options,
+            cancellationCheck: cancellationCheck,
+            makeEnumerator: { url, keys, options in
+                FileManager.default.enumerator(
+                    at: url,
+                    includingPropertiesForKeys: keys,
+                    options: options,
+                    errorHandler: { _, error in
+                        enumerationError = error
+                        return false
+                    }
+                )
+            },
+            enumerationError: { enumerationError }
+        )
+    }
+
+    nonisolated static func enumeratedDirectoryContents(
+        url: URL,
+        keys: [URLResourceKey]?,
+        options: FileManager.DirectoryEnumerationOptions,
+        cancellationCheck: @Sendable () throws -> Void,
+        makeEnumerator: (
+            URL,
+            [URLResourceKey]?,
+            FileManager.DirectoryEnumerationOptions
+        ) -> (any DirectoryObjectEnumerating)?,
+        enumerationError: () -> Error? = { nil }
+    ) throws -> [URL] {
+        try cancellationCheck()
+        guard let enumerator = makeEnumerator(url, keys, options) else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadUnknownError,
+                userInfo: [NSURLErrorKey: url]
+            )
+        }
+
+        var contents: [URL] = []
+        while let nextObject = enumerator.nextObject() {
+            try cancellationCheck()
+            if let enumerationError = enumerationError() {
+                throw enumerationError
+            }
+            guard let childURL = nextObject as? URL else { continue }
+            contents.append(childURL)
+        }
+
+        if let enumerationError = enumerationError() {
+            throw enumerationError
+        }
+        try cancellationCheck()
+        return contents
     }
 
     /// Thresholds for automatically summarizing directories with many small files.
@@ -891,7 +955,7 @@ actor ScanEngine {
         let prefetchKeys = Self.shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
             ? nil
             : Array(scanResourceKeys)
-        let contents = try directoryContents(url, prefetchKeys, options)
+        let contents = try directoryContents(url, prefetchKeys, options, cancellationCheck)
         try cancellationCheck()
 
         var entries: [DirectoryEntry] = []
@@ -1766,6 +1830,8 @@ actor ScanEngine {
         Self.makeWarning(for: url, error: error)
     }
 }
+
+extension FileManager.DirectoryEnumerator: ScanEngine.DirectoryObjectEnumerating {}
 
 nonisolated private enum FileIdentity: Hashable, Sendable {
     case resourceIdentifier(Data)
