@@ -4,7 +4,7 @@ import XCTest
 
 final class FileBrowserModelTests: XCTestCase {
     @MainActor
-    func testCurrentContentsSortsFiltersAndBuildsSelectionLookup() {
+    func testCurrentContentsSortsFiltersAndFindsDisplayedNodes() {
         let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
         let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
         let nested = makeBrowserFileNode(id: "/root/Folder/nested.txt", name: "nested.txt", size: 20)
@@ -19,7 +19,7 @@ final class FileBrowserModelTests: XCTestCase {
         )
 
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, folder.id, small.id])
-        XCTAssertEqual(model.displayedNodeLookup[large.id]?.name, "large.log")
+        XCTAssertEqual(model.displayedNode(id: large.id)?.name, "large.log")
 
         model.setActiveSearchText("small")
         XCTAssertEqual(model.displayedNodes.map(\.id), [small.id])
@@ -115,7 +115,7 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
-    func testContentUpdatePublishesRowsAndLookupTogether() {
+    func testContentUpdatePublishesRowsAndDisplayedNodesTogether() {
         let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
         let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
         let model = FileBrowserModel()
@@ -132,7 +132,7 @@ final class FileBrowserModelTests: XCTestCase {
         )
 
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, small.id])
-        XCTAssertEqual(model.displayedNodeLookup[small.id]?.name, small.name)
+        XCTAssertEqual(model.displayedNode(id: small.id)?.name, small.name)
         XCTAssertEqual(publishCount, 1)
         withExtendedLifetime(cancellable) {}
     }
@@ -318,7 +318,7 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
-    func testCancelSearchClearsLoadingState() async throws {
+    func testCleanupClearsLoadingState() async throws {
         let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
         let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
@@ -342,7 +342,7 @@ final class FileBrowserModelTests: XCTestCase {
         await service.waitUntilStarted(query)
         XCTAssertTrue(model.isSearchingEntireScan)
 
-        model.cancelSearch()
+        model.cleanup()
 
         XCTAssertFalse(model.isSearchingEntireScan)
     }
@@ -433,7 +433,7 @@ final class FileBrowserModelTests: XCTestCase {
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         await service.waitUntilStarted(query)
-        model.cancelSearch()
+        model.cleanup()
 
         model.updateContent(
             nodes: store.children(of: root.id),
@@ -445,7 +445,7 @@ final class FileBrowserModelTests: XCTestCase {
 
         try await waitForStartCount(service, query: query, count: 2)
         XCTAssertTrue(model.isSearchingEntireScan)
-        model.cancelSearch()
+        model.cleanup()
     }
 
     @MainActor
@@ -483,7 +483,7 @@ final class FileBrowserModelTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
         let startCount = await service.startCount(for: query)
         XCTAssertEqual(startCount, 1)
-        model.cancelSearch()
+        model.cleanup()
     }
 
     @MainActor

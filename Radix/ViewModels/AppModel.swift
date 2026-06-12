@@ -305,10 +305,6 @@ final class AppModel: ObservableObject {
         sidebarModel.recentScanTargets
     }
 
-    var activeSidebarTargetID: String? {
-        sidebarModel.activeTargetID
-    }
-
     var targetCapacityDescriptions: [String: String] {
         sidebarModel.targetCapacityDescriptions
     }

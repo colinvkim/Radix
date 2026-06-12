@@ -25,10 +25,6 @@ extension ScanTarget {
         }
     }
 
-    var sidebarSubtitle: String {
-        return url.path
-    }
-
     var sidebarSymbolName: String {
         switch url.path {
         case "/":

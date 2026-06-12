@@ -78,10 +78,6 @@ final class FileBrowserModel: ObservableObject {
         displayState.nodes
     }
 
-    var displayedNodeLookup: [FileNodeRecord.ID: FileNodeRecord] {
-        displayState.nodeLookup()
-    }
-
     var isDisplayingCurrentResults: Bool {
         displayState.context == currentDisplayContext
     }
@@ -146,10 +142,6 @@ final class FileBrowserModel: ObservableObject {
         guard sortOrder != order else { return }
         sortOrder = order
         refreshDisplayedNodes()
-    }
-
-    func cancelSearch() {
-        cancelPendingSearch(clearLoading: true)
     }
 
     func cleanup() {

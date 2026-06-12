@@ -477,7 +477,7 @@ status title, symbol, and color mapping. Moved shared display values into the
 presentation helper extension while keeping surface-specific explanatory copy
 local. Xcode Debug build passed.
 
-### 15. [ ] Dead or test-only production APIs
+### 15. [x] Dead or test-only production APIs
 
 Original finding: 20. Severity: Low.
 
@@ -505,6 +505,14 @@ Validate:
 
 - `rtk swift test`
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
+
+Completion note: Re-ran usage searches and removed the stale production APIs:
+`activeSidebarTargetID`, `displayedNodeLookup`, `cancelSearch`, and
+`ScanTarget.sidebarSubtitle`. Updated tests to use the narrower existing
+surfaces (`sidebar.activeTargetID`, `displayedNode(id:)`, and `cleanup()`).
+Kept `AppSystemActions.inert`, `selectSidebarTarget`,
+`replaceCurrentSnapshot`, and `setFocusedNodeID` as active test seams. Both
+validations passed.
 
 ### 16. [ ] Ordinary directory permission coverage
 

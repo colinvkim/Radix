@@ -365,7 +365,7 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.scanState.selectedTarget, firstTarget)
         XCTAssertEqual(model.scanState.snapshot?.target, firstTarget)
         XCTAssertEqual(model.navigation.focusedNodeID, firstSnapshot.root.id)
-        XCTAssertEqual(model.activeSidebarTargetID, firstTarget.id)
+        XCTAssertEqual(model.sidebar.activeTargetID, firstTarget.id)
     }
 
     @MainActor
@@ -404,7 +404,7 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.scanState.selectedTarget, firstTarget)
         XCTAssertEqual(model.scanState.snapshot?.target, firstTarget)
         XCTAssertEqual(model.navigation.focusedNodeID, snapshots[0].root.id)
-        XCTAssertEqual(model.activeSidebarTargetID, firstTarget.id)
+        XCTAssertEqual(model.sidebar.activeTargetID, firstTarget.id)
     }
 
     @MainActor
@@ -775,7 +775,7 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.scanState.snapshot?.root.id, downloadsTarget.id)
         XCTAssertEqual(model.scanState.fileTreeStore?.children(of: downloadsTarget.id).map(\.id), [downloadFile.id])
         XCTAssertEqual(model.navigation.focusedNodeID, downloadsTarget.id)
-        XCTAssertEqual(model.activeSidebarTargetID, downloadsTarget.id)
+        XCTAssertEqual(model.sidebar.activeTargetID, downloadsTarget.id)
     }
 
     @MainActor
@@ -832,7 +832,7 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.scanState.snapshot?.root.id, downloadsTarget.id)
         XCTAssertEqual(model.scanState.snapshot?.aggregateStats.totalAllocatedSize, downloadsNode.allocatedSize)
         XCTAssertEqual(model.navigation.focusedNodeID, downloadsTarget.id)
-        XCTAssertEqual(model.activeSidebarTargetID, downloadsTarget.id)
+        XCTAssertEqual(model.sidebar.activeTargetID, downloadsTarget.id)
 
         model.rescan()
 
@@ -911,7 +911,7 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.scanState.selectedTarget, documentsTarget)
         XCTAssertEqual(model.scanState.snapshot?.target, documentsTarget)
         XCTAssertEqual(model.scanState.fileTreeStore?.children(of: documentsTarget.id).map(\.id), [documentFile.id])
-        XCTAssertEqual(model.activeSidebarTargetID, documentsTarget.id)
+        XCTAssertEqual(model.sidebar.activeTargetID, documentsTarget.id)
     }
 
     @MainActor
@@ -1051,11 +1051,11 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.selectSidebarTargetAfterViewUpdate(id: target.id)
 
-        XCTAssertNil(model.activeSidebarTargetID)
+        XCTAssertNil(model.sidebar.activeTargetID)
         XCTAssertTrue(service.requests.isEmpty)
 
         try await waitUntil("deferred sidebar selection starts scan") {
-            model.activeSidebarTargetID == target.id && service.requests.count == 1
+            model.sidebar.activeTargetID == target.id && service.requests.count == 1
         }
     }
 
@@ -1075,7 +1075,7 @@ final class ScanCoordinatorTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertNil(model.activeSidebarTargetID)
+        XCTAssertNil(model.sidebar.activeTargetID)
         XCTAssertTrue(service.requests.isEmpty)
     }
 

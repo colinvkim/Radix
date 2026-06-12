@@ -87,7 +87,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.sidebar.setActiveTargetID(first.id)
         model.clearRecentTargets()
 
-        XCTAssertNil(model.activeSidebarTargetID)
+        XCTAssertNil(model.sidebar.activeTargetID)
         XCTAssertTrue(model.recentTargets.isEmpty)
         XCTAssertTrue(model.recentScanTargets.isEmpty)
         XCTAssertTrue(recentPersistence.didClear)
