@@ -60,6 +60,11 @@ final class FileBrowserModel: ObservableObject {
         self.currentContentsAsyncThreshold = currentContentsAsyncThreshold
     }
 
+    deinit {
+        searchTask?.cancel()
+        searchIndexPruneTask?.cancel()
+    }
+
     var activeSearchText: String {
         switch searchScope {
         case .currentContents:
@@ -86,7 +91,7 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
-        displayState.displayValues(for: node) ?? FileBrowserNodeDisplayValues(node: node)
+        displayState.displayValues(for: node)
     }
 
     var isShowingEntireScanResults: Bool {
@@ -145,6 +150,12 @@ final class FileBrowserModel: ObservableObject {
 
     func cancelSearch() {
         cancelPendingSearch(clearLoading: true)
+    }
+
+    func cleanup() {
+        cancelPendingSearch(clearLoading: true)
+        searchIndexPruneTask?.cancel()
+        searchIndexPruneTask = nil
     }
 
     private func pruneSearchIndexesIfNeeded(previousSnapshotID: UUID?, nextSnapshotID: UUID?) {
@@ -446,7 +457,7 @@ private struct FileBrowserDisplayState {
     var nodes: [FileNodeRecord]
     var context: FileBrowserDisplayContext
     var indexesByNodeID: [FileNodeRecord.ID: Int]
-    var displayValues: [FileBrowserNodeDisplayValues]
+    var displayValueCache: FileBrowserDisplayValueCache
 
     init(
         nodes: [FileNodeRecord] = [],
@@ -454,21 +465,18 @@ private struct FileBrowserDisplayState {
     ) {
         var uniqueNodes: [FileNodeRecord] = []
         var indexesByNodeID: [FileNodeRecord.ID: Int] = [:]
-        var displayValues: [FileBrowserNodeDisplayValues] = []
         uniqueNodes.reserveCapacity(nodes.count)
         indexesByNodeID.reserveCapacity(nodes.count)
-        displayValues.reserveCapacity(nodes.count)
 
         for node in nodes where indexesByNodeID[node.id] == nil {
             indexesByNodeID[node.id] = uniqueNodes.count
-            displayValues.append(FileBrowserNodeDisplayValues(node: node))
             uniqueNodes.append(node)
         }
 
         self.nodes = uniqueNodes
         self.context = context
         self.indexesByNodeID = indexesByNodeID
-        self.displayValues = displayValues
+        self.displayValueCache = FileBrowserDisplayValueCache()
     }
 
     func node(id: FileNodeRecord.ID) -> FileNodeRecord? {
@@ -479,17 +487,23 @@ private struct FileBrowserDisplayState {
         return nodes[index]
     }
 
-    func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues? {
-        guard let index = indexesByNodeID[node.id],
-              displayValues.indices.contains(index) else {
-            return nil
+    func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
+        if let cachedValues = displayValueCache.valuesByNodeID[node.id] {
+            return cachedValues
         }
-        return displayValues[index]
+
+        let values = FileBrowserNodeDisplayValues(node: node)
+        displayValueCache.valuesByNodeID[node.id] = values
+        return values
     }
 
     func nodeLookup() -> [FileNodeRecord.ID: FileNodeRecord] {
         Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     }
+}
+
+private final class FileBrowserDisplayValueCache {
+    var valuesByNodeID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues] = [:]
 }
 
 struct FileBrowserNodeDisplayValues: Equatable, Sendable {

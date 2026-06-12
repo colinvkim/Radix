@@ -229,6 +229,9 @@ struct FileBrowserTableView: View {
         .onAppear {
             updateModelContent()
         }
+        .onDisappear {
+            model.cleanup()
+        }
         .onChange(of: contentID) { _, _ in
             updateModelContent()
         }

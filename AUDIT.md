@@ -222,7 +222,7 @@ Completion note: Verified full-scan search allocated a filtered node-ID array
 before building its index. Added `forEachIndexedNodeID(excludingRoot:)` and
 build search entries directly from traversal. All validations passed.
 
-### 7. [ ] File-browser task lifecycle and result formatting
+### 7. [x] File-browser task lifecycle and result formatting
 
 Original findings: 6, 7. Severity: Medium.
 
@@ -249,6 +249,11 @@ Validate:
 - `rtk swift test --filter FileBrowserModelTests`
 - `rtk swift test`
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
+
+Completion note: Verified search/prune tasks had no explicit view lifecycle
+cleanup and display-state publication eagerly formatted all rows. Added model
+cleanup plus view disappearance/deinit cancellation, and changed row display
+values to a visible-row lazy cache. All validations passed.
 
 ### 8. [ ] Duplicate navigation publishes on scan completion
 

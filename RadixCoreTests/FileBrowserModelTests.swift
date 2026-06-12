@@ -348,6 +348,68 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanupCancelsActiveSearchAndKeepsCurrentRows() async throws {
+        let current = makeBrowserFileNode(id: "/root/current.txt", name: "current.txt", size: 10)
+        let wholeScanOnly = makeBrowserFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
+        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [current, wholeScanOnly]])
+        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let query = SearchNormalizer.normalize("target")
+        let service = DelayedFileSearchService(
+            delayedQuery: query,
+            delayedIDs: [wholeScanOnly.id],
+            immediateIDsByQuery: [:]
+        )
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+
+        model.updateContent(
+            nodes: [current],
+            contentID: "\(snapshot.id.uuidString)|\(root.id)",
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+        await service.waitUntilStarted(query)
+
+        model.cleanup()
+
+        XCTAssertFalse(model.isSearchingEntireScan)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(model.displayedNodes.map(\.id), [current.id])
+    }
+
+    @MainActor
+    func testCleanupCancelsSearchIndexPruneTask() async throws {
+        let service = CancellablePruningFileSearchService()
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+        let firstRoot = makeBrowserDirectoryNode(id: "/first", name: "first", children: [])
+        let secondRoot = makeBrowserDirectoryNode(id: "/second", name: "second", children: [])
+        let firstStore = FileTreeStore(root: firstRoot)
+        let secondStore = FileTreeStore(root: secondRoot)
+        let firstSnapshot = makeBrowserSnapshot(root: firstRoot, store: firstStore)
+        let secondSnapshot = makeBrowserSnapshot(root: secondRoot, store: secondStore)
+
+        model.updateContent(
+            nodes: [],
+            contentID: "\(firstSnapshot.id.uuidString)|\(firstRoot.id)",
+            snapshot: firstSnapshot,
+            fileTreeStore: firstStore
+        )
+        model.updateContent(
+            nodes: [],
+            contentID: "\(secondSnapshot.id.uuidString)|\(secondRoot.id)",
+            snapshot: secondSnapshot,
+            fileTreeStore: secondStore
+        )
+        await service.waitUntilPruneStarted()
+
+        model.cleanup()
+
+        try await waitForPruneCancellation(service)
+    }
+
+    @MainActor
     func testForceRefreshRestartsCanceledSearchForSameContent() async throws {
         let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
         let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target])
@@ -500,6 +562,20 @@ private func waitForPruneCount(
     XCTFail("Timed out waiting for file browser search index pruning.", file: file, line: line)
 }
 
+private func waitForPruneCancellation(
+    _ service: CancellablePruningFileSearchService,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async throws {
+    for _ in 0..<100 {
+        if await service.didCancelPrune() {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTFail("Timed out waiting for file browser search index prune cancellation.", file: file, line: line)
+}
+
 @MainActor
 private func waitForCurrentContentsRefreshToFinish(
     _ model: FileBrowserModel,
@@ -646,5 +722,44 @@ private actor PruningFileSearchService: FileSearching {
 
     func retainedSnapshotIDs() -> [UUID?] {
         retainedIDs
+    }
+}
+
+private actor CancellablePruningFileSearchService: FileSearching {
+    private var pruneStarted = false
+    private var pruneCancelled = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func search(
+        snapshotID: UUID,
+        treeStore: FileTreeStore,
+        normalizedQuery: String,
+        includesPath: Bool,
+        sortOrder: [FileNodeTableComparator]
+    ) async throws -> [FileNodeRecord] {
+        []
+    }
+
+    func pruneIndexes(keeping snapshotID: UUID?) async {
+        pruneStarted = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+
+        do {
+            try await Task.sleep(for: .seconds(5))
+        } catch {
+            pruneCancelled = true
+        }
+    }
+
+    func waitUntilPruneStarted() async {
+        guard !pruneStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func didCancelPrune() -> Bool {
+        pruneCancelled
     }
 }
