@@ -7,12 +7,39 @@ struct WorkspaceActions {
     let stopScan: () -> Void
     let rescan: () -> Void
     let handleDroppedURLs: ([URL]) -> Bool
+    let selectNodeImmediately: (String?) -> Void
     let selectNode: (String?) -> Void
     let focusNode: (String?) -> Void
     let selectAndFocusNode: (String) -> Void
     let navigateBack: () -> Void
     let navigateForward: () -> Void
+    let expandSummarizedNode: (FileNodeRecord) -> Void
+    let zoomIntoSelection: () -> Void
+    let selectedFileActions: SelectedFileActions
     let openFullDiskAccessSettings: () -> Void
+}
+
+struct SelectedFileActions {
+    let quickLook: () -> Void
+    let revealInFinder: () -> Void
+    let open: () -> Void
+    let copyPath: () -> Void
+    let moveToTrash: () -> Void
+
+    func perform(_ action: FileNodeAction) {
+        switch action {
+        case .quickLook:
+            quickLook()
+        case .revealInFinder:
+            revealInFinder()
+        case .open:
+            open()
+        case .copyPath:
+            copyPath()
+        case .moveToTrash:
+            moveToTrash()
+        }
+    }
 }
 
 struct WorkspaceView: View {

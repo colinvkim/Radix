@@ -1,9 +1,17 @@
 import SwiftUI
 
+struct FileBrowserActions {
+    let selectNode: (String?) -> Void
+    let selectNodeAfterViewUpdate: (String?) -> Void
+    let expandSummarizedNode: (FileNodeRecord) -> Void
+    let zoomIntoSelection: () -> Void
+    let selectedFileActions: SelectedFileActions
+}
+
 struct FileBrowserTableView: View {
-    @EnvironmentObject private var appModel: AppModel
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    let actions: FileBrowserActions
 
     @StateObject private var model: FileBrowserModel
     @FocusState private var isSearchFieldFocused: Bool
@@ -11,10 +19,12 @@ struct FileBrowserTableView: View {
     init(
         scanState: ScanCoordinator,
         navigation: WorkspaceNavigationModel,
+        actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
     ) {
         self.scanState = scanState
         self.navigation = navigation
+        self.actions = actions
         _model = StateObject(wrappedValue: model())
     }
 
@@ -27,7 +37,7 @@ struct FileBrowserTableView: View {
             },
             set: { newValue in
                 if navigation.selectedNodeID != newValue {
-                    appModel.selectAfterViewUpdate(nodeID: newValue)
+                    actions.selectNodeAfterViewUpdate(newValue)
                 }
             }
         )
@@ -119,7 +129,8 @@ struct FileBrowserTableView: View {
                                 FileBrowserNameCell(
                                     node: node,
                                     subtitleOverride: subtitle(for: node),
-                                    isExpanding: isExpanding(node)
+                                    isExpanding: isExpanding(node),
+                                    expandAction: { expandSummarizedNode(node) }
                                 )
                             }
                             .width(min: 260, ideal: 360)
@@ -152,23 +163,11 @@ struct FileBrowserTableView: View {
                                let selectedNode = model.displayedNode(id: selectedID) {
                                 let actionAvailability = selectedNode.actionAvailability(activeTarget: scanState.selectedTarget)
 
-                                Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
-                                    appModel.select(nodeID: selectedID)
-                                    appModel.previewSelectedWithQuickLook()
-                                }
-                                .disabled(!actionAvailability.canPreviewWithQuickLook)
+                                fileActionButton(.quickLook, availability: actionAvailability, selectedID: selectedID)
 
-                                Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
-                                    appModel.select(nodeID: selectedID)
-                                    appModel.revealSelectedInFinder()
-                                }
-                                .disabled(!actionAvailability.canRevealInFinder)
+                                fileActionButton(.revealInFinder, availability: actionAvailability, selectedID: selectedID)
 
-                                Button("Open", systemImage: "arrow.up.forward.app") {
-                                    appModel.select(nodeID: selectedID)
-                                    appModel.openSelected()
-                                }
-                                .disabled(!actionAvailability.canOpen)
+                                fileActionButton(.open, availability: actionAvailability, selectedID: selectedID)
 
                                 if selectedNode.isAutoSummarized {
                                     let expansionIsActive = isExpanding(selectedNode)
@@ -176,31 +175,23 @@ struct FileBrowserTableView: View {
                                         expansionIsActive ? "Expanding…" : "Expand Fully",
                                         systemImage: "arrowshape.turn.up.right.circle.fill"
                                     ) {
-                                        appModel.select(nodeID: selectedID)
+                                        actions.selectNode(selectedID)
                                         expandSummarizedNode(selectedNode)
                                     }
                                     .disabled(expansionIsActive)
                                 } else {
                                     Button("Zoom In", systemImage: "magnifyingglass") {
-                                        appModel.select(nodeID: selectedID)
-                                        appModel.zoomIntoSelection()
+                                        actions.selectNode(selectedID)
+                                        actions.zoomIntoSelection()
                                     }
                                     .disabled(!canRequestZoom(for: selectedNode))
                                 }
 
                                 Divider()
 
-                                Button("Move to Trash", systemImage: "trash") {
-                                    appModel.select(nodeID: selectedID)
-                                    appModel.requestMoveSelectedToTrash()
-                                }
-                                .disabled(!actionAvailability.canMoveToTrash)
+                                fileActionButton(.moveToTrash, availability: actionAvailability, selectedID: selectedID)
 
-                                Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
-                                    appModel.select(nodeID: selectedID)
-                                    appModel.copySelectedPath()
-                                }
-                                .disabled(!actionAvailability.canCopyPath)
+                                fileActionButton(.copyPath, availability: actionAvailability, selectedID: selectedID)
                             }
                         } primaryAction: { selectedIDs in
                             guard let selectedID = selectedIDs.first,
@@ -208,14 +199,14 @@ struct FileBrowserTableView: View {
                                 return
                             }
 
-                            appModel.select(nodeID: selectedID)
+                            actions.selectNode(selectedID)
 
                             if selectedNode.isAutoSummarized && !isExpanding(selectedNode) {
                                 expandSummarizedNode(selectedNode)
                             } else if canRequestZoom(for: selectedNode) {
-                                appModel.zoomIntoSelection()
+                                actions.zoomIntoSelection()
                             } else if selectedNode.actionAvailability(activeTarget: scanState.selectedTarget).canOpen {
-                                appModel.openSelected()
+                                actions.selectedFileActions.perform(.open)
                             }
                         }
                     }
@@ -290,6 +281,19 @@ struct FileBrowserTableView: View {
 
     private func expandSummarizedNode(_ node: FileNodeRecord) {
         guard !isExpanding(node) else { return }
-        appModel.expandSummarizedNode(node) {}
+        actions.expandSummarizedNode(node)
+    }
+
+    @ViewBuilder
+    private func fileActionButton(
+        _ action: FileNodeAction,
+        availability: FileNodeActionAvailability,
+        selectedID: FileNodeRecord.ID
+    ) -> some View {
+        Button(action.title, systemImage: action.systemImageName) {
+            actions.selectNode(selectedID)
+            actions.selectedFileActions.perform(action)
+        }
+        .disabled(!action.isEnabled(in: availability))
     }
 }

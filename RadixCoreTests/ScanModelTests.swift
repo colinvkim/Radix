@@ -136,6 +136,36 @@ final class ScanModelTests: XCTestCase {
         )
     }
 
+    func testFileNodeActionsDescribePresentationAndAvailability() {
+        let availability = FileNodeActionAvailability(
+            canOpen: true,
+            canPreviewWithQuickLook: false,
+            canRevealInFinder: true,
+            canCopyPath: false,
+            canMoveToTrash: true
+        )
+
+        XCTAssertEqual(
+            FileNodeAction.allCases.map(\.title),
+            ["Quick Look", "Reveal in Finder", "Open", "Copy Path", "Move to Trash"]
+        )
+        XCTAssertEqual(FileNodeAction.open.systemImageName, "arrow.up.forward.app")
+        XCTAssertEqual(FileNodeAction.moveToTrash.systemImageName, "trash")
+        XCTAssertFalse(FileNodeAction.quickLook.isEnabled(in: availability))
+        XCTAssertTrue(FileNodeAction.revealInFinder.isEnabled(in: availability))
+        XCTAssertTrue(FileNodeAction.open.isEnabled(in: availability))
+        XCTAssertFalse(FileNodeAction.copyPath.isEnabled(in: availability))
+        XCTAssertTrue(FileNodeAction.moveToTrash.isEnabled(in: availability))
+
+        if #available(macOS 15.0, *) {
+            XCTAssertEqual(FileNodeAction.quickLook.systemImageName, "document.viewfinder")
+            XCTAssertEqual(FileNodeAction.copyPath.systemImageName, "document.on.document")
+        } else {
+            XCTAssertEqual(FileNodeAction.quickLook.systemImageName, "doc.viewfinder")
+            XCTAssertEqual(FileNodeAction.copyPath.systemImageName, "doc.on.doc")
+        }
+    }
+
     func testAccessPresentationReflectsAccessibilityAndSyntheticState() {
         let readableNode = makeNode(id: "/Users/example/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
         let limitedNode = makeNode(id: "/Users/example/private", isDirectory: true, isSynthetic: false, isAccessible: false)

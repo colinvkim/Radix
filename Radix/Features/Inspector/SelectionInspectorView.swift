@@ -1,9 +1,17 @@
 import SwiftUI
 
+struct SelectionInspectorActions {
+    let selectNodeAfterViewUpdate: (String?) -> Void
+    let expandSummarizedNode: (FileNodeRecord) -> Void
+    let zoomIntoSelection: () -> Void
+    let selectedFileActions: SelectedFileActions
+    let openFullDiskAccessSettings: () -> Void
+}
+
 struct SelectionInspectorView: View {
-    @EnvironmentObject private var appModel: AppModel
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    let actions: SelectionInspectorActions
 
     var body: some View {
         let largestChildren = largestSelectedChildren
@@ -24,18 +32,14 @@ struct SelectionInspectorView: View {
                         availability: selectedActionAvailability,
                         canExpandSummarizedSelection: canExpandSummarizedSelection,
                         canZoomIntoSelection: navigation.canZoomIntoSelection,
-                        quickLookAction: { appModel.previewSelectedWithQuickLook() },
-                        revealAction: { appModel.revealSelectedInFinder() },
+                        fileActions: actions.selectedFileActions,
                         expandAction: { expandSummarizedSelection() },
-                        zoomAction: { appModel.zoomIntoSelection() },
-                        openAction: { appModel.openSelected() },
-                        copyPathAction: { appModel.copySelectedPath() },
-                        trashAction: { appModel.requestMoveSelectedToTrash() }
+                        zoomAction: actions.zoomIntoSelection
                     )
 
                     if !largestChildren.isEmpty {
                         InspectorLargestChildrenSection(children: largestChildren) { child in
-                            appModel.selectAfterViewUpdate(nodeID: child.id)
+                            actions.selectNodeAfterViewUpdate(child.id)
                         }
                     }
 
@@ -44,7 +48,7 @@ struct SelectionInspectorView: View {
                             warnings: scanWarningsPreview,
                             shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess
                         ) {
-                            appModel.prepareAndOpenFullDiskAccessSettings()
+                            actions.openFullDiskAccessSettings()
                         }
                     }
                 }
@@ -54,7 +58,7 @@ struct SelectionInspectorView: View {
                     scanWarningsPreview: scanWarningsPreview,
                     shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess
                 ) {
-                    appModel.prepareAndOpenFullDiskAccessSettings()
+                    actions.openFullDiskAccessSettings()
                 }
             }
         }
@@ -101,6 +105,6 @@ struct SelectionInspectorView: View {
 
     private func expandSummarizedSelection() {
         guard let node = navigation.selectedNode else { return }
-        appModel.expandSummarizedNode(node) {}
+        actions.expandSummarizedNode(node)
     }
 }

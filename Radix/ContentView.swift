@@ -35,7 +35,8 @@ struct ContentView: View {
         .inspector(isPresented: $showsInspector) {
             SelectionInspectorView(
                 scanState: appModel.scanState,
-                navigation: appModel.navigation
+                navigation: appModel.navigation,
+                actions: selectionInspectorActions
             )
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
                 .interactiveDismissDisabled()
@@ -203,12 +204,36 @@ private extension ContentView {
             stopScan: { appModel.stopScan() },
             rescan: { appModel.rescan() },
             handleDroppedURLs: { appModel.handleDroppedURLs($0) },
+            selectNodeImmediately: { appModel.select(nodeID: $0) },
             selectNode: { appModel.selectAfterViewUpdate(nodeID: $0) },
             focusNode: { appModel.focusAfterViewUpdate(nodeID: $0) },
             selectAndFocusNode: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             navigateBack: { appModel.navigateBack() },
             navigateForward: { appModel.navigateForward() },
+            expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
+            zoomIntoSelection: { appModel.zoomIntoSelection() },
+            selectedFileActions: previewSelectedFileActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
+        )
+    }
+
+    var selectionInspectorActions: SelectionInspectorActions {
+        SelectionInspectorActions(
+            selectNodeAfterViewUpdate: { appModel.selectAfterViewUpdate(nodeID: $0) },
+            expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
+            zoomIntoSelection: { appModel.zoomIntoSelection() },
+            selectedFileActions: previewSelectedFileActions,
+            openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
+        )
+    }
+
+    var previewSelectedFileActions: SelectedFileActions {
+        SelectedFileActions(
+            quickLook: { appModel.previewSelectedWithQuickLook() },
+            revealInFinder: { appModel.revealSelectedInFinder() },
+            open: { appModel.openSelected() },
+            copyPath: { appModel.copySelectedPath() },
+            moveToTrash: { appModel.requestMoveSelectedToTrash() }
         )
     }
 }

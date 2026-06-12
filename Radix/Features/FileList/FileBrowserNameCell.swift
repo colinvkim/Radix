@@ -4,6 +4,7 @@ struct FileBrowserNameCell: View {
     let node: FileNodeRecord
     let subtitleOverride: String?
     let isExpanding: Bool
+    let expandAction: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -23,7 +24,11 @@ struct FileBrowserNameCell: View {
             }
 
             if node.isAutoSummarized {
-                ExpandSummarizedButton(node: node, isExpanding: isExpanding)
+                ExpandSummarizedButton(
+                    node: node,
+                    isExpanding: isExpanding,
+                    expandAction: expandAction
+                )
             }
         }
         .accessibilityElement(children: .combine)
@@ -41,10 +46,10 @@ struct FileBrowserNameCell: View {
 private struct ExpandSummarizedButton: View {
     let node: FileNodeRecord
     let isExpanding: Bool
-    @EnvironmentObject private var appModel: AppModel
+    let expandAction: () -> Void
 
     var body: some View {
-        Button(action: expandFolder) {
+        Button(action: expandAction) {
             Image(systemName: "arrowshape.turn.up.right.circle.fill")
                 .foregroundStyle(.blue)
                 .help("Expand '\(node.name)' to scan all \(node.descendantFileCount) files")
@@ -59,9 +64,5 @@ private struct ExpandSummarizedButton: View {
                     .controlSize(.small)
             }
         }
-    }
-
-    private func expandFolder() {
-        appModel.expandSummarizedNode(node) {}
     }
 }

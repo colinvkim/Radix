@@ -941,6 +941,70 @@ struct FileTreeStore: Sendable {
     }
 }
 
+enum FileNodeAction: CaseIterable, Equatable, Identifiable, Sendable {
+    case quickLook
+    case revealInFinder
+    case open
+    case copyPath
+    case moveToTrash
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .quickLook:
+            return "Quick Look"
+        case .revealInFinder:
+            return "Reveal in Finder"
+        case .open:
+            return "Open"
+        case .copyPath:
+            return "Copy Path"
+        case .moveToTrash:
+            return "Move to Trash"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .quickLook:
+            if #available(macOS 15.0, *) {
+                return "document.viewfinder"
+            }
+            return "doc.viewfinder"
+        case .revealInFinder:
+            if #available(macOS 26.0, *) {
+                return "finder"
+            }
+            return "folder"
+        case .open:
+            return "arrow.up.forward.app"
+        case .copyPath:
+            if #available(macOS 15.0, *) {
+                return "document.on.document"
+            }
+            return "doc.on.doc"
+        case .moveToTrash:
+            return "trash"
+        }
+    }
+
+    func isEnabled(in availability: FileNodeActionAvailability) -> Bool {
+        switch self {
+        case .quickLook:
+            return availability.canPreviewWithQuickLook
+        case .revealInFinder:
+            return availability.canRevealInFinder
+        case .open:
+            return availability.canOpen
+        case .copyPath:
+            return availability.canCopyPath
+        case .moveToTrash:
+            return availability.canMoveToTrash
+        }
+    }
+}
+
 struct FileNodeActionAvailability: Equatable, Sendable {
     let canOpen: Bool
     let canPreviewWithQuickLook: Bool

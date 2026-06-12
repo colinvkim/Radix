@@ -4,34 +4,30 @@ struct InspectorActionsSection: View {
     let availability: FileNodeActionAvailability
     let canExpandSummarizedSelection: Bool
     let canZoomIntoSelection: Bool
-    let quickLookAction: () -> Void
-    let revealAction: () -> Void
+    let fileActions: SelectedFileActions
     let expandAction: () -> Void
     let zoomAction: () -> Void
-    let openAction: () -> Void
-    let copyPathAction: () -> Void
-    let trashAction: () -> Void
 
     var body: some View {
         Section("Actions") {
             VStack(alignment: .leading, spacing: 8) {
                 Button {
-                    quickLookAction()
+                    fileActions.perform(.quickLook)
                 } label: {
-                    Label("Quick Look", systemImage: RadixSystemImages.quickLook)
+                    Label(FileNodeAction.quickLook.title, systemImage: FileNodeAction.quickLook.systemImageName)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!availability.canPreviewWithQuickLook)
+                .disabled(!FileNodeAction.quickLook.isEnabled(in: availability))
 
                 Button {
-                    revealAction()
+                    fileActions.perform(.revealInFinder)
                 } label: {
-                    Label("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder)
+                    Label(FileNodeAction.revealInFinder.title, systemImage: FileNodeAction.revealInFinder.systemImageName)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .disabled(!availability.canRevealInFinder)
+                .disabled(!FileNodeAction.revealInFinder.isEnabled(in: availability))
 
                 if canExpandSummarizedSelection {
                     Button {
@@ -64,13 +60,13 @@ struct InspectorActionsSection: View {
                 }
 
                 Button(role: .destructive) {
-                    trashAction()
+                    fileActions.perform(.moveToTrash)
                 } label: {
-                    Label("Move to Trash", systemImage: "trash")
+                    Label(FileNodeAction.moveToTrash.title, systemImage: FileNodeAction.moveToTrash.systemImageName)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .disabled(!availability.canMoveToTrash)
+                .disabled(!FileNodeAction.moveToTrash.isEnabled(in: availability))
             }
             .controlSize(.regular)
         }
@@ -78,23 +74,23 @@ struct InspectorActionsSection: View {
 
     private var openButton: some View {
         Button {
-            openAction()
+            fileActions.perform(.open)
         } label: {
-            Label("Open", systemImage: "arrow.up.forward.app")
+            Label(FileNodeAction.open.title, systemImage: FileNodeAction.open.systemImageName)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(!availability.canOpen)
+        .disabled(!FileNodeAction.open.isEnabled(in: availability))
     }
 
     private var copyPathButton: some View {
         Button {
-            copyPathAction()
+            fileActions.perform(.copyPath)
         } label: {
-            Label("Copy Path", systemImage: RadixSystemImages.copyPath)
+            Label(FileNodeAction.copyPath.title, systemImage: FileNodeAction.copyPath.systemImageName)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(!availability.canCopyPath)
+        .disabled(!FileNodeAction.copyPath.isEnabled(in: availability))
     }
 }

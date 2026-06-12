@@ -80,37 +80,17 @@ struct RadixCommands: Commands {
         }
 
         CommandMenu("Inspect") {
-            Button("Quick Look", systemImage: RadixSystemImages.quickLook) {
-                appModel.toggleQuickLookForSelected()
-            }
-            .keyboardShortcut("y", modifiers: [.command])
-            .disabled(!selectedActionAvailability.canPreviewWithQuickLook)
+            selectedFileActionCommand(.quickLook, shortcut: "y")
 
-            Button("Open", systemImage: "arrow.up.forward.app") {
-                appModel.openSelected()
-            }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(!selectedActionAvailability.canOpen)
+            selectedFileActionCommand(.open, shortcut: "o", modifiers: [.command, .shift])
 
-            Button("Reveal in Finder", systemImage: RadixSystemImages.revealInFinder) {
-                appModel.revealSelectedInFinder()
-            }
-            .keyboardShortcut("j", modifiers: [.command, .shift])
-            .disabled(!selectedActionAvailability.canRevealInFinder)
+            selectedFileActionCommand(.revealInFinder, shortcut: "j", modifiers: [.command, .shift])
 
-            Button("Copy Path", systemImage: RadixSystemImages.copyPath) {
-                appModel.copySelectedPath()
-            }
-            .keyboardShortcut("c", modifiers: [.command, .shift])
-            .disabled(!selectedActionAvailability.canCopyPath)
+            selectedFileActionCommand(.copyPath, shortcut: "c", modifiers: [.command, .shift])
 
             Divider()
 
-            Button("Move to Trash", systemImage: "trash") {
-                appModel.requestMoveSelectedToTrash()
-            }
-            .keyboardShortcut(.delete, modifiers: [])
-            .disabled(!selectedActionAvailability.canMoveToTrash)
+            selectedFileActionCommand(.moveToTrash, shortcut: .delete, modifiers: [])
         }
     }
 
@@ -119,5 +99,27 @@ struct RadixCommands: Commands {
             node: navigation.selectedNode,
             activeTarget: scanState.selectedTarget
         )
+    }
+
+    private var commandSelectedFileActions: SelectedFileActions {
+        SelectedFileActions(
+            quickLook: { appModel.toggleQuickLookForSelected() },
+            revealInFinder: { appModel.revealSelectedInFinder() },
+            open: { appModel.openSelected() },
+            copyPath: { appModel.copySelectedPath() },
+            moveToTrash: { appModel.requestMoveSelectedToTrash() }
+        )
+    }
+
+    private func selectedFileActionCommand(
+        _ action: FileNodeAction,
+        shortcut: KeyEquivalent,
+        modifiers: EventModifiers = [.command]
+    ) -> some View {
+        Button(action.title, systemImage: action.systemImageName) {
+            commandSelectedFileActions.perform(action)
+        }
+        .keyboardShortcut(shortcut, modifiers: modifiers)
+        .disabled(!action.isEnabled(in: selectedActionAvailability))
     }
 }

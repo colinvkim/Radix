@@ -289,7 +289,7 @@ handling to cache bookkeeping, resolved missing scan focus during scan-context
 application, and removed forced unchanged navigation publishes. All validations
 passed.
 
-### 9. [ ] Action dependency scope and file action duplication
+### 9. [x] Action dependency scope and file action duplication
 
 Original findings: 4, 5. Severity: Medium.
 
@@ -318,6 +318,13 @@ Validate:
 
 - `rtk swift test`
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
+
+Completion note: Verified file-list and inspector leaf views observed the whole
+`AppModel` for action calls and that selected-file actions repeated labels,
+icons, and availability logic across table menus, inspector buttons, and
+commands. Added shared `FileNodeAction` descriptors and focused action bundles
+for the table and inspector while preserving command Quick Look toggle
+behavior. Both validations passed.
 
 ### 10. [ ] Inspector visibility control
 

@@ -63,7 +63,8 @@ struct ActiveWorkspaceView: View {
         VStack(spacing: 0) {
             FileBrowserTableView(
                 scanState: scanState,
-                navigation: navigation
+                navigation: navigation,
+                actions: fileBrowserActions
             )
 
             if !snapshot.scanWarnings.isEmpty {
@@ -75,5 +76,15 @@ struct ActiveWorkspaceView: View {
                 )
             }
         }
+    }
+
+    private var fileBrowserActions: FileBrowserActions {
+        FileBrowserActions(
+            selectNode: actions.selectNodeImmediately,
+            selectNodeAfterViewUpdate: actions.selectNode,
+            expandSummarizedNode: actions.expandSummarizedNode,
+            zoomIntoSelection: actions.zoomIntoSelection,
+            selectedFileActions: actions.selectedFileActions
+        )
     }
 }
