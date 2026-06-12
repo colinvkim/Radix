@@ -55,7 +55,7 @@ private extension WorkspaceNavigationState {
         next.snapshotID = snapshot?.id
         next.fileTreeStore = snapshot?.treeStore
 
-        guard next.fileTreeStore != nil else {
+        guard let snapshot else {
             next.selectedNodeID = nil
             next.focusedNodeID = nil
             next.focusBackStack = []
@@ -64,6 +64,9 @@ private extension WorkspaceNavigationState {
         }
 
         next.clearMissingNavigationReferences()
+        if next.focusedNodeID == nil {
+            next.focusedNodeID = snapshot.root.id
+        }
         return next.refreshedDerivedState()
     }
 
@@ -332,7 +335,7 @@ final class WorkspaceNavigationModel: ObservableObject {
     }
 
     func updateScanContext(snapshot: ScanSnapshot?) {
-        publish(state.applyingScanContext(snapshot), force: true)
+        publish(state.applyingScanContext(snapshot))
     }
 
     func reset() {
@@ -372,11 +375,11 @@ final class WorkspaceNavigationModel: ObservableObject {
     }
 
     func reconcileAfterSnapshotApplied(_ snapshot: ScanSnapshot?) {
-        publish(state.reconcilingAfterSnapshotApplied(snapshot), force: true)
+        publish(state.reconcilingAfterSnapshotApplied(snapshot))
     }
 
-    private func publish(_ nextState: WorkspaceNavigationState, force: Bool = false) {
-        guard force || nextState != state else { return }
+    private func publish(_ nextState: WorkspaceNavigationState) {
+        guard nextState != state else { return }
 
         let oldSelectionID = state.selectedNodeID
         state = nextState

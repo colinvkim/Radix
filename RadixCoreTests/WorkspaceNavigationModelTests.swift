@@ -295,6 +295,24 @@ final class WorkspaceNavigationModelTests: XCTestCase {
     }
 
     @MainActor
+    func testUnchangedScanContextDoesNotRepublish() {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+        var publishedStates: [WorkspaceNavigationState] = []
+        var cancellables = Set<AnyCancellable>()
+
+        model.$state
+            .dropFirst()
+            .sink { publishedStates.append($0) }
+            .store(in: &cancellables)
+
+        model.updateScanContext(snapshot: fixture.snapshot)
+        model.reconcileAfterSnapshotApplied(fixture.snapshot)
+
+        XCTAssertTrue(publishedStates.isEmpty)
+    }
+
+    @MainActor
     func testAppModelRoutesNavigationActionsThroughNavigationState() {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())

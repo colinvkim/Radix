@@ -293,6 +293,39 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelScanCompletionPublishesNavigationOnce() async throws {
+        let service = ControlledScanService()
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
+        let target = makeCoordinatorTarget("/app/scan/publish")
+        let snapshot = makeCoordinatorSnapshot(target: target)
+
+        model.startScan(target)
+        try await waitUntil("AppModel scan request") {
+            service.requests.count == 1
+        }
+
+        var publishedStates: [WorkspaceNavigationState] = []
+        var cancellables = Set<AnyCancellable>()
+        model.navigation.$state
+            .dropFirst()
+            .sink { state in
+                guard state.snapshotID == snapshot.id else { return }
+                publishedStates.append(state)
+            }
+            .store(in: &cancellables)
+
+        service.yield(.finished(snapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+
+        try await waitUntil("AppModel scan completion") {
+            model.scanState.phase == .displaying
+        }
+
+        XCTAssertEqual(publishedStates.count, 1)
+        XCTAssertEqual(publishedStates.first?.focusedNodeID, snapshot.root.id)
+    }
+
+    @MainActor
     func testAppModelRestoresCachedSidebarTargetWithoutStartingScan() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/first")

@@ -948,8 +948,6 @@ final class AppModel: ObservableObject {
     }
 
     private func handleCompletedScanSnapshot(_ snapshot: ScanSnapshot) {
-        navigationModel.reconcileAfterSnapshotApplied(snapshot)
-
         defer {
             activeScanCacheKey = nil
         }

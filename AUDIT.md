@@ -255,7 +255,7 @@ cleanup and display-state publication eagerly formatted all rows. Added model
 cleanup plus view disappearance/deinit cancellation, and changed row display
 values to a visible-row lazy cache. All validations passed.
 
-### 8. [ ] Duplicate navigation publishes on scan completion
+### 8. [x] Duplicate navigation publishes on scan completion
 
 Original finding: 8. Severity: Medium.
 
@@ -282,6 +282,12 @@ Validate:
 - `rtk swift test --filter WorkspaceNavigationModelTests`
 - `rtk swift test --filter ScanCoordinatorTests`
 - `rtk swift test`
+
+Completion note: Verified scan completion published navigation twice through
+the `snapshot` and `completedScanSnapshot` observer paths. Moved completion
+handling to cache bookkeeping, resolved missing scan focus during scan-context
+application, and removed forced unchanged navigation publishes. All validations
+passed.
 
 ### 9. [ ] Action dependency scope and file action duplication
 
