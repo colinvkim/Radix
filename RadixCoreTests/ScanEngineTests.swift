@@ -345,6 +345,113 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.root.logicalSize, 24)
     }
 
+    func testSkipsCloudStorageFolderByDefault() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let localFileURL = rootURL.appending(path: "local.txt")
+        let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        let cloudFileURL = cloudStorageURL
+            .appending(path: "GoogleDrive-example", directoryHint: .isDirectory)
+            .appending(path: "remote.bin")
+
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 64).write(to: localFileURL)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
+
+        var options = ScanOptions()
+        options.cloudStorageRootPath = cloudStorageURL.path
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name).sorted(), ["Library", "local.txt"])
+        XCTAssertTrue(children(of: libraryNode, in: snapshot).isEmpty)
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 64)
+    }
+
+    func testCloudStorageFolderCanBeIncluded() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let localFileURL = rootURL.appending(path: "local.txt")
+        let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        let cloudFileURL = cloudStorageURL
+            .appending(path: "Dropbox", directoryHint: .isDirectory)
+            .appending(path: "remote.bin")
+
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 64).write(to: localFileURL)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
+
+        var options = ScanOptions()
+        options.includeCloudStorage = true
+        options.cloudStorageRootPath = cloudStorageURL.path
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let cloudStorageNode = try XCTUnwrap(children(of: libraryNode, in: snapshot).first(where: { $0.name == "CloudStorage" }))
+        let providerNode = try XCTUnwrap(children(of: cloudStorageNode, in: snapshot).first(where: { $0.name == "Dropbox" }))
+
+        XCTAssertEqual(children(of: providerNode, in: snapshot).map(\.name), ["remote.bin"])
+        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
+        XCTAssertEqual(snapshot.root.logicalSize, 576)
+    }
+
+    func testUsersCloudStorageWildcardIsSkippedByDefault() {
+        let matcher = ScanExclusionMatcher(
+            patterns: [],
+            rootPath: "/Users",
+            includeCloudStorage: false,
+            cloudStorageRootPath: "/CustomHomes/colin/Library/CloudStorage"
+        )
+
+        XCTAssertTrue(matcher.excludes(URL(filePath: "/Users/alex/Library/CloudStorage"), isDirectory: true))
+        XCTAssertTrue(matcher.excludes(URL(filePath: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"), isDirectory: false))
+        XCTAssertFalse(matcher.excludes(URL(filePath: "/Users/alex/Library/CloudStorageBackup"), isDirectory: true))
+
+        let explicitMatcher = ScanExclusionMatcher(
+            patterns: [],
+            rootPath: "/Users/alex/Library/CloudStorage",
+            includeCloudStorage: false,
+            cloudStorageRootPath: "/CustomHomes/colin/Library/CloudStorage"
+        )
+
+        XCTAssertFalse(explicitMatcher.excludes(URL(filePath: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"), isDirectory: false))
+    }
+
+    func testExplicitCloudStorageFolderScanIsAllowedByDefault() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        let cloudFileURL = cloudStorageURL
+            .appending(path: "Dropbox", directoryHint: .isDirectory)
+            .appending(path: "remote.bin")
+
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
+
+        var options = ScanOptions()
+        options.cloudStorageRootPath = cloudStorageURL.path
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: cloudStorageURL),
+            options: options
+        )
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["Dropbox"])
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 512)
+    }
+
     func testVolumeScanWithExclusionsDoesNotAddSystemUnattributedNode() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -826,13 +933,19 @@ final class ScanEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let fileURL = rootURL.appending(path: "payload.bin")
+        let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        let cloudFileURL = cloudStorageURL.appending(path: "Dropbox/remote.bin")
         try Data(repeating: 0x5A, count: 1_024).write(to: fileURL)
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
 
         let engine = ScanEngine()
         let target = ScanTarget(url: rootURL, kind: .volume)
+        var options = ScanOptions()
+        options.cloudStorageRootPath = cloudStorageURL.path
         var finalSnapshot: ScanSnapshot?
 
-        for try await event in engine.scan(target: target, options: ScanOptions()) {
+        for try await event in engine.scan(target: target, options: options) {
             if case .finished(let snapshot) = event {
                 finalSnapshot = snapshot
             }

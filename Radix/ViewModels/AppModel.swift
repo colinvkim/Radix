@@ -151,6 +151,7 @@ final class AppModel: ObservableObject {
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
+    @Published var scanCloudStorageFolders = false
     @Published var useScanExclusions = false
     @Published var exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
     @Published private(set) var availableTargets: [ScanTarget] = [] {
@@ -223,6 +224,7 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = preferences.scan.treatPackagesAsDirectories
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
+        scanCloudStorageFolders = preferences.scan.scanCloudStorageFolders
         useScanExclusions = preferences.scan.useScanExclusions
         exclusionPatterns = preferences.scan.exclusionPatterns
         lastPersistedScanPreferences = preferences.scan
@@ -362,6 +364,7 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
         maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
         autoSummarizeDirectories = AppScanPreferences.defaults.autoSummarizeDirectories
+        scanCloudStorageFolders = AppScanPreferences.defaults.scanCloudStorageFolders
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
         exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
     }
@@ -867,6 +870,7 @@ final class AppModel: ObservableObject {
             includeHiddenFiles: showHiddenFiles || target.kind == .volume,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
             autoSummarizeDirectories: autoSummarizeDirectories ?? self.autoSummarizeDirectories,
+            includeCloudStorage: scanCloudStorageFolders,
             exclusionPatterns: exclusionPatterns,
             exclusionRootPath: exclusionRootPath(
                 for: target,
@@ -1086,7 +1090,12 @@ final class AppModel: ObservableObject {
     }
 
     private func observePreferences() {
-        Publishers.CombineLatest3($showHiddenFiles, $treatPackagesAsDirectories, $maxRenderedDepth)
+        Publishers.CombineLatest4(
+            $showHiddenFiles,
+            $treatPackagesAsDirectories,
+            $maxRenderedDepth,
+            $scanCloudStorageFolders
+        )
             .combineLatest(Publishers.CombineLatest3($autoSummarizeDirectories, $useScanExclusions, $exclusionPatterns))
             .map { scanBasics, scanFilters in
                 Self.scanPreferences(scanBasics, scanFilters)
@@ -1106,6 +1115,7 @@ final class AppModel: ObservableObject {
             treatPackagesAsDirectories: treatPackagesAsDirectories,
             maxRenderedDepth: maxRenderedDepth,
             autoSummarizeDirectories: autoSummarizeDirectories,
+            scanCloudStorageFolders: scanCloudStorageFolders,
             useScanExclusions: useScanExclusions,
             exclusionPatterns: exclusionPatterns
         )
@@ -1122,7 +1132,7 @@ final class AppModel: ObservableObject {
     }
 
     private static func scanPreferences(
-        _ scanBasics: (Bool, Bool, Int),
+        _ scanBasics: (Bool, Bool, Int, Bool),
         _ scanFilters: (Bool, Bool, [String])
     ) -> AppScanPreferences {
         AppScanPreferences(
@@ -1130,6 +1140,7 @@ final class AppModel: ObservableObject {
             treatPackagesAsDirectories: scanBasics.1,
             maxRenderedDepth: scanBasics.2,
             autoSummarizeDirectories: scanFilters.0,
+            scanCloudStorageFolders: scanBasics.3,
             useScanExclusions: scanFilters.1,
             exclusionPatterns: scanFilters.2
         )

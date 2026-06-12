@@ -92,6 +92,8 @@ struct ScanOptions: Hashable, Sendable {
     var includeHiddenFiles = false
     var treatPackagesAsDirectories = false
     var autoSummarizeDirectories = true
+    var includeCloudStorage = false
+    var cloudStorageRootPath = ScanOptions.defaultCloudStorageRootPath
     var exclusionPatterns: [String] = []
     var exclusionRootPath: String?
     /// Override for the minimum file count to trigger auto-summarization.
@@ -103,6 +105,11 @@ struct ScanOptions: Hashable, Sendable {
     /// Override for the minimum depth at which auto-summarization applies.
     /// When nil, the ScanEngine default (2) is used.
     var autoSummarizeMinDepthForSummarization: Int?
+
+    nonisolated static let defaultCloudStorageRootPath = FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        .standardizedFileURL
+        .path
 }
 
 enum ScanWarningCategory: String, Hashable, Sendable {

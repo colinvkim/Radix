@@ -298,7 +298,9 @@ actor ScanEngine {
         )
         let exclusionMatcher = ScanExclusionMatcher(
             patterns: options.exclusionPatterns,
-            rootPath: options.exclusionRootPath ?? target.url.path
+            rootPath: options.exclusionRootPath ?? target.url.path,
+            includeCloudStorage: options.includeCloudStorage,
+            cloudStorageRootPath: options.cloudStorageRootPath
         )
 
         let treeStore = try scanDirectory(
@@ -324,7 +326,7 @@ actor ScanEngine {
             finishedAt: Date(),
             warnings: warnings,
             isComplete: true,
-            expectedTotalBytes: exclusionMatcher.isEmpty ? metrics.estimatedTotalBytes : 0
+            expectedTotalBytes: exclusionMatcher.hasUserExclusions ? 0 : metrics.estimatedTotalBytes
         )
 
         metrics.isFinalizing = false

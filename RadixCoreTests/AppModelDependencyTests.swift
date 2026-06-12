@@ -16,6 +16,7 @@ final class AppModelDependencyTests: XCTestCase {
                     treatPackagesAsDirectories: true,
                     maxRenderedDepth: 8,
                     autoSummarizeDirectories: false,
+                    scanCloudStorageFolders: true,
                     useScanExclusions: true,
                     exclusionPatterns: ["*.log"]
                 ),
@@ -43,6 +44,7 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(model.treatPackagesAsDirectories)
         XCTAssertEqual(model.maxRenderedDepth, 8)
         XCTAssertFalse(model.autoSummarizeDirectories)
+        XCTAssertTrue(model.scanCloudStorageFolders)
         XCTAssertTrue(model.useScanExclusions)
         XCTAssertEqual(model.exclusionPatterns, ["*.log"])
         XCTAssertFalse(model.showsOnboarding)
@@ -102,6 +104,7 @@ final class AppModelDependencyTests: XCTestCase {
             treatPackagesAsDirectories: true,
             maxRenderedDepth: 10,
             autoSummarizeDirectories: false,
+            scanCloudStorageFolders: true,
             useScanExclusions: true,
             exclusionPatterns: ["node_modules"]
         )
@@ -110,6 +113,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.treatPackagesAsDirectories = true
         model.maxRenderedDepth = 10
         model.autoSummarizeDirectories = false
+        model.scanCloudStorageFolders = true
         model.useScanExclusions = true
         model.exclusionPatterns = ["node_modules"]
 
@@ -135,6 +139,7 @@ final class AppModelDependencyTests: XCTestCase {
             treatPackagesAsDirectories: AppScanPreferences.defaults.treatPackagesAsDirectories,
             maxRenderedDepth: AppScanPreferences.defaults.maxRenderedDepth,
             autoSummarizeDirectories: AppScanPreferences.defaults.autoSummarizeDirectories,
+            scanCloudStorageFolders: AppScanPreferences.defaults.scanCloudStorageFolders,
             useScanExclusions: AppScanPreferences.defaults.useScanExclusions,
             exclusionPatterns: AppScanPreferences.defaults.exclusionPatterns
         )
