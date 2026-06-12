@@ -422,6 +422,14 @@ struct FileTreeStore: Sendable {
     private let orderedNodeIDs: [String]
     private let precomputedAggregateStats: ScanAggregateStats?
 
+    private struct SanitizedTopology {
+        let nodesByID: [String: FileNodeRecord]
+        let childIDsByID: [String: [String]]
+        let parentIDByID: [String: String]
+        let orderedNodeIDs: [String]
+        let didDropReferences: Bool
+    }
+
     nonisolated var root: FileNodeRecord {
         guard let root = nodesByID[rootID] else {
             preconditionFailure("FileTreeStore rootID does not exist in nodesByID.")
@@ -492,10 +500,12 @@ struct FileTreeStore: Sendable {
         var nodesByID = [root.id: root]
         var childIDsByID: [String: [String]] = [:]
         var parentIDByID: [String: String] = [:]
+        var seenNodeIDs: Set<String> = [root.id]
         var stack = [root]
 
         while let parent = stack.popLast() {
-            let children = Self.sortedChildren(inputChildrenByID[parent.id] ?? [])
+            let uniqueChildren = Self.uniqueChildren(inputChildrenByID[parent.id] ?? [], seenNodeIDs: &seenNodeIDs)
+            let children = Self.sortedChildren(uniqueChildren)
             guard !children.isEmpty else { continue }
 
             childIDsByID[parent.id] = children.map(\.id)
@@ -521,12 +531,17 @@ struct FileTreeStore: Sendable {
         parentIDByID: [String: String],
         aggregateStats: ScanAggregateStats? = nil
     ) {
+        let topology = Self.sanitizedTopology(
+            rootID: rootID,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID
+        )
         self.rootID = rootID
-        self.nodesByID = nodesByID
-        self.childIDsByID = childIDsByID
-        self.parentIDByID = parentIDByID
-        self.precomputedAggregateStats = aggregateStats
-        self.orderedNodeIDs = Self.makeOrderedNodeIDs(rootID: rootID, childIDsByID: childIDsByID, nodesByID: nodesByID)
+        self.nodesByID = topology.nodesByID
+        self.childIDsByID = topology.childIDsByID
+        self.parentIDByID = topology.parentIDByID
+        self.precomputedAggregateStats = topology.didDropReferences ? nil : aggregateStats
+        self.orderedNodeIDs = topology.orderedNodeIDs
     }
 
     nonisolated static func sortedChildren(_ children: [FileNodeRecord]) -> [FileNodeRecord] {
@@ -536,6 +551,20 @@ struct FileTreeStore: Sendable {
             }
             return lhs.allocatedSize > rhs.allocatedSize
         }
+    }
+
+    private nonisolated static func uniqueChildren(
+        _ children: [FileNodeRecord],
+        seenNodeIDs: inout Set<String>
+    ) -> [FileNodeRecord] {
+        var uniqueChildren: [FileNodeRecord] = []
+        uniqueChildren.reserveCapacity(children.count)
+
+        for child in children where seenNodeIDs.insert(child.id).inserted {
+            uniqueChildren.append(child)
+        }
+
+        return uniqueChildren
     }
 
     nonisolated func node(id: String?) -> FileNodeRecord? {
@@ -808,14 +837,71 @@ struct FileTreeStore: Sendable {
         guard nodesByID[rootID] != nil else { return [] }
         var result: [String] = []
         var stack: [String] = [rootID]
+        var visited: Set<String> = []
 
         while let nodeID = stack.popLast() {
-            guard nodesByID[nodeID] != nil else { continue }
+            guard nodesByID[nodeID] != nil, visited.insert(nodeID).inserted else { continue }
             result.append(nodeID)
             stack.append(contentsOf: (childIDsByID[nodeID] ?? []).reversed())
         }
 
         return result
+    }
+
+    private nonisolated static func sanitizedTopology(
+        rootID: String,
+        nodesByID inputNodesByID: [String: FileNodeRecord],
+        childIDsByID inputChildIDsByID: [String: [String]]
+    ) -> SanitizedTopology {
+        guard let root = inputNodesByID[rootID] else {
+            return SanitizedTopology(
+                nodesByID: inputNodesByID,
+                childIDsByID: inputChildIDsByID,
+                parentIDByID: [:],
+                orderedNodeIDs: [],
+                didDropReferences: true
+            )
+        }
+
+        var nodesByID = [rootID: root]
+        var childIDsByID: [String: [String]] = [:]
+        var parentIDByID: [String: String] = [:]
+        var orderedNodeIDs: [String] = []
+        var visited: Set<String> = [rootID]
+        var stack = [rootID]
+
+        while let parentID = stack.popLast() {
+            orderedNodeIDs.append(parentID)
+            let childIDs = inputChildIDsByID[parentID] ?? []
+            guard !childIDs.isEmpty else { continue }
+
+            var sanitizedChildIDs: [String] = []
+            sanitizedChildIDs.reserveCapacity(childIDs.count)
+            for childID in childIDs {
+                guard let child = inputNodesByID[childID] else { continue }
+                guard visited.insert(childID).inserted else { continue }
+                nodesByID[childID] = child
+                parentIDByID[childID] = parentID
+                sanitizedChildIDs.append(childID)
+            }
+
+            if !sanitizedChildIDs.isEmpty {
+                childIDsByID[parentID] = sanitizedChildIDs
+                stack.append(contentsOf: sanitizedChildIDs.reversed())
+            }
+        }
+
+        let didDropReferences =
+            nodesByID.count != inputNodesByID.count ||
+            childIDsByID != inputChildIDsByID
+
+        return SanitizedTopology(
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: parentIDByID,
+            orderedNodeIDs: orderedNodeIDs,
+            didDropReferences: didDropReferences
+        )
     }
 }
 

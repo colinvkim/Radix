@@ -761,6 +761,28 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["alpha.txt", "zeta.txt"])
     }
 
+    func testDuplicateAssemblyChildrenAreCollapsedBeforeDirectoryTotals() {
+        let kept = makeScanEngineFileNode(id: "/root/duplicate.txt", name: "kept.txt", size: 5)
+        let dropped = makeScanEngineFileNode(id: kept.id, name: "dropped.txt", size: 50)
+        let sibling = makeScanEngineFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 7)
+
+        let uniqueChildren = ScanEngine.uniqueNodesForAssembly([kept, dropped, sibling])
+        let directory = FileNodeRecord.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: uniqueChildren,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+
+        XCTAssertEqual(uniqueChildren.map(\.name), ["kept.txt", "sibling.txt"])
+        XCTAssertEqual(directory.allocatedSize, 12)
+        XCTAssertEqual(directory.logicalSize, 12)
+        XCTAssertEqual(directory.descendantFileCount, 2)
+    }
+
     func testProgressFractionIsMonotonicAndCompletes() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1341,6 +1363,24 @@ private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private func makeScanEngineFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
+    FileNodeRecord(
+        id: id,
+        url: URL(filePath: id),
+        name: name,
+        isDirectory: false,
+        isSymbolicLink: false,
+        allocatedSize: size,
+        logicalSize: size,
+        descendantFileCount: 1,
+        lastModified: nil,
+        isPackage: false,
+        isAccessible: true,
+        isSynthetic: false,
+        isAutoSummarized: false
+    )
 }
 
 private enum AsyncTestTimeout: Error {

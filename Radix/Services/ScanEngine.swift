@@ -310,10 +310,22 @@ actor ScanEngine {
         var completedByKey: [Int: CompletedDirScan] = [:]
         // Maps parent key → child keys, built during phase 1.
         var childrenKeysByKey: [Int: [Int]] = [:]
+        var seenScannedNodeIDs = Set<String>()
         var nextKey = 0
 
         while let item = workStack.popLast() {
             try Task.checkCancellation()
+
+            guard seenScannedNodeIDs.insert(item.url.path).inserted else {
+                recordDuplicateNode(
+                    at: item.url,
+                    metrics: &metrics,
+                    warnings: &warnings,
+                    continuation: continuation,
+                    emissionState: &emissionState
+                )
+                continue
+            }
 
             let itemKey = nextKey
             nextKey += 1
@@ -547,7 +559,7 @@ actor ScanEngine {
                         childNodes.append(childNode)
                     }
                 }
-                let sortedChildren = FileTreeStore.sortedChildren(childNodes)
+                let sortedChildren = FileTreeStore.sortedChildren(Self.uniqueNodesForAssembly(childNodes))
                 try Task.checkCancellation()
                 let assembled = FileNodeRecord.directory(
                     id: completed.url.path,
@@ -559,13 +571,13 @@ actor ScanEngine {
                     isAccessible: completed.metadata.isReadable,
                     childrenAreSorted: true
                 )
-                resolvedNodeByKey[key] = assembled
                 if insertNode(
                     assembled,
                     into: &nodesByID,
                     warnings: &warnings,
                     continuation: continuation
                 ) {
+                    resolvedNodeByKey[key] = assembled
                     aggregateStats.include(assembled, hasChildren: !sortedChildren.isEmpty)
                 }
 
@@ -583,13 +595,13 @@ actor ScanEngine {
                 metrics.completedItems = min(metrics.discoveredItems, metrics.completedItems + 1)
             } else if let onlyChild = completed.node {
                 // Leaf node or inaccessible directory: use the child directly.
-                resolvedNodeByKey[key] = onlyChild
                 if insertNode(
                     onlyChild,
                     into: &nodesByID,
                     warnings: &warnings,
                     continuation: continuation
                 ) {
+                    resolvedNodeByKey[key] = onlyChild
                     aggregateStats.include(onlyChild, hasChildren: false)
                 }
             }
@@ -651,6 +663,18 @@ actor ScanEngine {
         return metadata.allocatedSize
     }
 
+    nonisolated static func uniqueNodesForAssembly(_ nodes: [FileNodeRecord]) -> [FileNodeRecord] {
+        var seenIDs = Set<String>()
+        var uniqueNodes: [FileNodeRecord] = []
+        uniqueNodes.reserveCapacity(nodes.count)
+
+        for node in nodes where seenIDs.insert(node.id).inserted {
+            uniqueNodes.append(node)
+        }
+
+        return uniqueNodes
+    }
+
     private func insertNode(
         _ node: FileNodeRecord,
         into nodesByID: inout [String: FileNodeRecord],
@@ -658,11 +682,7 @@ actor ScanEngine {
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) -> Bool {
         guard nodesByID[node.id] == nil else {
-            let warning = ScanWarning(
-                path: node.url.path,
-                message: "A duplicate filesystem path was collapsed in the scan results.",
-                category: .fileSystem
-            )
+            let warning = Self.makeDuplicateNodeWarning(for: node.url)
             warnings.append(warning)
             continuation.yield(.warning(warning))
             return false
@@ -670,6 +690,29 @@ actor ScanEngine {
 
         nodesByID[node.id] = node
         return true
+    }
+
+    private func recordDuplicateNode(
+        at url: URL,
+        metrics: inout ScanMetrics,
+        warnings: inout [ScanWarning],
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        emissionState: inout ScanEmissionState
+    ) {
+        let warning = Self.makeDuplicateNodeWarning(for: url)
+        warnings.append(warning)
+        continuation.yield(.warning(warning))
+        metrics.completedItems += 1
+        metrics.recalculateProgress()
+        maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+    }
+
+    private nonisolated static func makeDuplicateNodeWarning(for url: URL) -> ScanWarning {
+        ScanWarning(
+            path: url.path,
+            message: "A duplicate filesystem path was collapsed in the scan results.",
+            category: .fileSystem
+        )
     }
 
     private func recordUnavailableItem(

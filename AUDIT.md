@@ -128,7 +128,7 @@ access warning. Added cancellation checks during child filtering/enqueueing,
 rethrow cancellation before warning fallback, and covered a wide-directory
 cancel/follow-up scan. All validations passed.
 
-### 4. [ ] Duplicate node ID handling
+### 4. [x] Duplicate node ID handling
 
 Original finding: 2. Severity: High.
 
@@ -155,6 +155,12 @@ Validate:
 - `rtk swift test --filter FileTreeStoreTests`
 - `rtk swift test --filter ScanEngineTests`
 - `rtk swift test`
+
+Completion note: Verified scanner insertion could warn while duplicate child
+references still reached parent totals, and `FileTreeStore` accepted duplicate
+child IDs. Chose a first-ID-wins policy: later duplicates are dropped before
+scanner assembly/traversal links, with warnings still emitted. Added scanner
+and model coverage. All validations passed.
 
 ### 5. [ ] Subtree replacement ID collisions
 

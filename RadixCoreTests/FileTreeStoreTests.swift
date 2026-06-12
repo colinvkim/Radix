@@ -65,6 +65,48 @@ final class FileTreeStoreTests: XCTestCase {
         XCTAssertTrue(store.childrenPrefix(of: root.id, maxCount: 0).isEmpty)
     }
 
+    func testChildrenByIDInitializerDropsLaterDuplicateNodeIDs() {
+        let kept = makeFileNode(id: "/root/duplicate.txt", name: "kept.txt", size: 5)
+        let dropped = makeFileNode(id: kept.id, name: "dropped.txt", size: 50)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [kept, dropped])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [kept, dropped],
+        ])
+
+        XCTAssertEqual(store.children(of: root.id).map(\.name), ["kept.txt"])
+        XCTAssertEqual(store.node(id: kept.id)?.name, "kept.txt")
+        XCTAssertEqual(store.parent(of: kept.id)?.id, root.id)
+        XCTAssertEqual(store.indexedNodeIDs(), [root.id, kept.id])
+    }
+
+    func testFlatInitializerDropsDuplicateChildReferences() {
+        let shared = makeFileNode(id: "/root/shared.txt", name: "shared.txt", size: 12)
+        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [shared])
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [shared, folder])
+        let store = FileTreeStore(
+            rootID: root.id,
+            nodesByID: [
+                root.id: root,
+                shared.id: shared,
+                folder.id: folder,
+            ],
+            childIDsByID: [
+                root.id: [shared.id, folder.id, shared.id],
+                folder.id: [shared.id],
+            ],
+            parentIDByID: [
+                shared.id: folder.id,
+                folder.id: root.id,
+            ]
+        )
+
+        XCTAssertEqual(store.children(of: root.id).map(\.id), [shared.id, folder.id])
+        XCTAssertTrue(store.children(of: folder.id).isEmpty)
+        XCTAssertEqual(store.parent(of: shared.id)?.id, root.id)
+        XCTAssertEqual(store.indexedNodeIDs(), [root.id, shared.id, folder.id])
+        XCTAssertEqual(store.aggregateStats.fileCount, 1)
+    }
+
     func testDeepTreeIndexingAndAggregateStatsAvoidRecursiveTraversal() {
         let depth = 5_000
         let leafID = "/root/file.txt"
