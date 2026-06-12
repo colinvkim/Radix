@@ -193,7 +193,7 @@ removed subtree. Added a preflight that rejects replacement IDs already present
 outside the old subtree, and covered both external collisions and root ID
 replacement. All validations passed.
 
-### 6. [ ] Full-scan search ID allocation
+### 6. [x] Full-scan search ID allocation
 
 Original finding: 16. Severity: Medium.
 
@@ -217,6 +217,10 @@ Validate:
 - `rtk swift test --filter FileTreeStoreTests`
 - `rtk swift test --filter FileBrowserModelTests`
 - `rtk swift test`
+
+Completion note: Verified full-scan search allocated a filtered node-ID array
+before building its index. Added `forEachIndexedNodeID(excludingRoot:)` and
+build search entries directly from traversal. All validations passed.
 
 ### 7. [ ] File-browser task lifecycle and result formatting
 

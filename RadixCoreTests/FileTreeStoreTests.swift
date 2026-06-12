@@ -30,6 +30,12 @@ final class FileTreeStoreTests: XCTestCase {
 
         XCTAssertEqual(store.indexedNodeIDs(), ["/root", "/root/a.txt", "/root/folder", "/root/folder/b.txt"])
         XCTAssertEqual(store.indexedNodeIDs(excludingRoot: true), ["/root/a.txt", "/root/folder", "/root/folder/b.txt"])
+
+        var iteratedIDs: [String] = []
+        store.forEachIndexedNodeID(excludingRoot: true) { id in
+            iteratedIDs.append(id)
+        }
+        XCTAssertEqual(iteratedIDs, ["/root/a.txt", "/root/folder", "/root/folder/b.txt"])
     }
 
     func testEmptyStoreFallsBackToRootPath() {

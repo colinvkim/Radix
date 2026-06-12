@@ -598,16 +598,17 @@ actor FileSearchService: FileSearching {
     }
 
     private func makeIndex(treeStore: FileTreeStore) async throws -> FileSearchIndex {
-        let indexedNodeIDs = treeStore.indexedNodeIDs(excludingRoot: true)
         var entries: [FileSearchEntry] = []
-        entries.reserveCapacity(indexedNodeIDs.count)
+        entries.reserveCapacity(max(treeStore.nodeCount - 1, 0))
 
-        for (offset, id) in indexedNodeIDs.enumerated() {
+        var offset = 0
+        try treeStore.forEachIndexedNodeID(excludingRoot: true) { id in
             if offset.isMultiple(of: 256) {
                 try Task.checkCancellation()
             }
+            offset += 1
 
-            guard let node = treeStore.nodesByID[id] else { continue }
+            guard let node = treeStore.nodesByID[id] else { return }
             entries.append(FileSearchEntry(
                 id: id,
                 normalizedNameKindHaystack: SearchNormalizer.normalize(
