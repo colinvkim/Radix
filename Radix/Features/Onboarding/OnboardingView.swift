@@ -145,43 +145,10 @@ private struct FullDiskAccessStatusBadge: View {
     let status: FullDiskAccessStatus
 
     var body: some View {
-        Label(title, systemImage: systemImage)
+        Label(status.fullDiskAccessBadgeTitle, systemImage: status.fullDiskAccessSystemImage)
             .font(.callout)
-            .foregroundStyle(foregroundStyle)
-            .accessibilityLabel("Full Disk Access \(title)")
-    }
-
-    private var title: String {
-        switch status {
-        case .granted:
-            return "Enabled"
-        case .notGranted:
-            return "Not Enabled"
-        case .unknown:
-            return "Unknown"
-        }
-    }
-
-    private var systemImage: String {
-        switch status {
-        case .granted:
-            return "checkmark.circle.fill"
-        case .notGranted:
-            return "xmark.circle.fill"
-        case .unknown:
-            return "questionmark.circle.fill"
-        }
-    }
-
-    private var foregroundStyle: Color {
-        switch status {
-        case .granted:
-            return .green
-        case .notGranted:
-            return .orange
-        case .unknown:
-            return .secondary
-        }
+            .foregroundStyle(status.fullDiskAccessColor)
+            .accessibilityLabel("Full Disk Access \(status.fullDiskAccessBadgeTitle)")
     }
 
 }

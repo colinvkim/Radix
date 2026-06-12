@@ -450,7 +450,7 @@ links, or destinations and navigation is handled by `WorkspaceNavigationModel`.
 Removed the unnecessary `NavigationStack` while keeping the existing toolbar on
 the workspace detail. Xcode Debug build passed.
 
-### 14. [ ] Full Disk Access presentation mapping
+### 14. [x] Full Disk Access presentation mapping
 
 Original finding: 13. Severity: Low.
 
@@ -471,6 +471,11 @@ Approach:
 Validate:
 
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
+
+Completion note: Verified settings and onboarding duplicated Full Disk Access
+status title, symbol, and color mapping. Moved shared display values into the
+presentation helper extension while keeping surface-specific explanatory copy
+local. Xcode Debug build passed.
 
 ### 15. [ ] Dead or test-only production APIs
 
