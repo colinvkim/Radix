@@ -545,6 +545,60 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelPathScopedExclusionsDoNotReuseContainingSnapshot() async throws {
+        let service = ControlledScanService()
+        let homeTarget = makeCoordinatorTarget("/app/sidebar/exclusion-home")
+        let libraryTarget = makeCoordinatorTarget("/app/sidebar/exclusion-home/Library")
+        let preferences = CoordinatorAppPreferencesStore(
+            preferences: AppPreferences(
+                scan: exclusionScanPreferences(patterns: ["Library/Caches/**"]),
+                didCompleteOnboarding: true
+            )
+        )
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                preferences: preferences,
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, libraryTarget])
+            )
+        )
+        let libraryNode = makeCoordinatorDirectoryNode(
+            id: libraryTarget.id,
+            name: "Library",
+            children: []
+        )
+        let homeRoot = makeCoordinatorDirectoryNode(
+            id: homeTarget.id,
+            name: "exclusion-home",
+            children: [libraryNode]
+        )
+        let homeStore = FileTreeStore(root: homeRoot, childrenByID: [
+            homeRoot.id: [libraryNode]
+        ])
+        let homeSnapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
+
+        model.selectSidebarTarget(id: homeTarget.id)
+        try await waitUntil("home exclusion scan request") {
+            service.requests.count == 1
+        }
+        XCTAssertEqual(service.requests[0].options.exclusionRootPath, homeTarget.id)
+
+        service.yield(.finished(homeSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("home exclusion scan finished") {
+            model.scanState.snapshot?.target == homeTarget
+        }
+
+        model.selectSidebarTarget(id: libraryTarget.id)
+
+        try await waitUntil("library exclusion scan request") {
+            service.requests.count == 2
+        }
+        XCTAssertEqual(service.requests[1].target, libraryTarget)
+        XCTAssertEqual(service.requests[1].options.exclusionRootPath, libraryTarget.id)
+    }
+
+    @MainActor
     func testAppModelTrashActionClearsSidebarSnapshotCache() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/stale-first")
@@ -1070,6 +1124,49 @@ final class ScanCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.navigation.selectedNodeID, summarizedNode.id)
         XCTAssertEqual(model.scanState.fileTreeStore?.children(of: summarizedNode.id).map(\.id), [expandedFile.id])
     }
+
+    @MainActor
+    func testAppModelExpansionPreservesPathScopedExclusionRoot() async throws {
+        let service = ControlledScanService()
+        let rootTarget = makeCoordinatorTarget("/root")
+        let preferences = CoordinatorAppPreferencesStore(
+            preferences: AppPreferences(
+                scan: exclusionScanPreferences(patterns: ["cache/tmp/**"]),
+                didCompleteOnboarding: true
+            )
+        )
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                preferences: preferences,
+                scanService: service
+            )
+        )
+        let summarizedNode = makeCoordinatorSummarizedDirectoryNode(id: "/root/cache", name: "cache", size: 300)
+        let root = makeCoordinatorDirectoryNode(id: "/root", name: "root", children: [summarizedNode])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [summarizedNode]])
+        let snapshot = makeCoordinatorSnapshot(target: rootTarget, root: root, store: store)
+
+        model.startScan(rootTarget)
+        try await waitUntil("path-scoped root scan request") {
+            service.requests.count == 1
+        }
+        XCTAssertEqual(service.requests[0].options.exclusionRootPath, rootTarget.id)
+
+        service.yield(.finished(snapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("path-scoped root scan finished") {
+            model.scanState.snapshot?.target == rootTarget
+        }
+
+        model.expandSummarizedNode(summarizedNode) {}
+
+        try await waitUntil("path-scoped expansion request") {
+            service.requests.count == 2
+        }
+        XCTAssertEqual(service.requests[1].target, ScanTarget(url: summarizedNode.url))
+        XCTAssertEqual(service.requests[1].options.exclusionRootPath, rootTarget.id)
+        XCTAssertFalse(service.requests[1].options.autoSummarizeDirectories)
+    }
 }
 
 private struct ControlledScanRequest {
@@ -1131,11 +1228,12 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
 
 @MainActor
 private func makeCoordinatorAppDependencies(
+    preferences: CoordinatorAppPreferencesStore = CoordinatorAppPreferencesStore(),
     scanService: any ScanEventStreaming,
     systemActions: AppSystemActions = .inert
 ) -> AppDependencies {
     AppDependencies(
-        preferences: CoordinatorAppPreferencesStore(),
+        preferences: preferences,
         recentTargets: RecentTargetStore(
             persistence: CoordinatorRecentTargetPersistence(),
             isAvailable: { _ in true }
@@ -1143,6 +1241,13 @@ private func makeCoordinatorAppDependencies(
         systemActions: systemActions,
         scanService: scanService
     )
+}
+
+private func exclusionScanPreferences(patterns: [String]) -> AppScanPreferences {
+    var preferences = AppScanPreferences.defaults
+    preferences.useScanExclusions = true
+    preferences.exclusionPatterns = patterns
+    return preferences
 }
 
 @MainActor

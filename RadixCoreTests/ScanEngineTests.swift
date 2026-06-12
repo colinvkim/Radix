@@ -141,6 +141,314 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 128)
     }
 
+    func testExcludesBasenameDirectoryLikeNodeModules() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let visibleFileURL = rootURL.appending(path: "visible.txt")
+        let nodeModulesFileURL = rootURL
+            .appending(path: "node_modules", directoryHint: .isDirectory)
+            .appending(path: "left-pad/index.js")
+
+        try FileManager.default.createDirectory(at: nodeModulesFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 16).write(to: visibleFileURL)
+        try Data(repeating: 0x2, count: 128).write(to: nodeModulesFileURL)
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["node_modules"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["visible.txt"])
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 16)
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
+    }
+
+    func testExcludesFilesByGlob() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try Data(repeating: 0x1, count: 32)
+            .write(to: rootURL.appending(path: "notes.txt"))
+        try Data(repeating: 0x2, count: 256)
+            .write(to: rootURL.appending(path: "debug.log"))
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["*.log"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["notes.txt"])
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 32)
+    }
+
+    func testExcludesDirectoryOnlyPatternsWithoutExcludingSameNamedFiles() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let nestedBuildFileURL = rootURL
+            .appending(path: "nested", directoryHint: .isDirectory)
+            .appending(path: "build", directoryHint: .isDirectory)
+            .appending(path: "artifact.o")
+        try FileManager.default.createDirectory(at: nestedBuildFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 256).write(to: nestedBuildFileURL)
+        try Data(repeating: 0x2, count: 32).write(to: rootURL.appending(path: "build"))
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["build/"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let nestedNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "nested" }))
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["build", "nested"])
+        XCTAssertTrue(children(of: nestedNode, in: snapshot).isEmpty)
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 32)
+    }
+
+    func testExcludesPathGlobPatternsRelativeToScanRoot() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let libraryCacheFileURL = rootURL
+            .appending(path: "Library/Caches", directoryHint: .isDirectory)
+            .appending(path: "ignored.bin")
+        let topLevelCacheFileURL = rootURL
+            .appending(path: "Caches", directoryHint: .isDirectory)
+            .appending(path: "kept.bin")
+
+        try FileManager.default.createDirectory(at: libraryCacheFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: topLevelCacheFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 512).write(to: libraryCacheFileURL)
+        try Data(repeating: 0x2, count: 64).write(to: topLevelCacheFileURL)
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["Library/Caches/**"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let cachesNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Caches" }))
+        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+
+        XCTAssertEqual(children(of: cachesNode, in: snapshot).map(\.name), ["kept.bin"])
+        XCTAssertTrue(children(of: libraryNode, in: snapshot).isEmpty)
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 64)
+    }
+
+    func testExcludesDoubleStarPathGlobPatterns() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let nestedBuildFileURL = rootURL
+            .appending(path: "project/build", directoryHint: .isDirectory)
+            .appending(path: "artifact.o")
+        let keptFileURL = rootURL
+            .appending(path: "project/Sources", directoryHint: .isDirectory)
+            .appending(path: "main.swift")
+
+        try FileManager.default.createDirectory(at: nestedBuildFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: keptFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 512).write(to: nestedBuildFileURL)
+        try Data(repeating: 0x2, count: 128).write(to: keptFileURL)
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["**/build/**"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let projectNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "project" }))
+
+        XCTAssertEqual(children(of: projectNode, in: snapshot).map(\.name), ["Sources"])
+        XCTAssertEqual(projectNode.descendantFileCount, 1)
+        XCTAssertEqual(projectNode.logicalSize, 128)
+    }
+
+    func testExcludesDSStoreEvenWhenHiddenFilesAreIncluded() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try Data(repeating: 0x1, count: 24)
+            .write(to: rootURL.appending(path: "visible.txt"))
+        try Data(repeating: 0x2, count: 512)
+            .write(to: rootURL.appending(path: ".DS_Store"))
+
+        var options = ScanOptions(includeHiddenFiles: true)
+        options.exclusionPatterns = [".DS_Store"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["visible.txt"])
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 24)
+    }
+
+    func testVolumeScanWithExclusionsDoesNotAddSystemUnattributedNode() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try Data(repeating: 0x1, count: 128)
+            .write(to: rootURL.appending(path: "visible.txt"))
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["node_modules"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL, kind: .volume),
+            options: options
+        )
+
+        XCTAssertFalse(rootChildren(in: snapshot).contains(where: \.isSynthetic))
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 128)
+        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+    }
+
+    func testExcludedFilesDoNotContributeToParentSizeTotals() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let dataURL = rootURL.appending(path: "Data", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dataURL, withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 10)
+            .write(to: dataURL.appending(path: "keep.bin"))
+        try Data(repeating: 0x2, count: 90)
+            .write(to: dataURL.appending(path: "ignored.log"))
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["*.log"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let dataNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Data" }))
+
+        XCTAssertEqual(children(of: dataNode, in: snapshot).map(\.name), ["keep.bin"])
+        XCTAssertEqual(dataNode.descendantFileCount, 1)
+        XCTAssertEqual(dataNode.logicalSize, 10)
+        XCTAssertEqual(snapshot.root.logicalSize, 10)
+    }
+
+    func testExcludedFilesDoNotContributeThroughPackageSummaries() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Sample.app", directoryHint: .isDirectory)
+        let keptFileURL = packageURL.appending(path: "Contents/MacOS/Binary")
+        let excludedFileURL = packageURL.appending(path: "Contents/Resources/debug.log")
+
+        try FileManager.default.createDirectory(at: keptFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: excludedFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 128).write(to: keptFileURL)
+        try Data(repeating: 0x2, count: 2_048).write(to: excludedFileURL)
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["*.log"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+
+        XCTAssertEqual(packageNode.descendantFileCount, 1)
+        XCTAssertEqual(packageNode.logicalSize, 128)
+        XCTAssertEqual(snapshot.root.logicalSize, 128)
+    }
+
+    func testExcludedPackageContentsStillEmitSummaryProgress() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Sample.app", directoryHint: .isDirectory)
+        let excludedFileURL = packageURL.appending(path: "debug.log")
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try Data(repeating: 0x2, count: 2_048).write(to: excludedFileURL)
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["*.log"]
+
+        let engine = ScanEngine()
+        var progressPaths: [String] = []
+        var finalSnapshot: ScanSnapshot?
+
+        for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
+            switch event {
+            case .progress(let metrics):
+                progressPaths.append(metrics.currentPath)
+            case .finished(let snapshot):
+                finalSnapshot = snapshot
+            case .warning:
+                break
+            }
+        }
+
+        let snapshot = try XCTUnwrap(finalSnapshot)
+        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+
+        XCTAssertEqual(packageNode.descendantFileCount, 0)
+        XCTAssertFalse(containsChildren(packageNode, in: snapshot))
+        XCTAssertTrue(
+            progressPaths.contains(where: { $0.hasSuffix("/Sample.app/debug.log") }),
+            "Expected package summary progress to include excluded file path"
+        )
+    }
+
+    func testExcludedFilesDoNotContributeThroughAutoSummaries() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for index in 0..<10 {
+            let shardURL = cacheURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: shardURL, withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index), count: 32)
+                .write(to: shardURL.appending(path: "keep.tmp"))
+            try Data(repeating: 0x7F, count: 4_096)
+                .write(to: shardURL.appending(path: "ignored.log"))
+        }
+
+        var options = ScanOptions()
+        options.exclusionPatterns = ["*.log"]
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+
+        XCTAssertTrue(cacheNode.isAutoSummarized)
+        XCTAssertEqual(cacheNode.descendantFileCount, 10)
+        XCTAssertEqual(cacheNode.logicalSize, 10 * 32)
+    }
+
     func testCancellingScanStopsPackageLeafSummaryWork() async throws {
         let rootURL = try makeTemporaryDirectory()
         let followUpURL = try makeTemporaryDirectory()

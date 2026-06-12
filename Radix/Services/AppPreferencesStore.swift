@@ -10,12 +10,16 @@ struct AppScanPreferences: Equatable {
     var treatPackagesAsDirectories: Bool
     var maxRenderedDepth: Int
     var autoSummarizeDirectories: Bool
+    var useScanExclusions: Bool
+    var exclusionPatterns: [String]
 
     static let defaults = AppScanPreferences(
         showHiddenFiles: true,
         treatPackagesAsDirectories: false,
         maxRenderedDepth: 6,
-        autoSummarizeDirectories: true
+        autoSummarizeDirectories: true,
+        useScanExclusions: false,
+        exclusionPatterns: ScanExclusionMatcher.commonPresetPatterns
     )
 }
 
@@ -43,6 +47,8 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
         static let maxRenderedDepth = "maxRenderedDepth"
         static let autoSummarizeDirectories = "autoSummarizeDirectories"
+        static let useScanExclusions = "useScanExclusions"
+        static let exclusionPatterns = "exclusionPatterns"
     }
 
     private let defaults: UserDefaults
@@ -71,12 +77,24 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
             autoSummarizeDirectories = defaults.bool(forKey: Key.autoSummarizeDirectories)
         }
 
+        let useScanExclusions: Bool
+        if defaults.object(forKey: Key.useScanExclusions) == nil {
+            useScanExclusions = AppScanPreferences.defaults.useScanExclusions
+        } else {
+            useScanExclusions = defaults.bool(forKey: Key.useScanExclusions)
+        }
+
+        let exclusionPatterns = defaults.stringArray(forKey: Key.exclusionPatterns)
+            ?? AppScanPreferences.defaults.exclusionPatterns
+
         return AppPreferences(
             scan: AppScanPreferences(
                 showHiddenFiles: showHiddenFiles,
                 treatPackagesAsDirectories: defaults.bool(forKey: Key.treatPackagesAsDirectories),
                 maxRenderedDepth: maxRenderedDepth,
-                autoSummarizeDirectories: autoSummarizeDirectories
+                autoSummarizeDirectories: autoSummarizeDirectories,
+                useScanExclusions: useScanExclusions,
+                exclusionPatterns: exclusionPatterns
             ),
             didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding)
         )
@@ -87,6 +105,8 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         defaults.set(preferences.treatPackagesAsDirectories, forKey: Key.treatPackagesAsDirectories)
         defaults.set(preferences.maxRenderedDepth, forKey: Key.maxRenderedDepth)
         defaults.set(preferences.autoSummarizeDirectories, forKey: Key.autoSummarizeDirectories)
+        defaults.set(preferences.useScanExclusions, forKey: Key.useScanExclusions)
+        defaults.set(preferences.exclusionPatterns, forKey: Key.exclusionPatterns)
     }
 
     func markOnboardingComplete() {

@@ -151,6 +151,8 @@ final class AppModel: ObservableObject {
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
+    @Published var useScanExclusions = false
+    @Published var exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
     @Published private(set) var availableTargets: [ScanTarget] = [] {
         didSet {
             refreshSidebarTargetSections()
@@ -217,6 +219,8 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = preferences.scan.treatPackagesAsDirectories
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
+        useScanExclusions = preferences.scan.useScanExclusions
+        exclusionPatterns = preferences.scan.exclusionPatterns
         showsOnboarding = !preferences.didCompleteOnboarding
         fullDiskAccessStatus = dependencies.systemActions.usesAsyncFullDiskAccessStatus
             ? .unknown
@@ -352,10 +356,12 @@ final class AppModel: ObservableObject {
     }
 
     func restoreDefaultPreferences() {
-        showHiddenFiles = true
-        treatPackagesAsDirectories = false
-        maxRenderedDepth = 6
-        autoSummarizeDirectories = true
+        showHiddenFiles = AppScanPreferences.defaults.showHiddenFiles
+        treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
+        maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
+        autoSummarizeDirectories = AppScanPreferences.defaults.autoSummarizeDirectories
+        useScanExclusions = AppScanPreferences.defaults.useScanExclusions
+        exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
     }
 
     func clearRecentTargets() {
@@ -371,7 +377,11 @@ final class AppModel: ObservableObject {
     /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
     func expandSummarizedNode(_ node: FileNodeRecord, completion: @escaping () -> Void) {
         let target = ScanTarget(url: node.url)
-        let options = scanOptions(for: target, autoSummarizeDirectories: false)
+        let options = scanOptions(
+            for: target,
+            autoSummarizeDirectories: false,
+            preferredExclusionRootPath: currentScanExclusionRootPath
+        )
 
         scanCoordinator.expandSummarizedNode(node, options: options) { [weak self] result in
             guard let self else {
@@ -843,13 +853,45 @@ final class AppModel: ObservableObject {
 
     private func scanOptions(
         for target: ScanTarget,
-        autoSummarizeDirectories: Bool? = nil
+        autoSummarizeDirectories: Bool? = nil,
+        preferredExclusionRootPath: String? = nil
     ) -> ScanOptions {
-        ScanOptions(
+        let exclusionPatterns = activeExclusionPatterns
+        return ScanOptions(
             includeHiddenFiles: showHiddenFiles || target.kind == .volume,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
-            autoSummarizeDirectories: autoSummarizeDirectories ?? self.autoSummarizeDirectories
+            autoSummarizeDirectories: autoSummarizeDirectories ?? self.autoSummarizeDirectories,
+            exclusionPatterns: exclusionPatterns,
+            exclusionRootPath: exclusionRootPath(
+                for: target,
+                patterns: exclusionPatterns,
+                preferredRootPath: preferredExclusionRootPath
+            )
         )
+    }
+
+    private var activeExclusionPatterns: [String] {
+        guard useScanExclusions else { return [] }
+        return ScanExclusionMatcher.normalizedPatterns(exclusionPatterns)
+    }
+
+    private var currentScanExclusionRootPath: String? {
+        displayedScanCacheKey?.options.exclusionRootPath
+            ?? activeScanCacheKey?.options.exclusionRootPath
+            ?? scanCoordinator.snapshot?.target.url.path
+    }
+
+    private func exclusionRootPath(
+        for target: ScanTarget,
+        patterns: [String],
+        preferredRootPath: String?
+    ) -> String? {
+        guard !patterns.isEmpty,
+              ScanExclusionMatcher.patternsRequirePathScopedRoot(patterns) else {
+            return nil
+        }
+
+        return ScanExclusionMatcher.normalizedRootPath(preferredRootPath ?? target.url.path)
     }
 
     private func registerRecentTarget(_ target: ScanTarget) {
@@ -1058,20 +1100,34 @@ final class AppModel: ObservableObject {
             .dropFirst()
             .sink { [weak self] value in self?.persistScanPreferences(autoSummarizeDirectories: value) }
             .store(in: &cancellables)
+
+        $useScanExclusions
+            .dropFirst()
+            .sink { [weak self] value in self?.persistScanPreferences(useScanExclusions: value) }
+            .store(in: &cancellables)
+
+        $exclusionPatterns
+            .dropFirst()
+            .sink { [weak self] value in self?.persistScanPreferences(exclusionPatterns: value) }
+            .store(in: &cancellables)
     }
 
     private func persistScanPreferences(
         showHiddenFiles: Bool? = nil,
         treatPackagesAsDirectories: Bool? = nil,
         maxRenderedDepth: Int? = nil,
-        autoSummarizeDirectories: Bool? = nil
+        autoSummarizeDirectories: Bool? = nil,
+        useScanExclusions: Bool? = nil,
+        exclusionPatterns: [String]? = nil
     ) {
         dependencies.preferences.saveScanPreferences(
             AppScanPreferences(
                 showHiddenFiles: showHiddenFiles ?? self.showHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories ?? self.treatPackagesAsDirectories,
                 maxRenderedDepth: maxRenderedDepth ?? self.maxRenderedDepth,
-                autoSummarizeDirectories: autoSummarizeDirectories ?? self.autoSummarizeDirectories
+                autoSummarizeDirectories: autoSummarizeDirectories ?? self.autoSummarizeDirectories,
+                useScanExclusions: useScanExclusions ?? self.useScanExclusions,
+                exclusionPatterns: exclusionPatterns ?? self.exclusionPatterns
             )
         )
     }

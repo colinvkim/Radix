@@ -215,12 +215,17 @@ actor ScanEngine {
         let behavior = ScanBehavior(
             excludesStartupVolumeInternals: target.kind == .volume && target.url.path == "/"
         )
+        let exclusionMatcher = ScanExclusionMatcher(
+            patterns: options.exclusionPatterns,
+            rootPath: options.exclusionRootPath ?? target.url.path
+        )
 
         let treeStore = try scanDirectory(
             target: target,
             includeVolumeDetails: true,
             options: options,
             behavior: behavior,
+            exclusionMatcher: exclusionMatcher,
             metrics: &metrics,
             warnings: &warnings,
             continuation: continuation,
@@ -238,7 +243,7 @@ actor ScanEngine {
             finishedAt: Date(),
             warnings: warnings,
             isComplete: true,
-            expectedTotalBytes: metrics.estimatedTotalBytes
+            expectedTotalBytes: exclusionMatcher.isEmpty ? metrics.estimatedTotalBytes : 0
         )
 
         metrics.isFinalizing = false
@@ -256,6 +261,7 @@ actor ScanEngine {
         includeVolumeDetails: Bool,
         options: ScanOptions,
         behavior: ScanBehavior,
+        exclusionMatcher: ScanExclusionMatcher,
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -278,6 +284,7 @@ actor ScanEngine {
                 metadata: rootMetadata,
                 options: options,
                 countedHardLinkIdentities: &countedHardLinkIdentities,
+                exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
                 continuation: continuation,
@@ -347,7 +354,8 @@ actor ScanEngine {
                     let childEntries = try contents(
                         of: item.url,
                         includeHiddenFiles: options.includeHiddenFiles,
-                        behavior: behavior
+                        behavior: behavior,
+                        exclusionMatcher: exclusionMatcher
                     )
                     metrics.discoveredItems += childEntries.count
                     metrics.recalculateProgress()
@@ -373,6 +381,7 @@ actor ScanEngine {
                            minFileCount: minFileCount,
                            maxAverageFileSize: maxAvgSize,
                            countedHardLinkIdentities: &countedHardLinkIdentities,
+                           exclusionMatcher: exclusionMatcher,
                            cancellationCheck: cancellationCheck,
                            metrics: &metrics,
                            continuation: continuation,
@@ -469,6 +478,7 @@ actor ScanEngine {
                     metadata: meta,
                     options: options,
                     countedHardLinkIdentities: &countedHardLinkIdentities,
+                    exclusionMatcher: exclusionMatcher,
                     cancellationCheck: cancellationCheck,
                     metrics: &metrics,
                     continuation: continuation,
@@ -796,7 +806,12 @@ actor ScanEngine {
         return FileIdentity(resourceIdentifier: identifierData)
     }
 
-    private func contents(of url: URL, includeHiddenFiles: Bool, behavior: ScanBehavior) throws -> [DirectoryEntry] {
+    private func contents(
+        of url: URL,
+        includeHiddenFiles: Bool,
+        behavior: ScanBehavior,
+        exclusionMatcher: ScanExclusionMatcher
+    ) throws -> [DirectoryEntry] {
         var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants, .skipsSubdirectoryDescendants]
         if !includeHiddenFiles {
             options.insert(.skipsHiddenFiles)
@@ -816,12 +831,20 @@ actor ScanEngine {
                 return nil
             }
 
+            let childMetadata = try? metadata(
+                for: childURL,
+                resourceValues: childURL.resourceValues(forKeys: scanResourceKeys)
+            )
+            guard !exclusionMatcher.excludes(
+                childURL,
+                isDirectory: childMetadata?.isDirectory ?? childURL.hasDirectoryPath
+            ) else {
+                return nil
+            }
+
             return DirectoryEntry(
                 url: childURL,
-                metadata: try? metadata(
-                    for: childURL,
-                    resourceValues: childURL.resourceValues(forKeys: scanResourceKeys)
-                )
+                metadata: childMetadata
             )
         }
     }
@@ -880,6 +903,7 @@ actor ScanEngine {
         metadata: NodeMetadata,
         options: ScanOptions,
         countedHardLinkIdentities: inout Set<FileIdentity>,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -902,6 +926,7 @@ actor ScanEngine {
             includeHiddenFiles: options.includeHiddenFiles,
             treatPackagesAsDirectories: true,
             countedHardLinkIdentities: countedHardLinkIdentities,
+            exclusionMatcher: exclusionMatcher,
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
             continuation: continuation,
@@ -954,6 +979,7 @@ actor ScanEngine {
         minFileCount: Int,
         maxAverageFileSize: Int64,
         countedHardLinkIdentities: inout Set<FileIdentity>,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -990,6 +1016,7 @@ actor ScanEngine {
                 isNodeDependencyLayout: isNodeDependencyLayout,
                 minFileCount: minFileCount,
                 maxAverageFileSize: maxAverageFileSize,
+                exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
                 continuation: continuation,
@@ -1020,6 +1047,7 @@ actor ScanEngine {
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
                 countedHardLinkIdentities: &countedHardLinkIdentities,
+                exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
                 continuation: continuation,
@@ -1032,6 +1060,7 @@ actor ScanEngine {
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
             countedHardLinkIdentities: countedHardLinkIdentities,
+            exclusionMatcher: exclusionMatcher,
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
             continuation: continuation,
@@ -1092,6 +1121,7 @@ actor ScanEngine {
         isNodeDependencyLayout: Bool,
         minFileCount: Int,
         maxAverageFileSize: Int64,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -1137,14 +1167,29 @@ actor ScanEngine {
             }
             guard visitedItems <= maxVisitedItems else { return profile }
 
-            if isNodeDependencyLayoutDirectory(at: childURL) {
-                profile.observedNodeDependencyLayout = true
+            let hintedIsDirectory = childURL.hasDirectoryPath
+            if exclusionMatcher.excludes(childURL, isDirectory: hintedIsDirectory) {
+                if hintedIsDirectory {
+                    enumerator.skipDescendants()
+                }
+                continue
             }
 
             do {
                 let values = try childURL.resourceValues(forKeys: Set(probeKeys))
                 let isDirectory = values.isDirectory ?? false
                 let isSymbolicLink = values.isSymbolicLink ?? false
+
+                if exclusionMatcher.excludes(childURL, isDirectory: isDirectory) {
+                    if isDirectory {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
+                if isNodeDependencyLayoutDirectory(at: childURL) {
+                    profile.observedNodeDependencyLayout = true
+                }
 
                 guard !isDirectory else {
                     profile.observedDirectoryCount += 1
@@ -1198,6 +1243,7 @@ actor ScanEngine {
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
         countedHardLinkIdentities: inout Set<FileIdentity>,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -1217,6 +1263,14 @@ actor ScanEngine {
                     emissionState: &emissionState
                 )
             }
+
+            guard !exclusionMatcher.excludes(
+                childEntry.url,
+                isDirectory: childEntry.metadata?.isDirectory ?? childEntry.url.hasDirectoryPath
+            ) else {
+                continue
+            }
+
             let childMetadata: NodeMetadata
             if let preloadedMetadata = childEntry.metadata {
                 childMetadata = preloadedMetadata
@@ -1235,6 +1289,7 @@ actor ScanEngine {
                 into: state,
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
+                exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
                 continuation: continuation,
@@ -1252,12 +1307,14 @@ actor ScanEngine {
         into state: AtomicDirectorySummaryState,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
     ) throws {
         try cancellationCheck()
+        guard !exclusionMatcher.excludes(url, isDirectory: metadata.isDirectory) else { return }
         updateAtomicAccessibility(metadata.isReadable, in: state)
 
         if metadata.isDirectory {
@@ -1268,6 +1325,7 @@ actor ScanEngine {
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories,
                     countedHardLinkIdentities: state.countedHardLinkIdentities,
+                    exclusionMatcher: exclusionMatcher,
                     cancellationCheck: cancellationCheck,
                     metrics: &metrics,
                     continuation: continuation,
@@ -1300,6 +1358,7 @@ actor ScanEngine {
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
         countedHardLinkIdentities: Set<FileIdentity>,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -1346,14 +1405,31 @@ actor ScanEngine {
                     emissionState: &emissionState
                 )
             }
+
+            let hintedIsDirectory = childURL.hasDirectoryPath
+            if exclusionMatcher.excludes(childURL, isDirectory: hintedIsDirectory) {
+                if hintedIsDirectory {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+
             do {
                 let childMetadata = try atomicSummaryMetadata(for: childURL)
+                if exclusionMatcher.excludes(childURL, isDirectory: childMetadata.isDirectory) {
+                    if childMetadata.isDirectory {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
                 try accumulateEnumeratedAtomicSummary(
                     for: childURL,
                     metadata: childMetadata,
                     into: state,
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: treatPackagesAsDirectories,
+                    exclusionMatcher: exclusionMatcher,
                     cancellationCheck: cancellationCheck,
                     metrics: &metrics,
                     continuation: continuation,
@@ -1381,6 +1457,7 @@ actor ScanEngine {
         into state: AtomicDirectorySummaryState,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
+        exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -1388,6 +1465,12 @@ actor ScanEngine {
         skipDescendants: () -> Void
     ) throws {
         try cancellationCheck()
+        guard !exclusionMatcher.excludes(url, isDirectory: metadata.isDirectory) else {
+            if metadata.isDirectory {
+                skipDescendants()
+            }
+            return
+        }
         updateAtomicAccessibility(metadata.isReadable, in: state)
 
         guard metadata.isDirectory else {
@@ -1402,6 +1485,7 @@ actor ScanEngine {
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: true,
             countedHardLinkIdentities: state.countedHardLinkIdentities,
+            exclusionMatcher: exclusionMatcher,
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
             continuation: continuation,

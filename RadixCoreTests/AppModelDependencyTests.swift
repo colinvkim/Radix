@@ -15,7 +15,9 @@ final class AppModelDependencyTests: XCTestCase {
                     showHiddenFiles: false,
                     treatPackagesAsDirectories: true,
                     maxRenderedDepth: 8,
-                    autoSummarizeDirectories: false
+                    autoSummarizeDirectories: false,
+                    useScanExclusions: true,
+                    exclusionPatterns: ["*.log"]
                 ),
                 didCompleteOnboarding: true
             )
@@ -41,6 +43,8 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(model.treatPackagesAsDirectories)
         XCTAssertEqual(model.maxRenderedDepth, 8)
         XCTAssertFalse(model.autoSummarizeDirectories)
+        XCTAssertTrue(model.useScanExclusions)
+        XCTAssertEqual(model.exclusionPatterns, ["*.log"])
         XCTAssertFalse(model.showsOnboarding)
         XCTAssertEqual(model.availableTargets, [defaultTarget])
         XCTAssertEqual(model.smartTargets, [defaultTarget])
@@ -78,6 +82,8 @@ final class AppModelDependencyTests: XCTestCase {
         model.treatPackagesAsDirectories = true
         model.maxRenderedDepth = 10
         model.autoSummarizeDirectories = false
+        model.useScanExclusions = true
+        model.exclusionPatterns = ["node_modules"]
 
         XCTAssertEqual(
             preferences.savedScanPreferences.last,
@@ -85,7 +91,9 @@ final class AppModelDependencyTests: XCTestCase {
                 showHiddenFiles: false,
                 treatPackagesAsDirectories: true,
                 maxRenderedDepth: 10,
-                autoSummarizeDirectories: false
+                autoSummarizeDirectories: false,
+                useScanExclusions: true,
+                exclusionPatterns: ["node_modules"]
             )
         )
 

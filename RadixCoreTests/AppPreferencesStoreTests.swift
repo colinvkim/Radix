@@ -16,7 +16,9 @@ final class AppPreferencesStoreTests: XCTestCase {
             showHiddenFiles: false,
             treatPackagesAsDirectories: true,
             maxRenderedDepth: 9,
-            autoSummarizeDirectories: false
+            autoSummarizeDirectories: false,
+            useScanExclusions: true,
+            exclusionPatterns: ["node_modules", "*.log"]
         )
 
         store.saveScanPreferences(preferences)
@@ -39,6 +41,8 @@ final class AppPreferencesStoreTests: XCTestCase {
         defaults.set(true, forKey: "treatPackagesAsDirectories")
         defaults.set(42, forKey: "maxRenderedDepth")
         defaults.set(false, forKey: "autoSummarizeDirectories")
+        defaults.set(true, forKey: "useScanExclusions")
+        defaults.set([".DS_Store"], forKey: "exclusionPatterns")
 
         let preferences = UserDefaultsAppPreferencesStore(defaults: defaults).loadPreferences().scan
 
@@ -46,6 +50,8 @@ final class AppPreferencesStoreTests: XCTestCase {
         XCTAssertTrue(preferences.treatPackagesAsDirectories)
         XCTAssertEqual(preferences.maxRenderedDepth, AppScanPreferences.defaults.maxRenderedDepth)
         XCTAssertFalse(preferences.autoSummarizeDirectories)
+        XCTAssertTrue(preferences.useScanExclusions)
+        XCTAssertEqual(preferences.exclusionPatterns, [".DS_Store"])
     }
 }
 

@@ -92,6 +92,8 @@ struct ScanOptions: Hashable, Sendable {
     var includeHiddenFiles = false
     var treatPackagesAsDirectories = false
     var autoSummarizeDirectories = true
+    var exclusionPatterns: [String] = []
+    var exclusionRootPath: String?
     /// Override for the minimum file count to trigger auto-summarization.
     /// When nil, the ScanEngine default (5,000) is used.
     var autoSummarizeMinFileCount: Int?
