@@ -430,6 +430,10 @@ struct FileTreeStore: Sendable {
         let didDropReferences: Bool
     }
 
+    private enum StoreError: Error {
+        case replacementIDCollision(String)
+    }
+
     nonisolated var root: FileNodeRecord {
         guard let root = nodesByID[rootID] else {
             preconditionFailure("FileTreeStore rootID does not exist in nodesByID.")
@@ -686,6 +690,11 @@ struct FileTreeStore: Sendable {
             rootedAt: targetID,
             cancellationCheck: cancellationCheck
         ))
+        try preflightReplacement(
+            replacement,
+            removing: oldSubtreeIDs,
+            cancellationCheck: cancellationCheck
+        )
         var updatedNodes = nodesByID
         var updatedChildIDs = childIDsByID
         var updatedParentIDs = parentIDByID
@@ -757,6 +766,21 @@ struct FileTreeStore: Sendable {
             childIDsByID: updatedChildIDs,
             parentIDByID: updatedParentIDs
         )
+    }
+
+    private nonisolated func preflightReplacement(
+        _ replacement: FileTreeStore,
+        removing oldSubtreeIDs: Set<String>,
+        cancellationCheck: () throws -> Void
+    ) throws {
+        for (offset, replacementID) in replacement.nodesByID.keys.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            if nodesByID[replacementID] != nil && !oldSubtreeIDs.contains(replacementID) {
+                throw StoreError.replacementIDCollision(replacementID)
+            }
+        }
     }
 
     nonisolated func subtree(rootedAt targetID: String) -> FileTreeStore? {

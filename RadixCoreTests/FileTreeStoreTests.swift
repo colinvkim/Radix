@@ -107,6 +107,62 @@ final class FileTreeStoreTests: XCTestCase {
         XCTAssertEqual(store.aggregateStats.fileCount, 1)
     }
 
+    func testReplacingSubtreeRejectsReplacementIDsOutsideOldSubtree() throws {
+        let targetChild = makeFileNode(id: "/root/target/old.txt", name: "old.txt", size: 4)
+        let target = makeDirectoryNode(id: "/root/target", name: "target", children: [targetChild])
+        let sibling = makeFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 8)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [target, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [target, sibling],
+            target.id: [targetChild],
+        ])
+        let collidingReplacementChild = makeFileNode(id: sibling.id, name: "collision.txt", size: 99)
+        let replacementRoot = makeDirectoryNode(
+            id: target.id,
+            name: "target",
+            children: [collidingReplacementChild]
+        )
+        let replacementStore = FileTreeStore(root: replacementRoot, childrenByID: [
+            replacementRoot.id: [collidingReplacementChild],
+        ])
+
+        XCTAssertThrowsError(
+            try store.replacingSubtree(
+                id: target.id,
+                with: replacementStore,
+                cancellationCheck: {}
+            )
+        )
+        XCTAssertNil(store.replacingSubtree(id: target.id, with: replacementStore))
+        XCTAssertEqual(store.node(id: sibling.id)?.name, sibling.name)
+    }
+
+    func testReplacingRootCanChangeRootID() throws {
+        let oldChild = makeFileNode(id: "/root/old.txt", name: "old.txt", size: 4)
+        let oldRoot = makeDirectoryNode(id: "/root", name: "root", children: [oldChild])
+        let store = FileTreeStore(root: oldRoot, childrenByID: [
+            oldRoot.id: [oldChild],
+        ])
+        let newChild = makeFileNode(id: "/replacement/new.txt", name: "new.txt", size: 12)
+        let newRoot = makeDirectoryNode(id: "/replacement", name: "replacement", children: [newChild])
+        let replacementStore = FileTreeStore(root: newRoot, childrenByID: [
+            newRoot.id: [newChild],
+        ])
+
+        let updated = try XCTUnwrap(
+            try store.replacingSubtree(
+                id: oldRoot.id,
+                with: replacementStore,
+                cancellationCheck: {}
+            )
+        )
+
+        XCTAssertEqual(updated.root.id, newRoot.id)
+        XCTAssertEqual(updated.children(of: newRoot.id).map(\.id), [newChild.id])
+        XCTAssertNil(updated.node(id: oldRoot.id))
+        XCTAssertNil(updated.node(id: oldChild.id))
+    }
+
     func testDeepTreeIndexingAndAggregateStatsAvoidRecursiveTraversal() {
         let depth = 5_000
         let leafID = "/root/file.txt"

@@ -162,7 +162,7 @@ child IDs. Chose a first-ID-wins policy: later duplicates are dropped before
 scanner assembly/traversal links, with warnings still emitted. Added scanner
 and model coverage. All validations passed.
 
-### 5. [ ] Subtree replacement ID collisions
+### 5. [x] Subtree replacement ID collisions
 
 Original finding: 15. Severity: Medium.
 
@@ -187,6 +187,11 @@ Validate:
 - `rtk swift test --filter ScanModelTests`
 - `rtk swift test --filter FileTreeStoreTests`
 - `rtk swift test`
+
+Completion note: Verified replacement nodes could overwrite IDs outside the
+removed subtree. Added a preflight that rejects replacement IDs already present
+outside the old subtree, and covered both external collisions and root ID
+replacement. All validations passed.
 
 ### 6. [ ] Full-scan search ID allocation
 
