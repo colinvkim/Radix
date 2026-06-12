@@ -108,7 +108,10 @@ enum SunburstLayout {
         guard depth < depthLimit else { return }
 
         try cancellationCheck()
-        let safeDenominator = max(parentDenominator, Int64(children.count))
+        let effectiveChildTotal = children.reduce(Int64(0)) { total, child in
+            total + max(child.allocatedSize, 1)
+        }
+        let safeDenominator = max(parentDenominator, effectiveChildTotal)
         let totalAngle = endAngle - startAngle
         let grouped = try groupedChildren(
             children,

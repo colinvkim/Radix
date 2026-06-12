@@ -25,6 +25,26 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertEqual(totalRadians, .pi * 2, accuracy: 0.0001)
     }
 
+    func testMixedZeroByteChildrenDoNotOverflowParentArc() throws {
+        let children = [
+            makeFileNode(id: "/root/large", name: "large", size: 10),
+            makeFileNode(id: "/root/empty-1", name: "empty-1", size: 0),
+            makeFileNode(id: "/root/empty-2", name: "empty-2", size: 0),
+        ]
+        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
+
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
+        let totalRadians = segments.reduce(0.0) { partialResult, segment in
+            partialResult + (segment.endAngle.radians - segment.startAngle.radians)
+        }
+        let lastSegment = try XCTUnwrap(segments.last)
+
+        XCTAssertEqual(segments.count, 3)
+        XCTAssertEqual(totalRadians, .pi * 2, accuracy: 0.0001)
+        XCTAssertLessThanOrEqual(lastSegment.endAngle.radians, .pi * 2 + 0.0001)
+    }
+
     func testSmallItemsCollapseIntoAggregateSegment() throws {
         let children = [
             makeFileNode(id: "/root/large", name: "large", size: 100),
