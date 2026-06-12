@@ -1831,7 +1831,7 @@ actor ScanEngine {
     }
 }
 
-extension FileManager.DirectoryEnumerator: ScanEngine.DirectoryObjectEnumerating {}
+extension FileManager.DirectoryEnumerator: nonisolated ScanEngine.DirectoryObjectEnumerating {}
 
 nonisolated private enum FileIdentity: Hashable, Sendable {
     case resourceIdentifier(Data)
