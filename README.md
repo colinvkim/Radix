@@ -74,7 +74,7 @@ Open **Radix > Settings** (or press `Cmd + ,`) to adjust:
 git clone https://github.com/colinvkim/radix.git
 cd radix
 
-# Build and run tests
+# Build and run package tests
 swift test
 
 # Open in Xcode for the full app
@@ -82,6 +82,14 @@ open Radix.xcodeproj
 ```
 
 The `Package.swift` file contains the **RadixCore** library (scan engine, models, geometry, formatters). The full SwiftUI app is built through the Xcode project.
+Use SwiftPM for the package test suite and Xcode for the app build:
+
+```bash
+swift test
+xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination 'platform=macOS' build
+```
+
+The shared `Radix` app scheme is not configured with an Xcode test action because the tests belong to the SwiftPM `RadixCoreTests` target.
 
 ### Project Structure
 

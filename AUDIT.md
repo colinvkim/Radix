@@ -63,7 +63,7 @@ Completion note: Verified mixed nonzero/zero-byte children could overflow the
 parent arc; fixed the denominator floor to use effective child sizes and added a
 regression test. Both validations passed.
 
-### 2. [ ] Xcode test workflow
+### 2. [x] Xcode test workflow
 
 Original finding: 19. Severity: Medium.
 
@@ -88,6 +88,11 @@ Validate:
 - `rtk swift test`
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
 - If configured: `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -destination platform=macOS test`
+
+Completion note: Verified `xcodebuild test` still fails because the app scheme
+has no test action. Chose the documented workflow path: README now states that
+SwiftPM owns `RadixCoreTests` and Xcode owns the app build. `rtk swift test` and
+the Xcode Debug build both passed.
 
 ### 3. [ ] Scanner cancellation in wide directories
 
