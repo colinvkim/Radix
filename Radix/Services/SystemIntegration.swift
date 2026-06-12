@@ -14,7 +14,24 @@ enum FullDiskAccessStatus: Equatable, Sendable {
     case unknown
 }
 
+protocol SystemWorkspace {
+    func activateFileViewerSelecting(_ fileURLs: [URL])
+    func open(_ url: URL) -> Bool
+}
+
+extension NSWorkspace: SystemWorkspace {}
+
+protocol PathPasteboard {
+    @discardableResult
+    func clearContents() -> Int
+    func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool
+}
+
+extension NSPasteboard: PathPasteboard {}
+
 enum SystemIntegration {
+    typealias FullDiskAccessProbe = () throws -> Void
+
     enum SystemIntegrationError: LocalizedError {
         case openFailed(path: String)
         case copyPathFailed(path: String)
@@ -95,29 +112,38 @@ enum SystemIntegration {
             options: [.skipHiddenVolumes]
         ) ?? [URL(filePath: "/", directoryHint: .isDirectory)]
 
+        return targetCapacityDescriptions(
+            mountedVolumes: mountedVolumes,
+            capacityDescriptionForURL: capacityDescription(for:)
+        )
+    }
+
+    nonisolated static func targetCapacityDescriptions(
+        mountedVolumes: [URL],
+        capacityDescriptionForURL: (URL) -> String?
+    ) -> [String: String] {
         var descriptions: [String: String] = [:]
         descriptions.reserveCapacity(mountedVolumes.count)
 
         for volumeURL in mountedVolumes {
-            guard let description = capacityDescription(for: volumeURL) else { continue }
+            guard let description = capacityDescriptionForURL(volumeURL) else { continue }
             descriptions[volumeURL.standardizedFileURL.path] = description
         }
 
         return descriptions
     }
 
-    static func reveal(_ url: URL) {
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+    static func reveal(_ url: URL, workspace: SystemWorkspace = NSWorkspace.shared) {
+        workspace.activateFileViewerSelecting([url])
     }
 
-    static func open(_ url: URL) throws {
-        guard NSWorkspace.shared.open(url) else {
+    static func open(_ url: URL, workspace: SystemWorkspace = NSWorkspace.shared) throws {
+        guard workspace.open(url) else {
             throw SystemIntegrationError.openFailed(path: url.path)
         }
     }
 
-    static func copyPath(_ url: URL) throws {
-        let pasteboard = NSPasteboard.general
+    static func copyPath(_ url: URL, pasteboard: PathPasteboard = NSPasteboard.general) throws {
         pasteboard.clearContents()
         let copiedPath = pasteboard.setString(url.path, forType: .string)
         let copiedURL = pasteboard.setString(url.absoluteString, forType: .fileURL)
@@ -182,13 +208,24 @@ enum SystemIntegration {
             ProtectedPathProbe(url: URL(filePath: "/Library/Application Support/com.apple.TCC/TCC.db"), kind: .file)
         ]
 
+        let probes: [FullDiskAccessProbe] = candidates.compactMap { candidate in
+            guard fileManager.fileExists(atPath: candidate.url.path) else { return nil }
+            return {
+                try candidate.probe(using: fileManager)
+            }
+        }
+
+        return fullDiskAccessStatus(probes: probes)
+    }
+
+    nonisolated static func fullDiskAccessStatus(probes: [FullDiskAccessProbe]) -> FullDiskAccessStatus {
         var foundProtectedCandidate = false
 
-        for candidate in candidates where fileManager.fileExists(atPath: candidate.url.path) {
+        for probe in probes {
             foundProtectedCandidate = true
 
             do {
-                try candidate.probe(using: fileManager)
+                try probe()
                 return .granted
             } catch {
                 continue

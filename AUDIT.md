@@ -547,7 +547,7 @@ an ordinary directory enumeration permission failure, then asserts the
 permission warning, inaccessible directory node state, and continued scanning of
 a readable sibling. Both validations passed.
 
-### 17. [ ] `SystemIntegration` safety testability
+### 17. [x] `SystemIntegration` safety testability
 
 Original finding: 22. Severity: Low.
 
@@ -572,6 +572,12 @@ Validate:
 - `rtk swift test --filter SystemIntegrationTests`
 - `rtk swift test --filter AppModelDependencyTests`
 - `rtk swift test`
+
+Completion note: Verified only trash preflight had direct
+`SystemIntegration` tests. Added small workspace, pasteboard, capacity, and
+Full Disk Access probe seams, then covered open failure, reveal selection,
+copy-path success/failure, capacity-description filtering, and FDA
+granted/not-granted/unknown decisions. All validations passed.
 
 ### 18. [ ] Duplicated test factories and fakes
 
