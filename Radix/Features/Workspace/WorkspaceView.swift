@@ -45,6 +45,7 @@ struct SelectedFileActions {
 struct WorkspaceView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    @Binding var isInspectorPresented: Bool
 
     let maxRenderedDepth: Int
     let startupDiskTarget: ScanTarget?
@@ -103,10 +104,26 @@ struct WorkspaceView: View {
                     .disabled(!scanState.canRescan)
                 }
             }
+            ToolbarItem(placement: .automatic) { Spacer() }
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    isInspectorPresented.toggle()
+                } label: {
+                    Label(inspectorToggleTitle, systemImage: "sidebar.trailing")
+                }
+                .labelStyle(.iconOnly)
+                .help(inspectorToggleTitle)
+            }
         }
         .dropDestination(for: URL.self) { urls, _ in
             actions.handleDroppedURLs(urls)
         }
+    }
+}
+
+private extension WorkspaceView {
+    var inspectorToggleTitle: String {
+        isInspectorPresented ? "Hide Inspector" : "Show Inspector"
     }
 }
 

@@ -23,6 +23,7 @@ struct ContentView: View {
             WorkspaceDetailView(
                 scanState: appModel.scanState,
                 navigation: appModel.navigation,
+                isInspectorPresented: $showsInspector,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 startupDiskTarget: appModel.startupDiskTarget,
                 actions: workspaceActions
@@ -161,6 +162,7 @@ private struct WorkspaceWindowObserver: NSViewRepresentable {
 private struct WorkspaceDetailView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    @Binding var isInspectorPresented: Bool
 
     let maxRenderedDepth: Int
     let startupDiskTarget: ScanTarget?
@@ -170,6 +172,7 @@ private struct WorkspaceDetailView: View {
         WorkspaceView(
             scanState: scanState,
             navigation: navigation,
+            isInspectorPresented: $isInspectorPresented,
             maxRenderedDepth: maxRenderedDepth,
             startupDiskTarget: startupDiskTarget,
             actions: actions
