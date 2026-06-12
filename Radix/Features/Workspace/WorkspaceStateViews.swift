@@ -51,9 +51,18 @@ struct ScanningWorkspaceState: View {
                 ProgressView(value: scanProgressFraction, total: 1)
                     .frame(width: 260)
 
-                Text(scanProgressLabel)
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 0) {
+                    if isFinalizingScan {
+                        Text("Finishing ")
+                    }
+
+                    ScanProgressNumberText(value: progress.metrics.progressPercentage)
+
+                    Text("%")
+                }
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
             }
 
             Text("Scanning \(selectedTarget?.displayName ?? "Location")")
@@ -62,11 +71,25 @@ struct ScanningWorkspaceState: View {
             Text(progress.metrics.currentPath)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .lineLimit(2, reservesSpace: true)
+                .truncationMode(.middle)
                 .frame(maxWidth: 540)
 
-            Text("\(progress.metrics.filesVisited) files, \(progress.metrics.directoriesVisited) folders")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 0) {
+                ScanProgressNumberText(
+                    value: progress.metrics.filesVisited,
+                    transitionStyle: .opacity
+                )
+                Text(" files, ")
+                ScanProgressNumberText(
+                    value: progress.metrics.directoriesVisited,
+                    transitionStyle: .opacity
+                )
+                Text(" folders")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
 
             Button("Stop Scan") {
                 actions.stopScan()
@@ -83,11 +106,30 @@ struct ScanningWorkspaceState: View {
     private var scanProgressFraction: Double {
         progress.metrics.progressFraction
     }
+}
 
-    private var scanProgressLabel: String {
-        if isFinalizingScan {
-            return "Finishing \(progress.metrics.progressPercentage.formatted(.number))%"
+private struct ScanProgressNumberText: View {
+    let value: Int
+    var transitionStyle: TransitionStyle = .numericText
+    var animation: Animation = .easeOut(duration: 0.2)
+
+    var body: some View {
+        Text(value.formatted(.number))
+            .contentTransition(contentTransition)
+            .animation(animation, value: value)
+    }
+
+    enum TransitionStyle {
+        case numericText
+        case opacity
+    }
+
+    private var contentTransition: ContentTransition {
+        switch transitionStyle {
+        case .numericText:
+            .numericText(value: Double(value))
+        case .opacity:
+            .opacity
         }
-        return progress.metrics.progressPercentage.formatted(.number) + "%"
     }
 }
