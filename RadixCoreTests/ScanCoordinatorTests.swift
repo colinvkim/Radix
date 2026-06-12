@@ -206,8 +206,8 @@ final class ScanCoordinatorTests: XCTestCase {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
         let summarizedNode = makeCoordinatorSummarizedDirectoryNode(id: "/root/cache", name: "cache", size: 300)
-        let sibling = makeCoordinatorFileNode(id: "/root/readme.txt", name: "readme.txt", size: 50)
-        let root = makeCoordinatorDirectoryNode(id: "/root", name: "root", children: [summarizedNode, sibling])
+        let sibling = makeTestFileNode(id: "/root/readme.txt", name: "readme.txt", size: 50)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [summarizedNode, sibling])
         let baseStore = FileTreeStore(root: root, childrenByID: [root.id: [summarizedNode, sibling]])
         let existingWarning = ScanWarning(path: "/root/cache", message: "original", category: .fileSystem)
         let baseSnapshot = makeCoordinatorSnapshot(
@@ -218,8 +218,8 @@ final class ScanCoordinatorTests: XCTestCase {
         )
         coordinator.replaceCurrentSnapshot(baseSnapshot)
 
-        let expandedFile = makeCoordinatorFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
-        let expandedRoot = makeCoordinatorDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
+        let expandedFile = makeTestFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
+        let expandedRoot = makeTestDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
         let expandedStore = FileTreeStore(root: expandedRoot, childrenByID: [expandedRoot.id: [expandedFile]])
         let expansionWarning = ScanWarning(path: expandedFile.id, message: "expanded", category: .permissionDenied)
         let expandedSnapshot = makeCoordinatorSnapshot(
@@ -595,12 +595,12 @@ final class ScanCoordinatorTests: XCTestCase {
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, libraryTarget])
             )
         )
-        let libraryNode = makeCoordinatorDirectoryNode(
+        let libraryNode = makeTestDirectoryNode(
             id: libraryTarget.id,
             name: "Library",
             children: []
         )
-        let homeRoot = makeCoordinatorDirectoryNode(
+        let homeRoot = makeTestDirectoryNode(
             id: homeTarget.id,
             name: "exclusion-home",
             children: [libraryNode]
@@ -645,12 +645,12 @@ final class ScanCoordinatorTests: XCTestCase {
                 systemActions: actions
             )
         )
-        let secondChild = makeCoordinatorFileNode(
+        let secondChild = makeTestFileNode(
             id: secondTarget.id + "/deleted.txt",
             name: "deleted.txt",
             size: 20
         )
-        let secondRoot = makeCoordinatorDirectoryNode(
+        let secondRoot = makeTestDirectoryNode(
             id: secondTarget.id,
             name: "stale-second",
             children: [secondChild]
@@ -704,12 +704,12 @@ final class ScanCoordinatorTests: XCTestCase {
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
             )
         )
-        let staleFile = makeCoordinatorFileNode(
+        let staleFile = makeTestFileNode(
             id: downloadsTarget.id + "/stale.txt",
             name: "stale.txt",
             size: 8
         )
-        let staleDownloadsRoot = makeCoordinatorDirectoryNode(
+        let staleDownloadsRoot = makeTestDirectoryNode(
             id: downloadsTarget.id,
             name: "Downloads",
             children: [staleFile]
@@ -717,7 +717,7 @@ final class ScanCoordinatorTests: XCTestCase {
         let staleDownloadsStore = FileTreeStore(root: staleDownloadsRoot, childrenByID: [
             staleDownloadsRoot.id: [staleFile]
         ])
-        let downloadFile = makeCoordinatorFileNode(
+        let downloadFile = makeTestFileNode(
             id: downloadsTarget.id + "/file.txt",
             name: "file.txt",
             size: 20
@@ -727,12 +727,12 @@ final class ScanCoordinatorTests: XCTestCase {
             root: staleDownloadsRoot,
             store: staleDownloadsStore
         )
-        let downloadsNode = makeCoordinatorDirectoryNode(
+        let downloadsNode = makeTestDirectoryNode(
             id: downloadsTarget.id,
             name: "Downloads",
             children: [downloadFile]
         )
-        let homeRoot = makeCoordinatorDirectoryNode(
+        let homeRoot = makeTestDirectoryNode(
             id: homeTarget.id,
             name: "cache-home",
             children: [downloadsNode]
@@ -789,17 +789,17 @@ final class ScanCoordinatorTests: XCTestCase {
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
             )
         )
-        let downloadFile = makeCoordinatorFileNode(
+        let downloadFile = makeTestFileNode(
             id: downloadsTarget.id + "/file.txt",
             name: "file.txt",
             size: 20
         )
-        let downloadsNode = makeCoordinatorDirectoryNode(
+        let downloadsNode = makeTestDirectoryNode(
             id: downloadsTarget.id,
             name: "Downloads",
             children: [downloadFile]
         )
-        let homeRoot = makeCoordinatorDirectoryNode(
+        let homeRoot = makeTestDirectoryNode(
             id: homeTarget.id,
             name: "home",
             children: [downloadsNode]
@@ -854,27 +854,27 @@ final class ScanCoordinatorTests: XCTestCase {
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget, documentsTarget])
             )
         )
-        let downloadFile = makeCoordinatorFileNode(
+        let downloadFile = makeTestFileNode(
             id: downloadsTarget.id + "/download.txt",
             name: "download.txt",
             size: 20
         )
-        let documentFile = makeCoordinatorFileNode(
+        let documentFile = makeTestFileNode(
             id: documentsTarget.id + "/document.txt",
             name: "document.txt",
             size: 30
         )
-        let downloadsNode = makeCoordinatorDirectoryNode(
+        let downloadsNode = makeTestDirectoryNode(
             id: downloadsTarget.id,
             name: "Downloads",
             children: [downloadFile]
         )
-        let documentsNode = makeCoordinatorDirectoryNode(
+        let documentsNode = makeTestDirectoryNode(
             id: documentsTarget.id,
             name: "Documents",
             children: [documentFile]
         )
-        let homeRoot = makeCoordinatorDirectoryNode(
+        let homeRoot = makeTestDirectoryNode(
             id: homeTarget.id,
             name: "sibling-home",
             children: [downloadsNode, documentsNode]
@@ -1114,8 +1114,8 @@ final class ScanCoordinatorTests: XCTestCase {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
         let summarizedNode = makeCoordinatorSummarizedDirectoryNode(id: "/root/cache", name: "cache", size: 300)
-        let focusChild = makeCoordinatorDirectoryNode(id: "/root/docs", name: "docs", children: [])
-        let root = makeCoordinatorDirectoryNode(id: "/root", name: "root", children: [summarizedNode, focusChild])
+        let focusChild = makeTestDirectoryNode(id: "/root/docs", name: "docs", children: [])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [summarizedNode, focusChild])
         let baseStore = FileTreeStore(root: root, childrenByID: [root.id: [summarizedNode, focusChild]])
         let baseSnapshot = makeCoordinatorSnapshot(
             target: makeCoordinatorTarget("/root"),
@@ -1128,8 +1128,8 @@ final class ScanCoordinatorTests: XCTestCase {
         model.focus(nodeID: focusChild.id)
         XCTAssertTrue(model.navigation.canNavigateBack)
 
-        let expandedFile = makeCoordinatorFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
-        let expandedRoot = makeCoordinatorDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
+        let expandedFile = makeTestFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
+        let expandedRoot = makeTestDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
         let expandedStore = FileTreeStore(root: expandedRoot, childrenByID: [expandedRoot.id: [expandedFile]])
         let expandedSnapshot = makeCoordinatorSnapshot(
             target: makeCoordinatorTarget(summarizedNode.id),
@@ -1175,7 +1175,7 @@ final class ScanCoordinatorTests: XCTestCase {
             )
         )
         let summarizedNode = makeCoordinatorSummarizedDirectoryNode(id: "/root/cache", name: "cache", size: 300)
-        let root = makeCoordinatorDirectoryNode(id: "/root", name: "root", children: [summarizedNode])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [summarizedNode])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [summarizedNode]])
         let snapshot = makeCoordinatorSnapshot(target: rootTarget, root: root, store: store)
 
@@ -1370,8 +1370,8 @@ private func makeCoordinatorMetrics(path: String, filesVisited: Int) -> ScanMetr
 }
 
 private func makeCoordinatorSnapshot(target: ScanTarget) -> ScanSnapshot {
-    let file = makeCoordinatorFileNode(id: target.url.appendingPathComponent("file.txt").path, name: "file.txt", size: 20)
-    let root = makeCoordinatorDirectoryNode(id: target.id, name: target.displayName, children: [file])
+    let file = makeTestFileNode(id: target.url.appendingPathComponent("file.txt").path, name: "file.txt", size: 20)
+    let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [file])
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
     return makeCoordinatorSnapshot(target: target, root: root, store: store)
 }
@@ -1381,22 +1381,22 @@ private func makeCoordinatorHomeSnapshot(
     downloadsTarget: ScanTarget,
     rootName: String
 ) -> ScanSnapshot {
-    let downloadFile = makeCoordinatorFileNode(
+    let downloadFile = makeTestFileNode(
         id: downloadsTarget.id + "/download.txt",
         name: "download.txt",
         size: 20
     )
-    let siblingFile = makeCoordinatorFileNode(
+    let siblingFile = makeTestFileNode(
         id: homeTarget.id + "/notes.txt",
         name: "notes.txt",
         size: 10
     )
-    let downloadsNode = makeCoordinatorDirectoryNode(
+    let downloadsNode = makeTestDirectoryNode(
         id: downloadsTarget.id,
         name: "Downloads",
         children: [downloadFile]
     )
-    let homeRoot = makeCoordinatorDirectoryNode(
+    let homeRoot = makeTestDirectoryNode(
         id: homeTarget.id,
         name: rootName,
         children: [downloadsNode, siblingFile]
@@ -1414,48 +1414,11 @@ private func makeCoordinatorSnapshot(
     store: FileTreeStore,
     warnings: [ScanWarning] = []
 ) -> ScanSnapshot {
-    ScanSnapshot(
+    makeTestSnapshot(
         target: target,
-        treeStore: store,
-        startedAt: Date(),
-        finishedAt: Date(),
-        scanWarnings: warnings,
-        aggregateStats: store.aggregateStats,
-        isComplete: true
-    )
-}
-
-private func makeCoordinatorFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id),
-        name: name,
-        isDirectory: false,
-        isSymbolicLink: false,
-        allocatedSize: size,
-        logicalSize: size,
-        descendantFileCount: 1,
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
-}
-
-private func makeCoordinatorDirectoryNode(
-    id: String,
-    name: String,
-    children: [FileNodeRecord]
-) -> FileNodeRecord {
-    FileNodeRecord.directory(
-        id: id,
-        url: URL(filePath: id, directoryHint: .isDirectory),
-        name: name,
-        children: children,
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true
+        root: root,
+        store: store,
+        warnings: warnings
     )
 }
 

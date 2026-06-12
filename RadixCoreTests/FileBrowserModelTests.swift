@@ -5,10 +5,10 @@ import XCTest
 final class FileBrowserModelTests: XCTestCase {
     @MainActor
     func testCurrentContentsSortsFiltersAndFindsDisplayedNodes() {
-        let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
-        let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
-        let nested = makeBrowserFileNode(id: "/root/Folder/nested.txt", name: "nested.txt", size: 20)
-        let folder = makeBrowserDirectoryNode(id: "/root/Folder", name: "Folder", children: [nested])
+        let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
+        let large = makeTestFileNode(id: "/root/large.log", name: "large.log", size: 30)
+        let nested = makeTestFileNode(id: "/root/Folder/nested.txt", name: "nested.txt", size: 20)
+        let folder = makeTestDirectoryNode(id: "/root/Folder", name: "Folder", children: [nested])
         let model = FileBrowserModel()
 
         model.updateContent(
@@ -30,9 +30,9 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     func testCurrentContentsFiltersBeforeReturningSortedMatches() {
-        let smallMatch = makeBrowserFileNode(id: "/root/matches/small.txt", name: "small.txt", size: 10)
-        let largeMatch = makeBrowserFileNode(id: "/root/matches/large.txt", name: "large.txt", size: 30)
-        let ignored = makeBrowserFileNode(id: "/root/ignored.bin", name: "ignored.bin", size: 100)
+        let smallMatch = makeTestFileNode(id: "/root/matches/small.txt", name: "small.txt", size: 10)
+        let largeMatch = makeTestFileNode(id: "/root/matches/large.txt", name: "large.txt", size: 30)
+        let ignored = makeTestFileNode(id: "/root/ignored.bin", name: "ignored.bin", size: 100)
 
         let result = FileBrowserResults.filteredAndSortedCurrentContents(
             [smallMatch, ignored, largeMatch],
@@ -45,9 +45,9 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testLargeCurrentContentsFilterDebouncesAndIgnoresStaleQuery() async throws {
-        let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
-        let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
-        let other = makeBrowserFileNode(id: "/root/other.bin", name: "other.bin", size: 20)
+        let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
+        let large = makeTestFileNode(id: "/root/large.log", name: "large.log", size: 30)
+        let other = makeTestFileNode(id: "/root/other.bin", name: "other.bin", size: 20)
         let model = FileBrowserModel(
             searchDebounceDuration: .milliseconds(40),
             currentContentsAsyncThreshold: 1
@@ -81,8 +81,8 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testLargeCurrentContentsUpdateWithSameContentIDMarksRowsStale() async throws {
-        let old = makeBrowserFileNode(id: "/root/old.txt", name: "old.txt", size: 10)
-        let new = makeBrowserFileNode(id: "/root/new.txt", name: "new.txt", size: 20)
+        let old = makeTestFileNode(id: "/root/old.txt", name: "old.txt", size: 10)
+        let new = makeTestFileNode(id: "/root/new.txt", name: "new.txt", size: 20)
         let model = FileBrowserModel(
             searchDebounceDuration: .milliseconds(40),
             currentContentsAsyncThreshold: 1
@@ -116,8 +116,8 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testContentUpdatePublishesRowsAndDisplayedNodesTogether() {
-        let small = makeBrowserFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
-        let large = makeBrowserFileNode(id: "/root/large.log", name: "large.log", size: 30)
+        let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
+        let large = makeTestFileNode(id: "/root/large.log", name: "large.log", size: 30)
         let model = FileBrowserModel()
         var publishCount = 0
         let cancellable = model.objectWillChange.sink { _ in
@@ -140,18 +140,18 @@ final class FileBrowserModelTests: XCTestCase {
     @MainActor
     func testDisplayStateBuildsRowPresentationValues() {
         let modifiedDate = Date(timeIntervalSince1970: 1_234_567)
-        let file = makeBrowserFileNode(
+        let file = makeTestFileNode(
             id: "/root/file.txt",
             name: "file.txt",
             size: 1_024,
             lastModified: modifiedDate
         )
-        let folder = makeBrowserDirectoryNode(
+        let folder = makeTestDirectoryNode(
             id: "/root/folder",
             name: "folder",
             children: [
-                makeBrowserFileNode(id: "/root/folder/a.txt", name: "a.txt", size: 1),
-                makeBrowserFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 1),
+                makeTestFileNode(id: "/root/folder/a.txt", name: "a.txt", size: 1),
+                makeTestFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 1),
             ]
         )
         let model = FileBrowserModel()
@@ -173,11 +173,11 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     func testSearchServiceMatchesNameKindAndPathOnlyForPathQueries() async throws {
-        let photo = makeBrowserFileNode(id: "/root/photos/vacation.jpg", name: "vacation.jpg", size: 20)
-        let cache = makeBrowserFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 10)
-        let photos = makeBrowserDirectoryNode(id: "/root/photos", name: "photos", children: [photo])
-        let library = makeBrowserDirectoryNode(id: "/root/Library", name: "Library", children: [cache])
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [photos, library])
+        let photo = makeTestFileNode(id: "/root/photos/vacation.jpg", name: "vacation.jpg", size: 20)
+        let cache = makeTestFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 10)
+        let photos = makeTestDirectoryNode(id: "/root/photos", name: "photos", children: [photo])
+        let library = makeTestDirectoryNode(id: "/root/Library", name: "Library", children: [cache])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [photos, library])
         let store = FileTreeStore(root: root, childrenByID: [
             root.id: [photos, library],
             photos.id: [photo],
@@ -216,20 +216,12 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testModelRunsEntireScanSearchThroughService() async throws {
-        let smallTarget = makeBrowserFileNode(id: "/root/target-small.txt", name: "target-small.txt", size: 5)
-        let largeTarget = makeBrowserFileNode(id: "/root/target-large.txt", name: "target-large.txt", size: 50)
-        let other = makeBrowserFileNode(id: "/root/other.log", name: "other.log", size: 10)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [smallTarget, largeTarget, other])
+        let smallTarget = makeTestFileNode(id: "/root/target-small.txt", name: "target-small.txt", size: 5)
+        let largeTarget = makeTestFileNode(id: "/root/target-large.txt", name: "target-large.txt", size: 50)
+        let other = makeTestFileNode(id: "/root/other.log", name: "other.log", size: 10)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [smallTarget, largeTarget, other])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [smallTarget, largeTarget, other]])
-        let snapshot = ScanSnapshot(
-            target: ScanTarget(url: root.url),
-            treeStore: store,
-            startedAt: Date(),
-            finishedAt: Date(),
-            scanWarnings: [],
-            aggregateStats: store.aggregateStats,
-            isComplete: true
-        )
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let model = FileBrowserModel(searchDebounceDuration: .zero)
 
         model.updateContent(
@@ -249,11 +241,11 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testDelayedEntireScanResultCannotReplaceNewerQuery() async throws {
-        let slow = makeBrowserFileNode(id: "/root/slow.txt", name: "slow.txt", size: 5)
-        let fast = makeBrowserFileNode(id: "/root/fast.txt", name: "fast.txt", size: 10)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [slow, fast])
+        let slow = makeTestFileNode(id: "/root/slow.txt", name: "slow.txt", size: 5)
+        let fast = makeTestFileNode(id: "/root/fast.txt", name: "fast.txt", size: 10)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [slow, fast])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [slow, fast]])
-        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let slowQuery = SearchNormalizer.normalize("slow")
         let fastQuery = SearchNormalizer.normalize("fast")
         let service = DelayedFileSearchService(
@@ -284,11 +276,11 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testSwitchingToCurrentContentsClearsWholeScanLoadingAndIgnoresLateResult() async throws {
-        let current = makeBrowserFileNode(id: "/root/current.log", name: "current.log", size: 10)
-        let wholeScanOnly = makeBrowserFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
+        let current = makeTestFileNode(id: "/root/current.log", name: "current.log", size: 10)
+        let wholeScanOnly = makeTestFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [current, wholeScanOnly]])
-        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
             delayedQuery: query,
@@ -319,10 +311,10 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testCleanupClearsLoadingState() async throws {
-        let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target])
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
-        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
             delayedQuery: query,
@@ -349,11 +341,11 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testCleanupCancelsActiveSearchAndKeepsCurrentRows() async throws {
-        let current = makeBrowserFileNode(id: "/root/current.txt", name: "current.txt", size: 10)
-        let wholeScanOnly = makeBrowserFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
+        let current = makeTestFileNode(id: "/root/current.txt", name: "current.txt", size: 10)
+        let wholeScanOnly = makeTestFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [current, wholeScanOnly]])
-        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
             delayedQuery: query,
@@ -383,12 +375,12 @@ final class FileBrowserModelTests: XCTestCase {
     func testCleanupCancelsSearchIndexPruneTask() async throws {
         let service = CancellablePruningFileSearchService()
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
-        let firstRoot = makeBrowserDirectoryNode(id: "/first", name: "first", children: [])
-        let secondRoot = makeBrowserDirectoryNode(id: "/second", name: "second", children: [])
+        let firstRoot = makeTestDirectoryNode(id: "/first", name: "first", children: [])
+        let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [])
         let firstStore = FileTreeStore(root: firstRoot)
         let secondStore = FileTreeStore(root: secondRoot)
-        let firstSnapshot = makeBrowserSnapshot(root: firstRoot, store: firstStore)
-        let secondSnapshot = makeBrowserSnapshot(root: secondRoot, store: secondStore)
+        let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
+        let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
 
         model.updateContent(
             nodes: [],
@@ -411,10 +403,10 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testForceRefreshRestartsCanceledSearchForSameContent() async throws {
-        let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target])
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
-        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
             delayedQuery: query,
@@ -450,10 +442,10 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testSameContentUpdateDoesNotRestartActiveSearch() async throws {
-        let target = makeBrowserFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
-        let root = makeBrowserDirectoryNode(id: "/root", name: "root", children: [target])
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
-        let snapshot = makeBrowserSnapshot(root: root, store: store)
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
             delayedQuery: query,
@@ -488,12 +480,12 @@ final class FileBrowserModelTests: XCTestCase {
 
     @MainActor
     func testSnapshotChangesPruneSearchIndexes() async throws {
-        let firstRoot = makeBrowserDirectoryNode(id: "/first", name: "first", children: [])
+        let firstRoot = makeTestDirectoryNode(id: "/first", name: "first", children: [])
         let firstStore = FileTreeStore(root: firstRoot)
-        let firstSnapshot = makeBrowserSnapshot(root: firstRoot, store: firstStore)
-        let secondRoot = makeBrowserDirectoryNode(id: "/second", name: "second", children: [])
+        let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
+        let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [])
         let secondStore = FileTreeStore(root: secondRoot)
-        let secondSnapshot = makeBrowserSnapshot(root: secondRoot, store: secondStore)
+        let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
         let service = PruningFileSearchService()
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
 
@@ -589,59 +581,6 @@ private func waitForCurrentContentsRefreshToFinish(
         try await Task.sleep(for: .milliseconds(10))
     }
     XCTFail("Timed out waiting for current contents refresh.", file: file, line: line)
-}
-
-private func makeBrowserFileNode(
-    id: String,
-    name: String,
-    size: Int64,
-    lastModified: Date? = nil
-) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id),
-        name: name,
-        isDirectory: false,
-        isSymbolicLink: false,
-        allocatedSize: size,
-        logicalSize: size,
-        descendantFileCount: 1,
-        lastModified: lastModified,
-        isPackage: false,
-        isAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
-}
-
-private func makeBrowserDirectoryNode(id: String, name: String, children: [FileNodeRecord]) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id, directoryHint: .isDirectory),
-        name: name,
-        isDirectory: true,
-        isSymbolicLink: false,
-        allocatedSize: children.reduce(0) { $0 + $1.allocatedSize },
-        logicalSize: children.reduce(0) { $0 + $1.logicalSize },
-        descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
-}
-
-private func makeBrowserSnapshot(root: FileNodeRecord, store: FileTreeStore) -> ScanSnapshot {
-    ScanSnapshot(
-        target: ScanTarget(url: root.url),
-        treeStore: store,
-        startedAt: Date(),
-        finishedAt: Date(),
-        scanWarnings: [],
-        aggregateStats: store.aggregateStats,
-        isComplete: true
-    )
 }
 
 private actor DelayedFileSearchService: FileSearching {

@@ -579,7 +579,7 @@ Full Disk Access probe seams, then covered open failure, reveal selection,
 copy-path success/failure, capacity-description filtering, and FDA
 granted/not-granted/unknown decisions. All validations passed.
 
-### 18. [ ] Duplicated test factories and fakes
+### 18. [x] Duplicated test factories and fakes
 
 Original finding: 23. Severity: Low.
 
@@ -603,6 +603,11 @@ Approach:
 Validate:
 
 - `rtk swift test`
+
+Completion note: Extracted shared test target, node, directory, and snapshot
+fixtures into `RadixCoreTests/TestFixtures.swift`, then migrated the duplicated
+builders in AppModel, file browser, scan coordinator, and workspace navigation
+tests while leaving scenario-specific fakes local. Validation passed.
 
 ### 19. [ ] README dependency wording
 

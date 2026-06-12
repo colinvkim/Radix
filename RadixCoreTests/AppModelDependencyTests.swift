@@ -6,9 +6,9 @@ import XCTest
 final class AppModelDependencyTests: XCTestCase {
     @MainActor
     func testInitializesFromInjectedPreferencesTargetsAndRecentStore() {
-        let availableRecent = makeAppModelTarget("/recent/available")
-        let missingRecent = makeAppModelTarget("/recent/missing")
-        let defaultTarget = makeAppModelTarget("/default")
+        let availableRecent = makeTestTarget("/recent/available")
+        let missingRecent = makeTestTarget("/recent/missing")
+        let defaultTarget = makeTestTarget("/default")
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(
                 scan: AppScanPreferences(
@@ -55,9 +55,9 @@ final class AppModelDependencyTests: XCTestCase {
 
     @MainActor
     func testRemoveRecentTargetPersistsRemainingTargets() {
-        let first = makeAppModelTarget("/recent/first")
-        let removed = makeAppModelTarget("/recent/removed")
-        let last = makeAppModelTarget("/recent/last")
+        let first = makeTestTarget("/recent/first")
+        let removed = makeTestTarget("/recent/removed")
+        let last = makeTestTarget("/recent/last")
         let recentPersistence = SpyRecentTargetPersistence(targets: [first, removed, last])
         let model = AppModel(
             dependencies: makeDependencies(
@@ -75,7 +75,7 @@ final class AppModelDependencyTests: XCTestCase {
 
     @MainActor
     func testClearRecentTargetsClearsActiveSidebarTarget() {
-        let first = makeAppModelTarget("/recent/first")
+        let first = makeTestTarget("/recent/first")
         let recentPersistence = SpyRecentTargetPersistence(targets: [first])
         let model = AppModel(
             dependencies: makeDependencies(
@@ -317,28 +317,20 @@ final class AppModelDependencyTests: XCTestCase {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let payload = makeAppModelFileNode(
+        let payload = makeTestFileNode(
             id: "/selection/Sample.app/Contents/MacOS/Binary",
             name: "Binary",
             size: 42
         )
-        let package = makeAppModelDirectoryNode(
+        let package = makeTestDirectoryNode(
             id: "/selection/Sample.app",
             name: "Sample.app",
             children: [payload],
             isPackage: true
         )
-        let root = makeAppModelDirectoryNode(id: "/selection", name: "selection", children: [package])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [package])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [package]])
-        let snapshot = ScanSnapshot(
-            target: ScanTarget(url: root.url),
-            treeStore: store,
-            startedAt: Date(),
-            finishedAt: Date(),
-            scanWarnings: [],
-            aggregateStats: store.aggregateStats,
-            isComplete: true
-        )
+        let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.navigation.setFocusedNodeID(root.id)
@@ -381,7 +373,7 @@ final class AppModelDependencyTests: XCTestCase {
     func testAppModelActionsUseNarrowStateOwners() {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model, selectNode: false)
-        let target = makeAppModelTarget("/aligned")
+        let target = makeTestTarget("/aligned")
 
         model.scanState.selectedTarget = target
         model.select(nodeID: file.id)
@@ -415,7 +407,7 @@ final class AppModelDependencyTests: XCTestCase {
     @MainActor
     func testConfirmPendingTrashUsesInjectedFileActionsAndRefreshesTargets() {
         let recorder = AppModelActionRecorder()
-        let refreshedTarget = makeAppModelTarget("/refreshed")
+        let refreshedTarget = makeTestTarget("/refreshed")
         recorder.defaultTargets = [refreshedTarget]
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -443,21 +435,13 @@ final class AppModelDependencyTests: XCTestCase {
         actions.fileExists = { _ in true }
         actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let protectedRoot = makeAppModelDirectoryNode(
+        let protectedRoot = makeTestDirectoryNode(
             id: "/Applications",
             name: "Applications",
             children: []
         )
         let store = FileTreeStore(root: protectedRoot)
-        let snapshot = ScanSnapshot(
-            target: ScanTarget(url: protectedRoot.url),
-            treeStore: store,
-            startedAt: Date(),
-            finishedAt: Date(),
-            scanWarnings: [],
-            aggregateStats: store.aggregateStats,
-            isComplete: true
-        )
+        let snapshot = makeTestSnapshot(root: protectedRoot, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.select(nodeID: protectedRoot.id)
@@ -514,7 +498,7 @@ final class AppModelDependencyTests: XCTestCase {
     @MainActor
     func testAsyncCapacityDescriptionsDoNotDelayAvailableTargets() async throws {
         let probe = AsyncValueProbe<[String: String]>()
-        let loadedTarget = makeAppModelTarget("/async-loaded")
+        let loadedTarget = makeTestTarget("/async-loaded")
         var actions = AppSystemActions.inert
         actions.defaultTargets = {
             [loadedTarget]
@@ -541,7 +525,7 @@ final class AppModelDependencyTests: XCTestCase {
     @MainActor
     func testCleanupCancelsAsyncCapacityDescriptionRefresh() async throws {
         let probe = AsyncValueProbe<[String: String]>()
-        let loadedTarget = makeAppModelTarget("/async-loaded")
+        let loadedTarget = makeTestTarget("/async-loaded")
         var actions = AppSystemActions.inert
         actions.defaultTargets = {
             [loadedTarget]
@@ -687,18 +671,10 @@ private func installSelection(
     on model: AppModel,
     selectNode: Bool = true
 ) -> FileNodeRecord {
-    let file = makeAppModelFileNode(id: "/selection/file.txt", name: "file.txt")
-    let root = makeAppModelDirectoryNode(id: "/selection", name: "selection", children: [file])
+    let file = makeTestFileNode(id: "/selection/file.txt", name: "file.txt")
+    let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [file])
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
-    let snapshot = ScanSnapshot(
-        target: ScanTarget(url: root.url),
-        treeStore: store,
-        startedAt: Date(),
-        finishedAt: Date(),
-        scanWarnings: [],
-        aggregateStats: store.aggregateStats,
-        isComplete: true
-    )
+    let snapshot = makeTestSnapshot(root: root, store: store)
     model.scanState.replaceCurrentSnapshot(snapshot)
     model.navigation.reconcileAfterSnapshotApplied(snapshot)
     model.navigation.setFocusedNodeID(root.id)
@@ -708,51 +684,6 @@ private func installSelection(
     }
 
     return file
-}
-
-private func makeAppModelTarget(_ path: String, kind: ScanTargetKind = .folder) -> ScanTarget {
-    ScanTarget(url: URL(filePath: path, directoryHint: .isDirectory), kind: kind)
-}
-
-private func makeAppModelFileNode(id: String, name: String, size: Int64 = 1) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id),
-        name: name,
-        isDirectory: false,
-        isSymbolicLink: false,
-        allocatedSize: size,
-        logicalSize: size,
-        descendantFileCount: 1,
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
-}
-
-private func makeAppModelDirectoryNode(
-    id: String,
-    name: String,
-    children: [FileNodeRecord],
-    isPackage: Bool = false
-) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id, directoryHint: .isDirectory),
-        name: name,
-        isDirectory: true,
-        isSymbolicLink: false,
-        allocatedSize: children.reduce(0) { $0 + $1.allocatedSize },
-        logicalSize: children.reduce(0) { $0 + $1.logicalSize },
-        descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
-        lastModified: nil,
-        isPackage: isPackage,
-        isAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
 }
 
 private final class SpyAppPreferencesStore: AppPreferencesPersisting {

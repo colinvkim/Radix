@@ -451,26 +451,18 @@ private struct NavigationFixture {
 }
 
 private func makeNavigationFixture(rootID: String = "/root") -> NavigationFixture {
-    let docFile = makeNavigationFileNode(id: rootID + "/docs/report.txt", name: "report.txt", size: 20)
-    let cacheFile = makeNavigationFileNode(id: rootID + "/cache/item.db", name: "item.db", size: 12)
-    let rootFile = makeNavigationFileNode(id: rootID + "/readme.txt", name: "readme.txt", size: 5)
-    let docs = makeNavigationDirectoryNode(id: rootID + "/docs", name: "docs", children: [docFile])
-    let cache = makeNavigationDirectoryNode(id: rootID + "/cache", name: "cache", children: [cacheFile])
-    let root = makeNavigationDirectoryNode(id: rootID, name: "root", children: [docs, cache, rootFile])
+    let docFile = makeTestFileNode(id: rootID + "/docs/report.txt", name: "report.txt", size: 20)
+    let cacheFile = makeTestFileNode(id: rootID + "/cache/item.db", name: "item.db", size: 12)
+    let rootFile = makeTestFileNode(id: rootID + "/readme.txt", name: "readme.txt", size: 5)
+    let docs = makeTestDirectoryNode(id: rootID + "/docs", name: "docs", children: [docFile])
+    let cache = makeTestDirectoryNode(id: rootID + "/cache", name: "cache", children: [cacheFile])
+    let root = makeTestDirectoryNode(id: rootID, name: "root", children: [docs, cache, rootFile])
     let store = FileTreeStore(root: root, childrenByID: [
         root.id: [docs, cache, rootFile],
         docs.id: [docFile],
         cache.id: [cacheFile]
     ])
-    let snapshot = ScanSnapshot(
-        target: ScanTarget(url: root.url),
-        treeStore: store,
-        startedAt: Date(),
-        finishedAt: Date(),
-        scanWarnings: [],
-        aggregateStats: store.aggregateStats,
-        isComplete: true
-    )
+    let snapshot = makeTestSnapshot(root: root, store: store)
     return NavigationFixture(
         root: root,
         docs: docs,
@@ -480,40 +472,6 @@ private func makeNavigationFixture(rootID: String = "/root") -> NavigationFixtur
         rootFile: rootFile,
         store: store,
         snapshot: snapshot
-    )
-}
-
-private func makeNavigationFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id),
-        name: name,
-        isDirectory: false,
-        isSymbolicLink: false,
-        allocatedSize: size,
-        logicalSize: size,
-        descendantFileCount: 1,
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
-}
-
-private func makeNavigationDirectoryNode(
-    id: String,
-    name: String,
-    children: [FileNodeRecord]
-) -> FileNodeRecord {
-    FileNodeRecord.directory(
-        id: id,
-        url: URL(filePath: id, directoryHint: .isDirectory),
-        name: name,
-        children: children,
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true
     )
 }
 
