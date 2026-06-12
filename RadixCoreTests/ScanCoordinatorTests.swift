@@ -1435,6 +1435,7 @@ private func makeCoordinatorSummarizedDirectoryNode(id: String, name: String, si
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
+        isSelfAccessible: true,
         isSynthetic: false,
         isAutoSummarized: true
     )

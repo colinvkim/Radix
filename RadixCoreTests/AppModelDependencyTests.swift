@@ -127,6 +127,25 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanupFlushesPendingPreferencePersistence() {
+        let preferences = SpyAppPreferencesStore(preferences: .defaults)
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        let expectedPreferences = AppScanPreferences(
+            showHiddenFiles: false,
+            treatPackagesAsDirectories: AppScanPreferences.defaults.treatPackagesAsDirectories,
+            maxRenderedDepth: AppScanPreferences.defaults.maxRenderedDepth,
+            autoSummarizeDirectories: AppScanPreferences.defaults.autoSummarizeDirectories,
+            useScanExclusions: AppScanPreferences.defaults.useScanExclusions,
+            exclusionPatterns: AppScanPreferences.defaults.exclusionPatterns
+        )
+
+        model.showHiddenFiles = false
+        model.cleanup()
+
+        XCTAssertEqual(preferences.savedScanPreferences, [expectedPreferences])
+    }
+
+    @MainActor
     func testFullDiskAccessFromOnboardingShowsWelcomeAfterRelaunch() {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(

@@ -183,6 +183,7 @@ final class AppModel: ObservableObject {
     private var completedScanCache: CompletedScanCache
     private var activeScanCacheKey: ScanCacheKey?
     private var displayedScanCacheKey: ScanCacheKey?
+    private var lastPersistedScanPreferences: AppScanPreferences?
 
     private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
     private static let scanPreferencePersistenceDebounce: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
@@ -224,6 +225,7 @@ final class AppModel: ObservableObject {
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
         useScanExclusions = preferences.scan.useScanExclusions
         exclusionPatterns = preferences.scan.exclusionPatterns
+        lastPersistedScanPreferences = preferences.scan
         showsOnboarding = !preferences.didCompleteOnboarding
         fullDiskAccessStatus = dependencies.systemActions.usesAsyncFullDiskAccessStatus
             ? .unknown
@@ -249,6 +251,7 @@ final class AppModel: ObservableObject {
     }
 
     func cleanup() {
+        flushPendingScanPreferences()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
@@ -1086,21 +1089,49 @@ final class AppModel: ObservableObject {
         Publishers.CombineLatest3($showHiddenFiles, $treatPackagesAsDirectories, $maxRenderedDepth)
             .combineLatest(Publishers.CombineLatest3($autoSummarizeDirectories, $useScanExclusions, $exclusionPatterns))
             .map { scanBasics, scanFilters in
-                AppScanPreferences(
-                    showHiddenFiles: scanBasics.0,
-                    treatPackagesAsDirectories: scanBasics.1,
-                    maxRenderedDepth: scanBasics.2,
-                    autoSummarizeDirectories: scanFilters.0,
-                    useScanExclusions: scanFilters.1,
-                    exclusionPatterns: scanFilters.2
-                )
+                Self.scanPreferences(scanBasics, scanFilters)
             }
             .dropFirst()
             .removeDuplicates()
             .debounce(for: Self.scanPreferencePersistenceDebounce, scheduler: RunLoop.main)
             .sink { [weak self] preferences in
-                self?.dependencies.preferences.saveScanPreferences(preferences)
+                self?.persistScanPreferences(preferences)
             }
             .store(in: &cancellables)
+    }
+
+    private var currentScanPreferences: AppScanPreferences {
+        AppScanPreferences(
+            showHiddenFiles: showHiddenFiles,
+            treatPackagesAsDirectories: treatPackagesAsDirectories,
+            maxRenderedDepth: maxRenderedDepth,
+            autoSummarizeDirectories: autoSummarizeDirectories,
+            useScanExclusions: useScanExclusions,
+            exclusionPatterns: exclusionPatterns
+        )
+    }
+
+    private func flushPendingScanPreferences() {
+        persistScanPreferences(currentScanPreferences)
+    }
+
+    private func persistScanPreferences(_ preferences: AppScanPreferences) {
+        guard lastPersistedScanPreferences != preferences else { return }
+        dependencies.preferences.saveScanPreferences(preferences)
+        lastPersistedScanPreferences = preferences
+    }
+
+    private static func scanPreferences(
+        _ scanBasics: (Bool, Bool, Int),
+        _ scanFilters: (Bool, Bool, [String])
+    ) -> AppScanPreferences {
+        AppScanPreferences(
+            showHiddenFiles: scanBasics.0,
+            treatPackagesAsDirectories: scanBasics.1,
+            maxRenderedDepth: scanBasics.2,
+            autoSummarizeDirectories: scanFilters.0,
+            useScanExclusions: scanFilters.1,
+            exclusionPatterns: scanFilters.2
+        )
     }
 }

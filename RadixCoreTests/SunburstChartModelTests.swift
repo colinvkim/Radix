@@ -315,6 +315,7 @@ private func makeStore() -> FileTreeStore {
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
+        isSelfAccessible: true,
         isSynthetic: false,
         isAutoSummarized: false
     )

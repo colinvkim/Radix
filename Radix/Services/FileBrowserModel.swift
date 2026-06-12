@@ -49,6 +49,7 @@ final class FileBrowserModel: ObservableObject {
     private var contentRevision = 0
     private var snapshotID: UUID?
     private var fileTreeStore: FileTreeStore?
+    private var needsRefreshAfterCleanup = false
 
     init(
         searchService: any FileSearching = FileSearchService(),
@@ -107,10 +108,15 @@ final class FileBrowserModel: ObservableObject {
     ) {
         let nextSnapshotID = snapshot?.id
         let previousSnapshotID = snapshotID
-        guard forceRefresh || self.contentID != contentID || snapshotID != nextSnapshotID || !self.nodes.haveSameIDs(as: nodes) else {
+        guard forceRefresh ||
+            needsRefreshAfterCleanup ||
+            self.contentID != contentID ||
+            snapshotID != nextSnapshotID ||
+            !self.nodes.haveSameIDs(as: nodes) else {
             return
         }
 
+        needsRefreshAfterCleanup = false
         contentRevision += 1
         self.nodes = nodes
         self.contentID = contentID
@@ -145,7 +151,9 @@ final class FileBrowserModel: ObservableObject {
     }
 
     func cleanup() {
+        let canceledDisplayRefresh = isSearchingEntireScan || isRefreshingCurrentContents
         cancelPendingSearch(clearLoading: true)
+        needsRefreshAfterCleanup = needsRefreshAfterCleanup || canceledDisplayRefresh
         searchIndexPruneTask?.cancel()
         searchIndexPruneTask = nil
     }

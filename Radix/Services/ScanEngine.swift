@@ -430,6 +430,7 @@ actor ScanEngine {
                             lastModified: meta.lastModified,
                             isPackage: false,
                             isAccessible: summary.isAccessible,
+                            isSelfAccessible: meta.isReadable,
                             isSynthetic: false,
                             isAutoSummarized: true
                         )
@@ -495,6 +496,7 @@ actor ScanEngine {
                         lastModified: meta.lastModified,
                         isPackage: meta.isPackage,
                         isAccessible: false,
+                        isSelfAccessible: false,
                         isSynthetic: false,
                         isAutoSummarized: false
                     )
@@ -781,6 +783,7 @@ actor ScanEngine {
             lastModified: nil,
             isPackage: false,
             isAccessible: false,
+            isSelfAccessible: false,
             isSynthetic: false,
             isAutoSummarized: false
         )
@@ -963,6 +966,7 @@ actor ScanEngine {
             lastModified: metadata.lastModified,
             isPackage: metadata.isPackage,
             isAccessible: metadata.isReadable,
+            isSelfAccessible: metadata.isReadable,
             isSynthetic: false,
             isAutoSummarized: false
         )
@@ -1026,6 +1030,7 @@ actor ScanEngine {
                 lastModified: metadata.lastModified,
                 isPackage: true,
                 isAccessible: metadata.isReadable && summary.isAccessible,
+                isSelfAccessible: metadata.isReadable,
                 isSynthetic: false,
                 isAutoSummarized: false
             ),
@@ -1647,6 +1652,7 @@ actor ScanEngine {
             lastModified: nil,
             isPackage: false,
             isAccessible: true,
+            isSelfAccessible: true,
             isSynthetic: true,
             isAutoSummarized: false
         )
@@ -1660,7 +1666,7 @@ actor ScanEngine {
             children: sortedRootChildren,
             lastModified: root.lastModified,
             isPackage: root.isPackage,
-            isAccessible: root.isAccessible,
+            isAccessible: root.isSelfAccessible,
             childrenAreSorted: true
         )
 

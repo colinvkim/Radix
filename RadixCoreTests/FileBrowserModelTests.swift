@@ -468,6 +468,84 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
+    func testSameContentUpdateRestartsCanceledSearchAfterCleanup() async throws {
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let query = SearchNormalizer.normalize("target")
+        let service = DelayedFileSearchService(
+            delayedQuery: query,
+            delayedIDs: [target.id],
+            immediateIDsByQuery: [:]
+        )
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+        let contentID = "\(snapshot.id.uuidString)|\(root.id)"
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: contentID,
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+        await service.waitUntilStarted(query)
+        model.cleanup()
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: contentID,
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+
+        try await waitForStartCount(service, query: query, count: 2)
+        XCTAssertTrue(model.isSearchingEntireScan)
+        model.cleanup()
+    }
+
+    @MainActor
+    func testCleanupAfterCompletedSearchDoesNotForceSameContentRefresh() async throws {
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let query = SearchNormalizer.normalize("target")
+        let service = DelayedFileSearchService(
+            delayedQuery: "delayed",
+            delayedIDs: [],
+            immediateIDsByQuery: [query: [target.id]]
+        )
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+        let contentID = "\(snapshot.id.uuidString)|\(root.id)"
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: contentID,
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+        try await waitForSearchToFinish(model)
+        let initialStartCount = await service.startCount(for: query)
+        XCTAssertEqual(initialStartCount, 1)
+
+        model.cleanup()
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: contentID,
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+
+        try await Task.sleep(for: .milliseconds(20))
+        let finalStartCount = await service.startCount(for: query)
+        XCTAssertEqual(finalStartCount, 1)
+    }
+
+    @MainActor
     func testSameContentUpdateDoesNotRestartActiveSearch() async throws {
         let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])

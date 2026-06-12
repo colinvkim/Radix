@@ -196,6 +196,7 @@ private func makeFileNode(id: String, name: String, size: Int64) -> FileNodeReco
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
+        isSelfAccessible: true,
         isSynthetic: false,
         isAutoSummarized: false
     )
@@ -214,6 +215,7 @@ private func makeDirectoryNode(id: String, name: String, children: [FileNodeReco
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
+        isSelfAccessible: true,
         isSynthetic: false,
         isAutoSummarized: false
     )

@@ -129,6 +129,7 @@ struct FileNodeRecord: Identifiable, Sendable {
     let lastModified: Date?
     let isPackage: Bool
     let isAccessible: Bool
+    let isSelfAccessible: Bool
     let isSynthetic: Bool
     let isAutoSummarized: Bool
 
@@ -190,6 +191,7 @@ struct FileNodeRecord: Identifiable, Sendable {
             lastModified: lastModified,
             isPackage: isPackage,
             isAccessible: isFullyAccessible,
+            isSelfAccessible: isAccessible,
             isSynthetic: false,
             isAutoSummarized: false
         )
@@ -427,11 +429,19 @@ struct FileTreeStore: Sendable {
         let childIDsByID: [String: [String]]
         let parentIDByID: [String: String]
         let orderedNodeIDs: [String]
+        let materializedDirectoryIDs: Set<String>
         let didDropReferences: Bool
     }
 
-    private enum StoreError: Error {
+    private enum StoreError: LocalizedError {
         case replacementIDCollision(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .replacementIDCollision(let id):
+                return "The replacement tree reuses an existing node ID outside the replaced subtree: \(id)."
+            }
+        }
     }
 
     nonisolated var root: FileNodeRecord {
@@ -508,11 +518,15 @@ struct FileTreeStore: Sendable {
         var stack = [root]
 
         while let parent = stack.popLast() {
-            let uniqueChildren = Self.uniqueChildren(inputChildrenByID[parent.id] ?? [], seenNodeIDs: &seenNodeIDs)
+            guard let inputChildren = inputChildrenByID[parent.id] else { continue }
+            let (uniqueChildren, droppedChildIDs) = Self.uniqueChildrenAndDroppedIDs(
+                inputChildren,
+                seenNodeIDs: &seenNodeIDs
+            )
             let children = Self.sortedChildren(uniqueChildren)
+            childIDsByID[parent.id] = children.map(\.id) + droppedChildIDs
             guard !children.isEmpty else { continue }
 
-            childIDsByID[parent.id] = children.map(\.id)
             for child in children {
                 nodesByID[child.id] = child
                 parentIDByID[child.id] = parent.id
@@ -541,7 +555,14 @@ struct FileTreeStore: Sendable {
             childIDsByID: childIDsByID
         )
         self.rootID = rootID
-        self.nodesByID = topology.nodesByID
+        self.nodesByID = topology.didDropReferences || aggregateStats == nil
+            ? Self.repairMaterializedDirectoryTotals(
+                nodesByID: topology.nodesByID,
+                childIDsByID: topology.childIDsByID,
+                orderedNodeIDs: topology.orderedNodeIDs,
+                materializedDirectoryIDs: topology.materializedDirectoryIDs
+            )
+            : topology.nodesByID
         self.childIDsByID = topology.childIDsByID
         self.parentIDByID = topology.parentIDByID
         self.precomputedAggregateStats = topology.didDropReferences ? nil : aggregateStats
@@ -557,18 +578,23 @@ struct FileTreeStore: Sendable {
         }
     }
 
-    private nonisolated static func uniqueChildren(
+    private nonisolated static func uniqueChildrenAndDroppedIDs(
         _ children: [FileNodeRecord],
         seenNodeIDs: inout Set<String>
-    ) -> [FileNodeRecord] {
+    ) -> (uniqueChildren: [FileNodeRecord], droppedChildIDs: [String]) {
         var uniqueChildren: [FileNodeRecord] = []
+        var droppedChildIDs: [String] = []
         uniqueChildren.reserveCapacity(children.count)
 
-        for child in children where seenNodeIDs.insert(child.id).inserted {
-            uniqueChildren.append(child)
+        for child in children {
+            if seenNodeIDs.insert(child.id).inserted {
+                uniqueChildren.append(child)
+            } else {
+                droppedChildIDs.append(child.id)
+            }
         }
 
-        return uniqueChildren
+        return (uniqueChildren, droppedChildIDs)
     }
 
     nonisolated func node(id: String?) -> FileNodeRecord? {
@@ -765,7 +791,7 @@ struct FileTreeStore: Sendable {
                 children: sortedChildRecords,
                 lastModified: current.lastModified,
                 isPackage: current.isPackage,
-                isAccessible: current.isAccessible,
+                isAccessible: current.isSelfAccessible,
                 childrenAreSorted: true
             )
             updatedChildIDs[currentID] = sortedChildRecords.map(\.id)
@@ -895,6 +921,7 @@ struct FileTreeStore: Sendable {
                 childIDsByID: inputChildIDsByID,
                 parentIDByID: [:],
                 orderedNodeIDs: [],
+                materializedDirectoryIDs: [],
                 didDropReferences: true
             )
         }
@@ -903,12 +930,16 @@ struct FileTreeStore: Sendable {
         var childIDsByID: [String: [String]] = [:]
         var parentIDByID: [String: String] = [:]
         var orderedNodeIDs: [String] = []
+        var materializedDirectoryIDs = Set<String>()
         var visited: Set<String> = [rootID]
         var stack = [rootID]
 
         while let parentID = stack.popLast() {
             orderedNodeIDs.append(parentID)
-            let childIDs = inputChildIDsByID[parentID] ?? []
+            guard let childIDs = inputChildIDsByID[parentID] else { continue }
+            if inputNodesByID[parentID]?.isDirectory == true {
+                materializedDirectoryIDs.insert(parentID)
+            }
             guard !childIDs.isEmpty else { continue }
 
             var sanitizedChildIDs: [String] = []
@@ -927,16 +958,72 @@ struct FileTreeStore: Sendable {
             }
         }
 
+        let materializedInputChildIDsByID = inputChildIDsByID.filter { !$0.value.isEmpty }
         let didDropReferences =
             nodesByID.count != inputNodesByID.count ||
-            childIDsByID != inputChildIDsByID
+            childIDsByID != materializedInputChildIDsByID
 
         return SanitizedTopology(
             nodesByID: nodesByID,
             childIDsByID: childIDsByID,
             parentIDByID: parentIDByID,
             orderedNodeIDs: orderedNodeIDs,
+            materializedDirectoryIDs: materializedDirectoryIDs,
             didDropReferences: didDropReferences
+        )
+    }
+
+    private nonisolated static func repairMaterializedDirectoryTotals(
+        nodesByID: [String: FileNodeRecord],
+        childIDsByID: [String: [String]],
+        orderedNodeIDs: [String],
+        materializedDirectoryIDs: Set<String>
+    ) -> [String: FileNodeRecord] {
+        guard !materializedDirectoryIDs.isEmpty else { return nodesByID }
+
+        var repairedNodes = nodesByID
+        for nodeID in orderedNodeIDs.reversed() where materializedDirectoryIDs.contains(nodeID) {
+            guard let node = repairedNodes[nodeID], node.isDirectory else { continue }
+            let childIDs = childIDsByID[nodeID] ?? []
+            let children = childIDs.compactMap { repairedNodes[$0] }
+            repairedNodes[nodeID] = repairingDirectoryRecord(node, children: children)
+        }
+        return repairedNodes
+    }
+
+    private nonisolated static func repairingDirectoryRecord(
+        _ node: FileNodeRecord,
+        children: [FileNodeRecord]
+    ) -> FileNodeRecord {
+        let allocatedSize = children.reduce(into: Int64(0)) { result, child in
+            result += child.allocatedSize
+        }
+        let logicalSize = children.reduce(into: Int64(0)) { result, child in
+            result += child.logicalSize
+        }
+        let descendantFileCount = children.reduce(into: 0) { result, child in
+            if child.isDirectory {
+                result += child.descendantFileCount
+            } else if !child.isSymbolicLink && !child.isSynthetic {
+                result += 1
+            }
+        }
+
+        return FileNodeRecord(
+            id: node.id,
+            url: node.url,
+            name: node.name,
+            isDirectory: node.isDirectory,
+            isSymbolicLink: node.isSymbolicLink,
+            allocatedSize: allocatedSize,
+            logicalSize: logicalSize,
+            descendantFileCount: descendantFileCount,
+            lastModified: node.lastModified,
+            isPackage: node.isPackage,
+            isAccessible: node.isSelfAccessible && children.allSatisfy(\.isAccessible),
+            isSelfAccessible: node.isSelfAccessible,
+            isSynthetic: node.isSynthetic,
+            isAutoSummarized: node.isAutoSummarized
         )
     }
 }

@@ -23,6 +23,7 @@ func makeTestFileNode(
         lastModified: lastModified,
         isPackage: false,
         isAccessible: true,
+        isSelfAccessible: true,
         isSynthetic: false,
         isAutoSummarized: false
     )

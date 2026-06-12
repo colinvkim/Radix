@@ -1423,6 +1423,7 @@ private func makeScanEngineFileNode(id: String, name: String, size: Int64) -> Fi
         lastModified: nil,
         isPackage: false,
         isAccessible: true,
+        isSelfAccessible: true,
         isSynthetic: false,
         isAutoSummarized: false
     )

@@ -83,6 +83,81 @@ final class FileTreeStoreTests: XCTestCase {
         XCTAssertEqual(store.node(id: kept.id)?.name, "kept.txt")
         XCTAssertEqual(store.parent(of: kept.id)?.id, root.id)
         XCTAssertEqual(store.indexedNodeIDs(), [root.id, kept.id])
+        XCTAssertEqual(store.root.allocatedSize, kept.allocatedSize)
+        XCTAssertEqual(store.root.logicalSize, kept.logicalSize)
+        XCTAssertEqual(store.root.descendantFileCount, 1)
+        XCTAssertEqual(store.aggregateStats.totalAllocatedSize, kept.allocatedSize)
+        XCTAssertEqual(store.aggregateStats.fileCount, 1)
+    }
+
+    func testChildrenByIDInitializerRepairsNestedDuplicateTotals() {
+        let shared = makeFileNode(id: "/root/shared.txt", name: "shared.txt", size: 12)
+        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [shared])
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [shared, folder])
+
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [shared, folder],
+            folder.id: [shared],
+        ])
+
+        XCTAssertEqual(Set(store.children(of: root.id).map(\.id)), Set([shared.id, folder.id]))
+        XCTAssertTrue(store.children(of: folder.id).isEmpty)
+        XCTAssertEqual(store.node(id: folder.id)?.allocatedSize, 0)
+        XCTAssertEqual(store.node(id: folder.id)?.logicalSize, 0)
+        XCTAssertEqual(store.node(id: folder.id)?.descendantFileCount, 0)
+        XCTAssertEqual(store.root.allocatedSize, shared.allocatedSize)
+        XCTAssertEqual(store.root.logicalSize, shared.logicalSize)
+        XCTAssertEqual(store.root.descendantFileCount, 1)
+        XCTAssertEqual(store.aggregateStats.totalAllocatedSize, shared.allocatedSize)
+        XCTAssertEqual(store.aggregateStats.fileCount, 1)
+    }
+
+    func testChildrenByIDInitializerRepairsAccessibilityAfterDroppingDuplicates() {
+        let kept = makeFileNode(id: "/root/duplicate.txt", name: "kept.txt", size: 5)
+        let dropped = makeFileNode(id: kept.id, name: "dropped.txt", size: 50, isAccessible: false)
+        let root = makeDirectoryNode(
+            id: "/root",
+            name: "root",
+            children: [kept, dropped],
+            isAccessible: false,
+            isSelfAccessible: true
+        )
+
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [kept, dropped],
+        ])
+
+        XCTAssertTrue(store.root.isAccessible)
+        XCTAssertEqual(store.aggregateStats.accessibleItemCount, 2)
+        XCTAssertEqual(store.aggregateStats.inaccessibleItemCount, 0)
+    }
+
+    func testChildrenByIDInitializerPreservesSelfInaccessibleDirectoryAfterDroppingDuplicates() {
+        let kept = makeFileNode(id: "/root/duplicate.txt", name: "kept.txt", size: 5)
+        let dropped = makeFileNode(id: kept.id, name: "dropped.txt", size: 50, isAccessible: false)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [kept, dropped], isAccessible: false)
+
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [kept, dropped],
+        ])
+
+        XCTAssertFalse(store.root.isAccessible)
+        XCTAssertEqual(store.aggregateStats.accessibleItemCount, 1)
+        XCTAssertEqual(store.aggregateStats.inaccessibleItemCount, 1)
+    }
+
+    func testChildrenByIDInitializerOrdersByKeptChildrenWhenDuplicateIsLarger() {
+        let kept = makeFileNode(id: "/root/a.txt", name: "a.txt", size: 1)
+        let sibling = makeFileNode(id: "/root/b.txt", name: "b.txt", size: 50)
+        let dropped = makeFileNode(id: kept.id, name: "dropped-a.txt", size: 100)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [kept, sibling, dropped])
+
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [kept, sibling, dropped],
+        ])
+
+        XCTAssertEqual(store.children(of: root.id).map(\.id), [sibling.id, kept.id])
+        XCTAssertEqual(store.root.allocatedSize, sibling.allocatedSize + kept.allocatedSize)
     }
 
     func testFlatInitializerDropsDuplicateChildReferences() {
@@ -110,7 +185,56 @@ final class FileTreeStoreTests: XCTestCase {
         XCTAssertTrue(store.children(of: folder.id).isEmpty)
         XCTAssertEqual(store.parent(of: shared.id)?.id, root.id)
         XCTAssertEqual(store.indexedNodeIDs(), [root.id, shared.id, folder.id])
+        XCTAssertEqual(store.node(id: folder.id)?.allocatedSize, 0)
+        XCTAssertEqual(store.node(id: folder.id)?.logicalSize, 0)
+        XCTAssertEqual(store.node(id: folder.id)?.descendantFileCount, 0)
+        XCTAssertEqual(store.root.allocatedSize, shared.allocatedSize)
+        XCTAssertEqual(store.root.logicalSize, shared.logicalSize)
+        XCTAssertEqual(store.root.descendantFileCount, 1)
+        XCTAssertEqual(store.aggregateStats.totalAllocatedSize, shared.allocatedSize)
         XCTAssertEqual(store.aggregateStats.fileCount, 1)
+    }
+
+    func testFlatInitializerPreservesPrecomputedStatsForEmptyChildArrays() {
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [])
+        let precomputedStats = ScanAggregateStats(
+            totalAllocatedSize: 99,
+            totalLogicalSize: 101,
+            fileCount: 42,
+            directoryCount: 7,
+            accessibleItemCount: 6,
+            inaccessibleItemCount: 1
+        )
+
+        let store = FileTreeStore(
+            rootID: root.id,
+            nodesByID: [root.id: root],
+            childIDsByID: [root.id: []],
+            parentIDByID: [:],
+            aggregateStats: precomputedStats
+        )
+
+        XCTAssertEqual(store.aggregateStats.totalAllocatedSize, precomputedStats.totalAllocatedSize)
+        XCTAssertEqual(store.aggregateStats.totalLogicalSize, precomputedStats.totalLogicalSize)
+        XCTAssertEqual(store.aggregateStats.fileCount, precomputedStats.fileCount)
+        XCTAssertEqual(store.aggregateStats.directoryCount, precomputedStats.directoryCount)
+        XCTAssertEqual(store.aggregateStats.accessibleItemCount, precomputedStats.accessibleItemCount)
+        XCTAssertEqual(store.aggregateStats.inaccessibleItemCount, precomputedStats.inaccessibleItemCount)
+    }
+
+    func testFlatInitializerPreservesInaccessibleEmptyMaterializedDirectory() {
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [], isAccessible: false)
+
+        let store = FileTreeStore(
+            rootID: root.id,
+            nodesByID: [root.id: root],
+            childIDsByID: [root.id: []],
+            parentIDByID: [:]
+        )
+
+        XCTAssertFalse(store.root.isAccessible)
+        XCTAssertEqual(store.aggregateStats.accessibleItemCount, 0)
+        XCTAssertEqual(store.aggregateStats.inaccessibleItemCount, 1)
     }
 
     func testReplacingSubtreeRejectsReplacementIDsOutsideOldSubtree() throws {
@@ -138,7 +262,10 @@ final class FileTreeStoreTests: XCTestCase {
                 with: replacementStore,
                 cancellationCheck: {}
             )
-        )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("reuses an existing node ID"))
+            XCTAssertTrue(error.localizedDescription.contains(sibling.id))
+        }
         XCTAssertNil(store.replacingSubtree(id: target.id, with: replacementStore))
         XCTAssertEqual(store.node(id: sibling.id)?.name, sibling.name)
     }
@@ -209,7 +336,12 @@ final class FileTreeStoreTests: XCTestCase {
     }
 }
 
-private func makeFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
+private func makeFileNode(
+    id: String,
+    name: String,
+    size: Int64,
+    isAccessible: Bool = true
+) -> FileNodeRecord {
     FileNodeRecord(
         id: id,
         url: URL(filePath: id),
@@ -221,13 +353,20 @@ private func makeFileNode(id: String, name: String, size: Int64) -> FileNodeReco
         descendantFileCount: 1,
         lastModified: nil,
         isPackage: false,
-        isAccessible: true,
+        isAccessible: isAccessible,
+        isSelfAccessible: isAccessible,
         isSynthetic: false,
         isAutoSummarized: false
     )
 }
 
-private func makeDirectoryNode(id: String, name: String, children: [FileNodeRecord]) -> FileNodeRecord {
+private func makeDirectoryNode(
+    id: String,
+    name: String,
+    children: [FileNodeRecord],
+    isAccessible: Bool = true,
+    isSelfAccessible: Bool? = nil
+) -> FileNodeRecord {
     FileNodeRecord(
         id: id,
         url: URL(filePath: id, directoryHint: .isDirectory),
@@ -239,7 +378,8 @@ private func makeDirectoryNode(id: String, name: String, children: [FileNodeReco
         descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
         lastModified: nil,
         isPackage: false,
-        isAccessible: true,
+        isAccessible: isAccessible,
+        isSelfAccessible: isSelfAccessible ?? isAccessible,
         isSynthetic: false,
         isAutoSummarized: false
     )
