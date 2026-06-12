@@ -500,6 +500,57 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(followUpFinished)
     }
 
+    func testCancellingScanStopsWideDirectoryEnumerationWork() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let followUpURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: followUpURL)
+        }
+
+        for index in 0..<10_000 {
+            let fileURL = rootURL.appending(path: "payload-\(index).tmp")
+            try Data([UInt8(index % 256)]).write(to: fileURL)
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeDirectories = false
+
+        let engine = ScanEngine()
+        let scanTask = Task {
+            var didFinish = false
+            do {
+                for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
+                    if case .finished = event {
+                        didFinish = true
+                    }
+                }
+            } catch is CancellationError {
+                return false
+            }
+            return didFinish
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+        scanTask.cancel()
+        let didFinishCancelledScan = try await withTimeout(.seconds(2)) {
+            try await scanTask.value
+        }
+
+        XCTAssertFalse(didFinishCancelledScan)
+
+        let followUpFinished = try await withTimeout(.seconds(1)) {
+            for try await event in engine.scan(target: ScanTarget(url: followUpURL), options: ScanOptions()) {
+                if case .finished = event {
+                    return true
+                }
+            }
+            return false
+        }
+
+        XCTAssertTrue(followUpFinished)
+    }
+
     func testSymbolicLinksAreNotTraversed() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

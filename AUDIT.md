@@ -94,7 +94,7 @@ has no test action. Chose the documented workflow path: README now states that
 SwiftPM owns `RadixCoreTests` and Xcode owns the app build. `rtk swift test` and
 the Xcode Debug build both passed.
 
-### 3. [ ] Scanner cancellation in wide directories
+### 3. [x] Scanner cancellation in wide directories
 
 Original finding: 1. Severity: High.
 
@@ -121,6 +121,12 @@ Validate:
 - `rtk swift test --filter ScanEngineTests`
 - `rtk swift test --filter ScanCoordinatorTests`
 - `rtk swift test`
+
+Completion note: Verified immediate child enumeration lacked cancellation polling
+and that cancellation thrown inside directory traversal could be treated as an
+access warning. Added cancellation checks during child filtering/enqueueing,
+rethrow cancellation before warning fallback, and covered a wide-directory
+cancel/follow-up scan. All validations passed.
 
 ### 4. [ ] Duplicate node ID handling
 

@@ -355,7 +355,8 @@ actor ScanEngine {
                         of: item.url,
                         includeHiddenFiles: options.includeHiddenFiles,
                         behavior: behavior,
-                        exclusionMatcher: exclusionMatcher
+                        exclusionMatcher: exclusionMatcher,
+                        cancellationCheck: cancellationCheck
                     )
                     metrics.discoveredItems += childEntries.count
                     metrics.recalculateProgress()
@@ -422,7 +423,10 @@ actor ScanEngine {
                     }
 
                     // Enqueue children onto the stack. Each child records its parent key.
-                    for childEntry in childEntries {
+                    for (offset, childEntry) in childEntries.enumerated() {
+                        if offset.isMultiple(of: 256) {
+                            try Task.checkCancellation()
+                        }
                         workStack.append(
                             ScanWorkItem(
                                 url: childEntry.url,
@@ -440,6 +444,8 @@ actor ScanEngine {
                         url: item.url,
                         isTraversable: true
                     )
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     let warning = makeWarning(for: item.url, error: error)
                     warnings.append(warning)
@@ -810,8 +816,10 @@ actor ScanEngine {
         of url: URL,
         includeHiddenFiles: Bool,
         behavior: ScanBehavior,
-        exclusionMatcher: ScanExclusionMatcher
+        exclusionMatcher: ScanExclusionMatcher,
+        cancellationCheck: CancellationCheck
     ) throws -> [DirectoryEntry] {
+        try cancellationCheck()
         var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants, .skipsSubdirectoryDescendants]
         if !includeHiddenFiles {
             options.insert(.skipsHiddenFiles)
@@ -825,10 +833,16 @@ actor ScanEngine {
             includingPropertiesForKeys: prefetchKeys,
             options: options
         )
+        try cancellationCheck()
 
-        return contents.compactMap { childURL in
+        var entries: [DirectoryEntry] = []
+        entries.reserveCapacity(contents.count)
+        for (offset, childURL) in contents.enumerated() {
+            if offset.isMultiple(of: 64) {
+                try cancellationCheck()
+            }
             guard Self.includedChildURL(childURL, under: url, behavior: behavior) else {
-                return nil
+                continue
             }
 
             let childMetadata = try? metadata(
@@ -839,14 +853,14 @@ actor ScanEngine {
                 childURL,
                 isDirectory: childMetadata?.isDirectory ?? childURL.hasDirectoryPath
             ) else {
-                return nil
+                continue
             }
 
-            return DirectoryEntry(
-                url: childURL,
-                metadata: childMetadata
-            )
+            entries.append(DirectoryEntry(url: childURL, metadata: childMetadata))
         }
+
+        try cancellationCheck()
+        return entries
     }
 
     private nonisolated static func shouldFilterStartupVolumeInternals(under parentURL: URL, behavior: ScanBehavior) -> Bool {
