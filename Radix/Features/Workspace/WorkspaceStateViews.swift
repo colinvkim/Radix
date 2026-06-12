@@ -1,3 +1,5 @@
+import Combine
+import Foundation
 import SwiftUI
 
 struct EmptyWorkspaceState: View {
@@ -41,6 +43,7 @@ struct EmptyWorkspaceState: View {
 
 struct ScanningWorkspaceState: View {
     @ObservedObject var progress: ScanProgressState
+    @StateObject private var throttledItemCounts = ThrottledScanItemCounts()
 
     let selectedTarget: ScanTarget?
     let actions: WorkspaceActions
@@ -76,15 +79,9 @@ struct ScanningWorkspaceState: View {
                 .frame(maxWidth: 540)
 
             HStack(spacing: 0) {
-                ScanProgressNumberText(
-                    value: progress.metrics.filesVisited,
-                    transitionStyle: .opacity
-                )
+                ScanProgressNumberText(value: throttledItemCounts.counts.filesVisited)
                 Text(" files, ")
-                ScanProgressNumberText(
-                    value: progress.metrics.directoriesVisited,
-                    transitionStyle: .opacity
-                )
+                ScanProgressNumberText(value: throttledItemCounts.counts.directoriesVisited)
                 Text(" folders")
             }
             .font(.caption.monospacedDigit())
@@ -97,6 +94,12 @@ struct ScanningWorkspaceState: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            throttledItemCounts.bind(to: progress)
+        }
+        .onDisappear {
+            throttledItemCounts.cancel()
+        }
     }
 
     private var isFinalizingScan: Bool {
@@ -108,28 +111,50 @@ struct ScanningWorkspaceState: View {
     }
 }
 
+private struct ScanItemCounts: Equatable {
+    var filesVisited = 0
+    var directoriesVisited = 0
+
+    init() {}
+
+    init(metrics: ScanMetrics) {
+        filesVisited = metrics.filesVisited
+        directoriesVisited = metrics.directoriesVisited
+    }
+}
+
+@MainActor
+private final class ThrottledScanItemCounts: ObservableObject {
+    @Published private(set) var counts = ScanItemCounts()
+
+    private let updateInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(325)
+    private var cancellable: AnyCancellable?
+
+    func bind(to progress: ScanProgressState) {
+        cancel()
+        counts = ScanItemCounts(metrics: progress.metrics)
+
+        cancellable = progress.$metrics
+            .map(ScanItemCounts.init(metrics:))
+            .removeDuplicates()
+            .throttle(for: updateInterval, scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] counts in
+                self?.counts = counts
+            }
+    }
+
+    func cancel() {
+        cancellable?.cancel()
+        cancellable = nil
+    }
+}
+
 private struct ScanProgressNumberText: View {
     let value: Int
-    var transitionStyle: TransitionStyle = .numericText
-    var animation: Animation = .easeOut(duration: 0.2)
 
     var body: some View {
         Text(value.formatted(.number))
-            .contentTransition(contentTransition)
-            .animation(animation, value: value)
-    }
-
-    enum TransitionStyle {
-        case numericText
-        case opacity
-    }
-
-    private var contentTransition: ContentTransition {
-        switch transitionStyle {
-        case .numericText:
-            .numericText(value: Double(value))
-        case .opacity:
-            .opacity
-        }
+            .contentTransition(.numericText(value: Double(value)))
+            .animation(.easeOut(duration: 0.2), value: value)
     }
 }
