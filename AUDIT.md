@@ -326,7 +326,7 @@ commands. Added shared `FileNodeAction` descriptors and focused action bundles
 for the table and inspector while preserving command Quick Look toggle
 behavior. Both validations passed.
 
-### 10. [ ] Inspector visibility control
+### 10. [x] Inspector visibility control
 
 Original finding: 9. Severity: Medium.
 
@@ -349,6 +349,12 @@ Approach:
 Validate:
 
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
+
+Completion note: Verified the known inspector crash note applies to the old
+`VSplitView`/`.inspector` combination, not to user-controlled inspector
+dismissal. Added a scene-focused inspector visibility binding, a View-menu
+toggle command with Control-Command-I, and removed the forced interactive
+dismissal disable. Xcode Debug build passed.
 
 ### 11. [ ] Stale sidebar active targets
 

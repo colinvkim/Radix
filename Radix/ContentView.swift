@@ -39,8 +39,8 @@ struct ContentView: View {
                 actions: selectionInspectorActions
             )
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
-                .interactiveDismissDisabled()
         }
+        .focusedSceneValue(\.inspectorVisibility, $showsInspector)
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
         }

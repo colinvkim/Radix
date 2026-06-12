@@ -5,9 +5,18 @@ struct RadixCommands: Commands {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusedValue(\.fileListFilterAction) private var fileListFilterAction
+    @FocusedValue(\.inspectorVisibility) private var inspectorVisibility
 
     var body: some Commands {
         SidebarCommands()
+
+        CommandGroup(after: .toolbar) {
+            Button(inspectorToggleTitle, systemImage: "sidebar.trailing") {
+                inspectorVisibility?.wrappedValue.toggle()
+            }
+            .keyboardShortcut("i", modifiers: [.control, .command])
+            .disabled(inspectorVisibility == nil)
+        }
 
         CommandGroup(replacing: .newItem) {
             Button("Scan Folder…", systemImage: "folder.badge.plus") {
@@ -99,6 +108,13 @@ struct RadixCommands: Commands {
             node: navigation.selectedNode,
             activeTarget: scanState.selectedTarget
         )
+    }
+
+    private var inspectorToggleTitle: String {
+        if inspectorVisibility?.wrappedValue == true {
+            return "Hide Inspector"
+        }
+        return "Show Inspector"
     }
 
     private var commandSelectedFileActions: SelectedFileActions {
