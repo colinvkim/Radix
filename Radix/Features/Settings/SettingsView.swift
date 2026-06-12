@@ -54,11 +54,13 @@ private struct GeneralSettingsPane: View {
             }
 
             Section("Visualization") {
-                Stepper(value: $appModel.maxRenderedDepth, in: 3...10) {
-                    LabeledContent("Sunburst depth") {
-                        Text("\(appModel.maxRenderedDepth) rings")
+                Picker("Sunburst depth", selection: $appModel.maxRenderedDepth) {
+                    ForEach(3...10, id: \.self) { depth in
+                        Text("\(depth) rings")
+                            .tag(depth)
                     }
                 }
+                .pickerStyle(.menu)
 
                 Text("Changes apply immediately to the current disk map.")
                     .font(.caption)
