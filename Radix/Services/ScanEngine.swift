@@ -126,7 +126,14 @@ actor ScanEngine {
         let isTraversable: Bool     // True if this was a directory we intended to traverse.
     }
 
+    typealias DirectoryContentsProvider = @Sendable (
+        URL,
+        [URLResourceKey]?,
+        FileManager.DirectoryEnumerationOptions
+    ) throws -> [URL]
+
     private let fileManager = FileManager.default
+    private let directoryContents: DirectoryContentsProvider
     private let scanResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
         .isPackageKey,
@@ -165,6 +172,16 @@ actor ScanEngine {
         .fileResourceIdentifierKey
     ]
     private static let atomicSummaryResourceKeySet = Set(atomicSummaryResourceKeys)
+
+    init(directoryContents: @escaping DirectoryContentsProvider = { url, keys, options in
+        try FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: options
+        )
+    }) {
+        self.directoryContents = directoryContents
+    }
 
     /// Thresholds for automatically summarizing directories with many small files.
     /// Directories exceeding BOTH thresholds are treated as atomic (not expanded).
@@ -871,11 +888,7 @@ actor ScanEngine {
         let prefetchKeys = Self.shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
             ? nil
             : Array(scanResourceKeys)
-        let contents = try fileManager.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: prefetchKeys,
-            options: options
-        )
+        let contents = try directoryContents(url, prefetchKeys, options)
         try cancellationCheck()
 
         var entries: [DirectoryEntry] = []

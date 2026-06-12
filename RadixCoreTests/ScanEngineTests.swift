@@ -117,6 +117,49 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.scanWarnings.contains(where: { $0.path.contains("Locked.app") }))
     }
 
+    func testUnreadableOrdinaryDirectoryProducesWarningAndContinuesScan() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let readableFileURL = rootURL.appending(path: "visible.txt")
+        let unreadableDirectoryURL = rootURL.appending(path: "Locked", directoryHint: .isDirectory)
+        let unreadableFileURL = unreadableDirectoryURL.appending(path: "secret.txt")
+
+        try Data("visible".utf8).write(to: readableFileURL)
+        try FileManager.default.createDirectory(at: unreadableDirectoryURL, withIntermediateDirectories: true)
+        try Data("secret".utf8).write(to: unreadableFileURL)
+        let engine = ScanEngine(directoryContents: { url, keys, options in
+            if url.lastPathComponent == "Locked" {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+            }
+            return try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: keys,
+                options: options
+            )
+        })
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions(),
+            engine: engine
+        )
+        let lockedNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Locked" }))
+        let visibleNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "visible.txt" }))
+        let warning = try XCTUnwrap(snapshot.scanWarnings.first(where: { $0.path == lockedNode.url.path }))
+
+        XCTAssertTrue(lockedNode.isDirectory)
+        XCTAssertFalse(lockedNode.isPackage)
+        XCTAssertFalse(lockedNode.isAccessible)
+        XCTAssertEqual(lockedNode.allocatedSize, 0)
+        XCTAssertEqual(lockedNode.logicalSize, 0)
+        XCTAssertEqual(lockedNode.descendantFileCount, 0)
+        XCTAssertFalse(containsChildren(lockedNode, in: snapshot))
+        XCTAssertTrue(visibleNode.isAccessible)
+        XCTAssertEqual(warning.category, .permissionDenied)
+        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
+    }
+
     func testPackageLeafExcludesHiddenContentsWhenHiddenFilesDisabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1334,9 +1377,11 @@ final class ScanEngineTests: XCTestCase {
     }
 }
 
-private func finishedSnapshot(target: ScanTarget, options: ScanOptions) async throws -> ScanSnapshot {
-    let engine = ScanEngine()
-
+private func finishedSnapshot(
+    target: ScanTarget,
+    options: ScanOptions,
+    engine: ScanEngine = ScanEngine()
+) async throws -> ScanSnapshot {
     for try await event in engine.scan(target: target, options: options) {
         if case .finished(let snapshot) = event {
             return snapshot

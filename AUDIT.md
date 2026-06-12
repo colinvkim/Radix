@@ -514,7 +514,7 @@ Kept `AppSystemActions.inert`, `selectSidebarTarget`,
 `replaceCurrentSnapshot`, and `setFocusedNodeID` as active test seams. Both
 validations passed.
 
-### 16. [ ] Ordinary directory permission coverage
+### 16. [x] Ordinary directory permission coverage
 
 Original finding: 21. Severity: Low.
 
@@ -539,6 +539,13 @@ Validate:
 
 - `rtk swift test --filter ScanEngineTests`
 - `rtk swift test`
+
+Completion note: Verified chmod-based setup is unreliable for this path because
+the temp directory can be marked unreadable while enumeration still succeeds.
+Added a focused directory contents provider seam and a scanner test that forces
+an ordinary directory enumeration permission failure, then asserts the
+permission warning, inaccessible directory node state, and continued scanning of
+a readable sibling. Both validations passed.
 
 ### 17. [ ] `SystemIntegration` safety testability
 
