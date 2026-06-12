@@ -650,9 +650,17 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
             lhs.itemKind.localizedStandardCompare(rhs.itemKind)
         }
 
-        if order == .forward {
-            return result
+        let orderedResult = applySortOrder(to: result)
+        switch orderedResult {
+        case .orderedSame:
+            return fallbackCompare(lhs, rhs)
+        default:
+            return orderedResult
         }
+    }
+
+    private func applySortOrder(to result: ComparisonResult) -> ComparisonResult {
+        guard order == .reverse else { return result }
 
         return switch result {
         case .orderedAscending:
@@ -663,6 +671,16 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
             .orderedSame
         @unknown default:
             result
+        }
+    }
+
+    private func fallbackCompare(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord) -> ComparisonResult {
+        let nameResult = lhs.name.localizedStandardCompare(rhs.name)
+        switch nameResult {
+        case .orderedSame:
+            return lhs.id.localizedStandardCompare(rhs.id)
+        default:
+            return nameResult
         }
     }
 

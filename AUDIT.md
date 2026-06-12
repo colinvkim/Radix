@@ -638,7 +638,7 @@ Completion note: Verified `RadixApp.swift` imports Sparkle and Xcode
 dependencies for `RadixCore`. Updated README wording to distinguish the core
 SwiftPM package from the Xcode app's Sparkle integration. Documentation-only.
 
-### 20. [ ] Stable table/search sorting tie-breakers
+### 20. [x] Stable table/search sorting tie-breakers
 
 Original finding: 17. Severity: Low.
 
@@ -659,6 +659,11 @@ Validate:
 
 - `rtk swift test --filter FileBrowserModelTests`
 - `rtk swift test`
+
+Completion note: Verified equal primary sort values returned `.orderedSame`.
+Added a deterministic fallback to localized name, then ID, and covered both
+current-folder table sorting and whole-scan search sorting. Both validations
+passed.
 
 ### 21. [ ] Trash safety policy construction in availability checks
 

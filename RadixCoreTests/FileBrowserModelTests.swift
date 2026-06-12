@@ -43,6 +43,33 @@ final class FileBrowserModelTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [largeMatch.id, smallMatch.id])
     }
 
+    func testEqualSortValuesFallBackToNameAndID() async throws {
+        let beta = makeTestFileNode(id: "/root/beta.txt", name: "Beta.txt", size: 10)
+        let alphaB = makeTestFileNode(id: "/root/b-alpha.txt", name: "Alpha.txt", size: 10)
+        let alphaA = makeTestFileNode(id: "/root/a-alpha.txt", name: "Alpha.txt", size: 10)
+        let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
+
+        let currentContents = FileBrowserResults.filteredAndSortedCurrentContents(
+            [beta, alphaB, alphaA],
+            searchText: "",
+            sortOrder: sortOrder
+        )
+        XCTAssertEqual(currentContents.map(\.id), [alphaA.id, alphaB.id, beta.id])
+
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [beta, alphaB, alphaA])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [beta, alphaB, alphaA]])
+        let service = FileSearchService()
+        let searchResults = try await service.search(
+            snapshotID: UUID(),
+            treeStore: store,
+            normalizedQuery: SearchNormalizer.normalize("txt"),
+            includesPath: false,
+            sortOrder: sortOrder
+        )
+
+        XCTAssertEqual(searchResults.map(\.id), [alphaA.id, alphaB.id, beta.id])
+    }
+
     @MainActor
     func testLargeCurrentContentsFilterDebouncesAndIgnoresStaleQuery() async throws {
         let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
