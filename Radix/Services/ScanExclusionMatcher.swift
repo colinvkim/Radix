@@ -22,7 +22,7 @@ nonisolated struct ScanExclusionMatcher {
     init(
         patterns: [String],
         rootURL: URL,
-        includeCloudStorage: Bool = true,
+        includeCloudStorage: Bool,
         cloudStorageRootPath: String = ScanOptions.defaultCloudStorageRootPath
     ) {
         self.init(
@@ -36,7 +36,7 @@ nonisolated struct ScanExclusionMatcher {
     init(
         patterns: [String],
         rootPath: String,
-        includeCloudStorage: Bool = true,
+        includeCloudStorage: Bool,
         cloudStorageRootPath: String = ScanOptions.defaultCloudStorageRootPath
     ) {
         let normalizedRootPath = Self.normalizedRootPath(rootPath)
