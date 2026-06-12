@@ -105,6 +105,15 @@ struct ScanOptions: Hashable, Sendable {
     /// Override for the minimum depth at which auto-summarization applies.
     /// When nil, the ScanEngine default (2) is used.
     var autoSummarizeMinDepthForSummarization: Int?
+    /// Override for bounded package/atomic summary parallelism.
+    /// When nil, the ScanEngine chooses a hardware-aware default.
+    var atomicSummaryWorkerLimit: Int?
+    /// Override for bounded immediate-child metadata classification.
+    /// When nil, the ScanEngine chooses a hardware-aware default.
+    var directoryClassificationWorkerLimit: Int?
+    /// Override for bounded ordinary directory traversal parallelism.
+    /// When nil, the ScanEngine chooses a hardware-aware default.
+    var directoryTraversalWorkerLimit: Int?
 
     nonisolated static let defaultCloudStorageRootPath = FileManager.default.homeDirectoryForCurrentUser
         .appending(path: "Library/CloudStorage", directoryHint: .isDirectory)

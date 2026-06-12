@@ -68,6 +68,71 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 1_024)
     }
 
+    func testPackageRootHardLinksOnlyCountAllocatedStorageOnce() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Linked.app", directoryHint: .isDirectory)
+        let originalURL = packageURL.appending(path: "Contents/Resources/original.bin")
+        let linkedURL = packageURL.appending(path: "Contents/Resources/linked.bin")
+
+        try FileManager.default.createDirectory(at: originalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0xCA, count: 4_096).write(to: originalURL)
+        try FileManager.default.linkItem(at: originalURL, to: linkedURL)
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: packageURL),
+            options: ScanOptions()
+        )
+
+        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
+        XCTAssertEqual(snapshot.root.logicalSize, 8_192)
+        XCTAssertGreaterThan(snapshot.root.allocatedSize, 0)
+        XCTAssertLessThan(snapshot.root.allocatedSize, snapshot.root.logicalSize)
+        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+    }
+
+    func testParallelPackageSummaryMatchesSerialSummary() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let packageURL = rootURL.appending(path: "Parallel.app", directoryHint: .isDirectory)
+        let binaryURL = packageURL.appending(path: "Contents/MacOS/Parallel")
+        let resourceURL = packageURL.appending(path: "Contents/Resources/Data/blob.dat")
+        let hiddenURL = packageURL.appending(path: "Contents/Resources/.hidden")
+        let nestedPackageBinaryURL = packageURL
+            .appending(path: "Contents/PlugIns/Nested.appex", directoryHint: .isDirectory)
+            .appending(path: "Contents/MacOS/Nested")
+
+        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: resourceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hiddenURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nestedPackageBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 128).write(to: binaryURL)
+        try Data(repeating: 0x2, count: 256).write(to: resourceURL)
+        try Data(repeating: 0x3, count: 512).write(to: hiddenURL)
+        try Data(repeating: 0x4, count: 1_024).write(to: nestedPackageBinaryURL)
+
+        var serialOptions = ScanOptions()
+        serialOptions.atomicSummaryWorkerLimit = 1
+        var parallelOptions = ScanOptions()
+        parallelOptions.atomicSummaryWorkerLimit = 2
+
+        let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
+        let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
+        let serialPackageNode = try XCTUnwrap(rootChildren(in: serialSnapshot).first(where: { $0.name == "Parallel.app" }))
+        let parallelPackageNode = try XCTUnwrap(rootChildren(in: parallelSnapshot).first(where: { $0.name == "Parallel.app" }))
+
+        XCTAssertEqual(parallelPackageNode.descendantFileCount, serialPackageNode.descendantFileCount)
+        XCTAssertEqual(parallelPackageNode.logicalSize, serialPackageNode.logicalSize)
+        XCTAssertEqual(parallelPackageNode.allocatedSize, serialPackageNode.allocatedSize)
+        XCTAssertEqual(parallelPackageNode.isAccessible, serialPackageNode.isAccessible)
+        XCTAssertEqual(parallelPackageNode.isSelfAccessible, serialPackageNode.isSelfAccessible)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.totalLogicalSize, serialSnapshot.aggregateStats.totalLogicalSize)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
+    }
+
     func testPackagesCanBeExpandedWhenEnabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -812,6 +877,64 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.root.allocatedSize, allocatedSizes.reduce(0, +))
     }
 
+    func testParallelTraversalAssignsHardLinkStorageDeterministically() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let alphaDirectoryURL = rootURL.appending(path: "Alpha", directoryHint: .isDirectory)
+        let betaDirectoryURL = rootURL.appending(path: "Beta", directoryHint: .isDirectory)
+        let alphaLinkURL = alphaDirectoryURL.appending(path: "linked.bin")
+        let betaOriginalURL = betaDirectoryURL.appending(path: "original.bin")
+
+        try FileManager.default.createDirectory(at: alphaDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: betaDirectoryURL, withIntermediateDirectories: true)
+        try Data(repeating: 0x4B, count: 4_096).write(to: betaOriginalURL)
+        try FileManager.default.linkItem(at: betaOriginalURL, to: alphaLinkURL)
+
+        let engine = ScanEngine(directoryContents: { url, keys, options, cancellationCheck in
+            try cancellationCheck()
+            if url == rootURL {
+                return [alphaDirectoryURL, betaDirectoryURL]
+            }
+            if url == betaDirectoryURL {
+                return [betaOriginalURL]
+            }
+            if url == alphaDirectoryURL {
+                Thread.sleep(forTimeInterval: 0.04)
+                try cancellationCheck()
+                return [alphaLinkURL]
+            }
+            return try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: keys,
+                options: options
+            )
+        })
+
+        var options = ScanOptions()
+        options.autoSummarizeDirectories = false
+        options.directoryTraversalWorkerLimit = 2
+        options.directoryClassificationWorkerLimit = 1
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options,
+            engine: engine
+        )
+        let alphaNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Alpha" }))
+        let betaNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Beta" }))
+        let alphaFile = try XCTUnwrap(children(of: alphaNode, in: snapshot).first)
+        let betaFile = try XCTUnwrap(children(of: betaNode, in: snapshot).first)
+
+        XCTAssertGreaterThan(alphaFile.allocatedSize, 0)
+        XCTAssertEqual(betaFile.allocatedSize, 0)
+        XCTAssertEqual(alphaNode.allocatedSize, alphaFile.allocatedSize)
+        XCTAssertEqual(betaNode.allocatedSize, 0)
+        XCTAssertEqual(snapshot.root.allocatedSize, alphaFile.allocatedSize)
+        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
+    }
+
     func testScanTargetNormalizesSyntheticRootAliases() {
         let nofollowTarget = ScanTarget(url: URL(filePath: "/.nofollow/Users/example", directoryHint: .isDirectory))
         let resolveTarget = ScanTarget(url: URL(filePath: "/.resolve/System/Volumes/Data", directoryHint: .isDirectory))
@@ -978,6 +1101,99 @@ final class ScanEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["alpha.txt", "zeta.txt"])
+    }
+
+    func testParallelDirectoryClassificationMatchesSerialClassification() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        for index in 0..<180 {
+            let fileURL = rootURL.appending(path: String(format: "file-%03d.dat", index))
+            try Data(repeating: UInt8(index % 256), count: (index % 7) + 1).write(to: fileURL)
+        }
+
+        for index in 0..<16 {
+            let directoryURL = rootURL.appending(path: String(format: "folder-%03d", index), directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index), count: 9).write(to: directoryURL.appending(path: "payload.txt"))
+        }
+
+        try Data(repeating: 0xA, count: 64).write(to: rootURL.appending(path: "excluded.log"))
+
+        var serialOptions = ScanOptions()
+        serialOptions.exclusionPatterns = ["*.log"]
+        serialOptions.directoryTraversalWorkerLimit = 1
+        serialOptions.directoryClassificationWorkerLimit = 1
+        var parallelOptions = ScanOptions()
+        parallelOptions.exclusionPatterns = ["*.log"]
+        parallelOptions.directoryTraversalWorkerLimit = 1
+        parallelOptions.directoryClassificationWorkerLimit = 4
+
+        let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
+        let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
+
+        XCTAssertEqual(rootChildren(in: parallelSnapshot).map(\.name), rootChildren(in: serialSnapshot).map(\.name))
+        XCTAssertFalse(rootChildren(in: parallelSnapshot).contains(where: { $0.name == "excluded.log" }))
+        XCTAssertEqual(parallelSnapshot.root.descendantFileCount, serialSnapshot.root.descendantFileCount)
+        XCTAssertEqual(parallelSnapshot.root.logicalSize, serialSnapshot.root.logicalSize)
+        XCTAssertEqual(parallelSnapshot.root.allocatedSize, serialSnapshot.root.allocatedSize)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
+    }
+
+    func testParallelDirectoryTraversalMatchesSerialTraversal() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        for directoryIndex in 0..<12 {
+            let directoryURL = rootURL.appending(path: String(format: "group-%02d", directoryIndex), directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+            for fileIndex in 0..<6 {
+                let fileURL = directoryURL.appending(path: String(format: "direct-%02d.dat", fileIndex))
+                try Data(repeating: UInt8(directoryIndex + fileIndex), count: 32 + directoryIndex + fileIndex).write(to: fileURL)
+            }
+
+            for nestedIndex in 0..<4 {
+                let nestedURL = directoryURL.appending(path: String(format: "nested-%02d", nestedIndex), directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+
+                for fileIndex in 0..<3 {
+                    let fileURL = nestedURL.appending(path: String(format: "payload-%02d.bin", fileIndex))
+                    try Data(repeating: UInt8(nestedIndex + fileIndex), count: 17 + nestedIndex + fileIndex).write(to: fileURL)
+                }
+            }
+
+            try Data(repeating: 0xC, count: 128).write(to: directoryURL.appending(path: "ignored.skip"))
+        }
+
+        var serialOptions = ScanOptions()
+        serialOptions.autoSummarizeDirectories = false
+        serialOptions.exclusionPatterns = ["*.skip"]
+        serialOptions.directoryTraversalWorkerLimit = 1
+        serialOptions.directoryClassificationWorkerLimit = 1
+        serialOptions.atomicSummaryWorkerLimit = 1
+
+        var parallelOptions = serialOptions
+        parallelOptions.directoryTraversalWorkerLimit = 4
+
+        let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
+        let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
+
+        XCTAssertEqual(rootChildren(in: parallelSnapshot).map(\.name), rootChildren(in: serialSnapshot).map(\.name))
+        XCTAssertEqual(parallelSnapshot.root.descendantFileCount, serialSnapshot.root.descendantFileCount)
+        XCTAssertEqual(parallelSnapshot.root.logicalSize, serialSnapshot.root.logicalSize)
+        XCTAssertEqual(parallelSnapshot.root.allocatedSize, serialSnapshot.root.allocatedSize)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.totalLogicalSize, serialSnapshot.aggregateStats.totalLogicalSize)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
+
+        for serialChild in rootChildren(in: serialSnapshot) {
+            let parallelChild = try XCTUnwrap(rootChildren(in: parallelSnapshot).first { $0.id == serialChild.id })
+            XCTAssertEqual(children(of: parallelChild, in: parallelSnapshot).map(\.name), children(of: serialChild, in: serialSnapshot).map(\.name))
+        }
+        XCTAssertFalse(parallelSnapshot.treeStore.nodesByID.keys.contains { $0.hasSuffix("ignored.skip") })
     }
 
     func testDuplicateAssemblyChildrenAreCollapsedBeforeDirectoryTotals() {

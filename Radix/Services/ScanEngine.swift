@@ -6,6 +6,7 @@
 //
 
 import Darwin
+import Dispatch
 import Foundation
 
 actor ScanEngine {
@@ -30,10 +31,187 @@ actor ScanEngine {
         var descendantFileCount = 0
         var isAccessible = true
         var warnings: [ScanWarning] = []
-        var countedHardLinkIdentities: Set<FileIdentity>
+        var hardLinkClaims: [HardLinkClaim] = []
+        let ownerNodeID: String
 
-        init(countedHardLinkIdentities: Set<FileIdentity>) {
-            self.countedHardLinkIdentities = countedHardLinkIdentities
+        init(ownerNodeID: String) {
+            self.ownerNodeID = ownerNodeID
+        }
+    }
+
+    private final class ScanDiagnostics {
+        private struct OperationStats {
+            var count = 0
+            var totalNanoseconds: UInt64 = 0
+            var itemCount = 0
+            var maxNanoseconds: UInt64 = 0
+        }
+
+        private struct SlowEvent {
+            let operation: String
+            let path: String
+            let nanoseconds: UInt64
+            let itemCount: Int?
+            let detail: String?
+        }
+
+        private let reportLimit: Int
+        private let slowThresholdNanoseconds: UInt64
+        private var statsByOperation: [String: OperationStats] = [:]
+        private var statsByPathBucket: [String: OperationStats] = [:]
+        private var slowEvents: [SlowEvent] = []
+
+        init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+            reportLimit = environment["RADIX_SCAN_DIAGNOSTICS_LIMIT"]
+                .flatMap(Int.init)
+                .map { max(1, $0) } ?? 30
+            let slowThresholdMilliseconds = environment["RADIX_SCAN_DIAGNOSTICS_SLOW_MS"]
+                .flatMap(Double.init) ?? 50
+            slowThresholdNanoseconds = UInt64(max(0, slowThresholdMilliseconds) * 1_000_000)
+        }
+
+        static func makeIfEnabled(environment: [String: String] = ProcessInfo.processInfo.environment) -> ScanDiagnostics? {
+            guard environment["RADIX_SCAN_DIAGNOSTICS"] == "1" else { return nil }
+            return ScanDiagnostics(environment: environment)
+        }
+
+        func start() -> UInt64 {
+            DispatchTime.now().uptimeNanoseconds
+        }
+
+        func record(
+            operation: String,
+            url: URL,
+            startedAt start: UInt64?,
+            itemCount: Int? = nil,
+            detail: String? = nil
+        ) {
+            guard let start else { return }
+            record(
+                operation: operation,
+                path: url.path,
+                nanoseconds: DispatchTime.now().uptimeNanoseconds - start,
+                itemCount: itemCount,
+                detail: detail
+            )
+        }
+
+        func recordElapsed(
+            operation: String,
+            url: URL,
+            nanoseconds: UInt64,
+            itemCount: Int? = nil,
+            detail: String? = nil
+        ) {
+            record(
+                operation: operation,
+                path: url.path,
+                nanoseconds: nanoseconds,
+                itemCount: itemCount,
+                detail: detail
+            )
+        }
+
+        func makeReport(targetPath: String, elapsedSeconds: Double) -> String {
+            var lines: [String] = [
+                "RADIX_SCAN_DIAGNOSTICS target=\(targetPath) elapsed=\(Self.format(seconds: elapsedSeconds))s",
+                "RADIX_SCAN_DIAGNOSTICS operations"
+            ]
+
+            for (operation, stats) in sortedStats(statsByOperation) {
+                lines.append(
+                    "  \(operation): total=\(Self.format(nanoseconds: stats.totalNanoseconds))s count=\(stats.count) avg=\(Self.format(nanoseconds: Self.average(stats.totalNanoseconds, stats.count)))s max=\(Self.format(nanoseconds: stats.maxNanoseconds))s items=\(stats.itemCount)"
+                )
+            }
+
+            lines.append("RADIX_SCAN_DIAGNOSTICS hot_path_buckets")
+            for (path, stats) in sortedStats(statsByPathBucket).prefix(reportLimit) {
+                lines.append(
+                    "  total=\(Self.format(nanoseconds: stats.totalNanoseconds))s count=\(stats.count) max=\(Self.format(nanoseconds: stats.maxNanoseconds))s items=\(stats.itemCount) path=\(path)"
+                )
+            }
+
+            lines.append("RADIX_SCAN_DIAGNOSTICS slow_events")
+            for event in slowEvents.sorted(by: { $0.nanoseconds > $1.nanoseconds }).prefix(reportLimit) {
+                let itemText = event.itemCount.map { " items=\($0)" } ?? ""
+                let detailText = event.detail.map { " \($0)" } ?? ""
+                lines.append(
+                    "  \(Self.format(nanoseconds: event.nanoseconds))s \(event.operation)\(itemText)\(detailText) path=\(event.path)"
+                )
+            }
+
+            return lines.joined(separator: "\n")
+        }
+
+        private func record(
+            operation: String,
+            path: String,
+            nanoseconds: UInt64,
+            itemCount: Int?,
+            detail: String?
+        ) {
+            updateStats(&statsByOperation[operation, default: OperationStats()], nanoseconds: nanoseconds, itemCount: itemCount)
+            updateStats(&statsByPathBucket[Self.pathBucket(for: path), default: OperationStats()], nanoseconds: nanoseconds, itemCount: itemCount)
+            recordSlowEvent(
+                SlowEvent(
+                    operation: operation,
+                    path: path,
+                    nanoseconds: nanoseconds,
+                    itemCount: itemCount,
+                    detail: detail
+                )
+            )
+        }
+
+        private func updateStats(_ stats: inout OperationStats, nanoseconds: UInt64, itemCount: Int?) {
+            stats.count += 1
+            stats.totalNanoseconds += nanoseconds
+            stats.itemCount += itemCount ?? 0
+            stats.maxNanoseconds = max(stats.maxNanoseconds, nanoseconds)
+        }
+
+        private func recordSlowEvent(_ event: SlowEvent) {
+            guard event.nanoseconds >= slowThresholdNanoseconds || slowEvents.count < reportLimit else {
+                if let smallest = slowEvents.last, event.nanoseconds > smallest.nanoseconds {
+                    slowEvents[slowEvents.count - 1] = event
+                    slowEvents.sort { $0.nanoseconds > $1.nanoseconds }
+                }
+                return
+            }
+
+            slowEvents.append(event)
+            slowEvents.sort { $0.nanoseconds > $1.nanoseconds }
+            if slowEvents.count > reportLimit {
+                slowEvents.removeLast(slowEvents.count - reportLimit)
+            }
+        }
+
+        private func sortedStats(_ stats: [String: OperationStats]) -> [(String, OperationStats)] {
+            stats.sorted { first, second in
+                if first.value.totalNanoseconds == second.value.totalNanoseconds {
+                    return first.key < second.key
+                }
+                return first.value.totalNanoseconds > second.value.totalNanoseconds
+            }
+        }
+
+        private static func average(_ totalNanoseconds: UInt64, _ count: Int) -> UInt64 {
+            guard count > 0 else { return 0 }
+            return totalNanoseconds / UInt64(count)
+        }
+
+        private static func pathBucket(for path: String) -> String {
+            let components = path.split(separator: "/")
+            guard !components.isEmpty else { return "/" }
+            return "/" + components.prefix(3).joined(separator: "/")
+        }
+
+        private static func format(nanoseconds: UInt64) -> String {
+            format(seconds: Double(nanoseconds) / 1_000_000_000)
+        }
+
+        private static func format(seconds: Double) -> String {
+            String(format: "%.3f", seconds)
         }
     }
 
@@ -49,7 +227,162 @@ actor ScanEngine {
         let descendantFileCount: Int
         let isAccessible: Bool
         let warnings: [ScanWarning]
-        let countedHardLinkIdentities: Set<FileIdentity>
+        let hardLinkClaims: [HardLinkClaim]
+    }
+
+    private struct AtomicSummaryWorkItem: Sendable {
+        let url: URL
+        let treatPackagesAsDirectories: Bool
+        let ownerNodeID: String
+    }
+
+    private final class AtomicSummaryWorkQueue: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var pendingItems: [AtomicSummaryWorkItem]
+        private var activeItemCount = 0
+        private var failure: Error?
+
+        init(rootItem: AtomicSummaryWorkItem) {
+            pendingItems = [rootItem]
+        }
+
+        func take() throws -> AtomicSummaryWorkItem? {
+            condition.lock()
+            defer { condition.unlock() }
+
+            while pendingItems.isEmpty, activeItemCount > 0, failure == nil {
+                _ = condition.wait(until: Date(timeIntervalSinceNow: 0.05))
+                try Task.checkCancellation()
+            }
+
+            if let failure {
+                throw failure
+            }
+
+            guard let item = pendingItems.popLast() else {
+                return nil
+            }
+
+            activeItemCount += 1
+            return item
+        }
+
+        func enqueue(_ item: AtomicSummaryWorkItem) {
+            condition.lock()
+            pendingItems.append(item)
+            condition.signal()
+            condition.unlock()
+        }
+
+        func finishCurrentItem() {
+            condition.lock()
+            activeItemCount -= 1
+            if pendingItems.isEmpty && activeItemCount == 0 {
+                condition.broadcast()
+            } else {
+                condition.signal()
+            }
+            condition.unlock()
+        }
+
+        func fail(_ error: Error) {
+            condition.lock()
+            if failure == nil {
+                failure = error
+            }
+            pendingItems.removeAll()
+            condition.broadcast()
+            condition.unlock()
+        }
+    }
+
+    private final class AtomicSummaryAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var allocatedSize: Int64 = 0
+        private var logicalSize: Int64 = 0
+        private var descendantFileCount = 0
+        private var isAccessible = true
+        private var warnings: [ScanWarning] = []
+        private var hardLinkClaims: [HardLinkClaim] = []
+        private var visitedItemCount = 0
+
+        func recordVisitedItem() -> Int {
+            lock.lock()
+            visitedItemCount += 1
+            let count = visitedItemCount
+            lock.unlock()
+            return count
+        }
+
+        func updateAccessibility(_ readable: Bool) {
+            lock.lock()
+            isAccessible = isAccessible && readable
+            lock.unlock()
+        }
+
+        func recordWarning(for url: URL, error: Error) {
+            lock.lock()
+            isAccessible = false
+            warnings.append(ScanEngine.makeWarning(for: url, error: error))
+            lock.unlock()
+        }
+
+        func accumulateFile(_ metadata: NodeMetadata, url: URL, ownerNodeID: String) {
+            lock.lock()
+            allocatedSize += metadata.allocatedSize
+            logicalSize += metadata.logicalSize
+            if !metadata.isSymbolicLink {
+                descendantFileCount += 1
+            }
+            if let claim = ScanEngine.hardLinkClaim(for: metadata, ownerNodeID: ownerNodeID, path: url.path) {
+                hardLinkClaims.append(claim)
+            }
+            lock.unlock()
+        }
+
+        func makeSummary() -> AtomicDirectorySummary {
+            lock.lock()
+            defer { lock.unlock() }
+            return AtomicDirectorySummary(
+                allocatedSize: allocatedSize,
+                logicalSize: logicalSize,
+                descendantFileCount: descendantFileCount,
+                isAccessible: isAccessible,
+                warnings: warnings,
+                hardLinkClaims: hardLinkClaims
+            )
+        }
+    }
+
+    private final class AtomicSummaryProgressReporter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var metrics: ScanMetrics
+        private let continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
+        private var lastEmission = Date.distantPast
+        private var hasEmitted = false
+
+        init(
+            metrics: ScanMetrics,
+            continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
+        ) {
+            self.metrics = metrics
+            self.continuation = continuation
+        }
+
+        func emit(currentURL: URL) {
+            lock.lock()
+            let now = Date()
+            guard !hasEmitted || now.timeIntervalSince(lastEmission) >= 0.15 else {
+                lock.unlock()
+                return
+            }
+
+            metrics.currentPath = currentURL.path
+            lastEmission = now
+            hasEmitted = true
+            continuation.yield(.progress(metrics))
+            lock.unlock()
+        }
     }
 
     private struct AtomicDirectoryProbeProfile {
@@ -122,6 +455,30 @@ actor ScanEngine {
         let metadata: NodeMetadata?
     }
 
+    private struct DirectoryContentsScanResult: Sendable {
+        let entries: [DirectoryEntry]
+        let enumeratedItemCount: Int
+        let enumerationNanoseconds: UInt64
+        let classificationNanoseconds: UInt64
+    }
+
+    private enum DirectoryTraversalResult: Sendable {
+        case success(
+            item: ScanWorkItem,
+            itemKey: Int,
+            metadata: NodeMetadata,
+            contents: DirectoryContentsScanResult
+        )
+        case failure(
+            item: ScanWorkItem,
+            itemKey: Int,
+            metadata: NodeMetadata,
+            warning: ScanWarning,
+            elapsedNanoseconds: UInt64,
+            diagnosticDetail: String
+        )
+    }
+
     /// A completed directory scan awaiting parent assembly.
     private struct CompletedDirScan {
         let node: FileNodeRecord?     // Leaves carry a node; traversable dirs are resolved in phase 2.
@@ -177,9 +534,18 @@ actor ScanEngine {
         .fileResourceIdentifierKey
     ]
     private static let atomicSummaryResourceKeySet = Set(atomicSummaryResourceKeys)
+    private static let atomicProbeResourceKeys: [URLResourceKey] = [
+        .isDirectoryKey,
+        .isPackageKey,
+        .isSymbolicLinkKey,
+        .fileSizeKey
+    ]
+    private static let atomicProbeResourceKeySet = Set(atomicProbeResourceKeys)
+    private let diagnostics: ScanDiagnostics?
 
     init(directoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
         self.directoryContents = directoryContents
+        self.diagnostics = ScanDiagnostics.makeIfEnabled()
     }
 
     private nonisolated static func defaultDirectoryContents(
@@ -260,6 +626,76 @@ actor ScanEngine {
         static let minDepthForSummarization = 2
     }
 
+    private enum ScanConcurrencyPolicy {
+        static let directoryClassificationParallelThreshold = 128
+
+        static func atomicSummaryWorkerLimit(for options: ScanOptions) -> Int {
+            if let optionLimit = options.atomicSummaryWorkerLimit {
+                return max(1, optionLimit)
+            }
+
+            if let environmentLimit = ProcessInfo.processInfo.environment["RADIX_SCAN_ATOMIC_SUMMARY_WORKERS"]
+                .flatMap(Int.init) {
+                return max(1, environmentLimit)
+            }
+
+            return hardwareAwareWorkerLimit(minimum: 4, processorDivisor: 1, maximum: 8)
+        }
+
+        static func directoryTraversalWorkerLimit(for options: ScanOptions) -> Int {
+            if let optionLimit = options.directoryTraversalWorkerLimit {
+                return max(1, optionLimit)
+            }
+
+            if let environmentLimit = ProcessInfo.processInfo.environment["RADIX_SCAN_DIRECTORY_TRAVERSAL_WORKERS"]
+                .flatMap(Int.init) {
+                return max(1, environmentLimit)
+            }
+
+            return hardwareAwareWorkerLimit(minimum: 2, processorDivisor: 2, maximum: 8)
+        }
+
+        static func directoryClassificationWorkerLimit(for options: ScanOptions) -> Int {
+            if let optionLimit = options.directoryClassificationWorkerLimit {
+                return max(1, optionLimit)
+            }
+
+            if let environmentLimit = ProcessInfo.processInfo.environment["RADIX_SCAN_DIRECTORY_CLASSIFICATION_WORKERS"]
+                .flatMap(Int.init) {
+                return max(1, environmentLimit)
+            }
+
+            return hardwareAwareWorkerLimit(minimum: 2, processorDivisor: 2, maximum: 8)
+        }
+
+        private static func hardwareAwareWorkerLimit(
+            minimum: Int,
+            processorDivisor: Int,
+            maximum: Int
+        ) -> Int {
+            let processInfo = ProcessInfo.processInfo
+            let activeProcessorCount = max(1, processInfo.activeProcessorCount)
+            var limit = min(max(minimum, activeProcessorCount / max(1, processorDivisor)), maximum)
+
+            if processInfo.isLowPowerModeEnabled {
+                limit = max(1, limit / 2)
+            }
+
+            switch processInfo.thermalState {
+            case .serious, .critical:
+                limit = max(1, limit / 2)
+            case .fair:
+                limit = max(1, limit - 1)
+            case .nominal:
+                break
+            @unknown default:
+                break
+            }
+
+            return limit
+        }
+    }
+
     nonisolated func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task(priority: .userInitiated) {
@@ -288,7 +724,7 @@ actor ScanEngine {
         target: ScanTarget,
         options: ScanOptions,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
-    ) throws -> ScanSnapshot {
+    ) async throws -> ScanSnapshot {
         let startedAt = Date()
         var metrics = ScanMetrics()
         var warnings: [ScanWarning] = []
@@ -303,7 +739,7 @@ actor ScanEngine {
             cloudStorageRootPath: options.cloudStorageRootPath
         )
 
-        let treeStore = try scanDirectory(
+        let treeStore = try await scanDirectory(
             target: target,
             includeVolumeDetails: true,
             options: options,
@@ -333,6 +769,9 @@ actor ScanEngine {
         metrics.currentPath = target.url.path
         metrics.recalculateProgress(isComplete: true)
         continuation.yield(.progress(metrics))
+        if let diagnostics {
+            print(diagnostics.makeReport(targetPath: target.url.path, elapsedSeconds: Date().timeIntervalSince(startedAt)))
+        }
         return snapshot
     }
 
@@ -349,7 +788,7 @@ actor ScanEngine {
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> FileTreeStore {
+    ) async throws -> FileTreeStore {
         try Task.checkCancellation()
         let cancellationCheck: CancellationCheck = { try Task.checkCancellation() }
 
@@ -358,21 +797,33 @@ actor ScanEngine {
         metrics.estimatedTotalBytes = estimatedTotalBytes(for: target, metadata: rootMetadata)
         metrics.currentPath = target.url.path
         metrics.recalculateProgress()
-        var countedHardLinkIdentities = Set<FileIdentity>()
+        var hardLinkClaims: [HardLinkClaim] = []
+        var minimumAllocatedSizeByNodeID: [String: Int64] = [:]
+        let atomicSummaryWorkerLimit = ScanConcurrencyPolicy.atomicSummaryWorkerLimit(for: options)
+        let directoryTraversalWorkerLimit = ScanConcurrencyPolicy.directoryTraversalWorkerLimit(for: options)
+        let directoryClassificationWorkerLimit = ScanConcurrencyPolicy.directoryClassificationWorkerLimit(for: options)
+        let effectiveDirectoryClassificationWorkerLimit = directoryTraversalWorkerLimit > 1
+            ? 1
+            : directoryClassificationWorkerLimit
+        let directoryContentsProvider = directoryContents
+        let directoryResourceKeys = scanResourceKeys
 
         // If the root itself shouldn't be traversed, return a leaf node.
         guard shouldTraverseDirectory(metadata: rootMetadata, options: options) else {
-            let leafResult = try makeLeafNode(
+            let leafResult = try await makeLeafNode(
                 url: target.url,
                 metadata: rootMetadata,
                 options: options,
-                countedHardLinkIdentities: &countedHardLinkIdentities,
                 exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
                 continuation: continuation,
                 emissionState: &emissionState
             )
+            hardLinkClaims.append(contentsOf: leafResult.hardLinkClaims)
+            if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
+                minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
+            }
             applyLeafMetrics(leafResult.node, metrics: &metrics)
             if !leafResult.warnings.isEmpty {
                 warnings.append(contentsOf: leafResult.warnings)
@@ -381,7 +832,16 @@ actor ScanEngine {
                 }
             }
             continuation.yield(.progress(metrics))
-            return FileTreeStore(root: leafResult.node)
+            let rawStore = FileTreeStore(root: leafResult.node)
+            return Self.deduplicatedHardLinksStore(
+                rootID: leafResult.node.id,
+                nodesByID: [leafResult.node.id: leafResult.node],
+                childIDsByID: [:],
+                parentIDByID: [:],
+                aggregateStats: rawStore.aggregateStats,
+                hardLinkClaims: hardLinkClaims,
+                minimumAllocatedSizeByNodeID: minimumAllocatedSizeByNodeID
+            )
         }
 
         // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
@@ -396,63 +856,152 @@ actor ScanEngine {
         var seenScannedNodeIDs = Set<String>()
         var nextKey = 0
 
-        while let item = workStack.popLast() {
-            try Task.checkCancellation()
+        try await withThrowingTaskGroup(of: DirectoryTraversalResult.self) { group in
+            var activeDirectoryTasks = 0
 
-            guard seenScannedNodeIDs.insert(item.url.path).inserted else {
-                recordDuplicateNode(
-                    at: item.url,
-                    metrics: &metrics,
-                    warnings: &warnings,
-                    continuation: continuation,
-                    emissionState: &emissionState
-                )
-                continue
-            }
+            while true {
+                while activeDirectoryTasks < directoryTraversalWorkerLimit,
+                      let item = workStack.popLast() {
+                    try Task.checkCancellation()
 
-            let itemKey = nextKey
-            nextKey += 1
+                    guard seenScannedNodeIDs.insert(item.url.path).inserted else {
+                        recordDuplicateNode(
+                            at: item.url,
+                            metrics: &metrics,
+                            warnings: &warnings,
+                            continuation: continuation,
+                            emissionState: &emissionState
+                        )
+                        continue
+                    }
 
-            // Register this child with its parent (skip root which has parentKey -1).
-            if item.parentKey >= 0 {
-                childrenKeysByKey[item.parentKey, default: []].append(itemKey)
-            }
+                    let itemKey = nextKey
+                    nextKey += 1
 
-            let meta: NodeMetadata
-            if let itemMetadata = item.metadata {
-                meta = itemMetadata
-            } else {
-                do {
-                    meta = try metadata(for: item.url)
-                } catch {
-                    recordUnavailableItem(
-                        item,
-                        itemKey: itemKey,
-                        error: error,
-                        metrics: &metrics,
-                        warnings: &warnings,
-                        continuation: continuation,
-                        emissionState: &emissionState,
-                        completedByKey: &completedByKey
-                    )
-                    continue
+                    // Register this child with its parent (skip root which has parentKey -1).
+                    if item.parentKey >= 0 {
+                        childrenKeysByKey[item.parentKey, default: []].append(itemKey)
+                    }
+
+                    let meta: NodeMetadata
+                    if let itemMetadata = item.metadata {
+                        meta = itemMetadata
+                    } else {
+                        do {
+                            meta = try metadata(for: item.url)
+                        } catch {
+                            recordUnavailableItem(
+                                item,
+                                itemKey: itemKey,
+                                error: error,
+                                metrics: &metrics,
+                                warnings: &warnings,
+                                continuation: continuation,
+                                emissionState: &emissionState,
+                                completedByKey: &completedByKey
+                            )
+                            continue
+                        }
+                    }
+                    metrics.currentPath = item.url.path
+
+                    if shouldTraverseDirectory(metadata: meta, options: options) {
+                        metrics.directoriesVisited += 1
+                        metrics.recalculateProgress()
+                        maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+
+                        let taskItem = item
+                        let taskItemKey = itemKey
+                        let taskMetadata = meta
+                        activeDirectoryTasks += 1
+                        group.addTask {
+                            let traversalStart = DispatchTime.now().uptimeNanoseconds
+                            do {
+                                let contents = try await ScanEngine.directoryEntries(
+                                    of: taskItem.url,
+                                    includeHiddenFiles: options.includeHiddenFiles,
+                                    behavior: behavior,
+                                    exclusionMatcher: exclusionMatcher,
+                                    resourceKeys: directoryResourceKeys,
+                                    directoryContents: directoryContentsProvider,
+                                    classificationWorkerLimit: effectiveDirectoryClassificationWorkerLimit,
+                                    cancellationCheck: cancellationCheck
+                                )
+                                return .success(
+                                    item: taskItem,
+                                    itemKey: taskItemKey,
+                                    metadata: taskMetadata,
+                                    contents: contents
+                                )
+                            } catch is CancellationError {
+                                throw CancellationError()
+                            } catch {
+                                return .failure(
+                                    item: taskItem,
+                                    itemKey: taskItemKey,
+                                    metadata: taskMetadata,
+                                    warning: ScanEngine.makeWarning(for: taskItem.url, error: error),
+                                    elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - traversalStart,
+                                    diagnosticDetail: "error=\(ScanEngine.diagnosticErrorDescription(error))"
+                                )
+                            }
+                        }
+                    } else {
+                        // Leaf node (file, symlink, or package-as-directory).
+                        let leafResult = try await makeLeafNode(
+                            url: item.url,
+                            metadata: meta,
+                            options: options,
+                            exclusionMatcher: exclusionMatcher,
+                            cancellationCheck: cancellationCheck,
+                            metrics: &metrics,
+                            continuation: continuation,
+                            emissionState: &emissionState
+                        )
+                        hardLinkClaims.append(contentsOf: leafResult.hardLinkClaims)
+                        if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
+                            minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
+                        }
+                        applyLeafMetrics(leafResult.node, metrics: &metrics)
+                        if !leafResult.warnings.isEmpty {
+                            warnings.append(contentsOf: leafResult.warnings)
+                            for warning in leafResult.warnings {
+                                continuation.yield(.warning(warning))
+                            }
+                        }
+                        maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+
+                        completedByKey[itemKey] = CompletedDirScan(
+                            node: leafResult.node,
+                            metadata: meta,
+                            url: item.url,
+                            isTraversable: false
+                        )
+                    }
                 }
-            }
-            metrics.currentPath = item.url.path
 
-            if shouldTraverseDirectory(metadata: meta, options: options) {
-                metrics.directoriesVisited += 1
-                metrics.recalculateProgress()
-                maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
+                guard activeDirectoryTasks > 0 else { break }
+                guard let traversalResult = try await group.next() else { break }
+                activeDirectoryTasks -= 1
 
-                do {
-                    let childEntries = try contents(
-                        of: item.url,
-                        includeHiddenFiles: options.includeHiddenFiles,
-                        behavior: behavior,
-                        exclusionMatcher: exclusionMatcher,
-                        cancellationCheck: cancellationCheck
+                switch traversalResult {
+                case .success(let item, let itemKey, let meta, let contents):
+                    let childEntries = contents.entries
+                    diagnostics?.recordElapsed(
+                        operation: "directory.enumerate",
+                        url: item.url,
+                        nanoseconds: contents.enumerationNanoseconds,
+                        itemCount: contents.enumeratedItemCount
                     )
+                    diagnostics?.recordElapsed(
+                        operation: "directory.classify_children",
+                        url: item.url,
+                        nanoseconds: contents.classificationNanoseconds,
+                        itemCount: contents.enumeratedItemCount,
+                        detail: "kept=\(childEntries.count)"
+                    )
+
+                    metrics.currentPath = item.url.path
                     metrics.discoveredItems += childEntries.count
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
@@ -461,13 +1010,14 @@ actor ScanEngine {
                     let minFileCount = options.autoSummarizeMinFileCount ?? AtomicDirectoryThresholds.minFileCount
                     let maxAvgSize = options.autoSummarizeMaxAverageFileSize ?? AtomicDirectoryThresholds.maxAverageFileSize
                     let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
-                    let isNodeDependencyLayout = isNodeDependencyLayoutDirectory(at: item.url)
+                    let isNodeDependencyLayout = Self.isNodeDependencyLayoutDirectory(at: item.url)
                     let canProbeForAutoSummary =
                         item.depth >= minDepth ||
                         (item.depth >= 1 && isNodeDependencyLayout)
+                    var completedAsAtomicDirectory = false
                     if options.autoSummarizeDirectories,
                        canProbeForAutoSummary,
-                       let summary = try shouldSummarizeAsAtomicDirectory(
+                       let summary = try await shouldSummarizeAsAtomicDirectory(
                            url: item.url,
                            childEntries: childEntries,
                            metadata: meta,
@@ -476,14 +1026,14 @@ actor ScanEngine {
                            isNodeDependencyLayout: isNodeDependencyLayout,
                            minFileCount: minFileCount,
                            maxAverageFileSize: maxAvgSize,
-                           countedHardLinkIdentities: &countedHardLinkIdentities,
+                           workerLimit: atomicSummaryWorkerLimit,
                            exclusionMatcher: exclusionMatcher,
                            cancellationCheck: cancellationCheck,
                            metrics: &metrics,
                            continuation: continuation,
                            emissionState: &emissionState
                        ) {
-                        // Treat as atomic: create a leaf node with summary stats
+                        // Treat as atomic: create a leaf node with summary stats.
                         let atomicNode = FileNodeRecord(
                             id: item.url.path,
                             url: item.url,
@@ -500,6 +1050,8 @@ actor ScanEngine {
                             isSynthetic: false,
                             isAutoSummarized: true
                         )
+                        hardLinkClaims.append(contentsOf: summary.hardLinkClaims)
+                        minimumAllocatedSizeByNodeID[atomicNode.id] = meta.allocatedSize
                         applyLeafMetrics(atomicNode, metrics: &metrics)
                         if !summary.warnings.isEmpty {
                             warnings.append(contentsOf: summary.warnings)
@@ -515,8 +1067,10 @@ actor ScanEngine {
                             url: item.url,
                             isTraversable: false
                         )
-                        continue
+                        completedAsAtomicDirectory = true
                     }
+
+                    guard !completedAsAtomicDirectory else { break }
 
                     // Enqueue children onto the stack. Each child records its parent key.
                     for (offset, childEntry) in childEntries.enumerated() {
@@ -533,17 +1087,20 @@ actor ScanEngine {
                         )
                     }
                     // Register this directory so phase 2 can assemble it.
-                    // childrenKeysByKey will be populated after the loop by scanning parentKey references.
                     completedByKey[itemKey] = CompletedDirScan(
                         node: nil,
                         metadata: meta,
                         url: item.url,
                         isTraversable: true
                     )
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    let warning = makeWarning(for: item.url, error: error)
+
+                case .failure(let item, let itemKey, let meta, let warning, let elapsedNanoseconds, let diagnosticDetail):
+                    diagnostics?.recordElapsed(
+                        operation: "directory.enumerate.error",
+                        url: item.url,
+                        nanoseconds: elapsedNanoseconds,
+                        detail: diagnosticDetail
+                    )
                     warnings.append(warning)
                     continuation.yield(.warning(warning))
                     metrics.completedItems += 1
@@ -572,36 +1129,7 @@ actor ScanEngine {
                         url: item.url,
                         isTraversable: false
                     )
-                    continue
                 }
-            } else {
-                // Leaf node (file, symlink, or package-as-directory).
-                let leafResult = try makeLeafNode(
-                    url: item.url,
-                    metadata: meta,
-                    options: options,
-                    countedHardLinkIdentities: &countedHardLinkIdentities,
-                    exclusionMatcher: exclusionMatcher,
-                    cancellationCheck: cancellationCheck,
-                    metrics: &metrics,
-                    continuation: continuation,
-                    emissionState: &emissionState
-                )
-                applyLeafMetrics(leafResult.node, metrics: &metrics)
-                if !leafResult.warnings.isEmpty {
-                    warnings.append(contentsOf: leafResult.warnings)
-                    for warning in leafResult.warnings {
-                        continuation.yield(.warning(warning))
-                    }
-                }
-                maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
-
-                completedByKey[itemKey] = CompletedDirScan(
-                    node: leafResult.node,
-                    metadata: meta,
-                    url: item.url,
-                    isTraversable: false
-                )
             }
         }
 
@@ -624,6 +1152,7 @@ actor ScanEngine {
         childIDsByID.reserveCapacity(completedByKey.count)
         parentIDByID.reserveCapacity(completedByKey.count)
         nodesByID.reserveCapacity(completedByKey.count)
+        let finalizationStart = diagnostics?.start()
         for key in (0..<nextKey).reversed() {
             if finalizedItems.isMultiple(of: 256) {
                 try Task.checkCancellation()
@@ -697,6 +1226,12 @@ actor ScanEngine {
                 continuation.yield(.progress(metrics))
             }
         }
+        diagnostics?.record(
+            operation: "scan.finalize",
+            url: target.url,
+            startedAt: finalizationStart,
+            itemCount: finalizedItems
+        )
 
         guard let rootNode = resolvedNodeByKey[0] else {
             throw ScanEngineError.missingRootNode
@@ -706,12 +1241,14 @@ actor ScanEngine {
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
-        return FileTreeStore(
+        return Self.deduplicatedHardLinksStore(
             rootID: rootNode.id,
             nodesByID: nodesByID,
             childIDsByID: childIDsByID,
             parentIDByID: parentIDByID,
-            aggregateStats: aggregateStats.makeStats(root: rootNode)
+            aggregateStats: aggregateStats.makeStats(root: rootNode),
+            hardLinkClaims: hardLinkClaims,
+            minimumAllocatedSizeByNodeID: minimumAllocatedSizeByNodeID
         )
     }
 
@@ -730,22 +1267,132 @@ actor ScanEngine {
         metrics.completedItems += 1
     }
 
-    private func adjustedAllocatedSize(
+    private nonisolated static func hardLinkClaim(
         for metadata: NodeMetadata,
-        countedHardLinkIdentities: inout Set<FileIdentity>
-    ) -> Int64 {
+        ownerNodeID: String,
+        path: String
+    ) -> HardLinkClaim? {
         guard !metadata.isDirectory,
               !metadata.isSymbolicLink,
               metadata.linkCount > 1,
               let fileIdentity = metadata.fileIdentity else {
-            return metadata.allocatedSize
+            return nil
         }
 
-        guard countedHardLinkIdentities.insert(fileIdentity).inserted else {
-            return 0
+        return HardLinkClaim(
+            identity: fileIdentity,
+            ownerNodeID: ownerNodeID,
+            path: path,
+            allocatedSize: metadata.allocatedSize
+        )
+    }
+
+    private nonisolated static func deduplicatedHardLinksStore(
+        rootID: String,
+        nodesByID inputNodesByID: [String: FileNodeRecord],
+        childIDsByID inputChildIDsByID: [String: [String]],
+        parentIDByID: [String: String],
+        aggregateStats: ScanAggregateStats,
+        hardLinkClaims: [HardLinkClaim],
+        minimumAllocatedSizeByNodeID: [String: Int64]
+    ) -> FileTreeStore {
+        let duplicateAllocatedSizeByOwner = duplicateHardLinkAllocatedSizeByOwner(from: hardLinkClaims)
+        guard !duplicateAllocatedSizeByOwner.isEmpty else {
+            return FileTreeStore(
+                rootID: rootID,
+                nodesByID: inputNodesByID,
+                childIDsByID: inputChildIDsByID,
+                parentIDByID: parentIDByID,
+                aggregateStats: aggregateStats
+            )
         }
 
-        return metadata.allocatedSize
+        var nodesByID = inputNodesByID
+        var childIDsByID = inputChildIDsByID
+
+        for (nodeID, duplicateAllocatedSize) in duplicateAllocatedSizeByOwner {
+            guard let node = nodesByID[nodeID] else { continue }
+            let minimumAllocatedSize = minimumAllocatedSizeByNodeID[nodeID] ?? 0
+            let allocatedSize = max(minimumAllocatedSize, node.allocatedSize - duplicateAllocatedSize)
+            nodesByID[nodeID] = node.replacingAllocatedSize(allocatedSize)
+        }
+
+        let orderedNodeIDs = orderedNodeIDs(rootID: rootID, childIDsByID: childIDsByID, nodesByID: nodesByID)
+        for nodeID in orderedNodeIDs.reversed() where childIDsByID[nodeID] != nil {
+            guard let node = nodesByID[nodeID], node.isDirectory else { continue }
+            let children = (childIDsByID[nodeID] ?? []).compactMap { nodesByID[$0] }
+            let sortedChildren = FileTreeStore.sortedChildren(children)
+            nodesByID[nodeID] = FileNodeRecord.directory(
+                id: node.id,
+                url: node.url,
+                name: node.name,
+                children: sortedChildren,
+                lastModified: node.lastModified,
+                isPackage: node.isPackage,
+                isAccessible: node.isSelfAccessible,
+                childrenAreSorted: true
+            )
+            childIDsByID[nodeID] = sortedChildren.map(\.id)
+        }
+
+        let root = nodesByID[rootID] ?? inputNodesByID[rootID]
+        let deduplicatedStats = ScanAggregateStats(
+            totalAllocatedSize: root?.allocatedSize ?? aggregateStats.totalAllocatedSize,
+            totalLogicalSize: root?.logicalSize ?? aggregateStats.totalLogicalSize,
+            fileCount: aggregateStats.fileCount,
+            directoryCount: aggregateStats.directoryCount,
+            accessibleItemCount: aggregateStats.accessibleItemCount,
+            inaccessibleItemCount: aggregateStats.inaccessibleItemCount
+        )
+
+        return FileTreeStore(
+            rootID: rootID,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: parentIDByID,
+            aggregateStats: deduplicatedStats
+        )
+    }
+
+    private nonisolated static func duplicateHardLinkAllocatedSizeByOwner(
+        from claims: [HardLinkClaim]
+    ) -> [String: Int64] {
+        let claimsByIdentity = Dictionary(grouping: claims.filter { $0.allocatedSize > 0 }, by: \.identity)
+        var duplicateAllocatedSizeByOwner: [String: Int64] = [:]
+
+        for identityClaims in claimsByIdentity.values where identityClaims.count > 1 {
+            let sortedClaims = identityClaims.sorted { lhs, rhs in
+                if lhs.path == rhs.path {
+                    return lhs.ownerNodeID < rhs.ownerNodeID
+                }
+                return lhs.path < rhs.path
+            }
+
+            for duplicateClaim in sortedClaims.dropFirst() {
+                duplicateAllocatedSizeByOwner[duplicateClaim.ownerNodeID, default: 0] += duplicateClaim.allocatedSize
+            }
+        }
+
+        return duplicateAllocatedSizeByOwner
+    }
+
+    private nonisolated static func orderedNodeIDs(
+        rootID: String,
+        childIDsByID: [String: [String]],
+        nodesByID: [String: FileNodeRecord]
+    ) -> [String] {
+        guard nodesByID[rootID] != nil else { return [] }
+        var result: [String] = []
+        var stack = [rootID]
+        var visited: Set<String> = []
+
+        while let nodeID = stack.popLast() {
+            guard nodesByID[nodeID] != nil, visited.insert(nodeID).inserted else { continue }
+            result.append(nodeID)
+            stack.append(contentsOf: (childIDsByID[nodeID] ?? []).reversed())
+        }
+
+        return result
     }
 
     nonisolated static func uniqueNodesForAssembly(_ nodes: [FileNodeRecord]) -> [FileNodeRecord] {
@@ -798,6 +1445,11 @@ actor ScanEngine {
             message: "A duplicate filesystem path was collapsed in the scan results.",
             category: .fileSystem
         )
+    }
+
+    private nonisolated static func diagnosticErrorDescription(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.domain):\(nsError.code)"
     }
 
     private func recordUnavailableItem(
@@ -857,14 +1509,33 @@ actor ScanEngine {
 
     private func metadata(for url: URL, includeVolumeDetails: Bool = false) throws -> NodeMetadata {
         let keys = includeVolumeDetails ? rootResourceKeys : scanResourceKeys
-        let values = try url.resourceValues(forKeys: keys)
-        return metadata(for: url, resourceValues: values, includeVolumeDetails: includeVolumeDetails)
+        let start = diagnostics?.start()
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: keys)
+            diagnostics?.record(operation: "metadata.resource_values", url: url, startedAt: start)
+        } catch {
+            diagnostics?.record(
+                operation: "metadata.resource_values.error",
+                url: url,
+                startedAt: start,
+                detail: "error=\(Self.diagnosticErrorDescription(error))"
+            )
+            throw error
+        }
+        return Self.nodeMetadata(
+            for: url,
+            resourceValues: values,
+            includeVolumeDetails: includeVolumeDetails,
+            diagnostics: diagnostics
+        )
     }
 
-    private func metadata(
+    private nonisolated static func nodeMetadata(
         for url: URL,
         resourceValues values: URLResourceValues,
-        includeVolumeDetails: Bool = false
+        includeVolumeDetails: Bool = false,
+        diagnostics: ScanDiagnostics? = nil
     ) -> NodeMetadata {
         let isDirectory = values.isDirectory ?? false
         let isPackage = values.isPackage ?? false
@@ -880,7 +1551,7 @@ actor ScanEngine {
             fileIdentity: fileIdentity,
             linkCount: values.linkCount
         ) {
-            let fileSystemInfo = fileSystemInfo(for: url)
+            let fileSystemInfo = fileSystemInfo(for: url, diagnostics: diagnostics)
             fileIdentity = fileIdentity ?? fileSystemInfo.identity
             linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
         }
@@ -907,7 +1578,7 @@ actor ScanEngine {
         )
     }
 
-    private func shouldReadFileSystemIdentity(
+    private nonisolated static func shouldReadFileSystemIdentity(
         isDirectory: Bool,
         isSymbolicLink: Bool,
         fileIdentity: FileIdentity?,
@@ -918,12 +1589,17 @@ actor ScanEngine {
         return linkCount > 1 && fileIdentity == nil
     }
 
-    private func fileSystemInfo(for url: URL) -> (identity: FileIdentity?, linkCount: UInt64) {
+    private nonisolated static func fileSystemInfo(
+        for url: URL,
+        diagnostics: ScanDiagnostics? = nil
+    ) -> (identity: FileIdentity?, linkCount: UInt64) {
         var fileStat = stat()
+        let start = diagnostics?.start()
         let result = url.withUnsafeFileSystemRepresentation { path in
             guard let path else { return -1 }
             return Int(lstat(path, &fileStat))
         }
+        diagnostics?.record(operation: "metadata.lstat", url: url, startedAt: start)
         guard result == 0 else {
             return (nil, 0)
         }
@@ -941,38 +1617,133 @@ actor ScanEngine {
         return FileIdentity(resourceIdentifier: identifierData)
     }
 
-    private func contents(
+    private nonisolated static func directoryEntries(
         of url: URL,
         includeHiddenFiles: Bool,
         behavior: ScanBehavior,
         exclusionMatcher: ScanExclusionMatcher,
-        cancellationCheck: CancellationCheck
-    ) throws -> [DirectoryEntry] {
+        resourceKeys: Set<URLResourceKey>,
+        directoryContents: DirectoryContentsProvider,
+        classificationWorkerLimit: Int,
+        cancellationCheck: @escaping CancellationCheck
+    ) async throws -> DirectoryContentsScanResult {
         try cancellationCheck()
         var options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants, .skipsSubdirectoryDescendants]
         if !includeHiddenFiles {
             options.insert(.skipsHiddenFiles)
         }
 
-        let prefetchKeys = Self.shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
+        let prefetchKeys = shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
             ? nil
-            : Array(scanResourceKeys)
+            : Array(resourceKeys)
+        let enumerationStart = DispatchTime.now().uptimeNanoseconds
         let contents = try directoryContents(url, prefetchKeys, options, cancellationCheck)
+        let enumerationNanoseconds = DispatchTime.now().uptimeNanoseconds - enumerationStart
         try cancellationCheck()
 
-        var entries: [DirectoryEntry] = []
+        let classificationStart = DispatchTime.now().uptimeNanoseconds
+        let entries = try await Self.classifiedDirectoryEntries(
+            contents,
+            under: url,
+            behavior: behavior,
+            exclusionMatcher: exclusionMatcher,
+            resourceKeys: resourceKeys,
+            workerLimit: classificationWorkerLimit,
+            cancellationCheck: cancellationCheck
+        )
+        let classificationNanoseconds = DispatchTime.now().uptimeNanoseconds - classificationStart
+
+        try cancellationCheck()
+        return DirectoryContentsScanResult(
+            entries: entries,
+            enumeratedItemCount: contents.count,
+            enumerationNanoseconds: enumerationNanoseconds,
+            classificationNanoseconds: classificationNanoseconds
+        )
+    }
+
+    private nonisolated static func classifiedDirectoryEntries(
+        _ contents: [URL],
+        under parentURL: URL,
+        behavior: ScanBehavior,
+        exclusionMatcher: ScanExclusionMatcher,
+        resourceKeys: Set<URLResourceKey>,
+        workerLimit: Int,
+        cancellationCheck: @escaping CancellationCheck
+    ) async throws -> [DirectoryEntry] {
+        guard workerLimit > 1,
+              contents.count >= ScanConcurrencyPolicy.directoryClassificationParallelThreshold else {
+            return try classifiedDirectoryEntries(
+                contents,
+                offset: 0,
+                under: parentURL,
+                behavior: behavior,
+                exclusionMatcher: exclusionMatcher,
+                resourceKeys: resourceKeys,
+                cancellationCheck: cancellationCheck
+            ).map(\.entry)
+        }
+
+        let workerCount = min(max(1, workerLimit), contents.count)
+        let chunkSize = max(
+            ScanConcurrencyPolicy.directoryClassificationParallelThreshold,
+            (contents.count + workerCount - 1) / workerCount
+        )
+        var classifiedEntries: [(offset: Int, entry: DirectoryEntry)] = []
+        classifiedEntries.reserveCapacity(contents.count)
+
+        try await withThrowingTaskGroup(of: [(offset: Int, entry: DirectoryEntry)].self) { group in
+            var chunkStart = 0
+            while chunkStart < contents.count {
+                let chunkEnd = min(chunkStart + chunkSize, contents.count)
+                let chunk = Array(contents[chunkStart..<chunkEnd])
+                let offset = chunkStart
+                group.addTask {
+                    try classifiedDirectoryEntries(
+                        chunk,
+                        offset: offset,
+                        under: parentURL,
+                        behavior: behavior,
+                        exclusionMatcher: exclusionMatcher,
+                        resourceKeys: resourceKeys,
+                        cancellationCheck: cancellationCheck
+                    )
+                }
+                chunkStart = chunkEnd
+            }
+
+            for try await chunkEntries in group {
+                classifiedEntries.append(contentsOf: chunkEntries)
+            }
+        }
+
+        classifiedEntries.sort { $0.offset < $1.offset }
+        return classifiedEntries.map(\.entry)
+    }
+
+    private nonisolated static func classifiedDirectoryEntries(
+        _ contents: [URL],
+        offset: Int,
+        under parentURL: URL,
+        behavior: ScanBehavior,
+        exclusionMatcher: ScanExclusionMatcher,
+        resourceKeys: Set<URLResourceKey>,
+        cancellationCheck: CancellationCheck
+    ) throws -> [(offset: Int, entry: DirectoryEntry)] {
+        var entries: [(offset: Int, entry: DirectoryEntry)] = []
         entries.reserveCapacity(contents.count)
-        for (offset, childURL) in contents.enumerated() {
-            if offset.isMultiple(of: 64) {
+
+        for (localOffset, childURL) in contents.enumerated() {
+            if localOffset.isMultiple(of: 64) {
                 try cancellationCheck()
             }
-            guard Self.includedChildURL(childURL, under: url, behavior: behavior) else {
+            guard includedChildURL(childURL, under: parentURL, behavior: behavior) else {
                 continue
             }
 
-            let childMetadata = try? metadata(
+            let childMetadata = try? nodeMetadata(
                 for: childURL,
-                resourceValues: childURL.resourceValues(forKeys: scanResourceKeys)
+                resourceValues: childURL.resourceValues(forKeys: resourceKeys)
             )
             guard !exclusionMatcher.excludes(
                 childURL,
@@ -981,7 +1752,7 @@ actor ScanEngine {
                 continue
             }
 
-            entries.append(DirectoryEntry(url: childURL, metadata: childMetadata))
+            entries.append((offset + localOffset, DirectoryEntry(url: childURL, metadata: childMetadata)))
         }
 
         try cancellationCheck()
@@ -1017,8 +1788,7 @@ actor ScanEngine {
 
     private func makeFileNode(
         url: URL,
-        metadata: NodeMetadata,
-        countedHardLinkIdentities: inout Set<FileIdentity>
+        metadata: NodeMetadata
     ) -> FileNodeRecord {
         FileNodeRecord(
             id: url.path,
@@ -1026,7 +1796,7 @@ actor ScanEngine {
             name: ScanTarget.displayName(for: url),
             isDirectory: metadata.isDirectory,
             isSymbolicLink: metadata.isSymbolicLink,
-            allocatedSize: adjustedAllocatedSize(for: metadata, countedHardLinkIdentities: &countedHardLinkIdentities),
+            allocatedSize: metadata.allocatedSize,
             logicalSize: metadata.logicalSize,
             descendantFileCount: metadata.isDirectory || metadata.isSymbolicLink ? 0 : 1,
             lastModified: metadata.lastModified,
@@ -1042,46 +1812,54 @@ actor ScanEngine {
         url: URL,
         metadata: NodeMetadata,
         options: ScanOptions,
-        countedHardLinkIdentities: inout Set<FileIdentity>,
         exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> (node: FileNodeRecord, warnings: [ScanWarning]) {
+    ) async throws -> (
+        node: FileNodeRecord,
+        warnings: [ScanWarning],
+        hardLinkClaims: [HardLinkClaim],
+        minimumAllocatedSize: Int64?
+    ) {
         try cancellationCheck()
         guard metadata.isPackage, metadata.isDirectory, !options.treatPackagesAsDirectories else {
+            let node = makeFileNode(
+                url: url,
+                metadata: metadata
+            )
             return (
-                makeFileNode(
-                    url: url,
-                    metadata: metadata,
-                    countedHardLinkIdentities: &countedHardLinkIdentities
-                ),
-                []
+                node,
+                [],
+                Self.hardLinkClaim(for: metadata, ownerNodeID: node.id, path: url.path).map { [$0] } ?? [],
+                nil
             )
         }
 
-        guard let summary = try summarizeAtomicDirectory(
+        guard let summary = try await summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: options.includeHiddenFiles,
             treatPackagesAsDirectories: true,
-            countedHardLinkIdentities: countedHardLinkIdentities,
+            workerLimit: ScanConcurrencyPolicy.atomicSummaryWorkerLimit(for: options),
+            ownerNodeID: url.path,
             exclusionMatcher: exclusionMatcher,
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
             continuation: continuation,
             emissionState: &emissionState
         ) else {
+            let node = makeFileNode(
+                url: url,
+                metadata: metadata
+            )
             return (
-                makeFileNode(
-                    url: url,
-                    metadata: metadata,
-                    countedHardLinkIdentities: &countedHardLinkIdentities
-                ),
-                []
+                node,
+                [],
+                Self.hardLinkClaim(for: metadata, ownerNodeID: node.id, path: url.path).map { [$0] } ?? [],
+                nil
             )
         }
-        countedHardLinkIdentities = summary.countedHardLinkIdentities
 
         return (
             FileNodeRecord(
@@ -1100,7 +1878,9 @@ actor ScanEngine {
                 isSynthetic: false,
                 isAutoSummarized: false
             ),
-            summary.warnings
+            summary.warnings,
+            summary.hardLinkClaims,
+            metadata.allocatedSize
         )
     }
 
@@ -1119,13 +1899,13 @@ actor ScanEngine {
         isNodeDependencyLayout: Bool,
         minFileCount: Int,
         maxAverageFileSize: Int64,
-        countedHardLinkIdentities: inout Set<FileIdentity>,
+        workerLimit: Int,
         exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> AtomicDirectorySummary? {
+    ) async throws -> AtomicDirectorySummary? {
         try cancellationCheck()
         guard !childEntries.isEmpty else { return nil }
 
@@ -1181,13 +1961,14 @@ actor ScanEngine {
         }
         let canReuseImmediateEntries = immediateCandidate && directDirectoryCount <= max(8, childEntries.count / 10)
         if canReuseImmediateEntries {
-            return try summarizeAtomicDirectory(
+            return try await summarizeAtomicDirectory(
                 at: url,
                 childEntries: childEntries,
                 rootMetadata: metadata,
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
-                countedHardLinkIdentities: &countedHardLinkIdentities,
+                workerLimit: workerLimit,
+                ownerNodeID: url.path,
                 exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
@@ -1196,18 +1977,18 @@ actor ScanEngine {
             )
         }
 
-        guard let summary = try summarizeAtomicDirectory(
+        guard let summary = try await summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: treatPackagesAsDirectories,
-            countedHardLinkIdentities: countedHardLinkIdentities,
+            workerLimit: workerLimit,
+            ownerNodeID: url.path,
             exclusionMatcher: exclusionMatcher,
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
             continuation: continuation,
             emissionState: &emissionState
         ) else { return nil }
-        countedHardLinkIdentities = summary.countedHardLinkIdentities
         return summary
     }
 
@@ -1218,6 +1999,12 @@ actor ScanEngine {
     ) -> Bool {
         if isNodeDependencyLayout {
             return true
+        }
+
+        guard childEntries.contains(where: { childEntry in
+            childEntry.metadata?.isDirectory ?? childEntry.url.hasDirectoryPath
+        }) else {
+            return false
         }
 
         // Sparse parents are cheaper to traverse normally; dense descendants can still summarize themselves.
@@ -1233,15 +2020,12 @@ actor ScanEngine {
         try cancellationCheck()
         let sampleSize = min(100, childEntries.count)
         let step = max(1, childEntries.count / sampleSize)
-        let sampleEntries = stride(from: 0, to: childEntries.count, by: step)
-            .prefix(sampleSize)
-            .map { childEntries[$0] }
-
         var sampleTotalSize: Int64 = 0
         var sampleFileCount = 0
 
-        for childEntry in sampleEntries {
+        for index in stride(from: 0, to: childEntries.count, by: step).prefix(sampleSize) {
             try cancellationCheck()
+            let childEntry = childEntries[index]
             guard let childMetadata = childEntry.metadata else {
                 return false
             }
@@ -1269,12 +2053,18 @@ actor ScanEngine {
         emissionState: inout ScanEmissionState
     ) throws -> AtomicDirectoryProbeProfile {
         try cancellationCheck()
-        let probeKeys: [URLResourceKey] = [
-            .isDirectoryKey,
-            .isPackageKey,
-            .isSymbolicLinkKey,
-            .fileSizeKey
-        ]
+        let probeStart = diagnostics?.start()
+        var visitedItems = 0
+        var profile = AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
+        defer {
+            diagnostics?.record(
+                operation: "atomic.probe",
+                url: url,
+                startedAt: probeStart,
+                itemCount: visitedItems,
+                detail: "files=\(profile.observedFileCount) dirs=\(profile.observedDirectoryCount) nodeDeps=\(profile.observedNodeDependencyLayout)"
+            )
+        }
         var enumeratorOptions: FileManager.DirectoryEnumerationOptions = []
         if !includeHiddenFiles {
             enumeratorOptions.insert(.skipsHiddenFiles)
@@ -1282,20 +2072,19 @@ actor ScanEngine {
 
         guard let enumerator = fileManager.enumerator(
             at: url,
-            includingPropertiesForKeys: probeKeys,
+            includingPropertiesForKeys: Self.atomicProbeResourceKeys,
             options: enumeratorOptions,
             errorHandler: { _, _ in true }
         ) else {
-            return AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
+            return profile
         }
 
         let maxVisitedItems = isNodeDependencyLayout
             ? max(5_000, minFileCount * 8)
-            : max(1_000, minFileCount * 2)
-        var visitedItems = 0
-        var profile = AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
+            : max(1_000, minFileCount)
 
-        for case let childURL as URL in enumerator {
+        while let nextObject = enumerator.nextObject() {
+            guard let childURL = nextObject as? URL else { continue }
             try cancellationCheck()
             visitedItems += 1
             if visitedItems == 1 || visitedItems.isMultiple(of: 64) {
@@ -1317,7 +2106,7 @@ actor ScanEngine {
             }
 
             do {
-                let values = try childURL.resourceValues(forKeys: Set(probeKeys))
+                let values = try childURL.resourceValues(forKeys: Self.atomicProbeResourceKeySet)
                 let isDirectory = values.isDirectory ?? false
                 let isSymbolicLink = values.isSymbolicLink ?? false
 
@@ -1328,7 +2117,7 @@ actor ScanEngine {
                     continue
                 }
 
-                if isNodeDependencyLayoutDirectory(at: childURL) {
+                if Self.isNodeDependencyLayoutDirectory(at: childURL) {
                     profile.observedNodeDependencyLayout = true
                 }
 
@@ -1355,23 +2144,15 @@ actor ScanEngine {
         return profile
     }
 
-    private func isNodeDependencyLayoutDirectory(at url: URL) -> Bool {
-        let components = Self.normalizedPathComponents(for: url)
-        guard let name = components.last else { return false }
-
+    private nonisolated static func isNodeDependencyLayoutDirectory(at url: URL) -> Bool {
+        let name = url.lastPathComponent
         if name == "node_modules" || name == ".pnpm" {
             return true
         }
 
-        guard name.hasPrefix("@"), components.count >= 2 else { return false }
-        let parentName = components[components.count - 2]
+        guard name.hasPrefix("@") else { return false }
+        let parentName = url.deletingLastPathComponent().lastPathComponent
         return parentName == "node_modules" || parentName == ".pnpm"
-    }
-
-    private nonisolated static func normalizedPathComponents(for url: URL) -> [String] {
-        url.standardizedFileURL.pathComponents.filter { component in
-            component != "/" && !component.isEmpty
-        }
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
@@ -1383,16 +2164,27 @@ actor ScanEngine {
         rootMetadata: NodeMetadata,
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
-        countedHardLinkIdentities: inout Set<FileIdentity>,
+        workerLimit: Int,
+        ownerNodeID: String,
         exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> AtomicDirectorySummary? {
+    ) async throws -> AtomicDirectorySummary? {
         try cancellationCheck()
-        let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
+        let summaryStart = diagnostics?.start()
+        let state = AtomicDirectorySummaryState(ownerNodeID: ownerNodeID)
         updateAtomicAccessibility(rootMetadata.isReadable, in: state)
+        defer {
+            diagnostics?.record(
+                operation: "atomic.summary.reused_entries",
+                url: url,
+                startedAt: summaryStart,
+                itemCount: childEntries.count,
+                detail: "files=\(state.descendantFileCount)"
+            )
+        }
 
         for (index, childEntry) in childEntries.enumerated() {
             try cancellationCheck()
@@ -1424,12 +2216,13 @@ actor ScanEngine {
                 }
             }
 
-            try accumulateAtomicSummary(
+            try await accumulateAtomicSummary(
                 for: childEntry.url,
                 metadata: childMetadata,
                 into: state,
                 includeHiddenFiles: includeHiddenFiles,
                 treatPackagesAsDirectories: treatPackagesAsDirectories,
+                workerLimit: workerLimit,
                 exclusionMatcher: exclusionMatcher,
                 cancellationCheck: cancellationCheck,
                 metrics: &metrics,
@@ -1437,7 +2230,6 @@ actor ScanEngine {
                 emissionState: &emissionState
             )
         }
-        countedHardLinkIdentities = state.countedHardLinkIdentities
 
         return makeAtomicSummary(from: state)
     }
@@ -1448,12 +2240,13 @@ actor ScanEngine {
         into state: AtomicDirectorySummaryState,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
+        workerLimit: Int,
         exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws {
+    ) async throws {
         try cancellationCheck()
         guard !exclusionMatcher.excludes(url, isDirectory: metadata.isDirectory) else { return }
         updateAtomicAccessibility(metadata.isReadable, in: state)
@@ -1461,11 +2254,12 @@ actor ScanEngine {
         if metadata.isDirectory {
             let nestedTreatsPackagesAsDirectories = metadata.isPackage ? true : treatPackagesAsDirectories
             if metadata.isPackage || !metadata.isSymbolicLink {
-                if let nestedSummary = try summarizeAtomicDirectory(
+                if let nestedSummary = try await summarizeAtomicDirectory(
                     at: url,
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: nestedTreatsPackagesAsDirectories,
-                    countedHardLinkIdentities: state.countedHardLinkIdentities,
+                    workerLimit: workerLimit,
+                    ownerNodeID: state.ownerNodeID,
                     exclusionMatcher: exclusionMatcher,
                     cancellationCheck: cancellationCheck,
                     metrics: &metrics,
@@ -1478,7 +2272,7 @@ actor ScanEngine {
             return
         }
 
-        accumulateAtomicFile(metadata, into: state)
+        accumulateAtomicFile(metadata, url: url, into: state)
     }
 
     private func merge(_ summary: AtomicDirectorySummary, into state: AtomicDirectorySummaryState) {
@@ -1487,7 +2281,7 @@ actor ScanEngine {
         state.descendantFileCount += summary.descendantFileCount
         state.isAccessible = state.isAccessible && summary.isAccessible
         state.warnings.append(contentsOf: summary.warnings)
-        state.countedHardLinkIdentities = summary.countedHardLinkIdentities
+        state.hardLinkClaims.append(contentsOf: summary.hardLinkClaims)
     }
 
     /// Performs a fast recursive summary of a directory's size and file count.
@@ -1498,15 +2292,51 @@ actor ScanEngine {
         at url: URL,
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
-        countedHardLinkIdentities: Set<FileIdentity>,
+        workerLimit: Int,
+        ownerNodeID: String,
         exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
-    ) throws -> AtomicDirectorySummary? {
+    ) async throws -> AtomicDirectorySummary? {
         try cancellationCheck()
-        let state = AtomicDirectorySummaryState(countedHardLinkIdentities: countedHardLinkIdentities)
+        if workerLimit > 1 {
+            let summaryStart = diagnostics?.start()
+            let summary = try await Self.summarizeAtomicDirectoryInParallel(
+                at: url,
+                includeHiddenFiles: includeHiddenFiles,
+                treatPackagesAsDirectories: treatPackagesAsDirectories,
+                workerLimit: workerLimit,
+                ownerNodeID: ownerNodeID,
+                exclusionMatcher: exclusionMatcher,
+                progressReporter: AtomicSummaryProgressReporter(
+                    metrics: metrics,
+                    continuation: continuation
+                )
+            )
+            diagnostics?.record(
+                operation: "atomic.summary.parallel",
+                url: url,
+                startedAt: summaryStart,
+                itemCount: summary?.descendantFileCount,
+                detail: "workers=\(workerLimit)"
+            )
+            return summary
+        }
+
+        let summaryStart = diagnostics?.start()
+        let state = AtomicDirectorySummaryState(ownerNodeID: ownerNodeID)
+        var visitedItems = 0
+        defer {
+            diagnostics?.record(
+                operation: "atomic.summary.enumerate",
+                url: url,
+                startedAt: summaryStart,
+                itemCount: visitedItems,
+                detail: "files=\(state.descendantFileCount)"
+            )
+        }
 
         do {
             try cancellationCheck()
@@ -1534,8 +2364,8 @@ actor ScanEngine {
             return nil
         }
 
-        var visitedItems = 0
-        for case let childURL as URL in enumerator {
+        while let nextObject = enumerator.nextObject() {
+            guard let childURL = nextObject as? URL else { continue }
             try cancellationCheck()
             visitedItems += 1
             if visitedItems == 1 || visitedItems.isMultiple(of: 64) {
@@ -1564,12 +2394,13 @@ actor ScanEngine {
                     continue
                 }
 
-                try accumulateEnumeratedAtomicSummary(
+                try await accumulateEnumeratedAtomicSummary(
                     for: childURL,
                     metadata: childMetadata,
                     into: state,
                     includeHiddenFiles: includeHiddenFiles,
                     treatPackagesAsDirectories: treatPackagesAsDirectories,
+                    workerLimit: workerLimit,
                     exclusionMatcher: exclusionMatcher,
                     cancellationCheck: cancellationCheck,
                     metrics: &metrics,
@@ -1587,9 +2418,178 @@ actor ScanEngine {
         return makeAtomicSummary(from: state)
     }
 
+    private nonisolated static func summarizeAtomicDirectoryInParallel(
+        at url: URL,
+        includeHiddenFiles: Bool,
+        treatPackagesAsDirectories: Bool,
+        workerLimit: Int,
+        ownerNodeID: String,
+        exclusionMatcher: ScanExclusionMatcher,
+        progressReporter: AtomicSummaryProgressReporter
+    ) async throws -> AtomicDirectorySummary? {
+        try Task.checkCancellation()
+
+        let accumulator = AtomicSummaryAccumulator()
+        do {
+            let rootValues = try url.resourceValues(forKeys: atomicSummaryResourceKeySet)
+            accumulator.updateAccessibility(rootValues.isReadable ?? false)
+        } catch {
+            accumulator.recordWarning(for: url, error: error)
+        }
+
+        let queue = AtomicSummaryWorkQueue(
+            rootItem: AtomicSummaryWorkItem(
+                url: url,
+                treatPackagesAsDirectories: treatPackagesAsDirectories,
+                ownerNodeID: ownerNodeID
+            )
+        )
+        let workerCount = max(1, workerLimit)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<workerCount {
+                group.addTask {
+                    while true {
+                        try Task.checkCancellation()
+                        guard let item = try queue.take() else { return }
+
+                        do {
+                            try Self.processAtomicSummaryWorkItem(
+                                item,
+                                includeHiddenFiles: includeHiddenFiles,
+                                exclusionMatcher: exclusionMatcher,
+                                accumulator: accumulator,
+                                queue: queue,
+                                progressReporter: progressReporter
+                            )
+                            queue.finishCurrentItem()
+                        } catch {
+                            queue.fail(error)
+                            queue.finishCurrentItem()
+                            throw error
+                        }
+                    }
+                }
+            }
+
+            do {
+                try await group.waitForAll()
+            } catch {
+                queue.fail(error)
+                group.cancelAll()
+                throw error
+            }
+        }
+
+        return accumulator.makeSummary()
+    }
+
+    private nonisolated static func processAtomicSummaryWorkItem(
+        _ item: AtomicSummaryWorkItem,
+        includeHiddenFiles: Bool,
+        exclusionMatcher: ScanExclusionMatcher,
+        accumulator: AtomicSummaryAccumulator,
+        queue: AtomicSummaryWorkQueue,
+        progressReporter: AtomicSummaryProgressReporter
+    ) throws {
+        try Task.checkCancellation()
+
+        var options: FileManager.DirectoryEnumerationOptions = [.skipsSubdirectoryDescendants]
+        if !includeHiddenFiles {
+            options.insert(.skipsHiddenFiles)
+        }
+
+        let childURLs: [URL]
+        do {
+            childURLs = try enumeratedDirectoryContents(
+                url: item.url,
+                keys: atomicSummaryResourceKeys,
+                options: options,
+                cancellationCheck: { try Task.checkCancellation() },
+                makeEnumerator: { url, keys, options in
+                    FileManager.default.enumerator(
+                        at: url,
+                        includingPropertiesForKeys: keys,
+                        options: options,
+                        errorHandler: { childURL, error in
+                            accumulator.recordWarning(for: childURL, error: error)
+                            return true
+                        }
+                    )
+                }
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            accumulator.recordWarning(for: item.url, error: error)
+            return
+        }
+
+        for childURL in childURLs {
+            try Task.checkCancellation()
+            let visitedItemCount = accumulator.recordVisitedItem()
+            if visitedItemCount == 1 || visitedItemCount.isMultiple(of: 64) {
+                progressReporter.emit(currentURL: childURL)
+            }
+
+            let hintedIsDirectory = childURL.hasDirectoryPath
+            guard !exclusionMatcher.excludes(childURL, isDirectory: hintedIsDirectory) else {
+                continue
+            }
+
+            let childMetadata: NodeMetadata
+            do {
+                let values = try childURL.resourceValues(forKeys: atomicSummaryResourceKeySet)
+                childMetadata = nodeMetadata(for: childURL, resourceValues: values)
+            } catch {
+                accumulator.recordWarning(for: childURL, error: error)
+                continue
+            }
+
+            guard !exclusionMatcher.excludes(childURL, isDirectory: childMetadata.isDirectory) else {
+                continue
+            }
+
+            accumulator.updateAccessibility(childMetadata.isReadable)
+
+            guard childMetadata.isDirectory else {
+                accumulator.accumulateFile(childMetadata, url: childURL, ownerNodeID: item.ownerNodeID)
+                continue
+            }
+
+            let isTraversablePackageSymlink = childMetadata.isSymbolicLink
+                && childMetadata.isPackage
+                && !item.treatPackagesAsDirectories
+            guard !childMetadata.isSymbolicLink || isTraversablePackageSymlink else {
+                continue
+            }
+
+            queue.enqueue(
+                AtomicSummaryWorkItem(
+                    url: childURL,
+                    treatPackagesAsDirectories: childMetadata.isPackage ? true : item.treatPackagesAsDirectories,
+                    ownerNodeID: item.ownerNodeID
+                )
+            )
+        }
+    }
+
     private func atomicSummaryMetadata(for url: URL) throws -> NodeMetadata {
-        let values = try url.resourceValues(forKeys: Self.atomicSummaryResourceKeySet)
-        return metadata(for: url, resourceValues: values)
+        let start = diagnostics?.start()
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: Self.atomicSummaryResourceKeySet)
+            diagnostics?.record(operation: "metadata.atomic_resource_values", url: url, startedAt: start)
+        } catch {
+            diagnostics?.record(
+                operation: "metadata.atomic_resource_values.error",
+                url: url,
+                startedAt: start,
+                detail: "error=\(Self.diagnosticErrorDescription(error))"
+            )
+            throw error
+        }
+        return Self.nodeMetadata(for: url, resourceValues: values, diagnostics: diagnostics)
     }
 
     private func accumulateEnumeratedAtomicSummary(
@@ -1598,13 +2598,14 @@ actor ScanEngine {
         into state: AtomicDirectorySummaryState,
         includeHiddenFiles: Bool,
         treatPackagesAsDirectories: Bool,
+        workerLimit: Int,
         exclusionMatcher: ScanExclusionMatcher,
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState,
         skipDescendants: () -> Void
-    ) throws {
+    ) async throws {
         try cancellationCheck()
         guard !exclusionMatcher.excludes(url, isDirectory: metadata.isDirectory) else {
             if metadata.isDirectory {
@@ -1615,17 +2616,18 @@ actor ScanEngine {
         updateAtomicAccessibility(metadata.isReadable, in: state)
 
         guard metadata.isDirectory else {
-            accumulateAtomicFile(metadata, into: state)
+            accumulateAtomicFile(metadata, url: url, into: state)
             return
         }
 
         guard metadata.isPackage, !treatPackagesAsDirectories else { return }
 
-        if let packageSummary = try summarizeAtomicDirectory(
+        if let packageSummary = try await summarizeAtomicDirectory(
             at: url,
             includeHiddenFiles: includeHiddenFiles,
             treatPackagesAsDirectories: true,
-            countedHardLinkIdentities: state.countedHardLinkIdentities,
+            workerLimit: workerLimit,
+            ownerNodeID: state.ownerNodeID,
             exclusionMatcher: exclusionMatcher,
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
@@ -1650,15 +2652,16 @@ actor ScanEngine {
         state.warnings.append(Self.makeWarning(for: url, error: error))
     }
 
-    private func accumulateAtomicFile(_ metadata: NodeMetadata, into state: AtomicDirectorySummaryState) {
-        state.allocatedSize += adjustedAllocatedSize(
-            for: metadata,
-            countedHardLinkIdentities: &state.countedHardLinkIdentities
-        )
+    private func accumulateAtomicFile(_ metadata: NodeMetadata, url: URL, into state: AtomicDirectorySummaryState) {
+        state.allocatedSize += metadata.allocatedSize
         state.logicalSize += metadata.logicalSize
 
         if !metadata.isSymbolicLink {
             state.descendantFileCount += 1
+        }
+
+        if let claim = Self.hardLinkClaim(for: metadata, ownerNodeID: state.ownerNodeID, path: url.path) {
+            state.hardLinkClaims.append(claim)
         }
     }
 
@@ -1669,7 +2672,7 @@ actor ScanEngine {
             descendantFileCount: state.descendantFileCount,
             isAccessible: state.isAccessible,
             warnings: state.warnings,
-            countedHardLinkIdentities: state.countedHardLinkIdentities
+            hardLinkClaims: state.hardLinkClaims
         )
     }
 
@@ -1835,6 +2838,13 @@ actor ScanEngine {
 
 extension FileManager.DirectoryEnumerator: nonisolated ScanEngine.DirectoryObjectEnumerating {}
 
+nonisolated private struct HardLinkClaim: Sendable {
+    let identity: FileIdentity
+    let ownerNodeID: String
+    let path: String
+    let allocatedSize: Int64
+}
+
 nonisolated private enum FileIdentity: Hashable, Sendable {
     case resourceIdentifier(Data)
     case fileSystem(device: UInt64, inode: UInt64)
@@ -1845,6 +2855,27 @@ nonisolated private enum FileIdentity: Hashable, Sendable {
 
     nonisolated init(resourceIdentifier: Data) {
         self = .resourceIdentifier(resourceIdentifier)
+    }
+}
+
+private extension FileNodeRecord {
+    nonisolated func replacingAllocatedSize(_ allocatedSize: Int64) -> FileNodeRecord {
+        FileNodeRecord(
+            id: id,
+            url: url,
+            name: name,
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            allocatedSize: allocatedSize,
+            logicalSize: logicalSize,
+            descendantFileCount: descendantFileCount,
+            lastModified: lastModified,
+            isPackage: isPackage,
+            isAccessible: isAccessible,
+            isSelfAccessible: isSelfAccessible,
+            isSynthetic: isSynthetic,
+            isAutoSummarized: isAutoSummarized
+        )
     }
 }
 

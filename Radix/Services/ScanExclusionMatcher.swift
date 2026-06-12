@@ -5,7 +5,7 @@
 
 import Foundation
 
-nonisolated struct ScanExclusionMatcher {
+nonisolated struct ScanExclusionMatcher: Sendable {
     static let commonPresetPatterns = [
         "node_modules/",
         "*.log",
@@ -228,7 +228,7 @@ nonisolated struct ScanExclusionMatcher {
     }
 }
 
-nonisolated private struct CompiledPattern {
+nonisolated private struct CompiledPattern: Sendable {
     private let matchesBasename: Bool
     private let directoryOnly: Bool
     private let exactPattern: String?
@@ -320,14 +320,14 @@ nonisolated private struct CompiledPattern {
     }
 }
 
-nonisolated private struct GlobPattern {
-    private enum Token {
+nonisolated private struct GlobPattern: Sendable {
+    private enum Token: Sendable {
         case literal(Character)
         case anySingle(allowsSlash: Bool)
         case anyRun(allowsSlash: Bool)
     }
 
-    private struct MemoKey: Hashable {
+    private struct MemoKey: Hashable, Sendable {
         let tokenIndex: Int
         let valueIndex: Int
     }
