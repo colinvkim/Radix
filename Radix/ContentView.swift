@@ -167,32 +167,30 @@ private struct WorkspaceDetailView: View {
     let actions: WorkspaceActions
 
     var body: some View {
-        NavigationStack {
-            WorkspaceView(
-                scanState: scanState,
-                navigation: navigation,
-                maxRenderedDepth: maxRenderedDepth,
-                startupDiskTarget: startupDiskTarget,
-                actions: actions
-            )
-                .toolbar {
-                    ToolbarItemGroup(placement: .navigation) {
-                        Button {
-                            actions.navigateBack()
-                        } label: {
-                            Label("Back", systemImage: "chevron.backward")
-                        }
-                        .disabled(!navigation.canNavigateBack)
-
-                        Button {
-                            actions.navigateForward()
-                        } label: {
-                            Label("Forward", systemImage: "chevron.forward")
-                        }
-                        .disabled(!navigation.canNavigateForward)
+        WorkspaceView(
+            scanState: scanState,
+            navigation: navigation,
+            maxRenderedDepth: maxRenderedDepth,
+            startupDiskTarget: startupDiskTarget,
+            actions: actions
+        )
+            .toolbar {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button {
+                        actions.navigateBack()
+                    } label: {
+                        Label("Back", systemImage: "chevron.backward")
                     }
+                    .disabled(!navigation.canNavigateBack)
+
+                    Button {
+                        actions.navigateForward()
+                    } label: {
+                        Label("Forward", systemImage: "chevron.forward")
+                    }
+                    .disabled(!navigation.canNavigateForward)
                 }
-        }
+            }
     }
 }
 

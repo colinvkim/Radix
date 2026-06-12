@@ -423,7 +423,7 @@ Centralized view-update deferral behind one helper, collapsed scan preferences
 into a single debounced `AppScanPreferences` publisher, and updated coverage to
 assert multi-field changes persist as one coherent save. All validations passed.
 
-### 13. [ ] Detail `NavigationStack`
+### 13. [x] Detail `NavigationStack`
 
 Original finding: 12. Severity: Low.
 
@@ -444,6 +444,11 @@ Approach:
 Validate:
 
 - `rtk xcodebuild -project Radix.xcodeproj -scheme Radix -configuration Debug -destination platform=macOS build`
+
+Completion note: Verified the detail view had no SwiftUI navigation path,
+links, or destinations and navigation is handled by `WorkspaceNavigationModel`.
+Removed the unnecessary `NavigationStack` while keeping the existing toolbar on
+the workspace detail. Xcode Debug build passed.
 
 ### 14. [ ] Full Disk Access presentation mapping
 
