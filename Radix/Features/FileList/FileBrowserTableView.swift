@@ -161,7 +161,10 @@ struct FileBrowserTableView: View {
                         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
                             if let selectedID = selectedIDs.first,
                                let selectedNode = model.displayedNode(id: selectedID) {
-                                let actionAvailability = selectedNode.actionAvailability(activeTarget: scanState.selectedTarget)
+                                let actionAvailability = selectedNode.actionAvailability(
+                                    activeTarget: scanState.selectedTarget,
+                                    trashSafetyPolicy: scanState.trashSafetyPolicy
+                                )
 
                                 fileActionButton(.quickLook, availability: actionAvailability, selectedID: selectedID)
 
@@ -205,7 +208,10 @@ struct FileBrowserTableView: View {
                                 expandSummarizedNode(selectedNode)
                             } else if canRequestZoom(for: selectedNode) {
                                 actions.zoomIntoSelection()
-                            } else if selectedNode.actionAvailability(activeTarget: scanState.selectedTarget).canOpen {
+                            } else if selectedNode.actionAvailability(
+                                activeTarget: scanState.selectedTarget,
+                                trashSafetyPolicy: scanState.trashSafetyPolicy
+                            ).canOpen {
                                 actions.selectedFileActions.perform(.open)
                             }
                         }

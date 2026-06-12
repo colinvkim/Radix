@@ -97,6 +97,23 @@ final class ScanModelTests: XCTestCase {
         XCTAssertTrue(childNode.supportsMoveToTrash(activeTarget: volumeTarget))
     }
 
+    func testSupportsMoveToTrashUsesInjectedTrashSafetyPolicy() {
+        let policy = makeTrashSafetyPolicy()
+        let mountedRootNode = makeNode(id: "/Volumes/External", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let mountedChildNode = makeNode(id: "/Volumes/External/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+
+        XCTAssertFalse(mountedRootNode.supportsMoveToTrash(trashSafetyPolicy: policy))
+        XCTAssertFalse(mountedRootNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy))
+        XCTAssertTrue(mountedChildNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy))
+        XCTAssertFalse(
+            FileNodeActionAvailability(
+                node: mountedRootNode,
+                activeTarget: nil,
+                trashSafetyPolicy: policy
+            ).canMoveToTrash
+        )
+    }
+
     func testActionAvailabilityUsesSharedFileActionRules() {
         let volumeTarget = ScanTarget(
             url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),

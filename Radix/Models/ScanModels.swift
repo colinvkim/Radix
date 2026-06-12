@@ -1026,14 +1026,21 @@ struct FileNodeActionAvailability: Equatable, Sendable {
         self.canMoveToTrash = canMoveToTrash
     }
 
-    init(node: FileNodeRecord?, activeTarget: ScanTarget?) {
+    init(
+        node: FileNodeRecord?,
+        activeTarget: ScanTarget?,
+        trashSafetyPolicy: TrashSafetyPolicy = .live()
+    ) {
         let supportsFileActions = node?.supportsFileActions == true
         self.init(
             canOpen: supportsFileActions,
             canPreviewWithQuickLook: supportsFileActions,
             canRevealInFinder: supportsFileActions,
             canCopyPath: supportsFileActions,
-            canMoveToTrash: node?.supportsMoveToTrash(activeTarget: activeTarget) == true
+            canMoveToTrash: node?.supportsMoveToTrash(
+                activeTarget: activeTarget,
+                trashSafetyPolicy: trashSafetyPolicy
+            ) == true
         )
     }
 }
@@ -1237,16 +1244,30 @@ extension FileNodeRecord {
     }
 
     var supportsMoveToTrash: Bool {
-        supportsFileActions && TrashSafetyPolicy.blockReason(for: url) == nil
+        supportsMoveToTrash(trashSafetyPolicy: .live())
     }
 
-    func supportsMoveToTrash(activeTarget: ScanTarget?) -> Bool {
-        guard supportsMoveToTrash else { return false }
+    func supportsMoveToTrash(trashSafetyPolicy: TrashSafetyPolicy) -> Bool {
+        supportsFileActions && trashSafetyPolicy.blockReason(for: url) == nil
+    }
+
+    func supportsMoveToTrash(
+        activeTarget: ScanTarget?,
+        trashSafetyPolicy: TrashSafetyPolicy = .live()
+    ) -> Bool {
+        guard supportsMoveToTrash(trashSafetyPolicy: trashSafetyPolicy) else { return false }
         guard let activeTarget else { return true }
         return !(activeTarget.kind == .volume && activeTarget.id == id)
     }
 
-    func actionAvailability(activeTarget: ScanTarget?) -> FileNodeActionAvailability {
-        FileNodeActionAvailability(node: self, activeTarget: activeTarget)
+    func actionAvailability(
+        activeTarget: ScanTarget?,
+        trashSafetyPolicy: TrashSafetyPolicy = .live()
+    ) -> FileNodeActionAvailability {
+        FileNodeActionAvailability(
+            node: self,
+            activeTarget: activeTarget,
+            trashSafetyPolicy: trashSafetyPolicy
+        )
     }
 }

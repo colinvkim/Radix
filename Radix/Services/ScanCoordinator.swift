@@ -44,6 +44,7 @@ final class ScanCoordinator: ObservableObject {
     @Published private(set) var completedScanSnapshot: ScanSnapshot?
     @Published private(set) var scanErrorMessage: String?
     @Published private(set) var expandingNodeID: FileNodeRecord.ID?
+    @Published private(set) var trashSafetyPolicy: TrashSafetyPolicy
 
     let progress: ScanProgressState
 
@@ -64,11 +65,13 @@ final class ScanCoordinator: ObservableObject {
     init(
         scanService: any ScanEventStreaming = ScanEngine(),
         progressThrottleDuration: Duration = .milliseconds(100),
-        progress: ScanProgressState = ScanProgressState()
+        progress: ScanProgressState = ScanProgressState(),
+        trashSafetyPolicy: TrashSafetyPolicy = .live()
     ) {
         self.scanService = scanService
         self.progressThrottleDuration = progressThrottleDuration
         self.progress = progress
+        self.trashSafetyPolicy = trashSafetyPolicy
     }
 
     var scanMetrics: ScanMetrics {
@@ -86,6 +89,10 @@ final class ScanCoordinator: ObservableObject {
 
     var canStopScan: Bool {
         isScanning
+    }
+
+    func replaceTrashSafetyPolicy(_ policy: TrashSafetyPolicy) {
+        trashSafetyPolicy = policy
     }
 
     func startScan(

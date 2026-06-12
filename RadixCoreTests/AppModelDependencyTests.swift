@@ -523,6 +523,36 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testMountedVolumeRefreshUpdatesTrashSafetyPolicy() async throws {
+        let mountedVolumeURL = URL(filePath: "/Volumes/Injected", directoryHint: .isDirectory)
+        let mountedVolumeNode = makeTestDirectoryNode(id: mountedVolumeURL.path, name: "Injected", children: [])
+        let mountedVolumeEvents = PassthroughSubject<Void, Never>()
+        var protectsMountedVolume = false
+        var actions = AppSystemActions.inert
+        actions.defaultTargets = { [] }
+        actions.trashSafetyPolicy = {
+            TrashSafetyPolicy(
+                homeDirectory: URL(filePath: "/Users/example", directoryHint: .isDirectory),
+                mountedVolumeURLs: protectsMountedVolume ? [mountedVolumeURL] : [],
+                firmlinkEntries: []
+            )
+        }
+        actions.mountedVolumeEvents = {
+            mountedVolumeEvents.eraseToAnyPublisher()
+        }
+
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        XCTAssertTrue(mountedVolumeNode.supportsMoveToTrash(trashSafetyPolicy: model.scanState.trashSafetyPolicy))
+
+        protectsMountedVolume = true
+        mountedVolumeEvents.send(())
+
+        try await waitForAppModelCondition("trash safety policy refresh") {
+            !mountedVolumeNode.supportsMoveToTrash(trashSafetyPolicy: model.scanState.trashSafetyPolicy)
+        }
+    }
+
+    @MainActor
     func testCleanupCancelsAsyncCapacityDescriptionRefresh() async throws {
         let probe = AsyncValueProbe<[String: String]>()
         let loadedTarget = makeTestTarget("/async-loaded")

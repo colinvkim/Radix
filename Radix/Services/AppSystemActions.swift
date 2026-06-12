@@ -67,6 +67,7 @@ struct AppSystemActions {
     var fullDiskAccessStatus: () -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
     var targetCapacityDescriptions: () -> [String: String]
+    var trashSafetyPolicy: () -> TrashSafetyPolicy
     var asyncFullDiskAccessStatus: (@Sendable () async -> FullDiskAccessStatus)?
     var asyncTargetCapacityDescriptions: (@Sendable () async -> [String: String])?
     var presentOpenPanel: () -> ScanTarget?
@@ -93,6 +94,9 @@ struct AppSystemActions {
         },
         targetCapacityDescriptions: {
             SystemIntegration.targetCapacityDescriptions()
+        },
+        trashSafetyPolicy: {
+            TrashSafetyPolicy.live()
         },
         asyncFullDiskAccessStatus: {
             await Task.detached(priority: .utility) {
@@ -146,6 +150,9 @@ struct AppSystemActions {
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         targetCapacityDescriptions: { [:] },
+        trashSafetyPolicy: {
+            TrashSafetyPolicy.live()
+        },
         asyncFullDiskAccessStatus: nil,
         asyncTargetCapacityDescriptions: nil,
         presentOpenPanel: { nil },

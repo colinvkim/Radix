@@ -676,7 +676,10 @@ final class AppModel: ObservableObject {
     func requestMoveSelectedToTrash() {
         do {
             let node = try validatedSelection()
-            guard node.supportsMoveToTrash(activeTarget: scanCoordinator.selectedTarget) else {
+            guard node.supportsMoveToTrash(
+                activeTarget: scanCoordinator.selectedTarget,
+                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+            ) else {
                 throw FileActionError.unsupported
             }
             pendingTrashNode = node
@@ -771,7 +774,10 @@ final class AppModel: ObservableObject {
         guard dependencies.systemActions.quickLook.isPreviewVisible() else { return }
 
         guard let selectedNode = navigationModel.selectedNode,
-              selectedNode.actionAvailability(activeTarget: scanCoordinator.selectedTarget).canPreviewWithQuickLook else {
+              selectedNode.actionAvailability(
+                activeTarget: scanCoordinator.selectedTarget,
+                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+              ).canPreviewWithQuickLook else {
             dependencies.systemActions.quickLook.close()
             return
         }
@@ -801,7 +807,8 @@ final class AppModel: ObservableObject {
         guard !dependencies.systemActions.quickLook.isPreviewPanelKeyWindow() else { return false }
         guard !Self.shouldPreserveSpaceKey(for: event.window?.firstResponder) else { return false }
         guard navigationModel.selectedNode?.actionAvailability(
-            activeTarget: scanCoordinator.selectedTarget
+            activeTarget: scanCoordinator.selectedTarget,
+            trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
         ).canPreviewWithQuickLook == true else { return false }
 
         toggleQuickLookForSelected()
@@ -896,6 +903,7 @@ final class AppModel: ObservableObject {
 
     private func refreshAvailableTargets() {
         targetCapacityDescriptionsRefreshTask?.cancel()
+        scanCoordinator.replaceTrashSafetyPolicy(dependencies.systemActions.trashSafetyPolicy())
         availableTargets = dependencies.systemActions.defaultTargets()
 
         guard dependencies.systemActions.usesAsyncTargetCapacityDescriptions else {

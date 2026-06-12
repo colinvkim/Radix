@@ -665,7 +665,7 @@ Added a deterministic fallback to localized name, then ID, and covered both
 current-folder table sorting and whole-scan search sorting. Both validations
 passed.
 
-### 21. [ ] Trash safety policy construction in availability checks
+### 21. [x] Trash safety policy construction in availability checks
 
 Original finding: 18. Severity: Low.
 
@@ -690,3 +690,9 @@ Validate:
 - `rtk swift test --filter ScanModelTests`
 - `rtk swift test --filter AppModelDependencyTests`
 - `rtk swift test`
+
+Completion note: Verified `supportsMoveToTrash` built a live policy through
+each availability check. Added injected trash safety policy parameters, cached a
+policy snapshot on `ScanCoordinator`, refreshed it through system actions during
+target updates, and passed the snapshot through app and UI availability paths.
+Added model and AppModel dependency coverage. All validations passed.
