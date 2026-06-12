@@ -81,7 +81,7 @@ swift test
 open Radix.xcodeproj
 ```
 
-The `Package.swift` file contains the **RadixCore** library (scan engine, models, geometry, formatters). The full SwiftUI app is built through the Xcode project.
+The `Package.swift` file contains the **RadixCore** library (scan engine, models, geometry, formatters) and has no external package dependencies. The full SwiftUI app is built through the Xcode project, which integrates Sparkle through Xcode's Swift Package Manager support.
 Use SwiftPM for the package test suite and Xcode for the app build:
 
 ```bash
@@ -116,7 +116,7 @@ Radix/
 - **AppModel** is the single source of truth — a `@MainActor` observable object that drives the entire UI.
 - **ScanSnapshot** and **FileTreeStore** provide immutable scan results with O(1) path lookups, flat tree storage, and efficient subtree updates.
 - The **sunburst chart** is rendered using SwiftUI's Canvas API for performant drawing of hundreds of segments.
-- No external Swift package dependencies — everything is built with Apple's frameworks.
+- **RadixCore** has no external Swift package dependencies; the Xcode app target adds Sparkle for automatic updates.
 
 ## Contributing
 

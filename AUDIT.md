@@ -609,7 +609,7 @@ fixtures into `RadixCoreTests/TestFixtures.swift`, then migrated the duplicated
 builders in AppModel, file browser, scan coordinator, and workspace navigation
 tests while leaving scenario-specific fakes local. Validation passed.
 
-### 19. [ ] README dependency wording
+### 19. [x] README dependency wording
 
 Original finding: 24. Severity: Low.
 
@@ -632,6 +632,11 @@ Approach:
 Validate:
 
 - Documentation-only if not paired with code changes.
+
+Completion note: Verified `RadixApp.swift` imports Sparkle and Xcode
+`Package.resolved` pins Sparkle, while `Package.swift` has no external
+dependencies for `RadixCore`. Updated README wording to distinguish the core
+SwiftPM package from the Xcode app's Sparkle integration. Documentation-only.
 
 ### 20. [ ] Stable table/search sorting tie-breakers
 
