@@ -13,6 +13,7 @@ struct SunburstChartView: View {
     let onSelect: (String?) -> Void
     let onZoom: (String) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var chartModel: SunburstChartModel
 
     init(
@@ -70,23 +71,17 @@ struct SunburstChartView: View {
             let chartFrame = chartFrame(in: geometry.size)
 
             ZStack {
-                SunburstBaseCanvas(
+                SunburstRenderedChartLayer(
                     segments: chartModel.renderedSegments,
-                    renderVersion: chartModel.renderedLayoutVersion
-                )
-                .equatable()
-                .frame(width: chartFrame.width, height: chartFrame.height)
-                .position(x: chartFrame.midX, y: chartFrame.midY)
-
-                SunburstSelectionOverlay(
-                    segments: chartModel.selectionOverlaySegments(
+                    renderVersion: chartModel.renderedLayoutVersion,
+                    selectionSegments: chartModel.selectionOverlaySegments(
                         selectedNodeID: selectedNodeID,
                         selectedAncestorIDs: selectedAncestorIDs
-                    )
+                    ),
+                    chartFrame: chartFrame
                 )
-                .equatable()
-                .frame(width: chartFrame.width, height: chartFrame.height)
-                .position(x: chartFrame.midX, y: chartFrame.midY)
+                .id(chartModel.renderedLayoutVersion)
+                .transition(chartTransition)
                 .allowsHitTesting(false)
 
                 SunburstHoverOverlay(
@@ -137,6 +132,7 @@ struct SunburstChartView: View {
             .accessibilityLabel("Disk usage chart")
             .accessibilityValue(accessibilityValue)
             .accessibilityHint("Select a segment to inspect it. Double-click a folder segment to zoom in.")
+            .animation(chartTransitionAnimation, value: chartModel.renderedLayoutVersion)
             .task(id: layoutID) {
                 await chartModel.loadLayout(
                     treeStore: treeStore,
@@ -146,6 +142,15 @@ struct SunburstChartView: View {
                 )
             }
         }
+    }
+
+    private var chartTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .opacity.combined(with: .scale(scale: 0.985, anchor: .center))
+    }
+
+    private var chartTransitionAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.16) : .easeInOut(duration: 0.22)
     }
 
     private func updateHover(at location: CGPoint?, in frame: CGRect) {
@@ -212,5 +217,29 @@ struct SunburstChartView: View {
             value: RadixFormatters.size(node.allocatedSize),
             detail: detail
         )
+    }
+}
+
+private struct SunburstRenderedChartLayer: View {
+    let segments: [SunburstSegment]
+    let renderVersion: Int
+    let selectionSegments: [SunburstSelectionOverlaySegment]
+    let chartFrame: CGRect
+
+    var body: some View {
+        ZStack {
+            SunburstBaseCanvas(
+                segments: segments,
+                renderVersion: renderVersion
+            )
+            .equatable()
+
+            SunburstSelectionOverlay(segments: selectionSegments)
+                .equatable()
+                .allowsHitTesting(false)
+        }
+        .frame(width: chartFrame.width, height: chartFrame.height)
+        .position(x: chartFrame.midX, y: chartFrame.midY)
+        .compositingGroup()
     }
 }
