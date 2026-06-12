@@ -102,6 +102,30 @@ final class SidebarModelTests: XCTestCase {
         model.clearActiveTargetIfNeededAfterRemovingRecentTarget(smart)
         XCTAssertEqual(model.activeTargetID, smart.id)
     }
+
+    @MainActor
+    func testRebuildingTargetSectionsClearsMissingActiveTarget() {
+        let recent = makeSidebarTarget("/recent/active")
+        let smart = makeSidebarTarget("/Users/example")
+        let model = SidebarModel(
+            recentTargetStore: makeSidebarRecentTargetStore(),
+            preferredSmartTargetIDs: { [smart.id] }
+        )
+
+        model.refreshTargetSections(availableTargets: [], recentTargets: [recent])
+        model.setActiveTargetID(recent.id)
+
+        model.refreshTargetSections(availableTargets: [], recentTargets: [])
+
+        XCTAssertNil(model.activeTargetID)
+
+        model.refreshTargetSections(availableTargets: [smart], recentTargets: [smart])
+        model.setActiveTargetID(smart.id)
+
+        model.refreshTargetSections(availableTargets: [smart], recentTargets: [])
+
+        XCTAssertEqual(model.activeTargetID, smart.id)
+    }
 }
 
 private func makeSidebarRecentTargetStore(

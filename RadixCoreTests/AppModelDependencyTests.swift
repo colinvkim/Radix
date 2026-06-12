@@ -74,6 +74,26 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testClearRecentTargetsClearsActiveSidebarTarget() {
+        let first = makeAppModelTarget("/recent/first")
+        let recentPersistence = SpyRecentTargetPersistence(targets: [first])
+        let model = AppModel(
+            dependencies: makeDependencies(
+                recentPersistence: recentPersistence,
+                availableRecentIDs: Set([first.id])
+            )
+        )
+
+        model.sidebar.setActiveTargetID(first.id)
+        model.clearRecentTargets()
+
+        XCTAssertNil(model.activeSidebarTargetID)
+        XCTAssertTrue(model.recentTargets.isEmpty)
+        XCTAssertTrue(model.recentScanTargets.isEmpty)
+        XCTAssertTrue(recentPersistence.didClear)
+    }
+
+    @MainActor
     func testPreferenceChangesPersistThroughInjectedStore() {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))

@@ -356,7 +356,7 @@ dismissal. Added a scene-focused inspector visibility binding, a View-menu
 toggle command with Control-Command-I, and removed the forced interactive
 dismissal disable. Xcode Debug build passed.
 
-### 11. [ ] Stale sidebar active targets
+### 11. [x] Stale sidebar active targets
 
 Original finding: 14. Severity: Low.
 
@@ -382,6 +382,12 @@ Validate:
 - `rtk swift test --filter SidebarModelTests`
 - `rtk swift test --filter AppModelDependencyTests`
 - `rtk swift test`
+
+Completion note: Verified section rebuilds could leave `activeTargetID`
+pointing at a removed recent row. Sidebar section rebuilds now clear active
+targets absent from both smart and recent rows while preserving active smart
+targets. Added SidebarModel and AppModel clear-recents coverage. All
+validations passed.
 
 ### 12. [ ] AppModel deferral and preference persistence
 

@@ -98,6 +98,7 @@ final class SidebarModel: ObservableObject {
         smartTargetValues = smartTargets
         recentScanTargetValues = recentScanTargets
         rebuildTargetRows()
+        clearActiveTargetIfMissing()
     }
 
     private func rebuildTargetRows() {
@@ -107,6 +108,16 @@ final class SidebarModel: ObservableObject {
 
     private func makeTargetDisplay(for target: ScanTarget) -> SidebarTargetDisplay {
         SidebarTargetDisplay(target: target, subtitle: subtitle(for: target))
+    }
+
+    private func clearActiveTargetIfMissing() {
+        guard let activeTargetID,
+              !smartTargetValues.contains(where: { $0.id == activeTargetID }),
+              !recentScanTargetValues.contains(where: { $0.id == activeTargetID }) else {
+            return
+        }
+
+        self.activeTargetID = nil
     }
 
     private func makeSmartTargets() -> [ScanTarget] {
