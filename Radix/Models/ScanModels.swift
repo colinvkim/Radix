@@ -384,8 +384,30 @@ struct ScanMetrics: Sendable {
     var discoveredItems = 0
     var completedItems = 0
     var estimatedTotalBytes: Int64 = 0
+    /// Fraction of the tree's total traversal weight that has finished scanning (0...1).
+    /// The scanner assigns the root a weight of 1 and recursively splits each directory's
+    /// weight among its children when the directory is enumerated, so the sum of completed
+    /// weights converges to 1 exactly as the traversal finishes.
+    var completedTraversalWeight = 0.0
+    /// Progress through the bottom-up assembly phase (0...1). Only meaningful while
+    /// `isFinalizing` is true.
+    var finalizationFraction = 0.0
+    /// Directories whose contents have been enumerated (successfully or not).
+    var enumeratedDirectoryCount = 0
+    /// Directories discovered but not yet enumerated — the traversal frontier.
+    var pendingDirectoryCount = 0
+    /// Items classified as traversable directories when they were discovered.
+    var discoveredDirectoryCount = 0
     var progressFraction = 0.0
     var isFinalizing = false
+
+    /// Portion of the progress bar reserved for traversal; the remainder is consumed by
+    /// the assembly (finalization) phase, with the final point reserved for completion.
+    private nonisolated static let traversalSpan = 0.95
+    private nonisolated static let finalizationCeiling = 0.99
+    /// Upper bound on the geometric expansion applied per frontier directory when
+    /// extrapolating how many descendants it will yield.
+    private nonisolated static let maxFrontierExpansion = 6.0
 
     nonisolated var progressPercentage: Int {
         Int((progressFraction * 100).rounded(.down))
@@ -397,32 +419,50 @@ struct ScanMetrics: Sendable {
             return
         }
 
-        let discoveredWork = max(discoveredItems, 1)
-        let pendingItems = max(discoveredItems - completedItems, 0)
-        let weightedRemainingWork = Double(pendingItems) * 1.35 + 6
-        let traversalFraction = min(
-            Double(completedItems) / (Double(completedItems) + weightedRemainingWork),
-            0.97
-        )
-
-        let byteFraction: Double
-        if estimatedTotalBytes > 0 {
-            byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 0.96)
-        } else {
-            byteFraction = 0
+        if isFinalizing {
+            let assembled = min(max(finalizationFraction, 0), 1)
+            let fraction = Self.traversalSpan + (Self.finalizationCeiling - Self.traversalSpan) * assembled
+            progressFraction = max(progressFraction, fraction)
+            return
         }
 
-        let discoveryFraction = min(Double(completedItems) / Double(discoveredWork), 0.92)
-        let blendedFraction: Double
+        var traversalFraction = min(max(completedTraversalWeight, 0), 1)
+
+        // The weight model overshoots in skewed trees (a directory's weight is split when
+        // it is enumerated, before its true size is known). Cap it with an item-count
+        // extrapolation: completed items versus discovered items plus the expected yield
+        // of the unenumerated frontier, based on the branching observed so far.
+        //
+        // Apply the cap whenever discovered items remain unprocessed, not only when the
+        // frontier still holds unenumerated directories. A large flat directory drains the
+        // frontier to zero (no child subdirectories) while leaving thousands of discovered
+        // files uncompleted; without this the weight estimate alone can leap near the
+        // traversal ceiling before those files are scanned.
+        if enumeratedDirectoryCount > 0, completedItems < discoveredItems || pendingDirectoryCount > 0 {
+            let enumerated = Double(enumeratedDirectoryCount)
+            let childrenPerDirectory = Double(discoveredItems) / enumerated
+            let subdirectoriesPerDirectory = Double(discoveredDirectoryCount) / enumerated
+            let expansion = subdirectoriesPerDirectory < 1
+                ? min(1 / (1 - subdirectoriesPerDirectory), Self.maxFrontierExpansion)
+                : Self.maxFrontierExpansion
+            let expectedFrontierYield = Double(pendingDirectoryCount) * childrenPerDirectory * expansion
+            let countFraction = min(
+                (Double(completedItems) + enumerated) / (Double(discoveredItems) + expectedFrontierYield),
+                1
+            )
+            traversalFraction = min(traversalFraction, countFraction)
+        }
+
         if estimatedTotalBytes > 0 {
-            blendedFraction = (byteFraction * 0.65) + (traversalFraction * 0.25) + (discoveryFraction * 0.10)
-        } else {
-            blendedFraction = (traversalFraction * 0.75) + (discoveryFraction * 0.25)
+            // Volume scans know the volume's used capacity up front; blending the byte
+            // ratio in smooths the coarser weight-based estimate.
+            let byteFraction = min(Double(bytesDiscovered) / Double(estimatedTotalBytes), 1)
+            traversalFraction = (traversalFraction + byteFraction) / 2
         }
 
         let hasStarted = filesVisited > 0 || directoriesVisited > 0 || discoveredItems > 0
         let minimumVisibleProgress = hasStarted ? 0.01 : 0
-        progressFraction = max(progressFraction, max(blendedFraction, minimumVisibleProgress))
+        progressFraction = max(progressFraction, max(traversalFraction * Self.traversalSpan, minimumVisibleProgress))
     }
 }
 

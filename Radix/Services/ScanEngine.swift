@@ -440,11 +440,14 @@ actor ScanEngine {
     /// A work item for the iterative scanner.
     /// `parentKey` links this item back to its parent for bottom-up assembly.
     /// `depth` tracks how deep we are in the directory tree.
+    /// `weight` is this subtree's share of the scan's total progress (the root is 1);
+    /// a directory's weight is split among its children when it is enumerated.
     private struct ScanWorkItem: Sendable {
         let url: URL
         let metadata: NodeMetadata?
         let parentKey: Int
         let depth: Int
+        let weight: Double
     }
 
     /// A child discovered during directory enumeration.
@@ -824,7 +827,7 @@ actor ScanEngine {
             if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
                 minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
             }
-            applyLeafMetrics(leafResult.node, metrics: &metrics)
+            applyLeafMetrics(leafResult.node, weight: 1, metrics: &metrics)
             if !leafResult.warnings.isEmpty {
                 warnings.append(contentsOf: leafResult.warnings)
                 for warning in leafResult.warnings {
@@ -846,8 +849,10 @@ actor ScanEngine {
 
         // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
         // We use a stack for DFS. Each item knows its parent key and depth for assembly.
+        metrics.discoveredDirectoryCount = 1
+        metrics.pendingDirectoryCount = 1
         var workStack: [ScanWorkItem] = [
-            ScanWorkItem(url: target.url, metadata: rootMetadata, parentKey: -1, depth: 0)
+            ScanWorkItem(url: target.url, metadata: rootMetadata, parentKey: -1, depth: 0, weight: 1)
         ]
         // Maps a key to its completed result (leaf or assembled directory).
         var completedByKey: [Int: CompletedDirScan] = [:]
@@ -865,8 +870,10 @@ actor ScanEngine {
                     try Task.checkCancellation()
 
                     guard seenScannedNodeIDs.insert(item.url.path).inserted else {
+                        releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
                         recordDuplicateNode(
                             at: item.url,
+                            weight: item.weight,
                             metrics: &metrics,
                             warnings: &warnings,
                             continuation: continuation,
@@ -890,6 +897,7 @@ actor ScanEngine {
                         do {
                             meta = try metadata(for: item.url)
                         } catch {
+                            releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
                             recordUnavailableItem(
                                 item,
                                 itemKey: itemKey,
@@ -947,7 +955,9 @@ actor ScanEngine {
                             }
                         }
                     } else {
-                        // Leaf node (file, symlink, or package-as-directory).
+                        // Leaf node (file, symlink, or package-as-directory). Discovery may
+                        // have classified it as a pending directory; release that claim.
+                        releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
                         let leafResult = try await makeLeafNode(
                             url: item.url,
                             metadata: meta,
@@ -962,7 +972,7 @@ actor ScanEngine {
                         if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
                             minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
                         }
-                        applyLeafMetrics(leafResult.node, metrics: &metrics)
+                        applyLeafMetrics(leafResult.node, weight: item.weight, metrics: &metrics)
                         if !leafResult.warnings.isEmpty {
                             warnings.append(contentsOf: leafResult.warnings)
                             for warning in leafResult.warnings {
@@ -1003,6 +1013,15 @@ actor ScanEngine {
 
                     metrics.currentPath = item.url.path
                     metrics.discoveredItems += childEntries.count
+                    metrics.enumeratedDirectoryCount += 1
+                    releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
+                    var childDirectoryCount = 0
+                    for childEntry in childEntries
+                    where Self.isLikelyTraversableDirectory(metadata: childEntry.metadata, url: childEntry.url) {
+                        childDirectoryCount += 1
+                    }
+                    metrics.discoveredDirectoryCount += childDirectoryCount
+                    metrics.pendingDirectoryCount += childDirectoryCount
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
@@ -1052,7 +1071,11 @@ actor ScanEngine {
                         )
                         hardLinkClaims.append(contentsOf: summary.hardLinkClaims)
                         minimumAllocatedSizeByNodeID[atomicNode.id] = meta.allocatedSize
-                        applyLeafMetrics(atomicNode, metrics: &metrics)
+                        // The summarized children will never be enqueued: count them as
+                        // completed and release their frontier claims.
+                        metrics.completedItems += childEntries.count
+                        metrics.pendingDirectoryCount = max(metrics.pendingDirectoryCount - childDirectoryCount, 0)
+                        applyLeafMetrics(atomicNode, weight: item.weight, metrics: &metrics)
                         if !summary.warnings.isEmpty {
                             warnings.append(contentsOf: summary.warnings)
                             for warning in summary.warnings {
@@ -1072,6 +1095,18 @@ actor ScanEngine {
 
                     guard !completedAsAtomicDirectory else { break }
 
+                    if childEntries.isEmpty {
+                        // Nothing below this directory: its whole weight is done.
+                        metrics.completedTraversalWeight += item.weight
+                        metrics.recalculateProgress()
+                    }
+
+                    // Split this directory's progress weight among its children.
+                    var totalWeightUnits = 0.0
+                    for childEntry in childEntries {
+                        totalWeightUnits += Self.traversalWeightUnits(for: childEntry)
+                    }
+
                     // Enqueue children onto the stack. Each child records its parent key.
                     for (offset, childEntry) in childEntries.enumerated() {
                         if offset.isMultiple(of: 256) {
@@ -1082,7 +1117,8 @@ actor ScanEngine {
                                 url: childEntry.url,
                                 metadata: childEntry.metadata,
                                 parentKey: itemKey,
-                                depth: item.depth + 1
+                                depth: item.depth + 1,
+                                weight: item.weight * Self.traversalWeightUnits(for: childEntry) / totalWeightUnits
                             )
                         )
                     }
@@ -1104,6 +1140,9 @@ actor ScanEngine {
                     warnings.append(warning)
                     continuation.yield(.warning(warning))
                     metrics.completedItems += 1
+                    metrics.completedTraversalWeight += item.weight
+                    metrics.enumeratedDirectoryCount += 1
+                    releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
                     metrics.recalculateProgress()
                     maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
@@ -1137,6 +1176,7 @@ actor ScanEngine {
         // Process keys in reverse order (children always have higher keys than parents).
         metrics.currentPath = "Summarizing results…"
         metrics.isFinalizing = true
+        metrics.finalizationFraction = 0
         metrics.recalculateProgress()
         continuation.yield(.progress(metrics))
 
@@ -1222,6 +1262,7 @@ actor ScanEngine {
 
             if finalizedItems.isMultiple(of: finalizationProgressInterval) || finalizedItems == finalizationTotal {
                 try Task.checkCancellation()
+                metrics.finalizationFraction = Double(finalizedItems) / Double(finalizationTotal)
                 metrics.recalculateProgress()
                 continuation.yield(.progress(metrics))
             }
@@ -1238,6 +1279,7 @@ actor ScanEngine {
         }
 
         metrics.completedItems = max(metrics.completedItems, metrics.discoveredItems)
+        metrics.finalizationFraction = 1
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
@@ -1254,7 +1296,7 @@ actor ScanEngine {
 
     // MARK: - Helpers
 
-    private func applyLeafMetrics(_ node: FileNodeRecord, metrics: inout ScanMetrics) {
+    private func applyLeafMetrics(_ node: FileNodeRecord, weight: Double, metrics: inout ScanMetrics) {
         if node.isDirectory {
             if !node.isAutoSummarized {
                 metrics.directoriesVisited += 1
@@ -1265,6 +1307,32 @@ actor ScanEngine {
         }
         metrics.bytesDiscovered += node.allocatedSize
         metrics.completedItems += 1
+        metrics.completedTraversalWeight += weight
+        metrics.recalculateProgress()
+    }
+
+    /// Relative progress weight of a traversable directory child versus a single file.
+    /// A subdirectory hides an unscanned subtree of unknown size, so it gets a larger
+    /// share of its parent's weight than a file does.
+    private static let directoryChildWeightUnits = 8.0
+
+    /// Classifies an item the same way at discovery time and at pop time so the
+    /// frontier accounting in `ScanMetrics` stays balanced.
+    private nonisolated static func isLikelyTraversableDirectory(metadata: NodeMetadata?, url: URL) -> Bool {
+        guard let metadata else { return url.hasDirectoryPath }
+        return metadata.isDirectory && !metadata.isSymbolicLink
+    }
+
+    private nonisolated static func traversalWeightUnits(for entry: DirectoryEntry) -> Double {
+        isLikelyTraversableDirectory(metadata: entry.metadata, url: entry.url) ? directoryChildWeightUnits : 1
+    }
+
+    /// Removes an item's frontier claim once its fate is known (enumerated, leaf,
+    /// duplicate, or unavailable). Uses the same classifier as discovery so the
+    /// pending count stays balanced.
+    private func releasePendingDirectoryIfNeeded(for item: ScanWorkItem, metrics: inout ScanMetrics) {
+        guard Self.isLikelyTraversableDirectory(metadata: item.metadata, url: item.url) else { return }
+        metrics.pendingDirectoryCount = max(metrics.pendingDirectoryCount - 1, 0)
     }
 
     private nonisolated static func hardLinkClaim(
@@ -1426,6 +1494,7 @@ actor ScanEngine {
 
     private func recordDuplicateNode(
         at url: URL,
+        weight: Double,
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
@@ -1435,6 +1504,7 @@ actor ScanEngine {
         warnings.append(warning)
         continuation.yield(.warning(warning))
         metrics.completedItems += 1
+        metrics.completedTraversalWeight += weight
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
     }
@@ -1466,6 +1536,7 @@ actor ScanEngine {
         warnings.append(warning)
         continuation.yield(.warning(warning))
         metrics.completedItems += 1
+        metrics.completedTraversalWeight += item.weight
         metrics.recalculateProgress()
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
@@ -2803,11 +2874,14 @@ actor ScanEngine {
         return !metadata.isPackage || options.treatPackagesAsDirectories
     }
 
+    /// A trustworthy total is only known for volume scans (the volume's used capacity).
+    /// For directory scans the root's own allocated size says nothing about its contents,
+    /// so no byte-based estimate is produced and progress relies on traversal weights.
     private func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
-        if target.kind == .volume, let volumeUsedCapacity = metadata.volumeUsedCapacity {
-            return max(volumeUsedCapacity, metadata.allocatedSize)
+        guard target.kind == .volume, let volumeUsedCapacity = metadata.volumeUsedCapacity else {
+            return 0
         }
-        return max(metadata.allocatedSize, 0)
+        return max(volumeUsedCapacity, metadata.allocatedSize)
     }
 
     private nonisolated static func makeWarning(for url: URL, error: Error) -> ScanWarning {

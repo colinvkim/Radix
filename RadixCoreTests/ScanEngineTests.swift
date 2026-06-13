@@ -1332,6 +1332,98 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertFalse(metrics.isFinalizing)
     }
 
+    func testTraversalWeightDrivesProgressWithoutByteEstimate() {
+        var metrics = ScanMetrics()
+        metrics.filesVisited = 10
+        metrics.completedTraversalWeight = 0.5
+
+        metrics.recalculateProgress()
+
+        XCTAssertEqual(metrics.progressFraction, 0.5 * 0.95, accuracy: 0.0001)
+    }
+
+    func testDirectoryScanProgressStaysLowWhenLittleWeightIsCompleted() {
+        var metrics = ScanMetrics()
+        metrics.filesVisited = 5_000
+        metrics.discoveredItems = 5_200
+        metrics.completedItems = 5_000
+        metrics.bytesDiscovered = 50_000_000_000
+        metrics.completedTraversalWeight = 0.02
+
+        metrics.recalculateProgress()
+
+        XCTAssertLessThan(metrics.progressFraction, 0.05)
+    }
+
+    func testFrontierExtrapolationCapsProgressInSkewedTrees() {
+        var metrics = ScanMetrics()
+        // 2,000 flat files completed; one giant unexplored sibling directory remains.
+        // The weight model alone would report ~99% here.
+        metrics.filesVisited = 2_000
+        metrics.discoveredItems = 2_001
+        metrics.completedItems = 2_000
+        metrics.enumeratedDirectoryCount = 1
+        metrics.pendingDirectoryCount = 1
+        metrics.discoveredDirectoryCount = 2
+        metrics.completedTraversalWeight = 2_000.0 / 2_008.0
+
+        metrics.recalculateProgress()
+
+        XCTAssertLessThan(metrics.progressFraction, 0.35)
+    }
+
+    func testItemCountCapAppliesWhenFrontierDrainsButFilesRemain() {
+        var metrics = ScanMetrics()
+        // 1,000 sibling files completed, then one directory was enumerated and yielded
+        // 5,000 flat files (no subdirectories), draining the frontier to zero. Most of the
+        // discovered files are still unprocessed, but the weight model alone reports ~94%
+        // because the 1,000 completed files held nearly all of the root's split weight.
+        metrics.filesVisited = 1_000
+        metrics.discoveredItems = 6_001
+        metrics.completedItems = 1_000
+        metrics.enumeratedDirectoryCount = 2
+        metrics.pendingDirectoryCount = 0
+        metrics.discoveredDirectoryCount = 2
+        metrics.completedTraversalWeight = 1_000.0 / 1_008.0
+
+        metrics.recalculateProgress()
+
+        // The item-count cap, (completed + enumerated) / discovered ≈ 0.167, must hold the
+        // bar near the true ~17% rather than letting the weight estimate jump to ~94%.
+        XCTAssertLessThan(metrics.progressFraction, 0.30)
+    }
+
+    func testVolumeByteEstimateBlendsWithTraversalWeight() {
+        var metrics = ScanMetrics()
+        metrics.filesVisited = 100
+        metrics.estimatedTotalBytes = 1_000
+        metrics.bytesDiscovered = 500
+        metrics.completedTraversalWeight = 0.3
+
+        metrics.recalculateProgress()
+
+        XCTAssertEqual(metrics.progressFraction, ((0.3 + 0.5) / 2) * 0.95, accuracy: 0.0001)
+    }
+
+    func testFinalizationProgressMapsAboveTraversalSpan() {
+        var metrics = ScanMetrics()
+        metrics.filesVisited = 100
+        metrics.completedTraversalWeight = 1
+        metrics.recalculateProgress()
+
+        metrics.isFinalizing = true
+        metrics.finalizationFraction = 0.5
+        metrics.recalculateProgress()
+        XCTAssertEqual(metrics.progressFraction, 0.97, accuracy: 0.0001)
+
+        metrics.finalizationFraction = 1
+        metrics.recalculateProgress()
+        XCTAssertEqual(metrics.progressFraction, 0.99, accuracy: 0.0001)
+
+        metrics.recalculateProgress(isComplete: true)
+        XCTAssertEqual(metrics.progressFraction, 1, accuracy: 0.0001)
+    }
+
     func testDirectoryBelowThresholdNotAutoSummarized() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
