@@ -10,91 +10,6 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
-    private struct ScanCacheKey: Hashable {
-        let targetID: String
-        let options: ScanOptions
-
-        init(target: ScanTarget, options: ScanOptions) {
-            targetID = target.id
-            self.options = options
-        }
-    }
-
-    private struct CompletedScanCache {
-        private let minimumRetainedSnapshotCount: Int
-        private let maxTotalNodeCount: Int
-        private var snapshotsByKey: [ScanCacheKey: ScanSnapshot] = [:]
-        private var nodeCountsByKey: [ScanCacheKey: Int] = [:]
-        private var keysByRecency: [ScanCacheKey] = []
-
-        init(minimumRetainedSnapshotCount: Int, maxTotalNodeCount: Int) {
-            self.minimumRetainedSnapshotCount = max(minimumRetainedSnapshotCount, 1)
-            self.maxTotalNodeCount = max(maxTotalNodeCount, 1)
-        }
-
-        mutating func snapshot(for key: ScanCacheKey) -> ScanSnapshot? {
-            guard let snapshot = snapshotsByKey[key] else { return nil }
-            markRecentlyUsed(key)
-            return snapshot
-        }
-
-        mutating func snapshot(containing target: ScanTarget, options: ScanOptions) -> ScanSnapshot? {
-            for key in keysByRecency.reversed() where key.options == options {
-                guard let snapshot = snapshotsByKey[key],
-                      snapshot.target.id != target.id,
-                      snapshot.treeStore.node(id: target.id) != nil else {
-                    continue
-                }
-
-                markRecentlyUsed(key)
-                return snapshot
-            }
-
-            return nil
-        }
-
-        mutating func store(_ snapshot: ScanSnapshot, for key: ScanCacheKey) {
-            guard snapshot.isComplete else { return }
-            let nodeCount = snapshot.treeStore.nodeCount
-
-            snapshotsByKey[key] = snapshot
-            nodeCountsByKey[key] = nodeCount
-            markRecentlyUsed(key)
-            trimToBudget()
-        }
-
-        mutating func removeAll() {
-            snapshotsByKey.removeAll()
-            nodeCountsByKey.removeAll()
-            keysByRecency.removeAll()
-        }
-
-        private mutating func markRecentlyUsed(_ key: ScanCacheKey) {
-            keysByRecency.removeAll { $0 == key }
-            keysByRecency.append(key)
-        }
-
-        private var totalNodeCount: Int {
-            nodeCountsByKey.values.reduce(0, +)
-        }
-
-        private mutating func trimToBudget() {
-            // Keep the most recent scans even when one is larger than the soft
-            // node budget, so sidebar back-and-forth does not forget a large parent.
-            while totalNodeCount > maxTotalNodeCount,
-                  snapshotsByKey.count > minimumRetainedSnapshotCount,
-                  let oldestKey = keysByRecency.first {
-                removeSnapshot(for: oldestKey)
-            }
-        }
-
-        private mutating func removeSnapshot(for key: ScanCacheKey) {
-            snapshotsByKey[key] = nil
-            nodeCountsByKey[key] = nil
-            keysByRecency.removeAll { $0 == key }
-        }
-    }
-
     private enum NavigationAction: Sendable {
         case select(FileNodeRecord.ID?)
         case focus(FileNodeRecord.ID?)
@@ -178,12 +93,9 @@ final class AppModel: ObservableObject {
     private let scanCoordinator: ScanCoordinator
     private let sidebarModel: SidebarModel
     private let quickLookController: AppQuickLookController
-    private let snapshotTransformService = ScanSnapshotTransformService()
     private let navigationModel = WorkspaceNavigationModel()
     private var lastActionErrorTitle: String?
-    private var completedScanCache: CompletedScanCache
-    private var activeScanCacheKey: ScanCacheKey?
-    private var displayedScanCacheKey: ScanCacheKey?
+    private let sidebarScanCacheController: SidebarScanCacheController
     private var lastPersistedScanPreferences: AppScanPreferences?
 
     private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
@@ -196,8 +108,6 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
-    private var sidebarScopeTask: Task<Void, Never>?
-    private var sidebarScopeID: UUID?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
 
@@ -213,7 +123,7 @@ final class AppModel: ObservableObject {
             preferredSmartTargetIDs: dependencies.systemActions.preferredSmartTargetIDs
         )
         self.quickLookController = AppQuickLookController(systemActions: dependencies.systemActions)
-        self.completedScanCache = CompletedScanCache(
+        self.sidebarScanCacheController = SidebarScanCacheController(
             minimumRetainedSnapshotCount: completedScanCacheMinimumRetainedSnapshotCount,
             maxTotalNodeCount: completedScanCacheMaxTotalNodeCount
         )
@@ -257,13 +167,11 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        cancelSidebarScopeTask()
+        sidebarScanCacheController.resetTransientState()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
         targetCapacityDescriptionsRefreshTask?.cancel()
         targetCapacityDescriptionsRefreshTask = nil
-        activeScanCacheKey = nil
-        displayedScanCacheKey = nil
         quickLookController.setWorkspaceWindowNumber(nil)
         scanCoordinator.stopScan()
         quickLookController.removeKeyMonitor()
@@ -273,7 +181,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        activeScanCacheKey = nil
+        sidebarScanCacheController.clearActiveScanTracking()
         if scanCoordinator.canStopScan {
             scanCoordinator.stopScan()
         } else {
@@ -419,7 +327,7 @@ final class AppModel: ObservableObject {
         // "Publishing changes from within view updates is not allowed."
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
-        cancelSidebarScopeTask()
+        sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
         scheduleDeferredViewUpdate(
             id: \.deferredScanStartID,
@@ -447,12 +355,6 @@ final class AppModel: ObservableObject {
         deferredNavigationActionTask = nil
     }
 
-    private func cancelSidebarScopeTask() {
-        sidebarScopeID = nil
-        sidebarScopeTask?.cancel()
-        sidebarScopeTask = nil
-    }
-
     private func scheduleDeferredViewUpdate(
         id idKeyPath: ReferenceWritableKeyPath<AppModel, UUID?>,
         task taskKeyPath: ReferenceWritableKeyPath<AppModel, Task<Void, Never>?>,
@@ -476,8 +378,7 @@ final class AppModel: ObservableObject {
 
     private func startScanNow(_ target: ScanTarget) {
         let options = scanOptions(for: target)
-        activeScanCacheKey = ScanCacheKey(target: target, options: options)
-        displayedScanCacheKey = nil
+        sidebarScanCacheController.prepareForScanStart(target: target, options: options)
         scanCoordinator.startScan(target, options: options) {
             prepareForScan(target)
         }
@@ -492,10 +393,10 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        cancelSidebarScopeTask()
-        activeScanCacheKey = nil
+        sidebarScanCacheController.cancelPendingSidebarTargetRestore()
+        sidebarScanCacheController.clearActiveScanTracking()
         if resetState, scanCoordinator.snapshot == nil {
-            displayedScanCacheKey = nil
+            sidebarScanCacheController.clearDisplayedSnapshot()
         }
         scanCoordinator.stopScan(resetState: resetState)
     }
@@ -613,7 +514,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        cancelSidebarScopeTask()
+        sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarModel.setActiveTargetID(target.id)
         guard applyCachedOrContainedSidebarTarget(target) else { return }
         startScan(target)
@@ -693,13 +594,13 @@ final class AppModel: ObservableObject {
                 throw FileActionError.unavailable(path: node.url.path)
             }
             try dependencies.systemActions.moveToTrash(node.url)
-            completedScanCache.removeAll()
+            sidebarScanCacheController.clearCache()
             switch ScanPostTrashAction.afterRemovingNode(activeTargetID: scanCoordinator.selectedTarget?.id, removedNodeID: node.id) {
             case .clearActiveScan:
                 scanCoordinator.clearScan()
                 navigationModel.reset()
                 sidebarModel.setActiveTargetID(nil)
-                displayedScanCacheKey = nil
+                sidebarScanCacheController.clearDisplayedSnapshot()
             case .rescanActiveScan:
                 rescan()
             case .none:
@@ -806,9 +707,7 @@ final class AppModel: ObservableObject {
     }
 
     private var currentScanExclusionRootPath: String? {
-        displayedScanCacheKey?.options.exclusionRootPath
-            ?? activeScanCacheKey?.options.exclusionRootPath
-            ?? scanCoordinator.snapshot?.target.url.path
+        sidebarScanCacheController.currentScanExclusionRootPath(currentSnapshot: scanCoordinator.snapshot)
     }
 
     private func exclusionRootPath(
@@ -866,7 +765,7 @@ final class AppModel: ObservableObject {
         scanCoordinator.$completedScanSnapshot
             .compactMap { $0 }
             .sink { [weak self] snapshot in
-                self?.handleCompletedScanSnapshot(snapshot)
+                self?.sidebarScanCacheController.handleCompletedScanSnapshot(snapshot)
             }
             .store(in: &cancellables)
 
@@ -878,122 +777,31 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private func handleCompletedScanSnapshot(_ snapshot: ScanSnapshot) {
-        defer {
-            activeScanCacheKey = nil
-        }
-
-        guard let cacheKey = activeScanCacheKey,
-              cacheKey.targetID == snapshot.target.id else {
-            return
-        }
-
-        completedScanCache.store(snapshot, for: cacheKey)
-        displayedScanCacheKey = cacheKey
-    }
-
     private func applyCachedOrContainedSidebarTarget(_ target: ScanTarget) -> Bool {
         let options = scanOptions(for: target)
-
-        if scheduleContainedSidebarTargetRestore(target, options: options, from: scanCoordinator.snapshot) {
-            return false
-        }
-
-        let cacheKey = ScanCacheKey(target: target, options: options)
-        if let cachedSnapshot = completedScanCache.snapshot(for: cacheKey),
-           scanCoordinator.snapshot?.id != cachedSnapshot.id {
-            restoreCachedSnapshot(cachedSnapshot)
-            return false
-        }
-
-        if let containingSnapshot = completedScanCache.snapshot(containing: target, options: options),
-           scheduleContainedSidebarTargetRestore(target, options: options, from: containingSnapshot) {
-            return false
-        }
-
-        return true
-    }
-
-    private func restoreCachedSnapshot(_ snapshot: ScanSnapshot) {
-        cancelSidebarScopeTask()
-        cancelDeferredScanStart()
-        activeScanCacheKey = nil
-        displayedScanCacheKey = ScanCacheKey(target: snapshot.target, options: scanOptions(for: snapshot.target))
-        scanCoordinator.restoreCompletedSnapshot(snapshot) {
-            prepareForScan(snapshot.target)
-        }
-    }
-
-    private func scheduleContainedSidebarTargetRestore(
-        _ target: ScanTarget,
-        options: ScanOptions,
-        from containingSnapshot: ScanSnapshot?
-    ) -> Bool {
-        guard let containingSnapshot,
-              containingSnapshot.target.id != target.id,
-              canScope(containingSnapshot, using: options),
-              containingSnapshot.treeStore.node(id: target.id) != nil else {
-            return false
-        }
-
-        cancelDeferredScanStart()
-        let scopeID = UUID()
-        sidebarScopeID = scopeID
-        sidebarScopeTask = Task { [weak self, snapshotTransformService] in
-            do {
-                let scopedSnapshot = try await snapshotTransformService.scopedSnapshot(containingSnapshot, to: target)
-                try Task.checkCancellation()
-                guard let self,
-                      sidebarScopeID == scopeID,
-                      sidebarModel.activeTargetID == target.id else {
-                    return
-                }
-
-                sidebarScopeID = nil
-                sidebarScopeTask = nil
-                guard let scopedSnapshot else {
-                    startScan(target)
-                    return
-                }
-
-                restoreScopedSidebarTarget(scopedSnapshot, target: target, options: options)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard let self,
-                      sidebarScopeID == scopeID,
-                      sidebarModel.activeTargetID == target.id else {
-                    return
-                }
-
-                sidebarScopeID = nil
-                sidebarScopeTask = nil
-                startScan(target)
+        return sidebarScanCacheController.applyCachedOrContainedSidebarTarget(
+            target,
+            options: options,
+            currentSnapshot: scanCoordinator.snapshot,
+            isTargetActive: { [weak self] target in
+                self?.sidebarModel.activeTargetID == target.id
+            },
+            cancelDeferredScanStart: { [weak self] in
+                self?.cancelDeferredScanStart()
+            },
+            restoreSnapshot: { [weak self] snapshot, target in
+                self?.restoreSidebarSnapshot(snapshot, target: target)
+            },
+            startScan: { [weak self] target in
+                self?.startScan(target)
             }
-        }
-        return true
+        )
     }
 
-    private func restoreScopedSidebarTarget(
-        _ scopedSnapshot: ScanSnapshot,
-        target: ScanTarget,
-        options: ScanOptions
-    ) {
-        activeScanCacheKey = nil
-        displayedScanCacheKey = ScanCacheKey(target: target, options: options)
-        lastErrorMessage = nil
-        pendingTrashNode = nil
-        scanCoordinator.restoreCompletedSnapshot(scopedSnapshot) {
+    private func restoreSidebarSnapshot(_ snapshot: ScanSnapshot, target: ScanTarget) {
+        scanCoordinator.restoreCompletedSnapshot(snapshot) {
             prepareForScan(target)
         }
-    }
-
-    private func canScope(_ snapshot: ScanSnapshot, using options: ScanOptions) -> Bool {
-        guard scanCoordinator.snapshot?.id == snapshot.id else {
-            return true
-        }
-
-        return displayedScanCacheKey?.options == options
     }
 
     private func sidebarTarget(id: String) -> ScanTarget? {
