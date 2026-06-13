@@ -70,6 +70,10 @@ struct FileBrowserTableView: View {
         !nodes.isEmpty || model.isShowingEntireScanResults
     }
 
+    private var isSearchBarLoading: Bool {
+        model.isRefreshingCurrentContents || model.isSearchingEntireScan
+    }
+
     private var nodes: [FileNodeRecord] {
         navigation.tableNodes
     }
@@ -92,130 +96,13 @@ struct FileBrowserTableView: View {
                     FileBrowserSearchFilterBar(
                         scope: searchScopeBinding,
                         text: activeSearchText,
-                        isLoading: model.isRefreshingCurrentContents,
+                        isLoading: isSearchBarLoading,
                         isFocused: $isSearchFieldFocused
                     )
 
                     Divider()
 
-                    if model.isRefreshingCurrentContents && !model.isDisplayingCurrentResults {
-                        VStack {
-                            Spacer()
-                            ProgressView("Loading Contents…")
-                                .controlSize(.small)
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if model.isShowingEntireScanResults &&
-                        model.isSearchingEntireScan &&
-                        !model.isDisplayingCurrentResults {
-                        VStack {
-                            Spacer()
-                            ProgressView("Searching Entire Scan…")
-                                .controlSize(.small)
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if model.displayedNodes.isEmpty {
-                        ContentUnavailableView(
-                            "No Matching Items",
-                            systemImage: "magnifyingglass",
-                            description: Text(noResultsDescription)
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
-                            TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
-                                FileBrowserNameCell(
-                                    node: node,
-                                    subtitleOverride: subtitle(for: node),
-                                    isExpanding: isExpanding(node),
-                                    expandAction: { expandSummarizedNode(node) }
-                                )
-                            }
-                            .width(min: 260, ideal: 360)
-
-                            TableColumn("Allocated", sortUsing: FileNodeTableComparator(field: .allocatedSize)) { node in
-                                Text(model.displayValues(for: node).allocatedSize)
-                                    .monospacedDigit()
-                            }
-                            .width(min: 110, ideal: 130)
-
-                            TableColumn("Kind", sortUsing: FileNodeTableComparator(field: .itemKind)) { node in
-                                Text(node.itemKind)
-                            }
-                            .width(min: 110, ideal: 130)
-
-                            TableColumn("Files") { node in
-                                Text(model.displayValues(for: node).descendantCount)
-                            }
-                            .width(min: 70, ideal: 80)
-
-                            TableColumn("Modified") { node in
-                                Text(model.displayValues(for: node).modifiedDate)
-                            }
-                            .width(min: 150, ideal: 180)
-                        }
-                        .accessibilityLabel("Contents table")
-                        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
-                        .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
-                            if let selectedID = selectedIDs.first,
-                               let selectedNode = model.displayedNode(id: selectedID) {
-                                let actionAvailability = selectedNode.actionAvailability(
-                                    activeTarget: scanState.selectedTarget,
-                                    trashSafetyPolicy: scanState.trashSafetyPolicy
-                                )
-
-                                fileActionButton(.quickLook, availability: actionAvailability, selectedID: selectedID)
-
-                                fileActionButton(.revealInFinder, availability: actionAvailability, selectedID: selectedID)
-
-                                fileActionButton(.open, availability: actionAvailability, selectedID: selectedID)
-
-                                if selectedNode.isAutoSummarized {
-                                    let expansionIsActive = isExpanding(selectedNode)
-                                    Button(
-                                        expansionIsActive ? "Expanding…" : "Expand Fully",
-                                        systemImage: "arrowshape.turn.up.right.circle.fill"
-                                    ) {
-                                        actions.selectNode(selectedID)
-                                        expandSummarizedNode(selectedNode)
-                                    }
-                                    .disabled(expansionIsActive)
-                                } else {
-                                    Button("Zoom In", systemImage: "magnifyingglass") {
-                                        actions.selectNode(selectedID)
-                                        actions.zoomIntoSelection()
-                                    }
-                                    .disabled(!canRequestZoom(for: selectedNode))
-                                }
-
-                                Divider()
-
-                                fileActionButton(.moveToTrash, availability: actionAvailability, selectedID: selectedID)
-
-                                fileActionButton(.copyPath, availability: actionAvailability, selectedID: selectedID)
-                            }
-                        } primaryAction: { selectedIDs in
-                            guard let selectedID = selectedIDs.first,
-                                  let selectedNode = model.displayedNode(id: selectedID) else {
-                                return
-                            }
-
-                            actions.selectNode(selectedID)
-
-                            if selectedNode.isAutoSummarized && !isExpanding(selectedNode) {
-                                expandSummarizedNode(selectedNode)
-                            } else if canRequestZoom(for: selectedNode) {
-                                actions.zoomIntoSelection()
-                            } else if selectedNode.actionAvailability(
-                                activeTarget: scanState.selectedTarget,
-                                trashSafetyPolicy: scanState.trashSafetyPolicy
-                            ).canOpen {
-                                actions.selectedFileActions.perform(.open)
-                            }
-                        }
-                    }
+                    tableContent
                 }
             }
         }
@@ -242,6 +129,78 @@ struct FileBrowserTableView: View {
             return "No items anywhere in this scan match your search."
         }
         return "Try a different filter or clear the current contents filter."
+    }
+
+    @ViewBuilder
+    private var tableContent: some View {
+        if model.isRefreshingCurrentContents && !model.isDisplayingCurrentResults {
+            loadingContent("Loading Contents…")
+        } else if model.isShowingEntireScanResults &&
+            model.isSearchingEntireScan &&
+            !model.isDisplayingCurrentResults {
+            loadingContent("Searching Entire Scan…")
+        } else if model.displayedNodes.isEmpty {
+            ContentUnavailableView(
+                "No Matching Items",
+                systemImage: "magnifyingglass",
+                description: Text(noResultsDescription)
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            contentsTable
+        }
+    }
+
+    private var contentsTable: some View {
+        Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
+            TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
+                FileBrowserNameCell(
+                    node: node,
+                    subtitleOverride: subtitle(for: node),
+                    isExpanding: isExpanding(node),
+                    expandAction: { expandSummarizedNode(node) }
+                )
+            }
+            .width(min: 260, ideal: 360)
+
+            TableColumn("Allocated", sortUsing: FileNodeTableComparator(field: .allocatedSize)) { node in
+                Text(model.displayValues(for: node).allocatedSize)
+                    .monospacedDigit()
+            }
+            .width(min: 110, ideal: 130)
+
+            TableColumn("Kind", sortUsing: FileNodeTableComparator(field: .itemKind)) { node in
+                Text(node.itemKind)
+            }
+            .width(min: 110, ideal: 130)
+
+            TableColumn("Files", sortUsing: FileNodeTableComparator(field: .descendantFileCount)) { node in
+                Text(model.displayValues(for: node).descendantCount)
+            }
+            .width(min: 70, ideal: 80)
+
+            TableColumn("Modified", sortUsing: FileNodeTableComparator(field: .lastModified)) { node in
+                Text(model.displayValues(for: node).modifiedDate)
+            }
+            .width(min: 150, ideal: 180)
+        }
+        .accessibilityLabel("Contents table")
+        .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
+        .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
+            fileContextMenu(for: selectedIDs)
+        } primaryAction: { selectedIDs in
+            performPrimaryAction(for: selectedIDs)
+        }
+    }
+
+    private func loadingContent(_ title: String) -> some View {
+        VStack {
+            Spacer()
+            ProgressView(title)
+                .controlSize(.small)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func updateModelContent() {
@@ -291,6 +250,71 @@ struct FileBrowserTableView: View {
     }
 
     @ViewBuilder
+    private func fileContextMenu(for selectedIDs: Set<FileNodeRecord.ID>) -> some View {
+        if let selection = selectionContext(for: selectedIDs) {
+            fileActionButton(.quickLook, availability: selection.actionAvailability, selectedID: selection.id)
+
+            fileActionButton(.revealInFinder, availability: selection.actionAvailability, selectedID: selection.id)
+
+            fileActionButton(.open, availability: selection.actionAvailability, selectedID: selection.id)
+
+            if selection.node.isAutoSummarized {
+                let expansionIsActive = isExpanding(selection.node)
+                Button(
+                    expansionIsActive ? "Expanding…" : "Expand Fully",
+                    systemImage: "arrowshape.turn.up.right.circle.fill"
+                ) {
+                    actions.selectNode(selection.id)
+                    expandSummarizedNode(selection.node)
+                }
+                .disabled(expansionIsActive)
+            } else {
+                Button("Zoom In", systemImage: "magnifyingglass") {
+                    actions.selectNode(selection.id)
+                    actions.zoomIntoSelection()
+                }
+                .disabled(!canRequestZoom(for: selection.node))
+            }
+
+            Divider()
+
+            fileActionButton(.moveToTrash, availability: selection.actionAvailability, selectedID: selection.id)
+
+            fileActionButton(.copyPath, availability: selection.actionAvailability, selectedID: selection.id)
+        }
+    }
+
+    private func performPrimaryAction(for selectedIDs: Set<FileNodeRecord.ID>) {
+        guard let selection = selectionContext(for: selectedIDs) else { return }
+
+        actions.selectNode(selection.id)
+
+        if selection.node.isAutoSummarized && !isExpanding(selection.node) {
+            expandSummarizedNode(selection.node)
+        } else if canRequestZoom(for: selection.node) {
+            actions.zoomIntoSelection()
+        } else if selection.actionAvailability.canOpen {
+            actions.selectedFileActions.perform(.open)
+        }
+    }
+
+    private func selectionContext(for selectedIDs: Set<FileNodeRecord.ID>) -> FileBrowserSelectionContext? {
+        guard let selectedID = selectedIDs.first,
+              let selectedNode = model.displayedNode(id: selectedID) else {
+            return nil
+        }
+
+        return FileBrowserSelectionContext(
+            id: selectedID,
+            node: selectedNode,
+            actionAvailability: selectedNode.actionAvailability(
+                activeTarget: scanState.selectedTarget,
+                trashSafetyPolicy: scanState.trashSafetyPolicy
+            )
+        )
+    }
+
+    @ViewBuilder
     private func fileActionButton(
         _ action: FileNodeAction,
         availability: FileNodeActionAvailability,
@@ -302,4 +326,10 @@ struct FileBrowserTableView: View {
         }
         .disabled(!action.isEnabled(in: availability))
     }
+}
+
+private struct FileBrowserSelectionContext {
+    let id: FileNodeRecord.ID
+    let node: FileNodeRecord
+    let actionAvailability: FileNodeActionAvailability
 }

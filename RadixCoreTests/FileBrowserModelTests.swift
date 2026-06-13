@@ -70,6 +70,43 @@ final class FileBrowserModelTests: XCTestCase {
         XCTAssertEqual(searchResults.map(\.id), [alphaA.id, alphaB.id, beta.id])
     }
 
+    func testSortsByDisplayedFileCountAndModifiedDateColumns() {
+        let older = Date(timeIntervalSince1970: 10)
+        let newer = Date(timeIntervalSince1970: 20)
+        let smallFolder = makeTestDirectoryNode(
+            id: "/root/small",
+            name: "small",
+            children: [
+                makeTestFileNode(id: "/root/small/a.txt", name: "a.txt", lastModified: older),
+            ]
+        )
+        let largeFolder = makeTestDirectoryNode(
+            id: "/root/large",
+            name: "large",
+            children: [
+                makeTestFileNode(id: "/root/large/a.txt", name: "a.txt", lastModified: older),
+                makeTestFileNode(id: "/root/large/b.txt", name: "b.txt", lastModified: newer),
+            ]
+        )
+        let oldFile = makeTestFileNode(id: "/root/old.txt", name: "old.txt", lastModified: older)
+        let newFile = makeTestFileNode(id: "/root/new.txt", name: "new.txt", lastModified: newer)
+        let unknownFile = makeTestFileNode(id: "/root/unknown.txt", name: "unknown.txt")
+
+        let fileCountResults = FileBrowserResults.filteredAndSortedCurrentContents(
+            [smallFolder, largeFolder, oldFile],
+            searchText: "",
+            sortOrder: [FileNodeTableComparator(field: .descendantFileCount, order: .reverse)]
+        )
+        XCTAssertEqual(fileCountResults.map(\.id), [largeFolder.id, oldFile.id, smallFolder.id])
+
+        let modifiedResults = FileBrowserResults.filteredAndSortedCurrentContents(
+            [newFile, unknownFile, oldFile],
+            searchText: "",
+            sortOrder: [FileNodeTableComparator(field: .lastModified)]
+        )
+        XCTAssertEqual(modifiedResults.map(\.id), [unknownFile.id, oldFile.id, newFile.id])
+    }
+
     @MainActor
     func testLargeCurrentContentsFilterDebouncesAndIgnoresStaleQuery() async throws {
         let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
@@ -104,6 +141,32 @@ final class FileBrowserModelTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(60))
         XCTAssertEqual(model.displayedNodes.map(\.id), [large.id])
+    }
+
+    @MainActor
+    func testLargeCurrentContentsRefreshAppliesWithEmptyEntireScanSearch() async throws {
+        let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
+        let large = makeTestFileNode(id: "/root/large.log", name: "large.log", size: 30)
+        let other = makeTestFileNode(id: "/root/other.bin", name: "other.bin", size: 20)
+        let model = FileBrowserModel(
+            searchDebounceDuration: .zero,
+            currentContentsAsyncThreshold: 1
+        )
+
+        model.updateContent(
+            nodes: [small, large, other],
+            contentID: "snapshot|/root",
+            snapshot: nil,
+            fileTreeStore: nil
+        )
+        try await waitForCurrentContentsRefreshToFinish(model)
+
+        model.setSearchScope(.entireScan)
+
+        XCTAssertTrue(model.isRefreshingCurrentContents)
+        try await waitForCurrentContentsRefreshToFinish(model)
+        XCTAssertTrue(model.isDisplayingCurrentResults)
+        XCTAssertEqual(model.displayedNodes.map(\.id), [large.id, other.id, small.id])
     }
 
     @MainActor

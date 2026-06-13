@@ -248,10 +248,11 @@ final class FileBrowserModel: ObservableObject {
         displayContext: FileBrowserDisplayContext
     ) {
         let nodes = nodes
-        let contentID = contentID
-        let snapshotID = snapshotID
         let sortOrder = sortOrder
-        let generation = searchGeneration
+        let request = FileBrowserDisplayRequest(
+            generation: searchGeneration,
+            displayContext: displayContext
+        )
         let debounceDuration = searchText.isEmpty ? Duration.zero : searchDebounceDuration
 
         setIsRefreshingCurrentContents(true)
@@ -267,17 +268,11 @@ final class FileBrowserModel: ObservableObject {
 
                 await MainActor.run { [weak self] in
                     guard let self,
-                          isCurrentCurrentContentsRefresh(
-                            generation: generation,
-                            contentID: contentID,
-                            snapshotID: snapshotID,
-                            searchText: searchText,
-                            sortOrder: sortOrder
-                          ) else {
+                          isCurrent(request) else {
                         return
                     }
 
-                    applyDisplayedNodes(refreshedNodes, context: displayContext)
+                    applyDisplayedNodes(refreshedNodes, context: request.displayContext)
                     setIsRefreshingCurrentContents(false)
                 }
             } catch is CancellationError {
@@ -285,13 +280,7 @@ final class FileBrowserModel: ObservableObject {
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self,
-                          isCurrentCurrentContentsRefresh(
-                            generation: generation,
-                            contentID: contentID,
-                            snapshotID: snapshotID,
-                            searchText: searchText,
-                            sortOrder: sortOrder
-                          ) else {
+                          isCurrent(request) else {
                         return
                     }
 
@@ -299,21 +288,6 @@ final class FileBrowserModel: ObservableObject {
                 }
             }
         }
-    }
-
-    private func isCurrentCurrentContentsRefresh(
-        generation: Int,
-        contentID: String,
-        snapshotID: UUID?,
-        searchText: String,
-        sortOrder: [FileNodeTableComparator]
-    ) -> Bool {
-        searchGeneration == generation &&
-            self.contentID == contentID &&
-            self.snapshotID == snapshotID &&
-            searchScope == .currentContents &&
-            trimmedCurrentContentsSearchText == searchText &&
-            self.sortOrder == sortOrder
     }
 
     private func scheduleEntireScanSearch() {
@@ -333,9 +307,11 @@ final class FileBrowserModel: ObservableObject {
         let normalizedSearchText = SearchNormalizer.normalize(searchText)
         let includesPath = SearchNormalizer.queryIncludesPath(searchText)
         let sortOrder = sortOrder
-        let generation = searchGeneration
         let debounceDuration = searchDebounceDuration
-        let displayContext = currentDisplayContext
+        let request = FileBrowserDisplayRequest(
+            generation: searchGeneration,
+            displayContext: currentDisplayContext
+        )
 
         setIsSearchingEntireScan(true)
         searchTask = Task { [searchService] in
@@ -352,16 +328,11 @@ final class FileBrowserModel: ObservableObject {
 
                 await MainActor.run { [weak self] in
                     guard let self,
-                          isCurrentEntireScanSearch(
-                            generation: generation,
-                            snapshotID: snapshotID,
-                            normalizedSearchText: normalizedSearchText,
-                            sortOrder: sortOrder
-                    ) else {
+                          isCurrent(request) else {
                         return
                     }
 
-                    applyDisplayedNodes(matchedNodes, context: displayContext)
+                    applyDisplayedNodes(matchedNodes, context: request.displayContext)
                     setIsSearchingEntireScan(false)
                 }
             } catch is CancellationError {
@@ -369,33 +340,20 @@ final class FileBrowserModel: ObservableObject {
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self,
-                          isCurrentEntireScanSearch(
-                            generation: generation,
-                            snapshotID: snapshotID,
-                            normalizedSearchText: normalizedSearchText,
-                            sortOrder: sortOrder
-                          ) else {
+                          isCurrent(request) else {
                         return
                     }
 
                     setIsSearchingEntireScan(false)
-                    applyDisplayedNodes([], context: displayContext)
+                    applyDisplayedNodes([], context: request.displayContext)
                 }
             }
         }
     }
 
-    private func isCurrentEntireScanSearch(
-        generation: Int,
-        snapshotID: UUID,
-        normalizedSearchText: String,
-        sortOrder: [FileNodeTableComparator]
-    ) -> Bool {
-        searchGeneration == generation &&
-            self.snapshotID == snapshotID &&
-            searchScope == .entireScan &&
-            SearchNormalizer.normalize(trimmedEntireScanSearchText) == normalizedSearchText &&
-            self.sortOrder == sortOrder
+    private func isCurrent(_ request: FileBrowserDisplayRequest) -> Bool {
+        searchGeneration == request.generation &&
+            currentDisplayContext == request.displayContext
     }
 
     private func applyDisplayedNodes(
@@ -416,7 +374,12 @@ final class FileBrowserModel: ObservableObject {
     }
 }
 
-private struct FileBrowserDisplayContext: Equatable {
+private struct FileBrowserDisplayRequest: Sendable {
+    let generation: Int
+    let displayContext: FileBrowserDisplayContext
+}
+
+private struct FileBrowserDisplayContext: Equatable, Sendable {
     let contentID: String
     let contentRevision: Int
     let snapshotID: UUID?
@@ -497,9 +460,6 @@ private struct FileBrowserDisplayState {
         return values
     }
 
-    func nodeLookup() -> [FileNodeRecord.ID: FileNodeRecord] {
-        Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-    }
 }
 
 private final class FileBrowserDisplayValueCache {
@@ -643,6 +603,8 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
         case name
         case allocatedSize
         case itemKind
+        case descendantFileCount
+        case lastModified
     }
 
     let field: Field
@@ -656,6 +618,10 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
             compare(lhs.allocatedSize, rhs.allocatedSize)
         case .itemKind:
             lhs.itemKind.localizedStandardCompare(rhs.itemKind)
+        case .descendantFileCount:
+            compare(lhs.descendantFileCount, rhs.descendantFileCount)
+        case .lastModified:
+            compareOptional(lhs.lastModified, rhs.lastModified)
         }
 
         let orderedResult = applySortOrder(to: result)
@@ -700,6 +666,19 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
             return .orderedDescending
         }
         return .orderedSame
+    }
+
+    private func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?):
+            return compare(lhs, rhs)
+        case (nil, nil):
+            return .orderedSame
+        case (nil, _?):
+            return .orderedAscending
+        case (_?, nil):
+            return .orderedDescending
+        }
     }
 }
 
