@@ -54,7 +54,7 @@ Important paths:
 - `Radix/RadixApp.swift`: app entry
 - `Radix/ContentView.swift`: root content composition
 - `Radix/ViewModels/AppModel.swift`: central `@MainActor` app state and UI coordination
-- `Radix/Models/ScanModels.swift`: core scan data types and indexing
+- `Radix/Models/`: core scan targets, node records, tree storage, snapshots, progress, file actions, and trash safety
 - `Radix/Services/ScanEngine.swift`: actor-based filesystem scanner
 - `Radix/Services/SunburstGeometry.swift`: sunburst layout math
 - `Radix/Services/SystemIntegration.swift`: Finder/open/trash/system-facing actions
@@ -98,6 +98,7 @@ Do not use Context7 for:
 
 - Scanner bug or data bug: start with `Radix/Services/ScanEngine.swift` and the matching tests in `RadixCoreTests/`
 - Selection/navigation/UI state bug: start with `Radix/ViewModels/AppModel.swift`
-- Tree/index/search behavior bug: start with `Radix/Models/ScanModels.swift`
+- Tree/index behavior bug: start with `Radix/Models/FileTreeStore.swift`
+- Search behavior bug: start with `Radix/Services/FileBrowserModel.swift`
 - Size or display formatting bug: start with `Radix/Services/FileSizeFormatter.swift`
 - Visualization/layout bug: start with `Radix/Services/SunburstGeometry.swift`

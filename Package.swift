@@ -29,7 +29,13 @@ let package = Package(
                 "Views"
             ],
             sources: [
-                "Models/ScanModels.swift",
+                "Models/FileNodeActions.swift",
+                "Models/FileNodeRecord.swift",
+                "Models/FileTreeStore.swift",
+                "Models/ScanProgress.swift",
+                "Models/ScanSnapshot.swift",
+                "Models/ScanTarget.swift",
+                "Models/TrashSafetyPolicy.swift",
                 "Services/AtomicDirectorySummarizer.swift",
                 "Services/AppDependencies.swift",
                 "Services/AppPreferencesStore.swift",
@@ -44,6 +50,7 @@ let package = Package(
                 "Services/ScanEngine.swift",
                 "Services/ScanExclusionMatcher.swift",
                 "Services/ScanMetadataLoader.swift",
+                "Services/ScanSnapshotTransformService.swift",
                 "Services/SunburstChartModel.swift",
                 "Services/SunburstGeometry.swift",
                 "Services/SystemIntegration.swift",
