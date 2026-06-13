@@ -5,7 +5,6 @@
 //  Created by Codex on 4/2/26.
 //
 
-import AppKit
 import Combine
 import Foundation
 
@@ -178,6 +177,7 @@ final class AppModel: ObservableObject {
     private let dependencies: AppDependencies
     private let scanCoordinator: ScanCoordinator
     private let sidebarModel: SidebarModel
+    private let quickLookController: AppQuickLookController
     private let snapshotTransformService = ScanSnapshotTransformService()
     private let navigationModel = WorkspaceNavigationModel()
     private var lastActionErrorTitle: String?
@@ -190,8 +190,6 @@ final class AppModel: ObservableObject {
     private static let scanPreferencePersistenceDebounce: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
 
     private var cancellables = Set<AnyCancellable>()
-    private var quickLookEventMonitor: AppEventMonitorToken?
-    private var workspaceWindowNumber: Int?
     private var deferredScanStartTask: Task<Void, Never>?
     private var deferredScanStartID: UUID?
     private var deferredSidebarSelectionTask: Task<Void, Never>?
@@ -214,6 +212,7 @@ final class AppModel: ObservableObject {
             recentTargetStore: dependencies.recentTargets,
             preferredSmartTargetIDs: dependencies.systemActions.preferredSmartTargetIDs
         )
+        self.quickLookController = AppQuickLookController(systemActions: dependencies.systemActions)
         self.completedScanCache = CompletedScanCache(
             minimumRetainedSnapshotCount: completedScanCacheMinimumRetainedSnapshotCount,
             maxTotalNodeCount: completedScanCacheMaxTotalNodeCount
@@ -239,11 +238,12 @@ final class AppModel: ObservableObject {
         if dependencies.systemActions.usesAsyncFullDiskAccessStatus {
             refreshFullDiskAccessStatus()
         }
+        quickLookController.delegate = self
         observeNavigationModel()
         observeScanCoordinator()
         observeMountedVolumes()
         observePreferences()
-        installQuickLookKeyMonitor()
+        quickLookController.installKeyMonitor()
     }
 
     deinit {
@@ -264,9 +264,9 @@ final class AppModel: ObservableObject {
         targetCapacityDescriptionsRefreshTask = nil
         activeScanCacheKey = nil
         displayedScanCacheKey = nil
-        workspaceWindowNumber = nil
+        quickLookController.setWorkspaceWindowNumber(nil)
         scanCoordinator.stopScan()
-        removeQuickLookKeyMonitor()
+        quickLookController.removeKeyMonitor()
     }
 
     func suspendMainWindowActivity() {
@@ -279,11 +279,11 @@ final class AppModel: ObservableObject {
         } else {
             scanCoordinator.stopScan(resetState: false)
         }
-        dependencies.systemActions.quickLook.close()
+        quickLookController.closePreview()
     }
 
     func suspendBackgroundActivity() {
-        dependencies.systemActions.quickLook.close()
+        quickLookController.closePreview()
     }
 
     var scanState: ScanCoordinator {
@@ -528,7 +528,7 @@ final class AppModel: ObservableObject {
     }
 
     func setWorkspaceWindowNumber(_ windowNumber: Int?) {
-        workspaceWindowNumber = windowNumber
+        quickLookController.setWorkspaceWindowNumber(windowNumber)
     }
 
     func zoomIntoSelection() {
@@ -653,21 +653,11 @@ final class AppModel: ObservableObject {
     }
 
     func previewSelectedWithQuickLook() {
-        do {
-            let node = try validatedSelection()
-            try dependencies.systemActions.quickLook.present(node.url)
-        } catch {
-            presentError(error)
-        }
+        quickLookController.previewSelected()
     }
 
     func toggleQuickLookForSelected() {
-        do {
-            let node = try validatedSelection()
-            try dependencies.systemActions.quickLook.toggle(node.url)
-        } catch {
-            presentError(error)
-        }
+        quickLookController.toggleSelected()
     }
 
     func copySelectedPath() {
@@ -776,76 +766,6 @@ final class AppModel: ObservableObject {
         return selectedNode
     }
 
-    private func syncVisibleQuickLookPreview() {
-        guard dependencies.systemActions.quickLook.isPreviewVisible() else { return }
-
-        guard let selectedNode = navigationModel.selectedNode,
-              selectedNode.actionAvailability(
-                activeTarget: scanCoordinator.selectedTarget,
-                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
-              ).canPreviewWithQuickLook else {
-            dependencies.systemActions.quickLook.close()
-            return
-        }
-
-        dependencies.systemActions.quickLook.updateVisiblePreview(selectedNode.url)
-    }
-
-    private func installQuickLookKeyMonitor() {
-        removeQuickLookKeyMonitor()
-        quickLookEventMonitor = dependencies.systemActions.installQuickLookKeyMonitor { [weak self] event in
-            let didHandleEvent = MainActor.assumeIsolated {
-                self?.handleQuickLookKeyDown(event) == true
-            }
-            return didHandleEvent
-        }
-    }
-
-    private func removeQuickLookKeyMonitor() {
-        quickLookEventMonitor?.remove()
-        quickLookEventMonitor = nil
-    }
-
-    private func handleQuickLookKeyDown(_ event: NSEvent) -> Bool {
-        guard Self.isPlainSpaceKey(event) else { return false }
-        guard isWorkspaceKeyEvent(event) else { return false }
-        guard !showsOnboarding, pendingTrashNode == nil else { return false }
-        guard !dependencies.systemActions.quickLook.isPreviewPanelKeyWindow() else { return false }
-        guard !Self.shouldPreserveSpaceKey(for: event.window?.firstResponder) else { return false }
-        guard navigationModel.selectedNode?.actionAvailability(
-            activeTarget: scanCoordinator.selectedTarget,
-            trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
-        ).canPreviewWithQuickLook == true else { return false }
-
-        toggleQuickLookForSelected()
-        return true
-    }
-
-    private static func isPlainSpaceKey(_ event: NSEvent) -> Bool {
-        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
-        guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else { return false }
-        return event.keyCode == 49 || event.charactersIgnoringModifiers == " "
-    }
-
-    private func isWorkspaceKeyEvent(_ event: NSEvent) -> Bool {
-        guard let workspaceWindowNumber else { return false }
-        return event.windowNumber == workspaceWindowNumber
-    }
-
-    private static func shouldPreserveSpaceKey(for responder: NSResponder?) -> Bool {
-        guard let responder else { return false }
-
-        if responder is NSTextView || responder is NSTextField || responder is NSButton {
-            return true
-        }
-
-        if responder is NSTableView || responder is NSOutlineView || responder is NSCollectionView {
-            return false
-        }
-
-        return responder is NSControl
-    }
-
     private func isDirectoryURL(_ url: URL) -> Bool {
         dependencies.systemActions.isExistingDirectory(url)
     }
@@ -932,7 +852,7 @@ final class AppModel: ObservableObject {
 
     private func observeNavigationModel() {
         navigationModel.onSelectionChanged = { [weak self] in
-            self?.syncVisibleQuickLookPreview()
+            self?.quickLookController.syncVisiblePreview()
         }
     }
 
@@ -1144,5 +1064,27 @@ final class AppModel: ObservableObject {
             useScanExclusions: scanFilters.1,
             exclusionPatterns: scanFilters.2
         )
+    }
+}
+
+extension AppModel: AppQuickLookControllerDelegate {
+    var quickLookSelectionContext: AppQuickLookSelectionContext {
+        AppQuickLookSelectionContext(
+            selectedNode: navigationModel.selectedNode,
+            activeTarget: scanCoordinator.selectedTarget,
+            trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+        )
+    }
+
+    var isQuickLookKeyboardShortcutBlocked: Bool {
+        showsOnboarding || pendingTrashNode != nil
+    }
+
+    func validatedSelectionForQuickLook() throws -> FileNodeRecord {
+        try validatedSelection()
+    }
+
+    func appQuickLookController(_ controller: AppQuickLookController, didFailWith error: Error) {
+        presentError(error)
     }
 }
