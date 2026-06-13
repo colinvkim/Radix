@@ -8,7 +8,7 @@
 import Foundation
 
 extension AtomicDirectorySummarizer {
-    func summarizeSerial(
+    nonisolated func summarizeSerial(
         at url: URL,
         includeHiddenFiles: Bool = true,
         treatPackagesAsDirectories: Bool,
@@ -116,7 +116,7 @@ extension AtomicDirectorySummarizer {
     /// Performs a fast recursive summary of a directory's size and file count.
     /// Reuses the directory's already-enumerated immediate children to avoid a second full
     /// pass over flat cache-like directories.
-    func summarize(
+    nonisolated func summarizeReusingImmediateChildren(
         at url: URL,
         childEntries: [DirectoryEntry],
         rootMetadata: NodeMetadata,
@@ -192,7 +192,7 @@ extension AtomicDirectorySummarizer {
         return makeAtomicSummary(from: state)
     }
 
-    private func accumulateAtomicSummary(
+    nonisolated private func accumulateAtomicSummary(
         for url: URL,
         metadata: NodeMetadata,
         into state: AtomicDirectorySummaryState,
@@ -233,7 +233,7 @@ extension AtomicDirectorySummarizer {
         accumulateAtomicFile(metadata, url: url, into: state)
     }
 
-    private func merge(_ summary: AtomicDirectorySummary, into state: AtomicDirectorySummaryState) {
+    nonisolated private func merge(_ summary: AtomicDirectorySummary, into state: AtomicDirectorySummaryState) {
         state.allocatedSize += summary.allocatedSize
         state.logicalSize += summary.logicalSize
         state.descendantFileCount += summary.descendantFileCount
@@ -242,7 +242,7 @@ extension AtomicDirectorySummarizer {
         state.hardLinkClaims.append(contentsOf: summary.hardLinkClaims)
     }
 
-    private func accumulateEnumeratedAtomicSummary(
+    nonisolated private func accumulateEnumeratedAtomicSummary(
         for url: URL,
         metadata: NodeMetadata,
         into state: AtomicDirectorySummaryState,
@@ -289,11 +289,11 @@ extension AtomicDirectorySummarizer {
         }
     }
 
-    private func updateAtomicAccessibility(_ isReadable: Bool, in state: AtomicDirectorySummaryState) {
+    nonisolated private func updateAtomicAccessibility(_ isReadable: Bool, in state: AtomicDirectorySummaryState) {
         state.isAccessible = state.isAccessible && isReadable
     }
 
-    private func recordAtomicWarning(
+    nonisolated private func recordAtomicWarning(
         for url: URL,
         error: Error,
         in state: AtomicDirectorySummaryState
@@ -302,7 +302,7 @@ extension AtomicDirectorySummarizer {
         state.warnings.append(ScanWarningFactory.makeWarning(for: url, error: error))
     }
 
-    private func accumulateAtomicFile(_ metadata: NodeMetadata, url: URL, into state: AtomicDirectorySummaryState) {
+    nonisolated private func accumulateAtomicFile(_ metadata: NodeMetadata, url: URL, into state: AtomicDirectorySummaryState) {
         state.allocatedSize += metadata.allocatedSize
         state.logicalSize += metadata.logicalSize
 
@@ -315,7 +315,7 @@ extension AtomicDirectorySummarizer {
         }
     }
 
-    private func makeAtomicSummary(from state: AtomicDirectorySummaryState) -> AtomicDirectorySummary {
+    nonisolated private func makeAtomicSummary(from state: AtomicDirectorySummaryState) -> AtomicDirectorySummary {
         return AtomicDirectorySummary(
             allocatedSize: state.allocatedSize,
             logicalSize: state.logicalSize,
@@ -326,7 +326,7 @@ extension AtomicDirectorySummarizer {
         )
     }
 
-    func emitProgressHeartbeat(
+    nonisolated func emitProgressHeartbeat(
         currentURL: URL,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,

@@ -92,7 +92,7 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
         }
         let canReuseImmediateEntries = immediateCandidate && directDirectoryCount <= max(8, childEntries.count / 10)
         if canReuseImmediateEntries {
-            return try await summarize(
+            return try await summarizeReusingImmediateChildren(
                 at: url,
                 childEntries: childEntries,
                 rootMetadata: metadata,
@@ -149,10 +149,8 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
                 workerLimit: workerLimit,
                 ownerNodeID: ownerNodeID,
                 exclusionMatcher: exclusionMatcher,
-                progressReporter: AtomicSummaryProgressReporter(
-                    metrics: metrics,
-                    continuation: continuation
-                )
+                metrics: metrics,
+                continuation: continuation
             )
             diagnostics?.record(
                 operation: "atomic.summary.parallel",

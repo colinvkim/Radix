@@ -19,7 +19,7 @@ extension AtomicDirectorySummarizer {
         return parentName == "node_modules" || parentName == ".pnpm"
     }
 
-    func shouldRunDescendantAtomicProbe(
+    nonisolated func shouldRunDescendantAtomicProbe(
         childEntries: [DirectoryEntry],
         minFileCount: Int,
         isNodeDependencyLayout: Bool
@@ -39,7 +39,7 @@ extension AtomicDirectorySummarizer {
         return childEntries.count >= minimumImmediateEntries
     }
 
-    func immediateChildrenSuggestAtomicDirectory(
+    nonisolated func immediateChildrenSuggestAtomicDirectory(
         _ childEntries: [DirectoryEntry],
         maxAverageFileSize: Int64,
         cancellationCheck: CancellationCheck
@@ -67,7 +67,7 @@ extension AtomicDirectorySummarizer {
         return (sampleTotalSize / Int64(sampleFileCount)) <= maxAverageFileSize
     }
 
-    func descendantAtomicProbeProfile(
+    nonisolated func descendantAtomicProbeProfile(
         at url: URL,
         includeHiddenFiles: Bool,
         isNodeDependencyLayout: Bool,

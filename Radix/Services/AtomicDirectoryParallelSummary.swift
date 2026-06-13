@@ -131,7 +131,7 @@ nonisolated private final class AtomicSummaryAccumulator: @unchecked Sendable {
     }
 }
 
-nonisolated final class AtomicSummaryProgressReporter: @unchecked Sendable {
+nonisolated private final class AtomicSummaryProgressReporter: @unchecked Sendable {
     private let lock = NSLock()
     private var metrics: ScanMetrics
     private let continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
@@ -170,9 +170,14 @@ extension AtomicDirectorySummarizer {
         workerLimit: Int,
         ownerNodeID: String,
         exclusionMatcher: ScanExclusionMatcher,
-        progressReporter: AtomicSummaryProgressReporter
+        metrics: ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) async throws -> AtomicDirectorySummary? {
         try Task.checkCancellation()
+        let progressReporter = AtomicSummaryProgressReporter(
+            metrics: metrics,
+            continuation: continuation
+        )
 
         let accumulator = AtomicSummaryAccumulator()
         do {
