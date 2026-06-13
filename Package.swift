@@ -38,6 +38,7 @@ let package = Package(
                 "Models/TrashSafetyPolicy.swift",
                 "Services/AtomicDirectoryParallelSummary.swift",
                 "Services/AtomicDirectorySummaryProbe.swift",
+                "Services/AtomicDirectorySummaryWalker.swift",
                 "Services/AtomicDirectorySummarizer.swift",
                 "Services/AtomicDirectorySummaryModels.swift",
                 "Services/AppDependencies.swift",
