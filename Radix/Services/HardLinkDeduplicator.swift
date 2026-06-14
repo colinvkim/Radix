@@ -50,16 +50,22 @@ nonisolated struct HardLinkDeduplicator {
 
         var nodesByID = inputNodesByID
         var childIDsByID = inputChildIDsByID
+        var changedNodeIDs: Set<String> = []
 
         for (nodeID, duplicateAllocatedSize) in duplicateAllocatedSizeByOwner {
             guard let node = nodesByID[nodeID] else { continue }
             let minimumAllocatedSize = minimumAllocatedSizeByNodeID[nodeID] ?? 0
             let allocatedSize = max(minimumAllocatedSize, node.allocatedSize - duplicateAllocatedSize)
             nodesByID[nodeID] = node.replacingAllocatedSize(allocatedSize)
+            changedNodeIDs.insert(nodeID)
         }
 
-        let orderedNodeIDs = orderedNodeIDs(rootID: rootID, childIDsByID: childIDsByID, nodesByID: nodesByID)
-        for nodeID in orderedNodeIDs.reversed() where childIDsByID[nodeID] != nil {
+        let affectedDirectoryIDs = affectedAncestorDirectoryIDs(
+            for: changedNodeIDs,
+            nodesByID: nodesByID,
+            parentIDByID: parentIDByID
+        )
+        for nodeID in affectedDirectoryIDs {
             guard let node = nodesByID[nodeID], node.isDirectory else { continue }
             let children = (childIDsByID[nodeID] ?? []).compactMap { nodesByID[$0] }
             let sortedChildren = FileTreeStore.sortedChildren(children)
@@ -117,23 +123,47 @@ nonisolated struct HardLinkDeduplicator {
         return duplicateAllocatedSizeByOwner
     }
 
-    private nonisolated static func orderedNodeIDs(
-        rootID: String,
-        childIDsByID: [String: [String]],
-        nodesByID: [String: FileNodeRecord]
+    private nonisolated static func affectedAncestorDirectoryIDs(
+        for changedNodeIDs: Set<String>,
+        nodesByID: [String: FileNodeRecord],
+        parentIDByID: [String: String]
     ) -> [String] {
-        guard nodesByID[rootID] != nil else { return [] }
-        var result: [String] = []
-        var stack = [rootID]
-        var visited: Set<String> = []
+        guard !changedNodeIDs.isEmpty else { return [] }
 
-        while let nodeID = stack.popLast() {
-            guard nodesByID[nodeID] != nil, visited.insert(nodeID).inserted else { continue }
-            result.append(nodeID)
-            stack.append(contentsOf: (childIDsByID[nodeID] ?? []).reversed())
+        var affectedDirectoryIDs = Set<String>()
+        for changedNodeID in changedNodeIDs {
+            var cursor = parentIDByID[changedNodeID]
+            while let currentID = cursor {
+                if nodesByID[currentID]?.isDirectory == true {
+                    affectedDirectoryIDs.insert(currentID)
+                }
+                cursor = parentIDByID[currentID]
+            }
         }
 
-        return result
+        return affectedDirectoryIDs.sorted { lhs, rhs in
+            let lhsDepth = treeDepth(of: lhs, parentIDByID: parentIDByID)
+            let rhsDepth = treeDepth(of: rhs, parentIDByID: parentIDByID)
+            if lhsDepth == rhsDepth {
+                return lhs < rhs
+            }
+            return lhsDepth > rhsDepth
+        }
+    }
+
+    private nonisolated static func treeDepth(
+        of nodeID: String,
+        parentIDByID: [String: String]
+    ) -> Int {
+        var depth = 0
+        var cursor = nodeID
+
+        while let parentID = parentIDByID[cursor] {
+            depth += 1
+            cursor = parentID
+        }
+
+        return depth
     }
 }
 
