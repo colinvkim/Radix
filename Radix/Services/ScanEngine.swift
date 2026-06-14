@@ -76,9 +76,33 @@ actor ScanEngine {
     private struct ScanWorkItem: Sendable {
         let url: URL
         let metadata: NodeMetadata?
+        let localizedEnumerationError: Error?
+        let isDirectoryHint: Bool?
         let parentKey: Int
         let depth: Int
         let weight: Double
+    }
+
+    struct DirectoryEnumerationFailure: Sendable {
+        let url: URL
+        let error: Error
+        let isDirectoryHint: Bool?
+
+        init(url: URL, error: Error, isDirectoryHint: Bool? = nil) {
+            self.url = url
+            self.error = error
+            self.isDirectoryHint = isDirectoryHint
+        }
+    }
+
+    struct DirectoryEnumerationResult: Sendable {
+        let urls: [URL]
+        let localizedFailures: [DirectoryEnumerationFailure]
+
+        init(urls: [URL], localizedFailures: [DirectoryEnumerationFailure] = []) {
+            self.urls = urls
+            self.localizedFailures = localizedFailures
+        }
     }
 
     private struct DirectoryContentsScanResult: Sendable {
@@ -118,6 +142,13 @@ actor ScanEngine {
         [URLResourceKey]?,
         FileManager.DirectoryEnumerationOptions,
         @Sendable () throws -> Void
+    ) throws -> DirectoryEnumerationResult
+
+    typealias URLDirectoryContentsProvider = @Sendable (
+        URL,
+        [URLResourceKey]?,
+        FileManager.DirectoryEnumerationOptions,
+        @Sendable () throws -> Void
     ) throws -> [URL]
 
     private let directoryContents: DirectoryContentsProvider
@@ -125,10 +156,10 @@ actor ScanEngine {
     private let atomicDirectorySummarizer: AtomicDirectorySummarizer
     private let diagnostics: ScanDiagnostics?
 
-    init(directoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
+    init(enumeratedDirectoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
         let diagnostics = ScanDiagnostics.makeIfEnabled()
         let metadataLoader = ScanMetadataLoader(diagnostics: diagnostics)
-        self.directoryContents = directoryContents
+        self.directoryContents = enumeratedDirectoryContents
         self.metadataLoader = metadataLoader
         self.atomicDirectorySummarizer = AtomicDirectorySummarizer(
             metadataLoader: metadataLoader,
@@ -137,13 +168,22 @@ actor ScanEngine {
         self.diagnostics = diagnostics
     }
 
+    init(directoryContents: @escaping URLDirectoryContentsProvider) {
+        self.init(enumeratedDirectoryContents: { url, keys, options, cancellationCheck in
+            let urls = try directoryContents(url, keys, options, cancellationCheck)
+            return DirectoryEnumerationResult(urls: urls)
+        })
+    }
+
     private nonisolated static func defaultDirectoryContents(
         url: URL,
         keys: [URLResourceKey]?,
         options: FileManager.DirectoryEnumerationOptions,
         cancellationCheck: @Sendable () throws -> Void
-    ) throws -> [URL] {
-        var enumerationError: Error?
+    ) throws -> DirectoryEnumerationResult {
+        var rootEnumerationError: Error?
+        var localizedFailures: [DirectoryEnumerationFailure] = []
+        let rootPath = url.standardizedFileURL.path
         return try enumeratedDirectoryContents(
             url: url,
             keys: keys,
@@ -154,13 +194,24 @@ actor ScanEngine {
                     at: url,
                     includingPropertiesForKeys: keys,
                     options: options,
-                    errorHandler: { _, error in
-                        enumerationError = error
-                        return false
+                    errorHandler: { failedURL, error in
+                        if failedURL.standardizedFileURL.path == rootPath {
+                            rootEnumerationError = error
+                            return false
+                        }
+                        localizedFailures.append(
+                            DirectoryEnumerationFailure(
+                                url: failedURL,
+                                error: error,
+                                isDirectoryHint: true
+                            )
+                        )
+                        return true
                     }
                 )
             },
-            enumerationError: { enumerationError }
+            enumerationError: { rootEnumerationError },
+            localizedEnumerationFailures: { localizedFailures }
         )
     }
 
@@ -174,8 +225,9 @@ actor ScanEngine {
             [URLResourceKey]?,
             FileManager.DirectoryEnumerationOptions
         ) -> (any DirectoryObjectEnumerating)?,
-        enumerationError: () -> Error? = { nil }
-    ) throws -> [URL] {
+        enumerationError: () -> Error? = { nil },
+        localizedEnumerationFailures: () -> [DirectoryEnumerationFailure] = { [] }
+    ) throws -> DirectoryEnumerationResult {
         try cancellationCheck()
         guard let enumerator = makeEnumerator(url, keys, options) else {
             throw NSError(
@@ -199,7 +251,10 @@ actor ScanEngine {
             throw enumerationError
         }
         try cancellationCheck()
-        return contents
+        return DirectoryEnumerationResult(
+            urls: contents,
+            localizedFailures: localizedEnumerationFailures()
+        )
     }
 
     /// Thresholds for automatically summarizing directories with many small files.
@@ -438,7 +493,15 @@ actor ScanEngine {
         metrics.discoveredDirectoryCount = 1
         metrics.pendingDirectoryCount = 1
         var workStack: [ScanWorkItem] = [
-            ScanWorkItem(url: target.url, metadata: rootMetadata, parentKey: -1, depth: 0, weight: 1)
+            ScanWorkItem(
+                url: target.url,
+                metadata: rootMetadata,
+                localizedEnumerationError: nil,
+                isDirectoryHint: nil,
+                parentKey: -1,
+                depth: 0,
+                weight: 1
+            )
         ]
         // Maps a key to its completed result (leaf or assembled directory).
         var completedByKey: [Int: CompletedDirScan] = [:]
@@ -477,7 +540,20 @@ actor ScanEngine {
                     }
 
                     let meta: NodeMetadata
-                    if let itemMetadata = item.metadata {
+                    if let localizedEnumerationError = item.localizedEnumerationError {
+                        releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
+                        recordUnavailableItem(
+                            item,
+                            itemKey: itemKey,
+                            error: localizedEnumerationError,
+                            metrics: &metrics,
+                            warnings: &warnings,
+                            continuation: continuation,
+                            emissionState: &emissionState,
+                            completedByKey: &completedByKey
+                        )
+                        continue
+                    } else if let itemMetadata = item.metadata {
                         meta = itemMetadata
                     } else {
                         do {
@@ -603,7 +679,7 @@ actor ScanEngine {
                     releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
                     var childDirectoryCount = 0
                     for childEntry in childEntries
-                    where Self.isLikelyTraversableDirectory(metadata: childEntry.metadata, url: childEntry.url) {
+                    where Self.isLikelyTraversableDirectory(entry: childEntry) {
                         childDirectoryCount += 1
                     }
                     metrics.discoveredDirectoryCount += childDirectoryCount
@@ -702,6 +778,8 @@ actor ScanEngine {
                             ScanWorkItem(
                                 url: childEntry.url,
                                 metadata: childEntry.metadata,
+                                localizedEnumerationError: childEntry.localizedEnumerationError,
+                                isDirectoryHint: childEntry.isDirectoryHint,
                                 parentKey: itemKey,
                                 depth: item.depth + 1,
                                 weight: item.weight * Self.traversalWeightUnits(for: childEntry) / totalWeightUnits
@@ -904,20 +982,38 @@ actor ScanEngine {
 
     /// Classifies an item the same way at discovery time and at pop time so the
     /// frontier accounting in `ScanMetrics` stays balanced.
-    private nonisolated static func isLikelyTraversableDirectory(metadata: NodeMetadata?, url: URL) -> Bool {
-        guard let metadata else { return url.hasDirectoryPath }
+    private nonisolated static func isLikelyTraversableDirectory(
+        metadata: NodeMetadata?,
+        url: URL,
+        isDirectoryHint: Bool? = nil
+    ) -> Bool {
+        guard let metadata else {
+            return isDirectoryHint ?? url.hasDirectoryPath
+        }
         return metadata.isDirectory && !metadata.isSymbolicLink
     }
 
     private nonisolated static func traversalWeightUnits(for entry: DirectoryEntry) -> Double {
-        isLikelyTraversableDirectory(metadata: entry.metadata, url: entry.url) ? directoryChildWeightUnits : 1
+        isLikelyTraversableDirectory(entry: entry) ? directoryChildWeightUnits : 1
+    }
+
+    private nonisolated static func isLikelyTraversableDirectory(entry: DirectoryEntry) -> Bool {
+        isLikelyTraversableDirectory(
+            metadata: entry.metadata,
+            url: entry.url,
+            isDirectoryHint: entry.isDirectoryHint
+        )
     }
 
     /// Removes an item's frontier claim once its fate is known (enumerated, leaf,
     /// duplicate, or unavailable). Uses the same classifier as discovery so the
     /// pending count stays balanced.
     private func releasePendingDirectoryIfNeeded(for item: ScanWorkItem, metrics: inout ScanMetrics) {
-        guard Self.isLikelyTraversableDirectory(metadata: item.metadata, url: item.url) else { return }
+        guard Self.isLikelyTraversableDirectory(
+            metadata: item.metadata,
+            url: item.url,
+            isDirectoryHint: item.isDirectoryHint
+        ) else { return }
         metrics.pendingDirectoryCount = max(metrics.pendingDirectoryCount - 1, 0)
     }
 
@@ -977,6 +1073,11 @@ actor ScanEngine {
         emissionState: inout ScanEmissionState,
         completedByKey: inout [Int: CompletedDirScan]
     ) {
+        let isDirectory = Self.isLikelyTraversableDirectory(
+            metadata: item.metadata,
+            url: item.url,
+            isDirectoryHint: item.isDirectoryHint
+        )
         let warning = ScanWarningFactory.makeWarning(for: item.url, error: error)
         warnings.append(warning)
         continuation.yield(.warning(warning))
@@ -986,9 +1087,9 @@ actor ScanEngine {
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
 
         completedByKey[itemKey] = CompletedDirScan(
-            node: makeUnavailableNode(for: item.url),
+            node: makeUnavailableNode(for: item.url, isDirectory: isDirectory),
             metadata: NodeMetadata(
-                isDirectory: item.url.hasDirectoryPath,
+                isDirectory: isDirectory,
                 isPackage: false,
                 isSymbolicLink: false,
                 logicalSize: 0,
@@ -1004,12 +1105,12 @@ actor ScanEngine {
         )
     }
 
-    private func makeUnavailableNode(for url: URL) -> FileNodeRecord {
+    private func makeUnavailableNode(for url: URL, isDirectory: Bool) -> FileNodeRecord {
         FileNodeRecord(
             id: url.path,
             url: url,
             name: ScanTarget.displayName(for: url),
-            isDirectory: url.hasDirectoryPath,
+            isDirectory: isDirectory,
             isSymbolicLink: false,
             allocatedSize: 0,
             logicalSize: 0,
@@ -1043,13 +1144,13 @@ actor ScanEngine {
             ? nil
             : Array(resourceKeys)
         let enumerationStart = DispatchTime.now().uptimeNanoseconds
-        let contents = try directoryContents(url, prefetchKeys, options, cancellationCheck)
+        let enumerationResult = try directoryContents(url, prefetchKeys, options, cancellationCheck)
         let enumerationNanoseconds = DispatchTime.now().uptimeNanoseconds - enumerationStart
         try cancellationCheck()
 
         let classificationStart = DispatchTime.now().uptimeNanoseconds
-        let entries = try await Self.classifiedDirectoryEntries(
-            contents,
+        var entries = try await Self.classifiedDirectoryEntries(
+            enumerationResult.urls,
             under: url,
             behavior: behavior,
             exclusionMatcher: exclusionMatcher,
@@ -1057,15 +1158,44 @@ actor ScanEngine {
             workerLimit: classificationWorkerLimit,
             cancellationCheck: cancellationCheck
         )
+        entries.append(contentsOf:
+            contentsOfLocalizedEnumerationFailures(
+                enumerationResult.localizedFailures,
+                under: url,
+                behavior: behavior,
+                exclusionMatcher: exclusionMatcher
+            )
+        )
         let classificationNanoseconds = DispatchTime.now().uptimeNanoseconds - classificationStart
 
         try cancellationCheck()
         return DirectoryContentsScanResult(
             entries: entries,
-            enumeratedItemCount: contents.count,
+            enumeratedItemCount: enumerationResult.urls.count + enumerationResult.localizedFailures.count,
             enumerationNanoseconds: enumerationNanoseconds,
             classificationNanoseconds: classificationNanoseconds
         )
+    }
+
+    private nonisolated static func contentsOfLocalizedEnumerationFailures(
+        _ failures: [DirectoryEnumerationFailure],
+        under parentURL: URL,
+        behavior: ScanBehavior,
+        exclusionMatcher: ScanExclusionMatcher
+    ) -> [DirectoryEntry] {
+        failures.compactMap { failure in
+            let isDirectoryHint = failure.isDirectoryHint ?? failure.url.hasDirectoryPath
+            guard includedChildURL(failure.url, under: parentURL, behavior: behavior),
+                  !exclusionMatcher.excludes(failure.url, isDirectory: isDirectoryHint) else {
+                return nil
+            }
+            return DirectoryEntry(
+                url: failure.url,
+                metadata: nil,
+                localizedEnumerationError: failure.error,
+                isDirectoryHint: isDirectoryHint
+            )
+        }
     }
 
     private nonisolated static func classifiedDirectoryEntries(

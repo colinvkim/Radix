@@ -226,6 +226,66 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
     }
 
+    func testLocalizedChildEnumerationFailureKeepsReadableSiblings() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let readableDirectoryURL = rootURL.appending(path: "Readable", directoryHint: .isDirectory)
+        let readableFileURL = readableDirectoryURL.appending(path: "nested.txt")
+        let visibleFileURL = rootURL.appending(path: "visible.txt")
+        let lockedURL = rootURL.appending(path: "Locked", directoryHint: .isDirectory)
+
+        try FileManager.default.createDirectory(at: readableDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: lockedURL, withIntermediateDirectories: true)
+        try Data("nested".utf8).write(to: readableFileURL)
+        try Data("visible".utf8).write(to: visibleFileURL)
+
+        let permissionError = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+        let engine = ScanEngine(enumeratedDirectoryContents: { url, keys, options, cancellationCheck in
+            try cancellationCheck()
+            if url == rootURL {
+                return ScanEngine.DirectoryEnumerationResult(
+                    urls: [readableDirectoryURL, visibleFileURL],
+                    localizedFailures: [
+                        ScanEngine.DirectoryEnumerationFailure(
+                            url: lockedURL,
+                            error: permissionError,
+                            isDirectoryHint: true
+                        )
+                    ]
+                )
+            }
+
+            let urls = try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: keys,
+                options: options
+            )
+            return ScanEngine.DirectoryEnumerationResult(urls: urls)
+        })
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions(),
+            engine: engine
+        )
+
+        let rootChildNames = rootChildren(in: snapshot).map(\.name)
+        let readableNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Readable" }))
+        let visibleNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "visible.txt" }))
+        let lockedNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Locked" }))
+        let warning = try XCTUnwrap(snapshot.scanWarnings.first(where: { $0.path == lockedURL.path }))
+
+        XCTAssertEqual(Set(rootChildNames), Set(["Locked", "Readable", "visible.txt"]))
+        XCTAssertEqual(children(of: readableNode, in: snapshot).map(\.name), ["nested.txt"])
+        XCTAssertTrue(visibleNode.isAccessible)
+        XCTAssertTrue(lockedNode.isDirectory)
+        XCTAssertFalse(lockedNode.isAccessible)
+        XCTAssertFalse(containsChildren(lockedNode, in: snapshot))
+        XCTAssertEqual(warning.category, .permissionDenied)
+        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
+    }
+
     func testPackageLeafExcludesHiddenContentsWhenHiddenFilesDisabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

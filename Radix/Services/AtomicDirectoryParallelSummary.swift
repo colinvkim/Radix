@@ -251,7 +251,7 @@ extension AtomicDirectorySummarizer {
 
         let childURLs: [URL]
         do {
-            childURLs = try ScanEngine.enumeratedDirectoryContents(
+            let enumerationResult = try ScanEngine.enumeratedDirectoryContents(
                 url: item.url,
                 keys: ScanMetadataLoader.atomicSummaryResourceKeys,
                 options: options,
@@ -268,6 +268,7 @@ extension AtomicDirectorySummarizer {
                     )
                 }
             )
+            childURLs = enumerationResult.urls
         } catch is CancellationError {
             throw CancellationError()
         } catch {

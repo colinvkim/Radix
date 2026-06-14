@@ -15,6 +15,20 @@ typealias CancellationCheck = @Sendable () throws -> Void
 nonisolated struct DirectoryEntry: Sendable {
     let url: URL
     let metadata: NodeMetadata?
+    let localizedEnumerationError: Error?
+    let isDirectoryHint: Bool?
+
+    init(
+        url: URL,
+        metadata: NodeMetadata?,
+        localizedEnumerationError: Error? = nil,
+        isDirectoryHint: Bool? = nil
+    ) {
+        self.url = url
+        self.metadata = metadata
+        self.localizedEnumerationError = localizedEnumerationError
+        self.isDirectoryHint = isDirectoryHint
+    }
 }
 
 nonisolated struct AtomicDirectorySummary: Sendable {
