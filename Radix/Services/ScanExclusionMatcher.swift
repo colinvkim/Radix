@@ -70,17 +70,22 @@ nonisolated struct ScanExclusionMatcher: Sendable {
     }
 
     func excludes(_ url: URL, isDirectory: Bool) -> Bool {
-        if excludesCloudStorage(url) {
+        let normalizedPath = url.standardizedFileURL.path
+        return excludes(normalizedPath: normalizedPath, isDirectory: isDirectory)
+    }
+
+    private func excludes(normalizedPath: String, isDirectory: Bool) -> Bool {
+        if excludesCloudStorage(path: normalizedPath) {
             return true
         }
 
         guard !patterns.isEmpty,
-              let relativePath = relativePath(for: url),
+              let relativePath = relativePath(forNormalizedPath: normalizedPath),
               !relativePath.isEmpty else {
             return false
         }
 
-        let basename = url.lastPathComponent
+        let basename = Self.basename(fromNormalizedPath: normalizedPath)
         return patterns.contains { pattern in
             pattern.matches(
                 basename: basename,
@@ -117,10 +122,8 @@ nonisolated struct ScanExclusionMatcher: Sendable {
             .path
     }
 
-    private func excludesCloudStorage(_ url: URL) -> Bool {
+    private func excludesCloudStorage(path: String) -> Bool {
         guard excludedCloudStorageRootPath != nil || excludesUsersCloudStorage else { return false }
-
-        let path = url.standardizedFileURL.path
         guard path != rootPath else { return false }
 
         if let excludedCloudStorageRootPath {
@@ -187,6 +190,18 @@ nonisolated struct ScanExclusionMatcher: Sendable {
         pattern.hasSuffix("/") ? String(pattern.dropLast()) : pattern
     }
 
+    private static func basename(fromNormalizedPath path: String) -> String {
+        let endIndex = path.count > 1 && path.hasSuffix("/")
+            ? path.index(before: path.endIndex)
+            : path.endIndex
+        guard let separatorIndex = path[..<endIndex].lastIndex(of: "/") else {
+            return String(path[..<endIndex])
+        }
+
+        let basenameStartIndex = path.index(after: separatorIndex)
+        return String(path[basenameStartIndex..<endIndex])
+    }
+
     private static func normalizedPattern(_ pattern: String) -> String? {
         var normalized = pattern
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -214,8 +229,7 @@ nonisolated struct ScanExclusionMatcher: Sendable {
         return isDirectoryOnly ? "\(normalized)/" : normalized
     }
 
-    private func relativePath(for url: URL) -> String? {
-        let path = url.standardizedFileURL.path
+    private func relativePath(forNormalizedPath path: String) -> String? {
         guard path != rootPath else { return "" }
 
         if rootPath == "/" {
