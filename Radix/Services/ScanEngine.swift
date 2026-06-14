@@ -108,25 +108,63 @@ actor ScanEngine {
     private struct DirectoryContentsScanResult: Sendable {
         let entries: [DirectoryEntry]
         let enumeratedItemCount: Int
+        #if DEBUG
         let enumerationNanoseconds: UInt64
         let classificationNanoseconds: UInt64
+        #endif
     }
 
-    private enum DirectoryTraversalResult: Sendable {
-        case success(
-            item: ScanWorkItem,
-            itemKey: Int,
-            metadata: NodeMetadata,
-            contents: DirectoryContentsScanResult
-        )
-        case failure(
+    private struct DirectoryTraversalSuccess: Sendable {
+        let item: ScanWorkItem
+        let itemKey: Int
+        let metadata: NodeMetadata
+        let contents: DirectoryContentsScanResult
+    }
+
+    private struct DirectoryTraversalFailure: Sendable {
+        let item: ScanWorkItem
+        let itemKey: Int
+        let metadata: NodeMetadata
+        let warning: ScanWarning
+        #if DEBUG
+        let elapsedNanoseconds: UInt64
+        let diagnosticDetail: String
+        #endif
+
+        #if DEBUG
+        init(
             item: ScanWorkItem,
             itemKey: Int,
             metadata: NodeMetadata,
             warning: ScanWarning,
             elapsedNanoseconds: UInt64,
             diagnosticDetail: String
-        )
+        ) {
+            self.item = item
+            self.itemKey = itemKey
+            self.metadata = metadata
+            self.warning = warning
+            self.elapsedNanoseconds = elapsedNanoseconds
+            self.diagnosticDetail = diagnosticDetail
+        }
+        #else
+        init(
+            item: ScanWorkItem,
+            itemKey: Int,
+            metadata: NodeMetadata,
+            warning: ScanWarning
+        ) {
+            self.item = item
+            self.itemKey = itemKey
+            self.metadata = metadata
+            self.warning = warning
+        }
+        #endif
+    }
+
+    private enum DirectoryTraversalResult: Sendable {
+        case success(DirectoryTraversalSuccess)
+        case failure(DirectoryTraversalFailure)
     }
 
     /// A completed directory scan awaiting parent assembly.
@@ -154,18 +192,28 @@ actor ScanEngine {
     private let directoryContents: DirectoryContentsProvider
     private let metadataLoader: ScanMetadataLoader
     private let atomicDirectorySummarizer: AtomicDirectorySummarizer
+    #if DEBUG
     private let diagnostics: ScanDiagnostics?
+    #endif
 
     init(enumeratedDirectoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
+        #if DEBUG
         let diagnostics = ScanDiagnostics.makeIfEnabled()
         let metadataLoader = ScanMetadataLoader(diagnostics: diagnostics)
+        #else
+        let metadataLoader = ScanMetadataLoader()
+        #endif
         self.directoryContents = enumeratedDirectoryContents
         self.metadataLoader = metadataLoader
+        #if DEBUG
         self.atomicDirectorySummarizer = AtomicDirectorySummarizer(
             metadataLoader: metadataLoader,
             diagnostics: diagnostics
         )
         self.diagnostics = diagnostics
+        #else
+        self.atomicDirectorySummarizer = AtomicDirectorySummarizer(metadataLoader: metadataLoader)
+        #endif
     }
 
     init(directoryContents: @escaping URLDirectoryContentsProvider) {
@@ -454,9 +502,11 @@ actor ScanEngine {
         metrics.currentPath = target.url.path
         metrics.recalculateProgress(isComplete: true)
         continuation.yield(.progress(metrics))
+        #if DEBUG
         if let diagnostics {
             print(diagnostics.makeReport(targetPath: target.url.path, elapsedSeconds: Date().timeIntervalSince(startedAt)))
         }
+        #endif
         return snapshot
     }
 
@@ -628,7 +678,9 @@ actor ScanEngine {
                         let taskMetadata = meta
                         activeDirectoryTasks += 1
                         group.addTask {
+                            #if DEBUG
                             let traversalStart = DispatchTime.now().uptimeNanoseconds
+                            #endif
                             do {
                                 let contents = try await ScanEngine.directoryEntries(
                                     of: taskItem.url,
@@ -641,23 +693,32 @@ actor ScanEngine {
                                     classificationWorkerLimit: effectiveDirectoryClassificationWorkerLimit,
                                     cancellationCheck: cancellationCheck
                                 )
-                                return .success(
+                                return .success(DirectoryTraversalSuccess(
                                     item: taskItem,
                                     itemKey: taskItemKey,
                                     metadata: taskMetadata,
                                     contents: contents
-                                )
+                                ))
                             } catch is CancellationError {
                                 throw CancellationError()
                             } catch {
-                                return .failure(
+                                #if DEBUG
+                                return .failure(DirectoryTraversalFailure(
                                     item: taskItem,
                                     itemKey: taskItemKey,
                                     metadata: taskMetadata,
                                     warning: ScanWarningFactory.makeWarning(for: taskItem.url, error: error),
                                     elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - traversalStart,
                                     diagnosticDetail: "error=\(ScanWarningFactory.diagnosticErrorDescription(error))"
-                                )
+                                ))
+                                #else
+                                return .failure(DirectoryTraversalFailure(
+                                    item: taskItem,
+                                    itemKey: taskItemKey,
+                                    metadata: taskMetadata,
+                                    warning: ScanWarningFactory.makeWarning(for: taskItem.url, error: error)
+                                ))
+                                #endif
                             }
                         }
                     } else {
@@ -701,8 +762,13 @@ actor ScanEngine {
                 activeDirectoryTasks -= 1
 
                 switch traversalResult {
-                case .success(let item, let itemKey, let meta, let contents):
+                case .success(let success):
+                    let item = success.item
+                    let itemKey = success.itemKey
+                    let meta = success.metadata
+                    let contents = success.contents
                     let childEntries = contents.entries
+                    #if DEBUG
                     diagnostics?.recordElapsed(
                         operation: "directory.enumerate",
                         url: item.url,
@@ -716,6 +782,7 @@ actor ScanEngine {
                         itemCount: contents.enumeratedItemCount,
                         detail: "kept=\(childEntries.count)"
                     )
+                    #endif
 
                     metrics.currentPath = item.url.path
                     metrics.discoveredItems += childEntries.count
@@ -842,13 +909,19 @@ actor ScanEngine {
                         isTraversable: true
                     )
 
-                case .failure(let item, let itemKey, let meta, let warning, let elapsedNanoseconds, let diagnosticDetail):
+                case .failure(let failure):
+                    #if DEBUG
                     diagnostics?.recordElapsed(
                         operation: "directory.enumerate.error",
-                        url: item.url,
-                        nanoseconds: elapsedNanoseconds,
-                        detail: diagnosticDetail
+                        url: failure.item.url,
+                        nanoseconds: failure.elapsedNanoseconds,
+                        detail: failure.diagnosticDetail
                     )
+                    #endif
+                    let item = failure.item
+                    let itemKey = failure.itemKey
+                    let meta = failure.metadata
+                    let warning = failure.warning
                     warnings.append(warning)
                     continuation.yield(.warning(warning))
                     metrics.completedItems += 1
@@ -904,7 +977,9 @@ actor ScanEngine {
         childIDsByID.reserveCapacity(completedByKey.count)
         parentIDByID.reserveCapacity(completedByKey.count)
         nodesByID.reserveCapacity(completedByKey.count)
+        #if DEBUG
         let finalizationStart = diagnostics?.start()
+        #endif
         for key in (0..<nextKey).reversed() {
             if finalizedItems.isMultiple(of: 256) {
                 try Task.checkCancellation()
@@ -979,12 +1054,14 @@ actor ScanEngine {
                 continuation.yield(.progress(metrics))
             }
         }
+        #if DEBUG
         diagnostics?.record(
             operation: "scan.finalize",
             url: target.url,
             startedAt: finalizationStart,
             itemCount: finalizedItems
         )
+        #endif
 
         guard let rootNode = resolvedNodeByKey[0] else {
             throw ScanEngineError.missingRootNode
@@ -1192,12 +1269,18 @@ actor ScanEngine {
         let prefetchKeys = shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
             ? nil
             : Array(resourceKeys)
+        #if DEBUG
         let enumerationStart = DispatchTime.now().uptimeNanoseconds
+        #endif
         let enumerationResult = try directoryContents(url, prefetchKeys, options, cancellationCheck)
+        #if DEBUG
         let enumerationNanoseconds = DispatchTime.now().uptimeNanoseconds - enumerationStart
+        #endif
         try cancellationCheck()
 
+        #if DEBUG
         let classificationStart = DispatchTime.now().uptimeNanoseconds
+        #endif
         var entries = try await Self.classifiedDirectoryEntries(
             enumerationResult.urls,
             under: url,
@@ -1216,15 +1299,24 @@ actor ScanEngine {
                 exclusionMatcher: exclusionMatcher
             )
         )
+        #if DEBUG
         let classificationNanoseconds = DispatchTime.now().uptimeNanoseconds - classificationStart
+        #endif
 
         try cancellationCheck()
+        #if DEBUG
         return DirectoryContentsScanResult(
             entries: entries,
             enumeratedItemCount: enumerationResult.urls.count + enumerationResult.localizedFailures.count,
             enumerationNanoseconds: enumerationNanoseconds,
             classificationNanoseconds: classificationNanoseconds
         )
+        #else
+        return DirectoryContentsScanResult(
+            entries: entries,
+            enumeratedItemCount: enumerationResult.urls.count + enumerationResult.localizedFailures.count
+        )
+        #endif
     }
 
     private nonisolated static func contentsOfLocalizedEnumerationFailures(

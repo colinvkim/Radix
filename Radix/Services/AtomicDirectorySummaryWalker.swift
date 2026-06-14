@@ -20,9 +20,12 @@ extension AtomicDirectorySummarizer {
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
     ) async throws -> AtomicDirectorySummary? {
+        #if DEBUG
         let summaryStart = diagnostics?.start()
+        #endif
         let state = AtomicDirectorySummaryState(ownerNodeID: ownerNodeID)
         var visitedItems = 0
+        #if DEBUG
         defer {
             diagnostics?.record(
                 operation: "atomic.summary.enumerate",
@@ -32,6 +35,7 @@ extension AtomicDirectorySummarizer {
                 detail: "files=\(state.descendantFileCount)"
             )
         }
+        #endif
 
         do {
             try cancellationCheck()
@@ -131,9 +135,12 @@ extension AtomicDirectorySummarizer {
         emissionState: inout ScanEmissionState
     ) async throws -> AtomicDirectorySummary? {
         try cancellationCheck()
+        #if DEBUG
         let summaryStart = diagnostics?.start()
+        #endif
         let state = AtomicDirectorySummaryState(ownerNodeID: ownerNodeID)
         updateAtomicAccessibility(rootMetadata.isReadable, in: state)
+        #if DEBUG
         defer {
             diagnostics?.record(
                 operation: "atomic.summary.reused_entries",
@@ -143,6 +150,7 @@ extension AtomicDirectorySummarizer {
                 detail: "files=\(state.descendantFileCount)"
             )
         }
+        #endif
 
         for (index, childEntry) in childEntries.enumerated() {
             try cancellationCheck()

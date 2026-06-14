@@ -1,6 +1,7 @@
 import XCTest
 @testable import RadixCore
 
+#if DEBUG
 final class ScanDiagnosticsTests: XCTestCase {
     func testSlowEventsRemainBoundedAndOrdered() {
         let diagnostics = ScanDiagnostics(environment: [
@@ -42,3 +43,4 @@ final class ScanDiagnosticsTests: XCTestCase {
         return String(fields[1])
     }
 }
+#endif

@@ -80,9 +80,12 @@ extension AtomicDirectorySummarizer {
         emissionState: inout ScanEmissionState
     ) throws -> AtomicDirectoryProbeProfile {
         try cancellationCheck()
+        #if DEBUG
         let probeStart = diagnostics?.start()
+        #endif
         var visitedItems = 0
         var profile = AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
+        #if DEBUG
         defer {
             diagnostics?.record(
                 operation: "atomic.probe",
@@ -92,6 +95,7 @@ extension AtomicDirectorySummarizer {
                 detail: "files=\(profile.observedFileCount) dirs=\(profile.observedDirectoryCount) nodeDeps=\(profile.observedNodeDependencyLayout)"
             )
         }
+        #endif
         var enumeratorOptions: FileManager.DirectoryEnumerationOptions = []
         if !includeHiddenFiles {
             enumeratorOptions.insert(.skipsHiddenFiles)

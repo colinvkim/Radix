@@ -55,6 +55,7 @@ let package = Package(
                 "Services/ScanExclusionMatcher.swift",
                 "Services/ScanMetadataLoader.swift",
                 "Services/ScanSnapshotTransformService.swift",
+                "Services/ScanWarningFactory.swift",
                 "Services/SunburstChartModel.swift",
                 "Services/SunburstGeometry.swift",
                 "Services/SystemIntegration.swift",

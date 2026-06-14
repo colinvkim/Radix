@@ -11,7 +11,7 @@ final class ScanMetadataLoaderTests: XCTestCase {
         try Data(repeating: 0xA5, count: 4_096).write(to: originalURL)
         try FileManager.default.linkItem(at: originalURL, to: linkedURL)
 
-        let loader = ScanMetadataLoader(diagnostics: nil)
+        let loader = makeScanMetadataLoader()
         let metadata = loader.metadata(
             for: originalURL,
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: originalURL)
@@ -31,7 +31,7 @@ final class ScanMetadataLoaderTests: XCTestCase {
         let missingURL = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString)
 
-        let loader = ScanMetadataLoader(diagnostics: nil)
+        let loader = makeScanMetadataLoader()
         let metadata = loader.metadata(
             for: missingURL,
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: sourceURL)
@@ -58,12 +58,11 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 supportsHardLinks: false
             )
         }
-        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { _, _ in
+        let fileSystemInfoProvider = makeFileSystemInfoProvider { _ in
             counters.recordLstat()
             return (FileIdentity(device: 1, inode: 2), 2)
         }
-        let loader = ScanMetadataLoader(
-            diagnostics: nil,
+        let loader = makeScanMetadataLoader(
             linkCountCapabilityCache: cache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
@@ -102,15 +101,14 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 supportsHardLinks: true
             )
         }
-        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { url, _ in
+        let fileSystemInfoProvider = makeFileSystemInfoProvider { url in
             counters.recordLstat()
             return (
                 FileIdentity(device: 1, inode: url.lastPathComponent == "first.bin" ? 10 : 11),
                 2
             )
         }
-        let loader = ScanMetadataLoader(
-            diagnostics: nil,
+        let loader = makeScanMetadataLoader(
             linkCountCapabilityCache: cache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
@@ -159,12 +157,11 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 supportsHardLinks: true
             )
         }
-        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { _, _ in
+        let fileSystemInfoProvider = makeFileSystemInfoProvider { _ in
             counters.recordLstat()
             return (FileIdentity(device: 1, inode: 12), 2)
         }
-        let loader = ScanMetadataLoader(
-            diagnostics: nil,
+        let loader = makeScanMetadataLoader(
             linkCountCapabilityCache: cache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
@@ -204,6 +201,42 @@ final class ScanMetadataLoaderTests: XCTestCase {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func makeScanMetadataLoader() -> ScanMetadataLoader {
+        #if DEBUG
+        ScanMetadataLoader(diagnostics: nil)
+        #else
+        ScanMetadataLoader()
+        #endif
+    }
+
+    private func makeScanMetadataLoader(
+        linkCountCapabilityCache: LinkCountCapabilityCache,
+        fileSystemInfoProvider: @escaping ScanMetadataLoader.FileSystemInfoProvider
+    ) -> ScanMetadataLoader {
+        #if DEBUG
+        ScanMetadataLoader(
+            diagnostics: nil,
+            linkCountCapabilityCache: linkCountCapabilityCache,
+            fileSystemInfoProvider: fileSystemInfoProvider
+        )
+        #else
+        ScanMetadataLoader(
+            linkCountCapabilityCache: linkCountCapabilityCache,
+            fileSystemInfoProvider: fileSystemInfoProvider
+        )
+        #endif
+    }
+
+    private func makeFileSystemInfoProvider(
+        _ provider: @escaping @Sendable (URL) -> (identity: FileIdentity?, linkCount: UInt64)
+    ) -> ScanMetadataLoader.FileSystemInfoProvider {
+        #if DEBUG
+        return { url, _ in provider(url) }
+        #else
+        return provider
+        #endif
     }
 }
 

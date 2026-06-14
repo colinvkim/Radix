@@ -9,12 +9,20 @@ import Foundation
 
 nonisolated struct AtomicDirectorySummarizer: Sendable {
     let metadataLoader: ScanMetadataLoader
+    #if DEBUG
     let diagnostics: ScanDiagnostics?
+    #endif
 
+    #if DEBUG
     init(metadataLoader: ScanMetadataLoader, diagnostics: ScanDiagnostics?) {
         self.metadataLoader = metadataLoader
         self.diagnostics = diagnostics
     }
+    #else
+    init(metadataLoader: ScanMetadataLoader) {
+        self.metadataLoader = metadataLoader
+    }
+    #endif
 
     /// Determines if a directory should be treated as atomic (summarized without expansion).
     /// Returns a summary if the directory has many small files (like node_modules, caches).
@@ -141,7 +149,9 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
     ) async throws -> AtomicDirectorySummary? {
         try cancellationCheck()
         if workerLimit > 1 {
+            #if DEBUG
             let summaryStart = diagnostics?.start()
+            #endif
             let summary = try await Self.summarizeInParallel(
                 at: url,
                 includeHiddenFiles: includeHiddenFiles,
@@ -153,6 +163,7 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
                 metrics: metrics,
                 continuation: continuation
             )
+            #if DEBUG
             diagnostics?.record(
                 operation: "atomic.summary.parallel",
                 url: url,
@@ -160,6 +171,7 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
                 itemCount: summary?.descendantFileCount,
                 detail: "workers=\(workerLimit)"
             )
+            #endif
             return summary
         }
 

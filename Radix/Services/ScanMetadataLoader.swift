@@ -12,8 +12,11 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
     nonisolated struct ProbeResult: Sendable {
         let volumeRootPath: String?
         let supportsHardLinks: Bool?
+        #if DEBUG
         let errorDescription: String?
+        #endif
 
+        #if DEBUG
         init(
             volumeRootPath: String?,
             supportsHardLinks: Bool?,
@@ -23,6 +26,15 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
             self.supportsHardLinks = supportsHardLinks
             self.errorDescription = errorDescription
         }
+        #else
+        init(
+            volumeRootPath: String?,
+            supportsHardLinks: Bool?
+        ) {
+            self.volumeRootPath = volumeRootPath
+            self.supportsHardLinks = supportsHardLinks
+        }
+        #endif
     }
 
     typealias ProbeProvider = @Sendable (URL) -> ProbeResult
@@ -35,10 +47,8 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
         self.probeProvider = probeProvider
     }
 
-    func requiresFileSystemInfoWhenLinkCountMissing(
-        for url: URL,
-        diagnostics: ScanDiagnostics?
-    ) -> Bool {
+    #if DEBUG
+    func requiresFileSystemInfoWhenLinkCountMissing(for url: URL, diagnostics: ScanDiagnostics?) -> Bool {
         let path = Self.standardizedPath(for: url)
         lock.lock()
         if let cachedRequirement = cachedRequirementLocked(for: path) {
@@ -64,6 +74,27 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
         )
         return requiresFileSystemInfo
     }
+    #else
+    func requiresFileSystemInfoWhenLinkCountMissing(for url: URL) -> Bool {
+        let path = Self.standardizedPath(for: url)
+        lock.lock()
+        if let cachedRequirement = cachedRequirementLocked(for: path) {
+            lock.unlock()
+            return cachedRequirement
+        }
+        lock.unlock()
+
+        let probe = probeProvider(url)
+        let requiresFileSystemInfo = probe.supportsHardLinks != false
+        if let rootPath = Self.cacheRootPath(for: probe, path: path) {
+            lock.lock()
+            requiresFileSystemInfoByRootPath[rootPath] = requiresFileSystemInfo
+            lock.unlock()
+        }
+
+        return requiresFileSystemInfo
+    }
+    #endif
 
     private func cachedRequirementLocked(for path: String) -> Bool? {
         var bestMatch: (rootLength: Int, requiresFileSystemInfo: Bool)?
@@ -87,14 +118,22 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
                 supportsHardLinks: values.volumeSupportsHardLinks
             )
         } catch {
+            #if DEBUG
             return ProbeResult(
                 volumeRootPath: nil,
                 supportsHardLinks: nil,
                 errorDescription: ScanWarningFactory.diagnosticErrorDescription(error)
             )
+            #else
+            return ProbeResult(
+                volumeRootPath: nil,
+                supportsHardLinks: nil
+            )
+            #endif
         }
     }
 
+    #if DEBUG
     private static func diagnosticDetail(
         for probe: ProbeResult,
         requiresFileSystemInfo: Bool
@@ -111,6 +150,7 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
         }
         return fields.joined(separator: " ")
     }
+    #endif
 
     private static func path(_ path: String, isUnder rootPath: String) -> Bool {
         guard rootPath != "/" else {
@@ -148,10 +188,16 @@ nonisolated final class LinkCountCapabilityCache: @unchecked Sendable {
 }
 
 nonisolated struct ScanMetadataLoader: Sendable {
+    #if DEBUG
     typealias FileSystemInfoProvider = @Sendable (
         URL,
         ScanDiagnostics?
     ) -> (identity: FileIdentity?, linkCount: UInt64)
+    #else
+    typealias FileSystemInfoProvider = @Sendable (
+        URL
+    ) -> (identity: FileIdentity?, linkCount: UInt64)
+    #endif
 
     static let scanResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -199,10 +245,13 @@ nonisolated struct ScanMetadataLoader: Sendable {
     ]
     static let atomicProbeResourceKeySet = Set(atomicProbeResourceKeys)
 
+    #if DEBUG
     let diagnostics: ScanDiagnostics?
+    #endif
     private let linkCountCapabilityCache: LinkCountCapabilityCache
     private let fileSystemInfoProvider: FileSystemInfoProvider
 
+    #if DEBUG
     init(
         diagnostics: ScanDiagnostics?,
         linkCountCapabilityCache: LinkCountCapabilityCache = LinkCountCapabilityCache(),
@@ -212,39 +261,60 @@ nonisolated struct ScanMetadataLoader: Sendable {
         self.linkCountCapabilityCache = linkCountCapabilityCache
         self.fileSystemInfoProvider = fileSystemInfoProvider
     }
+    #else
+    init(
+        linkCountCapabilityCache: LinkCountCapabilityCache = LinkCountCapabilityCache(),
+        fileSystemInfoProvider: @escaping FileSystemInfoProvider = ScanMetadataLoader.defaultFileSystemInfo
+    ) {
+        self.linkCountCapabilityCache = linkCountCapabilityCache
+        self.fileSystemInfoProvider = fileSystemInfoProvider
+    }
+    #endif
 
     func metadata(for url: URL, includeVolumeDetails: Bool = false) throws -> NodeMetadata {
         let keys = includeVolumeDetails ? Self.rootResourceKeys : Self.scanResourceKeys
+        #if DEBUG
         let start = diagnostics?.start()
+        #endif
         let values: URLResourceValues
         do {
             values = try url.resourceValues(forKeys: keys)
+            #if DEBUG
             diagnostics?.record(operation: "metadata.resource_values", url: url, startedAt: start)
+            #endif
         } catch {
+            #if DEBUG
             diagnostics?.record(
                 operation: "metadata.resource_values.error",
                 url: url,
                 startedAt: start,
                 detail: "error=\(ScanWarningFactory.diagnosticErrorDescription(error))"
             )
+            #endif
             throw error
         }
         return metadata(for: url, prefetchedResourceValues: values, includeVolumeDetails: includeVolumeDetails)
     }
 
     func atomicSummaryMetadata(for url: URL) throws -> NodeMetadata {
+        #if DEBUG
         let start = diagnostics?.start()
+        #endif
         let values: URLResourceValues
         do {
             values = try url.resourceValues(forKeys: Self.atomicSummaryResourceKeySet)
+            #if DEBUG
             diagnostics?.record(operation: "metadata.atomic_resource_values", url: url, startedAt: start)
+            #endif
         } catch {
+            #if DEBUG
             diagnostics?.record(
                 operation: "metadata.atomic_resource_values.error",
                 url: url,
                 startedAt: start,
                 detail: "error=\(ScanWarningFactory.diagnosticErrorDescription(error))"
             )
+            #endif
             throw error
         }
         return metadata(for: url, prefetchedResourceValues: values)
@@ -255,6 +325,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
         prefetchedResourceValues values: URLResourceValues,
         includeVolumeDetails: Bool = false
     ) -> NodeMetadata {
+        #if DEBUG
         Self.nodeMetadata(
             for: url,
             resourceValues: values,
@@ -263,8 +334,18 @@ nonisolated struct ScanMetadataLoader: Sendable {
             linkCountCapabilityCache: linkCountCapabilityCache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
+        #else
+        Self.nodeMetadata(
+            for: url,
+            resourceValues: values,
+            includeVolumeDetails: includeVolumeDetails,
+            linkCountCapabilityCache: linkCountCapabilityCache,
+            fileSystemInfoProvider: fileSystemInfoProvider
+        )
+        #endif
     }
 
+    #if DEBUG
     private nonisolated static func nodeMetadata(
         for url: URL,
         resourceValues values: URLResourceValues,
@@ -316,7 +397,59 @@ nonisolated struct ScanMetadataLoader: Sendable {
             linkCount: linkCount
         )
     }
+    #else
+    private nonisolated static func nodeMetadata(
+        for url: URL,
+        resourceValues values: URLResourceValues,
+        includeVolumeDetails: Bool = false,
+        linkCountCapabilityCache: LinkCountCapabilityCache,
+        fileSystemInfoProvider: FileSystemInfoProvider
+    ) -> NodeMetadata {
+        let isDirectory = values.isDirectory ?? false
+        let isPackage = values.isPackage ?? false
+        let isSymbolicLink = values.isSymbolicLink ?? false
+        let logicalSize = Int64(values.fileSize ?? 0)
+        let allocatedSize = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
+        let isReadable = values.isReadable ?? false
+        var fileIdentity = Self.fileIdentity(from: values.fileResourceIdentifier)
+        var linkCount = values.linkCount.map(UInt64.init) ?? 1
+        if shouldReadFileSystemIdentity(
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            url: url,
+            fileIdentity: fileIdentity,
+            linkCount: values.linkCount,
+            linkCountCapabilityCache: linkCountCapabilityCache
+        ) {
+            let fileSystemInfo = fileSystemInfoProvider(url)
+            fileIdentity = fileIdentity ?? fileSystemInfo.identity
+            linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
+        }
+        let volumeUsedCapacity: Int64?
+        if includeVolumeDetails,
+           let totalCapacity = values.volumeTotalCapacity,
+           let availableCapacity = values.volumeAvailableCapacity {
+            volumeUsedCapacity = Int64(max(totalCapacity - availableCapacity, 0))
+        } else {
+            volumeUsedCapacity = nil
+        }
 
+        return NodeMetadata(
+            isDirectory: isDirectory,
+            isPackage: isPackage,
+            isSymbolicLink: isSymbolicLink,
+            logicalSize: logicalSize,
+            allocatedSize: allocatedSize,
+            lastModified: values.contentModificationDate,
+            isReadable: isReadable,
+            volumeUsedCapacity: volumeUsedCapacity,
+            fileIdentity: fileIdentity,
+            linkCount: linkCount
+        )
+    }
+    #endif
+
+    #if DEBUG
     private nonisolated static func shouldReadFileSystemIdentity(
         isDirectory: Bool,
         isSymbolicLink: Bool,
@@ -335,7 +468,24 @@ nonisolated struct ScanMetadataLoader: Sendable {
         }
         return linkCount > 1 && fileIdentity == nil
     }
+    #else
+    private nonisolated static func shouldReadFileSystemIdentity(
+        isDirectory: Bool,
+        isSymbolicLink: Bool,
+        url: URL,
+        fileIdentity: FileIdentity?,
+        linkCount: Int?,
+        linkCountCapabilityCache: LinkCountCapabilityCache
+    ) -> Bool {
+        guard !isDirectory, !isSymbolicLink else { return false }
+        guard let linkCount else {
+            return linkCountCapabilityCache.requiresFileSystemInfoWhenLinkCountMissing(for: url)
+        }
+        return linkCount > 1 && fileIdentity == nil
+    }
+    #endif
 
+    #if DEBUG
     private nonisolated static func defaultFileSystemInfo(
         for url: URL,
         diagnostics: ScanDiagnostics? = nil
@@ -356,6 +506,25 @@ nonisolated struct ScanMetadataLoader: Sendable {
             max(UInt64(fileStat.st_nlink), 1)
         )
     }
+    #else
+    private nonisolated static func defaultFileSystemInfo(
+        for url: URL
+    ) -> (identity: FileIdentity?, linkCount: UInt64) {
+        var fileStat = stat()
+        let result = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Int(lstat(path, &fileStat))
+        }
+        guard result == 0 else {
+            return (nil, 1)
+        }
+
+        return (
+            FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
+            max(UInt64(fileStat.st_nlink), 1)
+        )
+    }
+    #endif
 
     private nonisolated static func fileIdentity(
         from resourceIdentifier: (any NSCopying & NSSecureCoding & NSObjectProtocol)?
