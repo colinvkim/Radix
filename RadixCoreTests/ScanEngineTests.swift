@@ -1227,6 +1227,57 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
     }
 
+    func testParallelDirectoryTraversalAndClassificationMatchSerialScan() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        for index in 0..<180 {
+            let fileURL = rootURL.appending(path: String(format: "root-%03d.dat", index))
+            try Data(repeating: UInt8(index % 256), count: 8 + (index % 11)).write(to: fileURL)
+        }
+
+        for directoryIndex in 0..<8 {
+            let directoryURL = rootURL.appending(path: String(format: "group-%02d", directoryIndex), directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+            for fileIndex in 0..<160 {
+                let fileURL = directoryURL.appending(path: String(format: "payload-%03d.bin", fileIndex))
+                try Data(repeating: UInt8((directoryIndex + fileIndex) % 256), count: 4 + (fileIndex % 5)).write(to: fileURL)
+            }
+
+            try Data(repeating: 0xD, count: 32).write(to: directoryURL.appending(path: "ignored.skip"))
+        }
+
+        var serialOptions = ScanOptions()
+        serialOptions.autoSummarizeDirectories = false
+        serialOptions.exclusionPatterns = ["*.skip"]
+        serialOptions.directoryTraversalWorkerLimit = 1
+        serialOptions.directoryClassificationWorkerLimit = 1
+        serialOptions.atomicSummaryWorkerLimit = 1
+
+        var parallelOptions = serialOptions
+        parallelOptions.directoryTraversalWorkerLimit = 4
+        parallelOptions.directoryClassificationWorkerLimit = 4
+
+        let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
+        let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
+
+        XCTAssertEqual(rootChildren(in: parallelSnapshot).map(\.name), rootChildren(in: serialSnapshot).map(\.name))
+        XCTAssertEqual(parallelSnapshot.root.descendantFileCount, serialSnapshot.root.descendantFileCount)
+        XCTAssertEqual(parallelSnapshot.root.logicalSize, serialSnapshot.root.logicalSize)
+        XCTAssertEqual(parallelSnapshot.root.allocatedSize, serialSnapshot.root.allocatedSize)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.totalLogicalSize, serialSnapshot.aggregateStats.totalLogicalSize)
+        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
+        XCTAssertFalse(parallelSnapshot.treeStore.nodesByID.keys.contains { $0.hasSuffix("ignored.skip") })
+
+        for serialChild in rootChildren(in: serialSnapshot) {
+            let parallelChild = try XCTUnwrap(rootChildren(in: parallelSnapshot).first { $0.id == serialChild.id })
+            XCTAssertEqual(children(of: parallelChild, in: parallelSnapshot).map(\.name), children(of: serialChild, in: serialSnapshot).map(\.name))
+        }
+    }
+
     func testParallelDirectoryTraversalMatchesSerialTraversal() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

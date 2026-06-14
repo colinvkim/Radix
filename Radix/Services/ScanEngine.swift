@@ -272,6 +272,8 @@ actor ScanEngine {
 
     private enum ScanConcurrencyPolicy {
         static let directoryClassificationParallelThreshold = 128
+        // Shared budget for concurrent child metadata reads across traversal and classification workers.
+        static let directoryMetadataWorkerBudgetMaximum = 16
 
         static func atomicSummaryWorkerLimit(for options: ScanOptions) -> Int {
             if let optionLimit = options.atomicSummaryWorkerLimit {
@@ -310,6 +312,45 @@ actor ScanEngine {
             }
 
             return hardwareAwareWorkerLimit(minimum: 2, processorDivisor: 2, maximum: 8)
+        }
+
+        static func effectiveDirectoryClassificationWorkerLimit(
+            traversalWorkerLimit: Int,
+            classificationWorkerLimit: Int
+        ) -> Int {
+            guard traversalWorkerLimit > 1 else {
+                return classificationWorkerLimit
+            }
+
+            let sharedMetadataBudget = sharedMetadataWorkerBudget()
+            let perDirectoryLimit = max(1, sharedMetadataBudget / max(1, traversalWorkerLimit))
+            return min(classificationWorkerLimit, perDirectoryLimit)
+        }
+
+        private static func sharedMetadataWorkerBudget() -> Int {
+            let processInfo = ProcessInfo.processInfo
+            let activeProcessorCount = max(1, processInfo.activeProcessorCount)
+            var limit = min(
+                max(4, activeProcessorCount * 2),
+                directoryMetadataWorkerBudgetMaximum
+            )
+
+            if processInfo.isLowPowerModeEnabled {
+                limit = max(1, limit / 2)
+            }
+
+            switch processInfo.thermalState {
+            case .serious, .critical:
+                limit = max(1, limit / 2)
+            case .fair:
+                limit = max(1, limit - 2)
+            case .nominal:
+                break
+            @unknown default:
+                break
+            }
+
+            return limit
         }
 
         private static func hardwareAwareWorkerLimit(
@@ -446,9 +487,10 @@ actor ScanEngine {
         let atomicSummaryWorkerLimit = ScanConcurrencyPolicy.atomicSummaryWorkerLimit(for: options)
         let directoryTraversalWorkerLimit = ScanConcurrencyPolicy.directoryTraversalWorkerLimit(for: options)
         let directoryClassificationWorkerLimit = ScanConcurrencyPolicy.directoryClassificationWorkerLimit(for: options)
-        let effectiveDirectoryClassificationWorkerLimit = directoryTraversalWorkerLimit > 1
-            ? 1
-            : directoryClassificationWorkerLimit
+        let effectiveDirectoryClassificationWorkerLimit = ScanConcurrencyPolicy.effectiveDirectoryClassificationWorkerLimit(
+            traversalWorkerLimit: directoryTraversalWorkerLimit,
+            classificationWorkerLimit: directoryClassificationWorkerLimit
+        )
         let scanMetadataLoader = metadataLoader
         let directoryContentsProvider = directoryContents
         let directoryResourceKeys = ScanMetadataLoader.scanResourceKeys
