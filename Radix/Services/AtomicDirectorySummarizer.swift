@@ -9,20 +9,12 @@ import Foundation
 
 nonisolated struct AtomicDirectorySummarizer: Sendable {
     let metadataLoader: ScanMetadataLoader
-    #if DEBUG
-    let diagnostics: ScanDiagnostics?
-    #endif
+    let diagnostics: ScanDiagnosticsContext?
 
-    #if DEBUG
-    init(metadataLoader: ScanMetadataLoader, diagnostics: ScanDiagnostics?) {
+    init(metadataLoader: ScanMetadataLoader, diagnostics: ScanDiagnosticsContext? = nil) {
         self.metadataLoader = metadataLoader
         self.diagnostics = diagnostics
     }
-    #else
-    init(metadataLoader: ScanMetadataLoader) {
-        self.metadataLoader = metadataLoader
-    }
-    #endif
 
     /// Determines if a directory should be treated as atomic (summarized without expansion).
     /// Returns a summary if the directory has many small files (like node_modules, caches).

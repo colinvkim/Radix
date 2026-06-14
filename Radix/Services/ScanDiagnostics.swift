@@ -191,3 +191,9 @@ nonisolated final class ScanDiagnostics: @unchecked Sendable {
     }
 }
 #endif
+
+#if DEBUG
+typealias ScanDiagnosticsContext = ScanDiagnostics
+#else
+typealias ScanDiagnosticsContext = Never
+#endif

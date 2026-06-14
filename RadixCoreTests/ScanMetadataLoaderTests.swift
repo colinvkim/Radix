@@ -11,7 +11,7 @@ final class ScanMetadataLoaderTests: XCTestCase {
         try Data(repeating: 0xA5, count: 4_096).write(to: originalURL)
         try FileManager.default.linkItem(at: originalURL, to: linkedURL)
 
-        let loader = makeScanMetadataLoader()
+        let loader = ScanMetadataLoader(diagnostics: nil)
         let metadata = loader.metadata(
             for: originalURL,
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: originalURL)
@@ -31,7 +31,7 @@ final class ScanMetadataLoaderTests: XCTestCase {
         let missingURL = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString)
 
-        let loader = makeScanMetadataLoader()
+        let loader = ScanMetadataLoader(diagnostics: nil)
         let metadata = loader.metadata(
             for: missingURL,
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: sourceURL)
@@ -58,11 +58,12 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 supportsHardLinks: false
             )
         }
-        let fileSystemInfoProvider = makeFileSystemInfoProvider { _ in
+        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { _, _ in
             counters.recordLstat()
             return (FileIdentity(device: 1, inode: 2), 2)
         }
-        let loader = makeScanMetadataLoader(
+        let loader = ScanMetadataLoader(
+            diagnostics: nil,
             linkCountCapabilityCache: cache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
@@ -101,14 +102,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 supportsHardLinks: true
             )
         }
-        let fileSystemInfoProvider = makeFileSystemInfoProvider { url in
+        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { url, _ in
             counters.recordLstat()
             return (
                 FileIdentity(device: 1, inode: url.lastPathComponent == "first.bin" ? 10 : 11),
                 2
             )
         }
-        let loader = makeScanMetadataLoader(
+        let loader = ScanMetadataLoader(
+            diagnostics: nil,
             linkCountCapabilityCache: cache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
@@ -157,11 +159,12 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 supportsHardLinks: true
             )
         }
-        let fileSystemInfoProvider = makeFileSystemInfoProvider { _ in
+        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { _, _ in
             counters.recordLstat()
             return (FileIdentity(device: 1, inode: 12), 2)
         }
-        let loader = makeScanMetadataLoader(
+        let loader = ScanMetadataLoader(
+            diagnostics: nil,
             linkCountCapabilityCache: cache,
             fileSystemInfoProvider: fileSystemInfoProvider
         )
@@ -203,41 +206,6 @@ final class ScanMetadataLoaderTests: XCTestCase {
         return url
     }
 
-    private func makeScanMetadataLoader() -> ScanMetadataLoader {
-        #if DEBUG
-        ScanMetadataLoader(diagnostics: nil)
-        #else
-        ScanMetadataLoader()
-        #endif
-    }
-
-    private func makeScanMetadataLoader(
-        linkCountCapabilityCache: LinkCountCapabilityCache,
-        fileSystemInfoProvider: @escaping ScanMetadataLoader.FileSystemInfoProvider
-    ) -> ScanMetadataLoader {
-        #if DEBUG
-        ScanMetadataLoader(
-            diagnostics: nil,
-            linkCountCapabilityCache: linkCountCapabilityCache,
-            fileSystemInfoProvider: fileSystemInfoProvider
-        )
-        #else
-        ScanMetadataLoader(
-            linkCountCapabilityCache: linkCountCapabilityCache,
-            fileSystemInfoProvider: fileSystemInfoProvider
-        )
-        #endif
-    }
-
-    private func makeFileSystemInfoProvider(
-        _ provider: @escaping @Sendable (URL) -> (identity: FileIdentity?, linkCount: UInt64)
-    ) -> ScanMetadataLoader.FileSystemInfoProvider {
-        #if DEBUG
-        return { url, _ in provider(url) }
-        #else
-        return provider
-        #endif
-    }
 }
 
 private final class LinkCountProbeCounters: @unchecked Sendable {

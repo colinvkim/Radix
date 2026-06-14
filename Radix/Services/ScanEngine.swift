@@ -192,28 +192,22 @@ actor ScanEngine {
     private let directoryContents: DirectoryContentsProvider
     private let metadataLoader: ScanMetadataLoader
     private let atomicDirectorySummarizer: AtomicDirectorySummarizer
-    #if DEBUG
-    private let diagnostics: ScanDiagnostics?
-    #endif
+    private let diagnostics: ScanDiagnosticsContext?
 
     init(enumeratedDirectoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
         #if DEBUG
         let diagnostics = ScanDiagnostics.makeIfEnabled()
-        let metadataLoader = ScanMetadataLoader(diagnostics: diagnostics)
         #else
-        let metadataLoader = ScanMetadataLoader()
+        let diagnostics: ScanDiagnosticsContext? = nil
         #endif
+        let metadataLoader = ScanMetadataLoader(diagnostics: diagnostics)
         self.directoryContents = enumeratedDirectoryContents
         self.metadataLoader = metadataLoader
-        #if DEBUG
         self.atomicDirectorySummarizer = AtomicDirectorySummarizer(
             metadataLoader: metadataLoader,
             diagnostics: diagnostics
         )
         self.diagnostics = diagnostics
-        #else
-        self.atomicDirectorySummarizer = AtomicDirectorySummarizer(metadataLoader: metadataLoader)
-        #endif
     }
 
     init(directoryContents: @escaping URLDirectoryContentsProvider) {
