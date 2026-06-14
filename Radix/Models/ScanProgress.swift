@@ -27,7 +27,8 @@ struct ScanMetrics: Sendable {
     var enumeratedDirectoryCount = 0
     /// Directories discovered but not yet enumerated — the traversal frontier.
     var pendingDirectoryCount = 0
-    /// Items classified as traversable directories when they were discovered.
+    /// Traversable directories counted in the active scan frontier for progress extrapolation.
+    /// Final folder totals come from `ScanAggregateStats.directoryCount`, not this value.
     var discoveredDirectoryCount = 0
     var progressFraction = 0.0
     var isFinalizing = false

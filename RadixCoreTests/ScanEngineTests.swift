@@ -1849,6 +1849,52 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(finalMetrics.filesVisited, 20)
     }
 
+    func testAutoSummarizedDirectoryReleasesChildDirectoryDiscoveryCounts() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
+        let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+
+        for index in 0..<12 {
+            let shardURL = cacheURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: shardURL, withIntermediateDirectories: true)
+            try Data(repeating: UInt8(index), count: 32).write(to: shardURL.appending(path: "payload.tmp"))
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeMaxAverageFileSize = 256
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        let engine = ScanEngine()
+        var progressSnapshots: [ScanMetrics] = []
+        var finalSnapshot: ScanSnapshot?
+
+        for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
+            switch event {
+            case .progress(let metrics):
+                progressSnapshots.append(metrics)
+            case .finished(let snapshot):
+                finalSnapshot = snapshot
+            case .warning:
+                break
+            }
+        }
+
+        let snapshot = try XCTUnwrap(finalSnapshot)
+        let finalMetrics = try XCTUnwrap(progressSnapshots.last)
+        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+
+        XCTAssertTrue(cacheNode.isAutoSummarized)
+        XCTAssertEqual(finalMetrics.enumeratedDirectoryCount, 3)
+        XCTAssertEqual(finalMetrics.discoveredDirectoryCount, 3)
+        XCTAssertEqual(finalMetrics.pendingDirectoryCount, 0)
+        XCTAssertEqual(finalMetrics.progressFraction, 1, accuracy: 0.0001)
+    }
+
     func testDirectoryNotAutoSummarizedWhenFilesAreLarge() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

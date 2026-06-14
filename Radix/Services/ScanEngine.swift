@@ -736,6 +736,10 @@ actor ScanEngine {
                         // The summarized children will never be enqueued: count them as
                         // completed and release their frontier claims.
                         metrics.completedItems += childEntries.count
+                        metrics.discoveredDirectoryCount = max(
+                            metrics.discoveredDirectoryCount - childDirectoryCount,
+                            0
+                        )
                         metrics.pendingDirectoryCount = max(metrics.pendingDirectoryCount - childDirectoryCount, 0)
                         applyLeafMetrics(atomicNode, weight: item.weight, metrics: &metrics)
                         if !summary.warnings.isEmpty {
