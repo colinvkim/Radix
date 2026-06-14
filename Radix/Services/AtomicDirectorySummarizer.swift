@@ -149,6 +149,7 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
                 workerLimit: workerLimit,
                 ownerNodeID: ownerNodeID,
                 exclusionMatcher: exclusionMatcher,
+                metadataLoader: metadataLoader,
                 metrics: metrics,
                 continuation: continuation
             )

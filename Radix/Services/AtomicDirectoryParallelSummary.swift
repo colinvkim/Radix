@@ -170,6 +170,7 @@ extension AtomicDirectorySummarizer {
         workerLimit: Int,
         ownerNodeID: String,
         exclusionMatcher: ScanExclusionMatcher,
+        metadataLoader: ScanMetadataLoader,
         metrics: ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) async throws -> AtomicDirectorySummary? {
@@ -210,6 +211,7 @@ extension AtomicDirectorySummarizer {
                                 exclusionMatcher: exclusionMatcher,
                                 accumulator: accumulator,
                                 queue: queue,
+                                metadataLoader: metadataLoader,
                                 progressReporter: progressReporter
                             )
                             queue.finishCurrentItem()
@@ -240,6 +242,7 @@ extension AtomicDirectorySummarizer {
         exclusionMatcher: ScanExclusionMatcher,
         accumulator: AtomicSummaryAccumulator,
         queue: AtomicSummaryWorkQueue,
+        metadataLoader: ScanMetadataLoader,
         progressReporter: AtomicSummaryProgressReporter
     ) throws {
         try Task.checkCancellation()
@@ -291,7 +294,7 @@ extension AtomicDirectorySummarizer {
             let childMetadata: NodeMetadata
             do {
                 let values = try childURL.resourceValues(forKeys: ScanMetadataLoader.atomicSummaryResourceKeySet)
-                childMetadata = ScanMetadataLoader.nodeMetadata(for: childURL, resourceValues: values)
+                childMetadata = metadataLoader.metadata(for: childURL, prefetchedResourceValues: values)
             } catch {
                 accumulator.recordWarning(for: childURL, error: error)
                 continue

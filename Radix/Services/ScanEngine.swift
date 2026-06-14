@@ -449,6 +449,7 @@ actor ScanEngine {
         let effectiveDirectoryClassificationWorkerLimit = directoryTraversalWorkerLimit > 1
             ? 1
             : directoryClassificationWorkerLimit
+        let scanMetadataLoader = metadataLoader
         let directoryContentsProvider = directoryContents
         let directoryResourceKeys = ScanMetadataLoader.scanResourceKeys
 
@@ -593,6 +594,7 @@ actor ScanEngine {
                                     behavior: behavior,
                                     exclusionMatcher: exclusionMatcher,
                                     resourceKeys: directoryResourceKeys,
+                                    metadataLoader: scanMetadataLoader,
                                     directoryContents: directoryContentsProvider,
                                     classificationWorkerLimit: effectiveDirectoryClassificationWorkerLimit,
                                     cancellationCheck: cancellationCheck
@@ -1134,6 +1136,7 @@ actor ScanEngine {
         behavior: ScanBehavior,
         exclusionMatcher: ScanExclusionMatcher,
         resourceKeys: Set<URLResourceKey>,
+        metadataLoader: ScanMetadataLoader,
         directoryContents: DirectoryContentsProvider,
         classificationWorkerLimit: Int,
         cancellationCheck: @escaping CancellationCheck
@@ -1159,6 +1162,7 @@ actor ScanEngine {
             behavior: behavior,
             exclusionMatcher: exclusionMatcher,
             resourceKeys: resourceKeys,
+            metadataLoader: metadataLoader,
             workerLimit: classificationWorkerLimit,
             cancellationCheck: cancellationCheck
         )
@@ -1208,6 +1212,7 @@ actor ScanEngine {
         behavior: ScanBehavior,
         exclusionMatcher: ScanExclusionMatcher,
         resourceKeys: Set<URLResourceKey>,
+        metadataLoader: ScanMetadataLoader,
         workerLimit: Int,
         cancellationCheck: @escaping CancellationCheck
     ) async throws -> [DirectoryEntry] {
@@ -1220,6 +1225,7 @@ actor ScanEngine {
                 behavior: behavior,
                 exclusionMatcher: exclusionMatcher,
                 resourceKeys: resourceKeys,
+                metadataLoader: metadataLoader,
                 cancellationCheck: cancellationCheck
             ).map(\.entry)
         }
@@ -1246,6 +1252,7 @@ actor ScanEngine {
                         behavior: behavior,
                         exclusionMatcher: exclusionMatcher,
                         resourceKeys: resourceKeys,
+                        metadataLoader: metadataLoader,
                         cancellationCheck: cancellationCheck
                     )
                 }
@@ -1268,6 +1275,7 @@ actor ScanEngine {
         behavior: ScanBehavior,
         exclusionMatcher: ScanExclusionMatcher,
         resourceKeys: Set<URLResourceKey>,
+        metadataLoader: ScanMetadataLoader,
         cancellationCheck: CancellationCheck
     ) throws -> [(offset: Int, entry: DirectoryEntry)] {
         var entries: [(offset: Int, entry: DirectoryEntry)] = []
@@ -1281,9 +1289,9 @@ actor ScanEngine {
                 continue
             }
 
-            let childMetadata = try? ScanMetadataLoader.nodeMetadata(
+            let childMetadata = try? metadataLoader.metadata(
                 for: childURL,
-                resourceValues: childURL.resourceValues(forKeys: resourceKeys)
+                prefetchedResourceValues: childURL.resourceValues(forKeys: resourceKeys)
             )
             guard !exclusionMatcher.excludes(
                 childURL,

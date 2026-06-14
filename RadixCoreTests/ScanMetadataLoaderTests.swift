@@ -11,9 +11,10 @@ final class ScanMetadataLoaderTests: XCTestCase {
         try Data(repeating: 0xA5, count: 4_096).write(to: originalURL)
         try FileManager.default.linkItem(at: originalURL, to: linkedURL)
 
-        let metadata = ScanMetadataLoader.nodeMetadata(
+        let loader = ScanMetadataLoader(diagnostics: nil)
+        let metadata = loader.metadata(
             for: originalURL,
-            resourceValues: try resourceValuesWithoutIdentity(for: originalURL)
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: originalURL)
         )
 
         XCTAssertEqual(metadata.linkCount, 2)
@@ -30,13 +31,159 @@ final class ScanMetadataLoaderTests: XCTestCase {
         let missingURL = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString)
 
-        let metadata = ScanMetadataLoader.nodeMetadata(
+        let loader = ScanMetadataLoader(diagnostics: nil)
+        let metadata = loader.metadata(
             for: missingURL,
-            resourceValues: try resourceValuesWithoutIdentity(for: sourceURL)
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: sourceURL)
         )
 
         XCTAssertEqual(metadata.linkCount, 1)
         XCTAssertNil(metadata.fileIdentity)
+    }
+
+    func testMissingLinkCountOnVolumeWithoutHardLinksSkipsLstatAfterProbe() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let firstURL = rootURL.appending(path: "first.bin")
+        let secondURL = rootURL.appending(path: "second.bin")
+        try Data(repeating: 0xA5, count: 128).write(to: firstURL)
+        try Data(repeating: 0x5A, count: 128).write(to: secondURL)
+
+        let counters = LinkCountProbeCounters()
+        let cache = LinkCountCapabilityCache { _ in
+            counters.recordProbe()
+            return LinkCountCapabilityCache.ProbeResult(
+                volumeRootPath: rootURL.path,
+                supportsHardLinks: false
+            )
+        }
+        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { _, _ in
+            counters.recordLstat()
+            return (FileIdentity(device: 1, inode: 2), 2)
+        }
+        let loader = ScanMetadataLoader(
+            diagnostics: nil,
+            linkCountCapabilityCache: cache,
+            fileSystemInfoProvider: fileSystemInfoProvider
+        )
+
+        let firstMetadata = loader.metadata(
+            for: firstURL,
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: firstURL)
+        )
+        let secondMetadata = loader.metadata(
+            for: secondURL,
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: secondURL)
+        )
+
+        XCTAssertEqual(firstMetadata.linkCount, 1)
+        XCTAssertNil(firstMetadata.fileIdentity)
+        XCTAssertEqual(secondMetadata.linkCount, 1)
+        XCTAssertNil(secondMetadata.fileIdentity)
+        XCTAssertEqual(counters.probeCount, 1)
+        XCTAssertEqual(counters.lstatCount, 0)
+    }
+
+    func testMissingLinkCountOnHardLinkCapableVolumeStillUsesLstatWithCachedProbe() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let firstURL = rootURL.appending(path: "first.bin")
+        let secondURL = rootURL.appending(path: "second.bin")
+        try Data(repeating: 0xA5, count: 128).write(to: firstURL)
+        try Data(repeating: 0x5A, count: 128).write(to: secondURL)
+
+        let counters = LinkCountProbeCounters()
+        let cache = LinkCountCapabilityCache { _ in
+            counters.recordProbe()
+            return LinkCountCapabilityCache.ProbeResult(
+                volumeRootPath: rootURL.path,
+                supportsHardLinks: true
+            )
+        }
+        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { url, _ in
+            counters.recordLstat()
+            return (
+                FileIdentity(device: 1, inode: url.lastPathComponent == "first.bin" ? 10 : 11),
+                2
+            )
+        }
+        let loader = ScanMetadataLoader(
+            diagnostics: nil,
+            linkCountCapabilityCache: cache,
+            fileSystemInfoProvider: fileSystemInfoProvider
+        )
+
+        let firstMetadata = loader.metadata(
+            for: firstURL,
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: firstURL)
+        )
+        let secondMetadata = loader.metadata(
+            for: secondURL,
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: secondURL)
+        )
+
+        XCTAssertEqual(firstMetadata.linkCount, 2)
+        XCTAssertNotNil(firstMetadata.fileIdentity)
+        XCTAssertEqual(secondMetadata.linkCount, 2)
+        XCTAssertNotNil(secondMetadata.fileIdentity)
+        XCTAssertEqual(counters.probeCount, 1)
+        XCTAssertEqual(counters.lstatCount, 2)
+    }
+
+    func testNoHardLinkProbeWithoutVolumeRootDoesNotCacheWholeRoot() throws {
+        let rootWithoutVolumeURL = try makeTemporaryDirectory()
+        let rootWithVolumeURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: rootWithoutVolumeURL)
+            try? FileManager.default.removeItem(at: rootWithVolumeURL)
+        }
+
+        let fileWithoutVolumeURL = rootWithoutVolumeURL.appending(path: "without-volume.bin")
+        let fileWithVolumeURL = rootWithVolumeURL.appending(path: "with-volume.bin")
+        try Data(repeating: 0xA5, count: 128).write(to: fileWithoutVolumeURL)
+        try Data(repeating: 0x5A, count: 128).write(to: fileWithVolumeURL)
+
+        let counters = LinkCountProbeCounters()
+        let cache = LinkCountCapabilityCache { url in
+            counters.recordProbe()
+            if url.path.hasPrefix(rootWithoutVolumeURL.path) {
+                return LinkCountCapabilityCache.ProbeResult(
+                    volumeRootPath: nil,
+                    supportsHardLinks: false
+                )
+            }
+            return LinkCountCapabilityCache.ProbeResult(
+                volumeRootPath: rootWithVolumeURL.path,
+                supportsHardLinks: true
+            )
+        }
+        let fileSystemInfoProvider: ScanMetadataLoader.FileSystemInfoProvider = { _, _ in
+            counters.recordLstat()
+            return (FileIdentity(device: 1, inode: 12), 2)
+        }
+        let loader = ScanMetadataLoader(
+            diagnostics: nil,
+            linkCountCapabilityCache: cache,
+            fileSystemInfoProvider: fileSystemInfoProvider
+        )
+
+        let metadataWithoutVolume = loader.metadata(
+            for: fileWithoutVolumeURL,
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: fileWithoutVolumeURL)
+        )
+        let metadataWithVolume = loader.metadata(
+            for: fileWithVolumeURL,
+            prefetchedResourceValues: try resourceValuesWithoutIdentity(for: fileWithVolumeURL)
+        )
+
+        XCTAssertEqual(metadataWithoutVolume.linkCount, 1)
+        XCTAssertNil(metadataWithoutVolume.fileIdentity)
+        XCTAssertEqual(metadataWithVolume.linkCount, 2)
+        XCTAssertNotNil(metadataWithVolume.fileIdentity)
+        XCTAssertEqual(counters.probeCount, 2)
+        XCTAssertEqual(counters.lstatCount, 1)
     }
 
     private func resourceValuesWithoutIdentity(for url: URL) throws -> URLResourceValues {
@@ -57,5 +204,35 @@ final class ScanMetadataLoaderTests: XCTestCase {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+private final class LinkCountProbeCounters: @unchecked Sendable {
+    private let lock = NSLock()
+    private var probes = 0
+    private var lstats = 0
+
+    var probeCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return probes
+    }
+
+    var lstatCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return lstats
+    }
+
+    func recordProbe() {
+        lock.lock()
+        probes += 1
+        lock.unlock()
+    }
+
+    func recordLstat() {
+        lock.lock()
+        lstats += 1
+        lock.unlock()
     }
 }
