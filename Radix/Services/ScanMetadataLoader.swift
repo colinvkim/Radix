@@ -169,12 +169,12 @@ nonisolated struct ScanMetadataLoader: Sendable {
         }
         diagnostics?.record(operation: "metadata.lstat", url: url, startedAt: start)
         guard result == 0 else {
-            return (nil, 0)
+            return (nil, 1)
         }
 
         return (
             FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
-            UInt64(fileStat.st_nlink)
+            max(UInt64(fileStat.st_nlink), 1)
         )
     }
 
