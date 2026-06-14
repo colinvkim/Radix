@@ -1397,20 +1397,6 @@ actor ScanEngine {
         continuation.yield(.progress(metrics))
     }
 
-    private func emitProgressHeartbeat(
-        currentURL: URL,
-        metrics: inout ScanMetrics,
-        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
-        emissionState: inout ScanEmissionState
-    ) {
-        metrics.currentPath = currentURL.path
-        let now = Date()
-        guard now.timeIntervalSince(emissionState.lastProgressEmission) >= 0.15 else { return }
-
-        emissionState.lastProgressEmission = now
-        continuation.yield(.progress(metrics))
-    }
-
     private func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {
         guard metadata.isDirectory else { return false }
         guard !metadata.isSymbolicLink else { return false }
