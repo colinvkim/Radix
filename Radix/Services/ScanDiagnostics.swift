@@ -106,7 +106,7 @@ nonisolated final class ScanDiagnostics: @unchecked Sendable {
         }
 
         lines.append("RADIX_SCAN_DIAGNOSTICS slow_events")
-        for event in slowEvents.sorted(by: { $0.nanoseconds > $1.nanoseconds }).prefix(reportLimit) {
+        for event in slowEvents.prefix(reportLimit) {
             let itemText = event.itemCount.map { " items=\($0)" } ?? ""
             let detailText = event.detail.map { " \($0)" } ?? ""
             lines.append(
@@ -150,17 +150,23 @@ nonisolated final class ScanDiagnostics: @unchecked Sendable {
     private func recordSlowEvent(_ event: SlowEvent) {
         guard event.nanoseconds >= slowThresholdNanoseconds || slowEvents.count < reportLimit else {
             if let smallest = slowEvents.last, event.nanoseconds > smallest.nanoseconds {
-                slowEvents[slowEvents.count - 1] = event
-                slowEvents.sort { $0.nanoseconds > $1.nanoseconds }
+                slowEvents.removeLast()
+                insertSlowEvent(event)
             }
             return
         }
 
-        slowEvents.append(event)
-        slowEvents.sort { $0.nanoseconds > $1.nanoseconds }
+        insertSlowEvent(event)
         if slowEvents.count > reportLimit {
             slowEvents.removeLast(slowEvents.count - reportLimit)
         }
+    }
+
+    private func insertSlowEvent(_ event: SlowEvent) {
+        let insertionIndex = slowEvents.firstIndex { existingEvent in
+            event.nanoseconds > existingEvent.nanoseconds
+        } ?? slowEvents.endIndex
+        slowEvents.insert(event, at: insertionIndex)
     }
 
     private func sortedStats(_ stats: [String: OperationStats]) -> [(String, OperationStats)] {
