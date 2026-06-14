@@ -351,7 +351,7 @@ actor ScanEngine {
             finishedAt: Date(),
             warnings: warnings,
             isComplete: true,
-            expectedTotalBytes: exclusionMatcher.hasUserExclusions ? 0 : metrics.estimatedTotalBytes
+            expectedTotalBytes: exclusionMatcher.isEmpty ? metrics.estimatedTotalBytes : 0
         )
 
         metrics.isFinalizing = false

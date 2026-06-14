@@ -538,6 +538,31 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
     }
 
+    func testVolumeScanWithCloudStorageExclusionDoesNotAddSystemUnattributedNode() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileURL = rootURL.appending(path: "payload.bin")
+        let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        let cloudFileURL = cloudStorageURL.appending(path: "Dropbox/remote.bin")
+
+        try Data(repeating: 0x5A, count: 1_024).write(to: fileURL)
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
+
+        var options = ScanOptions()
+        options.cloudStorageRootPath = cloudStorageURL.path
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL, kind: .volume),
+            options: options
+        )
+
+        XCTAssertFalse(rootChildren(in: snapshot).contains(where: \.isSynthetic))
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+    }
+
     func testExcludedFilesDoNotContributeToParentSizeTotals() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1065,6 +1090,7 @@ final class ScanEngineTests: XCTestCase {
         let engine = ScanEngine()
         let target = ScanTarget(url: rootURL, kind: .volume)
         var options = ScanOptions()
+        options.includeCloudStorage = true
         options.cloudStorageRootPath = cloudStorageURL.path
         var finalSnapshot: ScanSnapshot?
 
