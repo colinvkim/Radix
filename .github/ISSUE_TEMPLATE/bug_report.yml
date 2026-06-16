@@ -1,6 +1,5 @@
 name: Bug Report
 description: Report reproducible Radix bug.
-title: ""
 labels:
   - bug
   - needs-triage
