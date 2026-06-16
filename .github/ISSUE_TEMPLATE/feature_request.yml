@@ -1,0 +1,81 @@
+name: Feature Request
+description: Suggest a focused Radix improvement.
+title: ""
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: checkboxes
+    id: latest_version
+    attributes:
+      label: Latest Version
+      description: Please confirm you are using the latest Radix release before requesting a feature.
+      options:
+        - label: I am using the latest version of Radix.
+          required: true
+
+  - type: dropdown
+    id: affected_area
+    attributes:
+      label: Affected Area
+      description: Pick the closest part of Radix.
+      options:
+        - Scan engine / scan progress estimation / scan results
+        - Onboarding / welcome screen
+        - Sunburst visualization
+        - File browser
+        - Inspector
+        - Sidebar / recent scans
+        - Settings
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Request Type
+      description: What kind of improvement is this?
+      options:
+        - New feature
+        - Existing feature improvement
+        - Performance improvement
+        - Accessibility improvement
+        - Workflow or usability improvement
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should Radix support or improve?
+      placeholder: Radix should let me compare two scans of the same folder to see what changed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: Why is this improvement needed?
+      placeholder: After a large cleanup, I cannot tell which folders grew again without rescanning and manually comparing results.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the behavior you want. Include UI details if they matter.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Add screenshots, mockups, links, or examples. Be mindful of private paths and file names.
+    validations:
+      required: false

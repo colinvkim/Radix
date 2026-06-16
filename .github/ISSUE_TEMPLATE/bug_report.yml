@@ -1,0 +1,121 @@
+name: Bug Report
+description: Report reproducible Radix bug.
+title: ""
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: dropdown
+    id: affected_area
+    attributes:
+      label: Affected Area
+      description: Pick the closest part of Radix.
+      options:
+        - Scan engine / scan progress estimation / scan results
+        - Onboarding / welcome screen
+        - Sunburst visualization
+        - File browser
+        - Inspector
+        - Sidebar / recent scans
+        - Settings
+        - Crash or hang
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What broke?
+      placeholder: Radix skipped files in ~/Library without showing a clear warning.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: List the actions that trigger the bug.
+      placeholder: |
+        1. Open Radix
+        2. Scan a folder or volume
+        3. Click a sunburst segment
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should Radix do instead?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      description: How often can you reproduce this?
+      options:
+        - Every time
+        - Often
+        - Sometimes
+        - Once
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scan_target
+    attributes:
+      label: Scan Target
+      description: If this involves scanning, what kind of path was scanned?
+      options:
+        - Home folder
+        - Desktop, Documents, or Downloads
+        - Library folder
+        - Applications folder
+        - Macintosh HD or startup volume
+        - External drive
+        - Network volume
+        - Package or app bundle
+        - Other
+    validations:
+      required: false
+
+  - type: input
+    id: radix_version
+    attributes:
+      label: Radix Version
+      description: App release where bug occurred.
+      placeholder: v1.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS Version
+      placeholder: macOS 26.5.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, Crash Report, Screenshots, or Diagnostics
+      description: Attach relevant evidence. Be mindful of private paths and file names.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: regression
+    attributes:
+      label: Regression
+      description: If this worked before, which Radix version or commit last worked?
+      placeholder: Worked in v1.0.0, broken on main@abc1234.
+    validations:
+      required: false
