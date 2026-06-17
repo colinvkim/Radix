@@ -20,21 +20,21 @@ It's built from scratch in Swift and SwiftUI, designed to feel like a natural pa
 
 ### Scanning
 
-- **Iterative file system traversal** — no recursion, no stack overflows, no hanging on deep `node_modules`
-- **Real-time progress** with smooth, blended metrics so you actually know how far along things are
-- **Auto-summarization** — directories with thousands of tiny files get collapsed into a single node, keeping scans fast and the UI clean
+- **Iterative file system traversal**
+- **Real-time progress** with smooth, blended metrics so you know how far along things are
+- **Auto-summarization** — directories with thousands of tiny files get collapsed into a single node
 - **Respects permissions** — works on ordinary folders without special privileges; warns you when protected paths (Mail, Safari, Messages) are skipped
 
 ### Visual Exploration
 
 - **Sunburst chart** — a radial treemap that shows your disk usage at a glance. Hover any segment to see what it is, double-click to drill down.
-- **File browser** — a sortable table with Name, Size, Kind, File Count, and Modified Date columns.
+- **File browser** — a sortable table with informative columns.
 - **Smart search** — filter just the current folder, or search the entire scan tree.
 - **Breadcrumb navigation** with back/forward history so you don't lose your place.
 
 ### Built for macOS
 
-- **Native SwiftUI app** — no web views, no Electron
+- **Native SwiftUI app**
 - **Sidebar** with Smart Locations (Macintosh HD, mounted volumes, Home, Desktop, Documents, Downloads, Library, Applications) and recent scans
 - **Inspector panel** showing detailed metadata: allocated vs. logical size, parent directory, access level, largest children
 - **File actions** — Reveal in Finder, Open, Copy Path, Move to Trash, all from context menus or the inspector
@@ -47,20 +47,20 @@ Radix works out of the box on any folder you can already access. For folders lik
 
 ## Requirements
 
-- **macOS 14.0 (Sonoma)** or later
+- **macOS Sonoma 14** or later
 - **Xcode 26+** with Swift 6.0 toolchain (for building from source)
 
 ## Installation
 
 ### Download the Latest Release
 
-Grab the latest release from the [Releases](https://github.com/colinvkim/radix/releases) page. Drag Radix into your Applications folder, and you're done.
+Grab the latest release from the [Releases](https://github.com/colinvkim/Radix/releases) page. Drag Radix into your Applications folder, and you're done.
 
 ## Building from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/colinvkim/radix.git
+git clone https://github.com/colinvkim/Radix.git
 cd radix
 
 # Build and run package tests
