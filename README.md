@@ -56,17 +56,6 @@ Radix works out of the box on any folder you can already access. For folders lik
 
 Grab the latest release from the [Releases](https://github.com/colinvkim/radix/releases) page. Drag Radix into your Applications folder, and you're done.
 
-## Settings
-
-Open **Radix > Settings** (or press `Cmd + ,`) to adjust:
-
-| Setting                           | What It Does                                                                  |
-| --------------------------------- | ----------------------------------------------------------------------------- |
-| **Show hidden files**             | Include dotfiles and hidden folders in scans                                  |
-| **Treat packages as directories** | Show `.app` bundles and other packages as expandable folders                  |
-| **Auto-summarize directories**    | Collapse directories with many small files into a single node for performance |
-| **Sunburst depth**                | How many rings to show in the sunburst chart (3–10, default 6)                |
-
 ## Building from Source
 
 ```bash
