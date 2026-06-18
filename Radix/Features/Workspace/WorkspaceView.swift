@@ -88,6 +88,7 @@ struct WorkspaceView: View {
                     Label("Choose Folder", systemImage: "folder.badge.plus")
                 }
                 .disabled(scanState.isScanning)
+                .help("Choose Folder")
 
                 if scanState.canStopScan {
                     Button {
@@ -95,6 +96,7 @@ struct WorkspaceView: View {
                     } label: {
                         Label("Stop", systemImage: "stop.fill")
                     }
+                    .help("Stop Scan")
                 } else {
                     Button {
                         actions.rescan()
@@ -102,6 +104,7 @@ struct WorkspaceView: View {
                         Label("Rescan", systemImage: "arrow.clockwise")
                     }
                     .disabled(!scanState.canRescan)
+                    .help("Rescan")
                 }
             }
             ToolbarItem(placement: .automatic) { Spacer() }

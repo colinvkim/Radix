@@ -185,6 +185,7 @@ private struct WorkspaceDetailView: View {
                         Label("Back", systemImage: "chevron.backward")
                     }
                     .disabled(!navigation.canNavigateBack)
+                    .help("Back")
 
                     Button {
                         actions.navigateForward()
@@ -192,6 +193,7 @@ private struct WorkspaceDetailView: View {
                         Label("Forward", systemImage: "chevron.forward")
                     }
                     .disabled(!navigation.canNavigateForward)
+                    .help("Forward")
                 }
             }
     }
