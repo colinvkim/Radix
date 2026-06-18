@@ -7,7 +7,18 @@ struct ActiveWorkspaceView: View {
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
     let maxRenderedDepth: Int
+    let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
+
+    // Dismissal is scoped to a single target scan: transformed snapshots keep it hidden.
+    @State private var dismissedWarningsScanScope: WarningDismissalScope?
+
+    private var shouldSuggestFullDiskAccess: Bool {
+        PermissionAdvisor.shouldSuggestFullDiskAccess(
+            for: snapshot,
+            fullDiskAccessStatus: fullDiskAccessStatus
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,11 +30,6 @@ struct ActiveWorkspaceView: View {
             )
 
             Divider()
-
-            if PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot) {
-                PermissionBanner(actions: actions)
-                Divider()
-            }
 
             resizableWorkspacePanes
         }
@@ -67,15 +73,25 @@ struct ActiveWorkspaceView: View {
                 actions: fileBrowserActions
             )
 
-            if !snapshot.scanWarnings.isEmpty {
+            if showsWarningFooter {
                 Divider()
                 WarningFooter(
                     warnings: snapshot.scanWarnings,
-                    shouldSuggestFullDiskAccess: PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot),
-                    actions: actions
+                    fullDiskAccessStatus: fullDiskAccessStatus,
+                    shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess,
+                    actions: actions,
+                    onDismiss: { dismissedWarningsScanScope = warningDismissalScope }
                 )
             }
         }
+    }
+
+    private var showsWarningFooter: Bool {
+        !snapshot.scanWarnings.isEmpty && dismissedWarningsScanScope != warningDismissalScope
+    }
+
+    private var warningDismissalScope: WarningDismissalScope {
+        WarningDismissalScope(targetID: snapshot.target.id, startedAt: snapshot.startedAt)
     }
 
     private var fileBrowserActions: FileBrowserActions {
@@ -87,4 +103,9 @@ struct ActiveWorkspaceView: View {
             selectedFileActions: actions.selectedFileActions
         )
     }
+}
+
+private struct WarningDismissalScope: Equatable {
+    let targetID: String
+    let startedAt: Date
 }

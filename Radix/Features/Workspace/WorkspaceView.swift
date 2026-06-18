@@ -49,6 +49,7 @@ struct WorkspaceView: View {
 
     let maxRenderedDepth: Int
     let startupDiskTarget: ScanTarget?
+    let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
 
     var body: some View {
@@ -61,6 +62,7 @@ struct WorkspaceView: View {
                     snapshot: snapshot,
                     focusNode: focusNode,
                     maxRenderedDepth: maxRenderedDepth,
+                    fullDiskAccessStatus: fullDiskAccessStatus,
                     actions: actions
                 )
             } else if scanState.isScanning {
