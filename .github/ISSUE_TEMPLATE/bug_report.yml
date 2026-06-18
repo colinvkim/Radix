@@ -4,6 +4,15 @@ labels:
   - bug
   - needs-triage
 body:
+  - type: checkboxes
+    id: latest_version
+    attributes:
+      label: Latest Version
+      description: Please confirm you are using the latest Radix release before reporting a bug.
+      options:
+        - label: I am using the latest version of Radix.
+          required: true
+
   - type: dropdown
     id: affected_area
     attributes:
