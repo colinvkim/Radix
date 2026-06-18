@@ -43,7 +43,7 @@ It's built from scratch in Swift and SwiftUI, designed to feel like a natural pa
 
 ### Privacy & Permissions
 
-Radix works out of the box on any folder you can already access. For folders like `~/Library` or Mail data, macOS may require **Full Disk Access**. Radix detects when files are skipped due to permissions and guides you through enabling it in System Settings — one click, no guesswork.
+Radix works out of the box on any folder you can already access. For folders like `~/Library` or Mail data, macOS may require **Full Disk Access**. Radix detects when files are skipped due to permissions and guides you through enabling it in System Settings.
 
 ## Requirements
 
@@ -52,9 +52,26 @@ Radix works out of the box on any folder you can already access. For folders lik
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install --cask radix
+```
+
+<details>
+<summary>Click here to read a quick note of gratitude from me</summary>
+
+When people began asking me to get Radix on Homebrew, I never imagined we'd get there so quickly. We only had half of the required stars, and I thought it might take a while before the project was ready.
+
+But here we are now. Radix is on Homebrew, and it's because of your incredible support. Thank you for all the stars, comments, and feedback. Moreover, thank you for giving Radix a chance. I am so, so grateful for the positive feedback you all have given me.
+
+I'm excited to continue improving Radix. Please keep the feedback coming, and thank you again!
+
+</details>
+
 ### Download the Latest Release
 
-Grab the latest release from the [Releases](https://github.com/colinvkim/Radix/releases) page. Drag Radix into your Applications folder, and you're done.
+Grab the latest release from the [Releases](https://github.com/colinvkim/Radix/releases) page, then drag Radix into your Applications folder.
 
 ## Building from Source
 
