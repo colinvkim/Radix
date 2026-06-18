@@ -31,11 +31,6 @@ struct ActiveWorkspaceView: View {
 
             Divider()
 
-            if shouldSuggestFullDiskAccess {
-                PermissionBanner(actions: actions)
-                Divider()
-            }
-
             resizableWorkspacePanes
         }
     }
