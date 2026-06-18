@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SelectionInspectorActions {
     let selectNodeAfterViewUpdate: (String?) -> Void
+    let selectAndFocusNodeAfterViewUpdate: (String) -> Void
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
@@ -40,7 +41,7 @@ struct SelectionInspectorView: View {
 
                     if !largestChildren.isEmpty {
                         InspectorLargestChildrenSection(children: largestChildren) { child in
-                            actions.selectNodeAfterViewUpdate(child.id)
+                            selectLargestChild(child)
                         }
                     }
 
@@ -111,5 +112,15 @@ struct SelectionInspectorView: View {
     private func expandSummarizedSelection() {
         guard let node = navigation.selectedNode else { return }
         actions.expandSummarizedNode(node)
+    }
+
+    private func selectLargestChild(_ child: FileNodeRecord) {
+        guard child.isDirectory,
+              scanState.fileTreeStore?.containsChildren(id: child.id) == true else {
+            actions.selectNodeAfterViewUpdate(child.id)
+            return
+        }
+
+        actions.selectAndFocusNodeAfterViewUpdate(child.id)
     }
 }

@@ -227,6 +227,7 @@ private extension ContentView {
     var selectionInspectorActions: SelectionInspectorActions {
         SelectionInspectorActions(
             selectNodeAfterViewUpdate: { appModel.selectAfterViewUpdate(nodeID: $0) },
+            selectAndFocusNodeAfterViewUpdate: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: previewSelectedFileActions,
