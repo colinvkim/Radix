@@ -852,6 +852,57 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(followUpFinished)
     }
 
+    func testNewScanCanFinishWhilePreviousEnumerationIsStillCancelling() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        let followUpURL = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: followUpURL)
+        }
+
+        let probe = BlockingDirectoryContentsProbe(blockedURL: rootURL)
+        let engine = ScanEngine(directoryContents: { url, _, _, _ in
+            try probe.contents(for: url)
+        })
+        let blockedScanTask = Task {
+            var didFinish = false
+            do {
+                for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+                    if case .finished = event {
+                        didFinish = true
+                    }
+                }
+            } catch is CancellationError {
+                return false
+            } catch {
+                return false
+            }
+            return didFinish
+        }
+        defer {
+            probe.release()
+            blockedScanTask.cancel()
+        }
+
+        try await probe.waitUntilBlocked()
+        blockedScanTask.cancel()
+
+        let followUpFinished = try await withTimeout(.seconds(1)) {
+            for try await event in engine.scan(target: ScanTarget(url: followUpURL), options: ScanOptions()) {
+                if case .finished = event {
+                    return true
+                }
+            }
+            return false
+        }
+
+        probe.release()
+        let blockedScanFinished = await blockedScanTask.value
+
+        XCTAssertTrue(followUpFinished)
+        XCTAssertFalse(blockedScanFinished)
+    }
+
     func testEnumeratedDirectoryContentsChecksCancellationBeforeMaterializingAllURLs() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2214,6 +2265,56 @@ private final class CancellableDirectoryContentsProbe: @unchecked Sendable {
         lock.lock()
         produced += 1
         lock.unlock()
+    }
+}
+
+private final class BlockingDirectoryContentsProbe: @unchecked Sendable {
+    private let blockedURL: URL
+    private let condition = NSCondition()
+    private var isBlocked = false
+    private var isReleased = false
+
+    init(blockedURL: URL) {
+        self.blockedURL = blockedURL
+    }
+
+    func contents(for url: URL) throws -> [URL] {
+        guard url == blockedURL else { return [] }
+
+        condition.lock()
+        defer { condition.unlock() }
+        isBlocked = true
+        condition.broadcast()
+        while !isReleased {
+            condition.wait()
+        }
+        return []
+    }
+
+    func waitUntilBlocked(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<200 {
+            if blocked {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for directory contents blocking.", file: file, line: line)
+    }
+
+    func release() {
+        condition.lock()
+        isReleased = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    private var blocked: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return isBlocked
     }
 }
 

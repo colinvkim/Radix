@@ -447,7 +447,14 @@ actor ScanEngine {
         }
     }
 
-    private func performScan(
+    // The scan path (`performScan` and the helpers it calls) is `nonisolated` on
+    // purpose. `ScanEngine`'s stored properties are all `let`, so the scan holds no
+    // actor-mutable state and isolation bought us nothing but serialization on the
+    // actor's executor — which let a previous, still-cancelling scan block a freshly
+    // started one from running. Keeping these `nonisolated` is what allows overlapping
+    // scans to make progress independently. Do not re-isolate without reintroducing
+    // that bug (see testNewScanCanFinishWhilePreviousEnumerationIsStillCancelling).
+    private nonisolated func performScan(
         target: ScanTarget,
         options: ScanOptions,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
@@ -507,7 +514,7 @@ actor ScanEngine {
     // MARK: - Iterative Directory Scanning
 
     /// Scans a directory iteratively (no recursion) and returns a fully assembled flat tree.
-    private func scanDirectory(
+    private nonisolated func scanDirectory(
         target: ScanTarget,
         includeVolumeDetails: Bool,
         options: ScanOptions,
@@ -1079,7 +1086,7 @@ actor ScanEngine {
 
     // MARK: - Helpers
 
-    private func applyLeafMetrics(_ node: FileNodeRecord, weight: Double, metrics: inout ScanMetrics) {
+    private nonisolated func applyLeafMetrics(_ node: FileNodeRecord, weight: Double, metrics: inout ScanMetrics) {
         if node.isDirectory {
             if !node.isAutoSummarized {
                 metrics.directoriesVisited += 1
@@ -1127,7 +1134,7 @@ actor ScanEngine {
     /// Removes an item's frontier claim once its fate is known (enumerated, leaf,
     /// duplicate, or unavailable). Uses the same classifier as discovery so the
     /// pending count stays balanced.
-    private func releasePendingDirectoryIfNeeded(for item: ScanWorkItem, metrics: inout ScanMetrics) {
+    private nonisolated func releasePendingDirectoryIfNeeded(for item: ScanWorkItem, metrics: inout ScanMetrics) {
         guard Self.isLikelyTraversableDirectory(
             metadata: item.metadata,
             url: item.url,
@@ -1148,7 +1155,7 @@ actor ScanEngine {
         return uniqueNodes
     }
 
-    private func insertNode(
+    private nonisolated func insertNode(
         _ node: FileNodeRecord,
         into nodesByID: inout [String: FileNodeRecord],
         warnings: inout [ScanWarning],
@@ -1165,7 +1172,7 @@ actor ScanEngine {
         return true
     }
 
-    private func recordDuplicateNode(
+    private nonisolated func recordDuplicateNode(
         at url: URL,
         weight: Double,
         metrics: inout ScanMetrics,
@@ -1182,7 +1189,7 @@ actor ScanEngine {
         maybeEmitProgress(metrics: metrics, continuation: continuation, emissionState: &emissionState)
     }
 
-    private func recordUnavailableItem(
+    private nonisolated func recordUnavailableItem(
         _ item: ScanWorkItem,
         itemKey: Int,
         error: Error,
@@ -1224,7 +1231,7 @@ actor ScanEngine {
         )
     }
 
-    private func makeUnavailableNode(for url: URL, isDirectory: Bool) -> FileNodeRecord {
+    private nonisolated func makeUnavailableNode(for url: URL, isDirectory: Bool) -> FileNodeRecord {
         FileNodeRecord(
             id: url.path,
             url: url,
@@ -1462,7 +1469,7 @@ actor ScanEngine {
         return true
     }
 
-    private func makeFileNode(
+    private nonisolated func makeFileNode(
         url: URL,
         metadata: NodeMetadata
     ) -> FileNodeRecord {
@@ -1484,7 +1491,7 @@ actor ScanEngine {
         )
     }
 
-    private func makeLeafNode(
+    private nonisolated func makeLeafNode(
         url: URL,
         metadata: NodeMetadata,
         options: ScanOptions,
@@ -1560,7 +1567,7 @@ actor ScanEngine {
         )
     }
 
-    private func makeSnapshot(
+    private nonisolated func makeSnapshot(
         target: ScanTarget,
         treeStore: FileTreeStore,
         startedAt: Date,
@@ -1582,7 +1589,7 @@ actor ScanEngine {
         )
     }
 
-    private func reconcileVolumeRoot(_ treeStore: FileTreeStore, for target: ScanTarget, expectedTotalBytes: Int64) -> FileTreeStore {
+    private nonisolated func reconcileVolumeRoot(_ treeStore: FileTreeStore, for target: ScanTarget, expectedTotalBytes: Int64) -> FileTreeStore {
         let root = treeStore.root
         guard target.kind == .volume, expectedTotalBytes > root.allocatedSize else {
             return treeStore
@@ -1652,7 +1659,7 @@ actor ScanEngine {
         )
     }
 
-    private func maybeEmitProgress(
+    private nonisolated func maybeEmitProgress(
         metrics: ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState
@@ -1667,7 +1674,7 @@ actor ScanEngine {
         continuation.yield(.progress(metrics))
     }
 
-    private func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {
+    private nonisolated func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {
         guard metadata.isDirectory else { return false }
         guard !metadata.isSymbolicLink else { return false }
         return !metadata.isPackage || options.treatPackagesAsDirectories
@@ -1676,7 +1683,7 @@ actor ScanEngine {
     /// A trustworthy total is only known for volume scans (the volume's used capacity).
     /// For directory scans the root's own allocated size says nothing about its contents,
     /// so no byte-based estimate is produced and progress relies on traversal weights.
-    private func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
+    private nonisolated func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
         guard target.kind == .volume, let volumeUsedCapacity = metadata.volumeUsedCapacity else {
             return 0
         }
