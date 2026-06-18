@@ -530,6 +530,66 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.root.logicalSize, 576)
     }
 
+    func testSkipsICloudDriveFolderByDefault() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let localFileURL = rootURL.appending(path: "local.txt")
+        let iCloudDriveURL = rootURL.appending(path: "Library/Mobile Documents", directoryHint: .isDirectory)
+        let cloudFileURL = iCloudDriveURL
+            .appending(path: "com~apple~CloudDocs", directoryHint: .isDirectory)
+            .appending(path: "remote.bin")
+
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 64).write(to: localFileURL)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
+
+        var options = ScanOptions()
+        options.iCloudDriveRootPath = iCloudDriveURL.path
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+
+        XCTAssertEqual(rootChildren(in: snapshot).map(\.name).sorted(), ["Library", "local.txt"])
+        XCTAssertTrue(children(of: libraryNode, in: snapshot).isEmpty)
+        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
+        XCTAssertEqual(snapshot.root.logicalSize, 64)
+    }
+
+    func testICloudDriveFolderCanBeIncluded() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let localFileURL = rootURL.appending(path: "local.txt")
+        let iCloudDriveURL = rootURL.appending(path: "Library/Mobile Documents", directoryHint: .isDirectory)
+        let cloudFileURL = iCloudDriveURL
+            .appending(path: "com~apple~CloudDocs", directoryHint: .isDirectory)
+            .appending(path: "remote.bin")
+
+        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x1, count: 64).write(to: localFileURL)
+        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
+
+        var options = ScanOptions()
+        options.includeCloudStorage = true
+        options.iCloudDriveRootPath = iCloudDriveURL.path
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: options
+        )
+        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let iCloudDriveNode = try XCTUnwrap(children(of: libraryNode, in: snapshot).first(where: { $0.name == "Mobile Documents" }))
+        let providerNode = try XCTUnwrap(children(of: iCloudDriveNode, in: snapshot).first(where: { $0.name == "com~apple~CloudDocs" }))
+
+        XCTAssertEqual(children(of: providerNode, in: snapshot).map(\.name), ["remote.bin"])
+        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
+        XCTAssertEqual(snapshot.root.logicalSize, 576)
+    }
+
     func testUsersCloudStorageWildcardIsSkippedByDefault() {
         let matcher = ScanExclusionMatcher(
             patterns: [],
@@ -550,6 +610,39 @@ final class ScanEngineTests: XCTestCase {
         )
 
         XCTAssertFalse(explicitMatcher.excludes(URL(filePath: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"), isDirectory: false))
+    }
+
+    func testUsersICloudDriveWildcardIsSkippedByDefault() {
+        let matcher = ScanExclusionMatcher(
+            patterns: [],
+            rootPath: "/Users",
+            includeCloudStorage: false,
+            cloudStorageRootPath: "/CustomHomes/colin/Library/CloudStorage",
+            iCloudDriveRootPath: "/CustomHomes/colin/Library/Mobile Documents"
+        )
+
+        XCTAssertTrue(matcher.excludes(URL(filePath: "/Users/alex/Library/Mobile Documents"), isDirectory: true))
+        XCTAssertTrue(matcher.excludes(URL(filePath: "/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/file.bin"), isDirectory: false))
+        XCTAssertFalse(matcher.excludes(URL(filePath: "/Users/alex/Library/Mobile Documents Backup"), isDirectory: true))
+
+        let includingMatcher = ScanExclusionMatcher(
+            patterns: [],
+            rootPath: "/Users",
+            includeCloudStorage: true,
+            cloudStorageRootPath: "/CustomHomes/colin/Library/CloudStorage",
+            iCloudDriveRootPath: "/CustomHomes/colin/Library/Mobile Documents"
+        )
+
+        XCTAssertFalse(includingMatcher.excludes(URL(filePath: "/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/file.bin"), isDirectory: false))
+
+        let explicitMatcher = ScanExclusionMatcher(
+            patterns: [],
+            rootPath: "/Users/alex/Library/Mobile Documents",
+            includeCloudStorage: false,
+            iCloudDriveRootPath: "/CustomHomes/colin/Library/Mobile Documents"
+        )
+
+        XCTAssertFalse(explicitMatcher.excludes(URL(filePath: "/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/file.bin"), isDirectory: false))
     }
 
     func testExplicitCloudStorageFolderScanIsAllowedByDefault() async throws {

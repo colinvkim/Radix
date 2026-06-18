@@ -16,20 +16,21 @@ nonisolated struct ScanExclusionMatcher: Sendable {
 
     private let rootPath: String
     private let patterns: [CompiledPattern]
-    private let excludedCloudStorageRootPath: String?
-    private let excludesUsersCloudStorage: Bool
+    private let cloudLocations: [CloudLocation]
 
     init(
         patterns: [String],
         rootURL: URL,
         includeCloudStorage: Bool,
-        cloudStorageRootPath: String = ScanOptions.defaultCloudStorageRootPath
+        cloudStorageRootPath: String = ScanOptions.defaultCloudStorageRootPath,
+        iCloudDriveRootPath: String = ScanOptions.defaultICloudDriveRootPath
     ) {
         self.init(
             patterns: patterns,
             rootPath: rootURL.standardizedFileURL.path,
             includeCloudStorage: includeCloudStorage,
-            cloudStorageRootPath: cloudStorageRootPath
+            cloudStorageRootPath: cloudStorageRootPath,
+            iCloudDriveRootPath: iCloudDriveRootPath
         )
     }
 
@@ -37,32 +38,30 @@ nonisolated struct ScanExclusionMatcher: Sendable {
         patterns: [String],
         rootPath: String,
         includeCloudStorage: Bool,
-        cloudStorageRootPath: String = ScanOptions.defaultCloudStorageRootPath
+        cloudStorageRootPath: String = ScanOptions.defaultCloudStorageRootPath,
+        iCloudDriveRootPath: String = ScanOptions.defaultICloudDriveRootPath
     ) {
         let normalizedRootPath = Self.normalizedRootPath(rootPath)
-        let normalizedCloudStorageRootPath = Self.normalizedRootPath(cloudStorageRootPath)
-        let explicitlyScanningCloudStorage = Self.path(
-            normalizedRootPath,
-            isEqualToOrDescendantOf: normalizedCloudStorageRootPath
-        ) || Self.isUsersCloudStoragePath(normalizedRootPath)
-        let currentCloudStorageCanMatch = Self.pathsOverlap(
-            normalizedRootPath,
-            normalizedCloudStorageRootPath
-        )
         self.rootPath = normalizedRootPath
         self.patterns = Self.normalizedPatterns(patterns).compactMap(CompiledPattern.init(rawPattern:))
-        self.excludedCloudStorageRootPath = includeCloudStorage
-            || explicitlyScanningCloudStorage
-            || !currentCloudStorageCanMatch
-            ? nil
-            : normalizedCloudStorageRootPath
-        self.excludesUsersCloudStorage = !includeCloudStorage
-            && !explicitlyScanningCloudStorage
-            && Self.usersCloudStorageRuleCanMatchDescendant(of: normalizedRootPath)
+        self.cloudLocations = [
+            Self.cloudLocation(
+                configuredRootPath: cloudStorageRootPath,
+                userRelativeComponents: ["Library", "CloudStorage"],
+                scanRootPath: normalizedRootPath,
+                includeCloudStorage: includeCloudStorage
+            ),
+            Self.cloudLocation(
+                configuredRootPath: iCloudDriveRootPath,
+                userRelativeComponents: ["Library", "Mobile Documents"],
+                scanRootPath: normalizedRootPath,
+                includeCloudStorage: includeCloudStorage
+            )
+        ]
     }
 
     var isEmpty: Bool {
-        patterns.isEmpty && excludedCloudStorageRootPath == nil && !excludesUsersCloudStorage
+        patterns.isEmpty && !cloudLocations.contains { $0.isActive }
     }
 
     var hasUserExclusions: Bool {
@@ -123,26 +122,44 @@ nonisolated struct ScanExclusionMatcher: Sendable {
     }
 
     private func excludesCloudStorage(path: String) -> Bool {
-        guard excludedCloudStorageRootPath != nil || excludesUsersCloudStorage else { return false }
         guard path != rootPath else { return false }
-
-        if let excludedCloudStorageRootPath {
-            if path == excludedCloudStorageRootPath {
-                return true
-            }
-
-            let rootPrefix = excludedCloudStorageRootPath.hasSuffix("/")
-                ? excludedCloudStorageRootPath
-                : "\(excludedCloudStorageRootPath)/"
-            if path.hasPrefix(rootPrefix) {
-                return true
-            }
-        }
-
-        return excludesUsersCloudStorage && Self.isUsersCloudStoragePath(path)
+        return cloudLocations.contains { $0.excludes(path: path) }
     }
 
-    private static func usersCloudStorageRuleCanMatchDescendant(of rootPath: String) -> Bool {
+    private static func cloudLocation(
+        configuredRootPath: String,
+        userRelativeComponents: [String],
+        scanRootPath: String,
+        includeCloudStorage: Bool
+    ) -> CloudLocation {
+        let normalizedConfiguredRootPath = normalizedRootPath(configuredRootPath)
+        let explicitlyScanning = path(
+            scanRootPath,
+            isEqualToOrDescendantOf: normalizedConfiguredRootPath
+        ) || isUsersCloudPath(scanRootPath, userRelativeComponents: userRelativeComponents)
+        let currentLocationCanMatch = pathsOverlap(scanRootPath, normalizedConfiguredRootPath)
+        let excludedRootPath = includeCloudStorage
+            || explicitlyScanning
+            || !currentLocationCanMatch
+            ? nil
+            : normalizedConfiguredRootPath
+        let excludesAnyUser = !includeCloudStorage
+            && !explicitlyScanning
+            && usersCloudRuleCanMatchDescendant(
+                of: scanRootPath,
+                userRelativeComponents: userRelativeComponents
+            )
+        return CloudLocation(
+            excludedRootPath: excludedRootPath,
+            excludesAnyUser: excludesAnyUser,
+            userRelativeComponents: userRelativeComponents
+        )
+    }
+
+    private static func usersCloudRuleCanMatchDescendant(
+        of rootPath: String,
+        userRelativeComponents: [String]
+    ) -> Bool {
         if rootPath == "/" || rootPath == "/Users" {
             return true
         }
@@ -150,22 +167,34 @@ nonisolated struct ScanExclusionMatcher: Sendable {
         let components = pathComponents(rootPath)
         guard components.first == "Users" else { return false }
 
-        switch components.count {
-        case 2:
+        // Full cloud path is /Users/<user>/<userRelativeComponents...>.
+        let fullCount = 2 + userRelativeComponents.count
+        if components.count < fullCount {
+            // Scan root is an ancestor of the cloud path; the components it does
+            // pin down must still match the cloud path's prefix.
+            for index in 2..<components.count where components[index] != userRelativeComponents[index - 2] {
+                return false
+            }
             return true
-        case 3:
-            return components[2] == "Library"
-        default:
-            return isUsersCloudStoragePath(rootPath)
         }
+
+        // Scan root is at or below the cloud path's depth; it can only contain a
+        // descendant of the rule when the root itself is the cloud path.
+        return isUsersCloudPath(rootPath, userRelativeComponents: userRelativeComponents)
     }
 
-    private static func isUsersCloudStoragePath(_ path: String) -> Bool {
+    fileprivate static func isUsersCloudPath(
+        _ path: String,
+        userRelativeComponents: [String]
+    ) -> Bool {
         let components = pathComponents(path)
-        guard components.count >= 4 else { return false }
-        return components[0] == "Users"
-            && components[2] == "Library"
-            && components[3] == "CloudStorage"
+        guard components.count >= 2 + userRelativeComponents.count else { return false }
+        guard components[0] == "Users" else { return false }
+        for (offset, expected) in userRelativeComponents.enumerated()
+        where components[2 + offset] != expected {
+            return false
+        }
+        return true
     }
 
     private static func pathComponents(_ path: String) -> [String] {
@@ -239,6 +268,40 @@ nonisolated struct ScanExclusionMatcher: Sendable {
         let rootPrefix = rootPath.hasSuffix("/") ? rootPath : "\(rootPath)/"
         guard path.hasPrefix(rootPrefix) else { return nil }
         return String(path.dropFirst(rootPrefix.count))
+    }
+}
+
+nonisolated private struct CloudLocation: Sendable {
+    /// Concrete cloud root (current user's) to exclude, or nil when not applicable
+    /// for this scan (e.g. the user opted in, or is explicitly scanning into it).
+    let excludedRootPath: String?
+    /// Whether the generic `/Users/*/<userRelativeComponents>` rule should apply,
+    /// so that broad scans (`/`, `/Users`, ...) skip every user's cloud root.
+    let excludesAnyUser: Bool
+    /// Path components after `/Users/<user>` identifying this cloud location,
+    /// e.g. `["Library", "CloudStorage"]` or `["Library", "Mobile Documents"]`.
+    let userRelativeComponents: [String]
+
+    var isActive: Bool {
+        excludedRootPath != nil || excludesAnyUser
+    }
+
+    func excludes(path: String) -> Bool {
+        if let excludedRootPath {
+            if path == excludedRootPath {
+                return true
+            }
+
+            let rootPrefix = excludedRootPath.hasSuffix("/")
+                ? excludedRootPath
+                : "\(excludedRootPath)/"
+            if path.hasPrefix(rootPrefix) {
+                return true
+            }
+        }
+
+        return excludesAnyUser
+            && ScanExclusionMatcher.isUsersCloudPath(path, userRelativeComponents: userRelativeComponents)
     }
 }
 

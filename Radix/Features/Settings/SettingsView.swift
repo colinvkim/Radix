@@ -47,7 +47,7 @@ private struct GeneralSettingsPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("When off, Radix skips ~/Library/CloudStorage, where Google Drive, Dropbox, OneDrive, and similar sync folders can live.")
+                Text("When off, Radix skips ~/Library/CloudStorage (Google Drive, Dropbox, OneDrive, and similar sync folders) and iCloud Drive at ~/Library/Mobile Documents.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

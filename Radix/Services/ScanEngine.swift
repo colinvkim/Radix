@@ -470,7 +470,8 @@ actor ScanEngine {
             patterns: options.exclusionPatterns,
             rootPath: options.exclusionRootPath ?? target.url.path,
             includeCloudStorage: options.includeCloudStorage,
-            cloudStorageRootPath: options.cloudStorageRootPath
+            cloudStorageRootPath: options.cloudStorageRootPath,
+            iCloudDriveRootPath: options.iCloudDriveRootPath
         )
 
         let treeStore = try await scanDirectory(

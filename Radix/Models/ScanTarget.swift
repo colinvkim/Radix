@@ -94,6 +94,7 @@ struct ScanOptions: Hashable, Sendable {
     var autoSummarizeDirectories = true
     var includeCloudStorage = false
     var cloudStorageRootPath = ScanOptions.defaultCloudStorageRootPath
+    var iCloudDriveRootPath = ScanOptions.defaultICloudDriveRootPath
     var exclusionPatterns: [String] = []
     var exclusionRootPath: String?
     /// Override for the minimum file count to trigger auto-summarization.
@@ -117,6 +118,11 @@ struct ScanOptions: Hashable, Sendable {
 
     nonisolated static let defaultCloudStorageRootPath = FileManager.default.homeDirectoryForCurrentUser
         .appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        .standardizedFileURL
+        .path
+
+    nonisolated static let defaultICloudDriveRootPath = FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Library/Mobile Documents", directoryHint: .isDirectory)
         .standardizedFileURL
         .path
 }
