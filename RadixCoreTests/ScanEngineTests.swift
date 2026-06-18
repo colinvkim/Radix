@@ -1781,6 +1781,39 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(children(of: cacheNode, in: snapshot).count, 100)
     }
 
+    func testCoreSimulatorDirectoryIsAutoSummarizedDespiteSparseImmediateChildren() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let coreSimulatorURL = rootURL.appending(
+            path: "Library/Developer/CoreSimulator",
+            directoryHint: .isDirectory
+        )
+        let appDataURL = coreSimulatorURL
+            .appending(path: "Devices/00000000-0000-0000-0000-000000000001/data/Containers/Data/Application")
+            .appending(path: "Example.appdata", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: appDataURL, withIntermediateDirectories: true)
+
+        for index in 0..<3 {
+            try Data(repeating: UInt8(index), count: 128)
+                .write(to: appDataURL.appending(path: "payload-\(index).bin"))
+        }
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions()
+        )
+
+        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let developerNode = try XCTUnwrap(children(of: libraryNode, in: snapshot).first(where: { $0.name == "Developer" }))
+        let coreSimulatorNode = try XCTUnwrap(children(of: developerNode, in: snapshot).first(where: { $0.name == "CoreSimulator" }))
+
+        XCTAssertTrue(coreSimulatorNode.isAutoSummarized)
+        XCTAssertFalse(containsChildren(coreSimulatorNode, in: snapshot))
+        XCTAssertEqual(coreSimulatorNode.descendantFileCount, 3)
+        XCTAssertGreaterThanOrEqual(coreSimulatorNode.logicalSize, 384)
+    }
+
     func testDirectoryIsAutoSummarizedWithLowThresholds() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

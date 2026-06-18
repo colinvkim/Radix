@@ -55,6 +55,8 @@ nonisolated struct AtomicDirectorySummarizer: Sendable {
         let deepCandidate: Bool
         if immediateCandidate {
             deepCandidate = true
+        } else if Self.isKnownGeneratedDirectory(at: url) {
+            deepCandidate = true
         } else {
             guard shouldRunDescendantAtomicProbe(
                 childEntries: childEntries,

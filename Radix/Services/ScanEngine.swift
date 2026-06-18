@@ -805,9 +805,11 @@ actor ScanEngine {
                     let maxAvgSize = options.autoSummarizeMaxAverageFileSize ?? AtomicDirectoryThresholds.maxAverageFileSize
                     let minDepth = options.autoSummarizeMinDepthForSummarization ?? AtomicDirectoryThresholds.minDepthForSummarization
                     let isNodeDependencyLayout = AtomicDirectorySummarizer.isNodeDependencyLayoutDirectory(at: item.url)
+                    let isKnownGeneratedDirectory = AtomicDirectorySummarizer.isKnownGeneratedDirectory(at: item.url)
                     let canProbeForAutoSummary =
                         item.depth >= minDepth ||
-                        (item.depth >= 1 && isNodeDependencyLayout)
+                        (item.depth >= 1 && isNodeDependencyLayout) ||
+                        isKnownGeneratedDirectory
                     var completedAsAtomicDirectory = false
                     if options.autoSummarizeDirectories,
                        canProbeForAutoSummary,
