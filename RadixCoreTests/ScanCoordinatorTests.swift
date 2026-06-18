@@ -263,6 +263,43 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testRemovingLargeSubtreeFromCurrentSnapshotUsesTransformService() async throws {
+        let service = ControlledScanService()
+        let transformService = RecordingSnapshotTransformService()
+        let coordinator = ScanCoordinator(
+            scanService: service,
+            snapshotTransformService: transformService,
+            progressThrottleDuration: .milliseconds(40)
+        )
+        let target = makeCoordinatorTarget("/root")
+        let removedFiles = (0..<600).map { index in
+            makeTestFileNode(
+                id: "/root/cache/file-\(index).dat",
+                name: "file-\(index).dat",
+                size: 1
+            )
+        }
+        let removedDirectory = makeTestDirectoryNode(id: "/root/cache", name: "cache", children: removedFiles)
+        let sibling = makeTestFileNode(id: "/root/readme.txt", name: "readme.txt", size: 25)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [removedDirectory, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [removedDirectory, sibling],
+            removedDirectory.id: removedFiles,
+        ])
+        let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
+        coordinator.replaceCurrentSnapshot(snapshot)
+
+        let didRemove = await coordinator.removeNodeFromCurrentSnapshot(id: removedDirectory.id)
+        let recordedRemovingNodeIDs = await transformService.recordedRemovingNodeIDs()
+
+        XCTAssertTrue(didRemove)
+        XCTAssertEqual(recordedRemovingNodeIDs, [removedDirectory.id])
+        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: removedDirectory.id))
+        XCTAssertEqual(coordinator.snapshot?.aggregateStats.fileCount, 1)
+        XCTAssertEqual(coordinator.fileTreeStore?.children(of: root.id).map(\.id), [sibling.id])
+    }
+
+    @MainActor
     func testAppModelScanLifecycleUsesInjectedCoordinatorState() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -632,6 +669,119 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelChildTrashRemovesNodeWithoutImmediateScanRequest() async throws {
+        let service = ControlledScanService()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let target = makeCoordinatorTarget("/app/trash-local")
+        let child = makeTestFileNode(id: target.id + "/deleted.txt", name: "deleted.txt", size: 20)
+        let sibling = makeTestFileNode(id: target.id + "/kept.txt", name: "kept.txt", size: 10)
+        let root = makeTestDirectoryNode(id: target.id, name: "trash-local", children: [child, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [child, sibling]])
+        let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
+        model.scanState.restoreCompletedSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.focus(nodeID: child.id)
+        model.select(nodeID: child.id)
+
+        model.pendingTrashNode = child
+        model.confirmMovePendingNodeToTrash()
+
+        try await waitUntil("trashed child removed from current snapshot") {
+            model.scanState.snapshot?.treeStore.node(id: child.id) == nil
+        }
+        XCTAssertNil(model.navigation.selectedNodeID)
+        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+        XCTAssertEqual(model.navigation.tableNodes.map(\.id), [sibling.id])
+        XCTAssertTrue(service.requests.isEmpty)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(service.requests.isEmpty)
+        model.cleanup()
+    }
+
+    @MainActor
+    func testAppModelMultipleChildTrashesProduceOneDebouncedRescan() async throws {
+        let service = ControlledScanService()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let target = makeCoordinatorTarget("/app/trash-burst")
+        let first = makeTestFileNode(id: target.id + "/first.txt", name: "first.txt", size: 20)
+        let second = makeTestFileNode(id: target.id + "/second.txt", name: "second.txt", size: 10)
+        let root = makeTestDirectoryNode(id: target.id, name: "trash-burst", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
+        model.scanState.restoreCompletedSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.pendingTrashNode = first
+        model.confirmMovePendingNodeToTrash()
+        try await waitUntil("first trashed child removed") {
+            model.scanState.snapshot?.treeStore.node(id: first.id) == nil
+        }
+        try await Task.sleep(for: .milliseconds(200))
+
+        model.pendingTrashNode = second
+        model.confirmMovePendingNodeToTrash()
+        try await waitUntil("second trashed child removed") {
+            model.scanState.snapshot?.treeStore.node(id: second.id) == nil
+        }
+        XCTAssertTrue(service.requests.isEmpty)
+
+        try await waitUntil("single debounced post-trash rescan", timeout: 2.5) {
+            service.requests.count == 1
+        }
+        XCTAssertEqual(service.requests.first?.target, target)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(service.requests.count, 1)
+        model.cleanup()
+    }
+
+    @MainActor
+    func testAppModelActiveRootTrashClearsScanWithoutRescan() async throws {
+        let service = ControlledScanService()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let target = makeCoordinatorTarget("/app/trash-root")
+        let child = makeTestFileNode(id: target.id + "/child.txt", name: "child.txt", size: 20)
+        let root = makeTestDirectoryNode(id: target.id, name: "trash-root", children: [child])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [child]])
+        let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
+        model.scanState.restoreCompletedSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.pendingTrashNode = root
+        model.confirmMovePendingNodeToTrash()
+
+        XCTAssertNil(model.scanState.snapshot)
+        XCTAssertNil(model.scanState.selectedTarget)
+        XCTAssertNil(model.navigation.focusedNodeID)
+        try await Task.sleep(for: .milliseconds(1_150))
+        XCTAssertTrue(service.requests.isEmpty)
+        model.cleanup()
+    }
+
+    @MainActor
     func testAppModelTrashActionClearsSidebarSnapshotCache() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/stale-first")
@@ -681,7 +831,7 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.pendingTrashNode = secondChild
         model.confirmMovePendingNodeToTrash()
-        try await waitUntil("post-trash rescan request") {
+        try await waitUntil("post-trash rescan request", timeout: 2.5) {
             service.requests.count == 3
         }
 
@@ -1205,6 +1355,55 @@ final class ScanCoordinatorTests: XCTestCase {
 private struct ControlledScanRequest {
     let target: ScanTarget
     let options: ScanOptions
+}
+
+private actor RecordingSnapshotTransformService: ScanSnapshotTransforming {
+    private var removingNodeIDs: [String] = []
+
+    func recordedRemovingNodeIDs() -> [String] {
+        removingNodeIDs
+    }
+
+    func replacingNode(
+        in snapshot: ScanSnapshot,
+        id targetID: String,
+        with replacement: FileTreeStore,
+        additionalWarnings: [ScanWarning]
+    ) async throws -> ScanSnapshot? {
+        try snapshot.replacingNode(
+            id: targetID,
+            with: replacement,
+            additionalWarnings: additionalWarnings,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
+    }
+
+    func removingNode(
+        in snapshot: ScanSnapshot,
+        id targetID: String
+    ) async throws -> ScanSnapshot? {
+        removingNodeIDs.append(targetID)
+        return try snapshot.removingNode(
+            id: targetID,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
+    }
+
+    func scopedSnapshot(
+        _ snapshot: ScanSnapshot,
+        to target: ScanTarget
+    ) async throws -> ScanSnapshot? {
+        try snapshot.scoped(
+            to: target,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
+    }
 }
 
 private final class ControlledScanService: ScanEventStreaming, @unchecked Sendable {

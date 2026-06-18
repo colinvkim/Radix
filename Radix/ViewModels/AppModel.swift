@@ -10,6 +10,11 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
+    private struct PostTrashRemovalRequest: Sendable {
+        let nodeID: FileNodeRecord.ID
+        let fallbackFocusID: FileNodeRecord.ID?
+    }
+
     private enum NavigationAction: Sendable {
         case select(FileNodeRecord.ID?)
         case focus(FileNodeRecord.ID?)
@@ -100,6 +105,7 @@ final class AppModel: ObservableObject {
 
     private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
     private static let scanPreferencePersistenceDebounce: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+    private static let postTrashRescanDelay: Duration = .seconds(1)
 
     private var cancellables = Set<AnyCancellable>()
     private var deferredScanStartTask: Task<Void, Never>?
@@ -108,6 +114,10 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
+    private var postTrashRescanTask: Task<Void, Never>?
+    private var postTrashRescanID: UUID?
+    private var postTrashRemovalTask: Task<Void, Never>?
+    private var postTrashRemovalRequests: [PostTrashRemovalRequest] = []
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
 
@@ -167,6 +177,8 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelPostTrashSnapshotRemoval()
+        cancelPostTrashRescan()
         sidebarScanCacheController.resetTransientState()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
@@ -181,6 +193,8 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelPostTrashSnapshotRemoval()
+        cancelPostTrashRescan()
         sidebarScanCacheController.clearActiveScanTracking()
         if scanCoordinator.canStopScan {
             scanCoordinator.stopScan()
@@ -191,6 +205,7 @@ final class AppModel: ObservableObject {
     }
 
     func suspendBackgroundActivity() {
+        cancelPostTrashRescan()
         quickLookController.closePreview()
     }
 
@@ -327,6 +342,8 @@ final class AppModel: ObservableObject {
         // "Publishing changes from within view updates is not allowed."
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
+        cancelPostTrashSnapshotRemoval()
+        cancelPostTrashRescan()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
         scheduleDeferredViewUpdate(
@@ -353,6 +370,18 @@ final class AppModel: ObservableObject {
         deferredNavigationActionID = nil
         deferredNavigationActionTask?.cancel()
         deferredNavigationActionTask = nil
+    }
+
+    private func cancelPostTrashSnapshotRemoval() {
+        postTrashRemovalRequests.removeAll()
+        postTrashRemovalTask?.cancel()
+        postTrashRemovalTask = nil
+    }
+
+    private func cancelPostTrashRescan() {
+        postTrashRescanID = nil
+        postTrashRescanTask?.cancel()
+        postTrashRescanTask = nil
     }
 
     private func scheduleDeferredViewUpdate(
@@ -393,6 +422,8 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelPostTrashSnapshotRemoval()
+        cancelPostTrashRescan()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
         if resetState, scanCoordinator.snapshot == nil {
@@ -514,6 +545,10 @@ final class AppModel: ObservableObject {
             return
         }
 
+        if scanCoordinator.selectedTarget?.id != target.id {
+            cancelPostTrashSnapshotRemoval()
+            cancelPostTrashRescan()
+        }
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarModel.setActiveTargetID(target.id)
         guard applyCachedOrContainedSidebarTarget(target) else { return }
@@ -597,12 +632,20 @@ final class AppModel: ObservableObject {
             sidebarScanCacheController.clearCache()
             switch ScanPostTrashAction.afterRemovingNode(activeTargetID: scanCoordinator.selectedTarget?.id, removedNodeID: node.id) {
             case .clearActiveScan:
+                cancelPostTrashSnapshotRemoval()
+                cancelPostTrashRescan()
                 scanCoordinator.clearScan()
                 navigationModel.reset()
                 sidebarModel.setActiveTargetID(nil)
                 sidebarScanCacheController.clearDisplayedSnapshot()
-            case .rescanActiveScan:
-                rescan()
+            case .removeFromActiveScan:
+                enqueuePostTrashSnapshotRemoval(
+                    nodeID: node.id,
+                    fallbackFocusID: postTrashFocusFallbackID(for: node)
+                )
+                if let selectedTarget = scanCoordinator.selectedTarget {
+                    schedulePostTrashRescan(for: selectedTarget)
+                }
             case .none:
                 break
             }
@@ -614,6 +657,82 @@ final class AppModel: ObservableObject {
 
     func cancelPendingTrash() {
         pendingTrashNode = nil
+    }
+
+    private func postTrashFocusFallbackID(for node: FileNodeRecord) -> FileNodeRecord.ID? {
+        guard let treeStore = scanCoordinator.fileTreeStore,
+              treeStore.isAncestor(node.id, of: navigationModel.focusedNodeID) else {
+            return nil
+        }
+
+        return treeStore.parent(of: node.id)?.id ?? treeStore.root.id
+    }
+
+    private func enqueuePostTrashSnapshotRemoval(
+        nodeID: FileNodeRecord.ID,
+        fallbackFocusID: FileNodeRecord.ID?
+    ) {
+        postTrashRemovalRequests.append(PostTrashRemovalRequest(
+            nodeID: nodeID,
+            fallbackFocusID: fallbackFocusID
+        ))
+        startPostTrashSnapshotRemovalIfNeeded()
+    }
+
+    private func startPostTrashSnapshotRemovalIfNeeded() {
+        guard postTrashRemovalTask == nil else { return }
+
+        postTrashRemovalTask = Task { @MainActor [weak self] in
+            while let self, !self.postTrashRemovalRequests.isEmpty {
+                if Task.isCancelled {
+                    self.postTrashRemovalRequests.removeAll()
+                    self.postTrashRemovalTask = nil
+                    return
+                }
+
+                let request = self.postTrashRemovalRequests.removeFirst()
+                let didRemove = await self.scanCoordinator.removeNodeFromCurrentSnapshot(id: request.nodeID)
+                guard !Task.isCancelled else {
+                    self.postTrashRemovalRequests.removeAll()
+                    self.postTrashRemovalTask = nil
+                    return
+                }
+
+                if didRemove,
+                   let fallbackFocusID = request.fallbackFocusID,
+                   self.scanCoordinator.fileTreeStore?.node(id: fallbackFocusID) != nil {
+                    self.navigationModel.setFocusedNodeID(fallbackFocusID)
+                }
+                self.navigationModel.reconcileAfterSnapshotApplied(self.scanCoordinator.snapshot)
+            }
+
+            self?.postTrashRemovalTask = nil
+        }
+    }
+
+    private func schedulePostTrashRescan(for target: ScanTarget) {
+        postTrashRescanTask?.cancel()
+
+        let rescanID = UUID()
+        postTrashRescanID = rescanID
+        postTrashRescanTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.postTrashRescanDelay)
+            } catch {
+                return
+            }
+
+            guard let self,
+                  self.postTrashRescanID == rescanID,
+                  !Task.isCancelled else {
+                return
+            }
+
+            self.postTrashRescanID = nil
+            self.postTrashRescanTask = nil
+            guard self.scanCoordinator.selectedTarget?.id == target.id else { return }
+            self.startScan(target)
+        }
     }
 
     func prepareAndOpenFullDiskAccessSettings() {

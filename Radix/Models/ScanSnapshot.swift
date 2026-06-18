@@ -42,6 +42,31 @@ struct ScanSnapshot: Identifiable, Sendable {
         treeStore.root
     }
 
+    nonisolated func removingNode(id targetID: String) -> ScanSnapshot? {
+        try? removingNode(id: targetID, cancellationCheck: {})
+    }
+
+    nonisolated func removingNode(
+        id targetID: String,
+        cancellationCheck: () throws -> Void
+    ) throws -> ScanSnapshot? {
+        try cancellationCheck()
+        guard let updatedStore = try treeStore.removingSubtree(
+            id: targetID,
+            cancellationCheck: cancellationCheck
+        ) else { return nil }
+
+        return ScanSnapshot(
+            target: target,
+            treeStore: updatedStore,
+            startedAt: startedAt,
+            finishedAt: finishedAt,
+            scanWarnings: scanWarnings,
+            aggregateStats: updatedStore.aggregateStats,
+            isComplete: isComplete
+        )
+    }
+
     nonisolated func replacingNode(
         id targetID: String,
         with replacement: FileTreeStore,

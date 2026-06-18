@@ -302,6 +302,76 @@ struct FileTreeStore: Sendable {
         return false
     }
 
+    nonisolated func removingSubtree(id targetID: String) -> FileTreeStore? {
+        try? removingSubtree(id: targetID, cancellationCheck: {})
+    }
+
+    nonisolated func removingSubtree(
+        id targetID: String,
+        cancellationCheck: () throws -> Void
+    ) throws -> FileTreeStore? {
+        try cancellationCheck()
+        guard nodesByID[targetID] != nil,
+              let parentID = parentIDByID[targetID] else {
+            return nil
+        }
+
+        let removedIDs = Set(try subtreeNodeIDs(
+            rootedAt: targetID,
+            cancellationCheck: cancellationCheck
+        ))
+        var updatedNodes = nodesByID
+        var updatedChildIDs = childIDsByID
+        var updatedParentIDs = parentIDByID
+
+        for (offset, removedID) in removedIDs.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            updatedNodes.removeValue(forKey: removedID)
+            updatedChildIDs.removeValue(forKey: removedID)
+            updatedParentIDs.removeValue(forKey: removedID)
+        }
+
+        let remainingParentChildIDs = (updatedChildIDs[parentID] ?? []).filter { !removedIDs.contains($0) }
+        if remainingParentChildIDs.isEmpty {
+            updatedChildIDs.removeValue(forKey: parentID)
+        } else {
+            updatedChildIDs[parentID] = remainingParentChildIDs
+        }
+
+        var cursor: String? = parentID
+        while let currentID = cursor {
+            try cancellationCheck()
+            guard let current = updatedNodes[currentID] else { break }
+            let childRecords = (updatedChildIDs[currentID] ?? []).compactMap { updatedNodes[$0] }
+            let sortedChildRecords = Self.sortedChildren(childRecords)
+            updatedNodes[currentID] = FileNodeRecord.directory(
+                id: current.id,
+                url: current.url,
+                name: current.name,
+                children: sortedChildRecords,
+                lastModified: current.lastModified,
+                isPackage: current.isPackage,
+                isAccessible: current.isSelfAccessible,
+                childrenAreSorted: true
+            )
+            if sortedChildRecords.isEmpty {
+                updatedChildIDs.removeValue(forKey: currentID)
+            } else {
+                updatedChildIDs[currentID] = sortedChildRecords.map(\.id)
+            }
+            cursor = updatedParentIDs[currentID]
+        }
+
+        return FileTreeStore(
+            rootID: rootID,
+            nodesByID: updatedNodes,
+            childIDsByID: updatedChildIDs,
+            parentIDByID: updatedParentIDs
+        )
+    }
+
     nonisolated func replacingSubtree(id targetID: String, with replacement: FileTreeStore) -> FileTreeStore? {
         try? replacingSubtree(id: targetID, with: replacement, cancellationCheck: {})
     }

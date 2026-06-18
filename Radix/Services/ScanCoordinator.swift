@@ -49,7 +49,7 @@ final class ScanCoordinator: ObservableObject {
     let progress: ScanProgressState
 
     private let scanService: any ScanEventStreaming
-    private let snapshotTransformService = ScanSnapshotTransformService()
+    private let snapshotTransformService: any ScanSnapshotTransforming
     private let progressThrottleDuration: Duration
     private let progressClock = ContinuousClock()
 
@@ -64,11 +64,13 @@ final class ScanCoordinator: ObservableObject {
 
     init(
         scanService: any ScanEventStreaming = ScanEngine(),
+        snapshotTransformService: any ScanSnapshotTransforming = ScanSnapshotTransformService(),
         progressThrottleDuration: Duration = .milliseconds(100),
         progress: ScanProgressState = ScanProgressState(),
         trashSafetyPolicy: TrashSafetyPolicy = .live()
     ) {
         self.scanService = scanService
+        self.snapshotTransformService = snapshotTransformService
         self.progressThrottleDuration = progressThrottleDuration
         self.progress = progress
         self.trashSafetyPolicy = trashSafetyPolicy
@@ -175,6 +177,38 @@ final class ScanCoordinator: ObservableObject {
         metrics.recalculateProgress(isComplete: true)
         scanMetrics = metrics
         phase = .displaying
+    }
+
+    @discardableResult
+    func removeNodeFromCurrentSnapshot(id nodeID: FileNodeRecord.ID) async -> Bool {
+        guard let currentSnapshot = snapshot else { return false }
+        let currentSnapshotID = currentSnapshot.id
+
+        if let expandingNodeID,
+           currentSnapshot.treeStore.isAncestor(nodeID, of: expandingNodeID) {
+            cancelExpansion(completeWith: .cancelled)
+        }
+
+        do {
+            guard let updatedSnapshot = try await snapshotTransformService.removingNode(
+                in: currentSnapshot,
+                id: nodeID
+            ) else { return false }
+            try Task.checkCancellation()
+            guard snapshot?.id == currentSnapshotID else { return false }
+
+            snapshot = updatedSnapshot
+            fileTreeStore = updatedSnapshot.treeStore
+            completedScanSnapshot = nil
+            if !isScanning {
+                phase = .displaying
+            }
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            return false
+        }
     }
 
     func expandSummarizedNode(

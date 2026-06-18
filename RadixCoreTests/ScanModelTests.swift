@@ -320,6 +320,87 @@ final class ScanModelTests: XCTestCase {
         XCTAssertNil(snapshot.replacingNode(id: "/root/missing", with: treeStore))
     }
 
+    func testSnapshotRemovingNodeRemovesSubtreeAndRebuildsAncestors() throws {
+        let removedLeaf = makeNode(
+            id: "/root/folder/removed.bin",
+            isDirectory: false,
+            isSynthetic: false,
+            isAccessible: true,
+            allocatedSize: 80
+        )
+        let keptLeaf = makeNode(
+            id: "/root/folder/kept.txt",
+            isDirectory: false,
+            isSynthetic: false,
+            isAccessible: true,
+            allocatedSize: 5
+        )
+        let folder = FileNodeRecord.directory(
+            id: "/root/folder",
+            url: URL(filePath: "/root/folder", directoryHint: .isDirectory),
+            name: "folder",
+            children: [removedLeaf, keptLeaf],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let sibling = makeNode(
+            id: "/root/sibling.txt",
+            isDirectory: false,
+            isSynthetic: false,
+            isAccessible: true,
+            allocatedSize: 20
+        )
+        let root = FileNodeRecord.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: [folder, sibling],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let treeStore = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder, sibling],
+            folder.id: [removedLeaf, keptLeaf],
+        ])
+        let warning = ScanWarning(path: removedLeaf.id, message: "kept", category: .fileSystem)
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore, warnings: [warning])
+
+        let updatedSnapshot = try XCTUnwrap(snapshot.removingNode(id: removedLeaf.id))
+
+        let updatedFolder = try XCTUnwrap(updatedSnapshot.treeStore.node(id: folder.id))
+        XCTAssertNil(updatedSnapshot.treeStore.node(id: removedLeaf.id))
+        XCTAssertEqual(updatedSnapshot.treeStore.children(of: folder.id).map(\.id), [keptLeaf.id])
+        XCTAssertEqual(updatedFolder.allocatedSize, 5)
+        XCTAssertEqual(updatedFolder.logicalSize, 5)
+        XCTAssertEqual(updatedFolder.descendantFileCount, 1)
+        XCTAssertEqual(updatedSnapshot.root.allocatedSize, 25)
+        XCTAssertEqual(updatedSnapshot.root.descendantFileCount, 2)
+        XCTAssertEqual(updatedSnapshot.treeStore.children(of: root.id).map(\.id), [sibling.id, folder.id])
+        XCTAssertEqual(updatedSnapshot.aggregateStats.totalAllocatedSize, 25)
+        XCTAssertEqual(updatedSnapshot.aggregateStats.fileCount, 2)
+        XCTAssertEqual(updatedSnapshot.aggregateStats.directoryCount, 2)
+        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [warning.path])
+    }
+
+    func testSnapshotRemovingMissingOrRootNodeReturnsNil() {
+        let root = FileNodeRecord.directory(
+            id: "/root",
+            url: URL(filePath: "/root", directoryHint: .isDirectory),
+            name: "root",
+            children: [],
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true
+        )
+        let treeStore = FileTreeStore(root: root)
+        let snapshot = makeSnapshot(root: root, treeStore: treeStore)
+
+        XCTAssertNil(snapshot.removingNode(id: "/root/missing"))
+        XCTAssertNil(snapshot.removingNode(id: root.id))
+    }
+
     func testSnapshotScopedToDescendantUsesSubtreeAndFiltersWarnings() throws {
         let docsFile = makeNode(id: "/root/Documents/report.pdf", isDirectory: false, isSynthetic: false, isAccessible: true)
         let cacheFile = makeNode(id: "/root/Library/cache.db", isDirectory: false, isSynthetic: false, isAccessible: true)
@@ -394,7 +475,7 @@ final class ScanModelTests: XCTestCase {
         )
         XCTAssertEqual(
             ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root/file.txt"),
-            .rescanActiveScan
+            .removeFromActiveScan
         )
         XCTAssertEqual(
             ScanPostTrashAction.afterRemovingNode(activeTargetID: nil, removedNodeID: "/scan/root"),

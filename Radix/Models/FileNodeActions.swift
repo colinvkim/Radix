@@ -113,12 +113,12 @@ struct FileNodeActionAvailability: Equatable, Sendable {
 
 enum ScanPostTrashAction: Equatable {
     case clearActiveScan
-    case rescanActiveScan
+    case removeFromActiveScan
     case none
 
     static func afterRemovingNode(activeTargetID: String?, removedNodeID: String) -> ScanPostTrashAction {
         guard let activeTargetID else { return .none }
-        return activeTargetID == removedNodeID ? .clearActiveScan : .rescanActiveScan
+        return activeTargetID == removedNodeID ? .clearActiveScan : .removeFromActiveScan
     }
 }
 
