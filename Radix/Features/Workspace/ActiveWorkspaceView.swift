@@ -10,8 +10,8 @@ struct ActiveWorkspaceView: View {
     let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
 
-    // Dismissal is scoped to a single scan: a new snapshot re-shows the footer.
-    @State private var dismissedWarningsSnapshotID: ScanSnapshot.ID?
+    // Dismissal is scoped to a single target scan: transformed snapshots keep it hidden.
+    @State private var dismissedWarningsScanScope: WarningDismissalScope?
 
     private var shouldSuggestFullDiskAccess: Bool {
         PermissionAdvisor.shouldSuggestFullDiskAccess(
@@ -80,14 +80,18 @@ struct ActiveWorkspaceView: View {
                     fullDiskAccessStatus: fullDiskAccessStatus,
                     shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess,
                     actions: actions,
-                    onDismiss: { dismissedWarningsSnapshotID = snapshot.id }
+                    onDismiss: { dismissedWarningsScanScope = warningDismissalScope }
                 )
             }
         }
     }
 
     private var showsWarningFooter: Bool {
-        !snapshot.scanWarnings.isEmpty && dismissedWarningsSnapshotID != snapshot.id
+        !snapshot.scanWarnings.isEmpty && dismissedWarningsScanScope != warningDismissalScope
+    }
+
+    private var warningDismissalScope: WarningDismissalScope {
+        WarningDismissalScope(targetID: snapshot.target.id, startedAt: snapshot.startedAt)
     }
 
     private var fileBrowserActions: FileBrowserActions {
@@ -99,4 +103,9 @@ struct ActiveWorkspaceView: View {
             selectedFileActions: actions.selectedFileActions
         )
     }
+}
+
+private struct WarningDismissalScope: Equatable {
+    let targetID: String
+    let startedAt: Date
 }
