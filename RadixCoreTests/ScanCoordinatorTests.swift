@@ -1230,6 +1230,36 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelStopClearsEmptySidebarSelectionSoSameTargetCanRestart() async throws {
+        let service = ControlledScanService()
+        let target = makeCoordinatorTarget("/app/sidebar-cancel-restart")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [target])
+            )
+        )
+
+        model.selectSidebarTarget(id: target.id)
+
+        try await waitUntil("initial sidebar scan starts") {
+            model.sidebar.activeTargetID == target.id && service.requests.count == 1
+        }
+
+        model.stopScan()
+
+        try await waitUntil("active sidebar target cleared after cancel") {
+            model.sidebar.activeTargetID == nil && service.terminationCount == 1
+        }
+
+        model.selectSidebarTarget(id: target.id)
+
+        try await waitUntil("same sidebar target restarts after cancel") {
+            model.sidebar.activeTargetID == target.id && service.requests.count == 2
+        }
+    }
+
+    @MainActor
     func testAppModelCleanupCancelsDeferredScanStart() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))

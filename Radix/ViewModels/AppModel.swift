@@ -427,6 +427,7 @@ final class AppModel: ObservableObject {
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
         if resetState, scanCoordinator.snapshot == nil {
+            sidebarModel.setActiveTargetID(nil)
             sidebarScanCacheController.clearDisplayedSnapshot()
         }
         scanCoordinator.stopScan(resetState: resetState)
