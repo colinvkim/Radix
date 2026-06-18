@@ -62,9 +62,9 @@ struct RadixApp: App {
         Window("Radix", id: "main") {
             ContentView()
                 .environmentObject(appModel)
-                .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 760, maxHeight: .infinity)
+                .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 620, maxHeight: .infinity)
         }
-        .defaultSize(width: 1480, height: 920)
+        .defaultSize(width: 1480, height: 820)
         .windowResizability(.contentMinSize)
         .commands {
             RadixCommands(
