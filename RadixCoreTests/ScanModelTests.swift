@@ -461,6 +461,58 @@ final class ScanModelTests: XCTestCase {
         ])
     }
 
+    func testPermissionAdvisorSuppressesSuggestionWhenFullDiskAccessGranted() {
+        let root = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let snapshot = makeSnapshot(
+            root: root,
+            treeStore: FileTreeStore(root: root),
+            warnings: [
+                ScanWarning(
+                    path: "/Users/example/Library/Mail",
+                    message: "Permission denied",
+                    category: .permissionDenied
+                )
+            ]
+        )
+
+        // FDA-unlockable warning present, but access is already granted: no nag.
+        XCTAssertFalse(
+            PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .granted)
+        )
+        XCTAssertTrue(
+            PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .notGranted)
+        )
+    }
+
+    func testPermissionAdvisorIgnoresSystemPathsFullDiskAccessCannotUnlock() {
+        let root = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
+        // Paths that stay unreadable even with FDA granted. These must never
+        // drive the suggestion, otherwise granting FDA never clears the prompt.
+        let snapshot = makeSnapshot(
+            root: root,
+            treeStore: FileTreeStore(root: root),
+            warnings: [
+                ScanWarning(
+                    path: "/Library/Caches/com.apple.iconservices.store",
+                    message: "Permission denied",
+                    category: .permissionDenied
+                ),
+                ScanWarning(
+                    path: "/Library/Application Support/com.apple.TCC",
+                    message: "Permission denied",
+                    category: .permissionDenied
+                )
+            ]
+        )
+
+        XCTAssertFalse(
+            PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .notGranted)
+        )
+        XCTAssertFalse(
+            PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .unknown)
+        )
+    }
+
     private func makeSnapshot(
         root: FileNodeRecord,
         treeStore: FileTreeStore,

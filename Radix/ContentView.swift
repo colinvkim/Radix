@@ -26,6 +26,7 @@ struct ContentView: View {
                 isInspectorPresented: $showsInspector,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 startupDiskTarget: appModel.startupDiskTarget,
+                fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 actions: workspaceActions
             )
         }
@@ -37,6 +38,7 @@ struct ContentView: View {
             SelectionInspectorView(
                 scanState: appModel.scanState,
                 navigation: appModel.navigation,
+                fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 actions: selectionInspectorActions
             )
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
@@ -166,6 +168,7 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let startupDiskTarget: ScanTarget?
+    let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
 
     var body: some View {
@@ -175,6 +178,7 @@ private struct WorkspaceDetailView: View {
             isInspectorPresented: $isInspectorPresented,
             maxRenderedDepth: maxRenderedDepth,
             startupDiskTarget: startupDiskTarget,
+            fullDiskAccessStatus: fullDiskAccessStatus,
             actions: actions
         )
             .toolbar {

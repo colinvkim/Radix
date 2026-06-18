@@ -374,7 +374,10 @@ private struct PrivacySettingsPane: View {
                     }
                 }
 
-                if PermissionAdvisor.shouldSuggestFullDiskAccess(for: scanState.snapshot) {
+                if PermissionAdvisor.shouldSuggestFullDiskAccess(
+                    for: scanState.snapshot,
+                    fullDiskAccessStatus: appModel.fullDiskAccessStatus
+                ) {
                     Label("Recent scan results suggest that protected folders were skipped.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .font(.callout)

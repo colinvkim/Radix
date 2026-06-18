@@ -7,7 +7,15 @@ struct ActiveWorkspaceView: View {
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
     let maxRenderedDepth: Int
+    let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
+
+    private var shouldSuggestFullDiskAccess: Bool {
+        PermissionAdvisor.shouldSuggestFullDiskAccess(
+            for: snapshot,
+            fullDiskAccessStatus: fullDiskAccessStatus
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,7 +28,7 @@ struct ActiveWorkspaceView: View {
 
             Divider()
 
-            if PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot) {
+            if shouldSuggestFullDiskAccess {
                 PermissionBanner(actions: actions)
                 Divider()
             }
@@ -71,7 +79,7 @@ struct ActiveWorkspaceView: View {
                 Divider()
                 WarningFooter(
                     warnings: snapshot.scanWarnings,
-                    shouldSuggestFullDiskAccess: PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot),
+                    shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess,
                     actions: actions
                 )
             }

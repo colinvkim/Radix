@@ -11,6 +11,7 @@ struct SelectionInspectorActions {
 struct SelectionInspectorView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: SelectionInspectorActions
 
     var body: some View {
@@ -70,7 +71,10 @@ struct SelectionInspectorView: View {
     }
 
     private var shouldSuggestFullDiskAccess: Bool {
-        PermissionAdvisor.shouldSuggestFullDiskAccess(for: scanState.snapshot)
+        PermissionAdvisor.shouldSuggestFullDiskAccess(
+            for: scanState.snapshot,
+            fullDiskAccessStatus: fullDiskAccessStatus
+        )
     }
 
     private var largestSelectedChildren: [FileNodeRecord] {

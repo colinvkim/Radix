@@ -297,15 +297,26 @@ private struct ProtectedPathProbe {
 }
 
 enum PermissionAdvisor {
+    // Fragments whose contents Full Disk Access actually unlocks. Note that the
+    // TCC directory itself (/Library/Application Support/com.apple.TCC) is
+    // root-owned/SIP-protected and stays unreadable even with FDA, so it must
+    // not be listed here — matching it would suggest FDA for a grant that can
+    // never resolve the warning.
     private static let fullDiskAccessProtectedPathFragments = [
         "/Library/Mail",
         "/Library/Messages",
         "/Library/Safari",
         "/Library/HomeKit",
-        "/Library/Application Support/com.apple.TCC",
     ]
 
-    static func shouldSuggestFullDiskAccess(for snapshot: ScanSnapshot?) -> Bool {
+    static func shouldSuggestFullDiskAccess(
+        for snapshot: ScanSnapshot?,
+        fullDiskAccessStatus: FullDiskAccessStatus
+    ) -> Bool {
+        // Don't nag for access that is already granted. Many system paths
+        // (e.g. /Library/Caches/com.apple.iconservices.store) stay unreadable
+        // regardless of FDA, so warning presence alone must not drive the prompt.
+        guard fullDiskAccessStatus != .granted else { return false }
         guard let snapshot else { return false }
         return snapshot.scanWarnings.contains(where: { warning in
             warning.category == .permissionDenied &&
