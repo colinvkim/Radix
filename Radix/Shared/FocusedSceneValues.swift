@@ -1,11 +1,21 @@
 import SwiftUI
 
+enum WorkspaceFocusTarget: Hashable {
+    case sidebar
+    case chart
+    case contents
+}
+
 private struct FileListFilterActionKey: FocusedValueKey {
     typealias Value = (FileBrowserFindTarget) -> Void
 }
 
 private struct InspectorVisibilityKey: FocusedValueKey {
     typealias Value = Binding<Bool>
+}
+
+private struct WorkspaceFocusActionKey: FocusedValueKey {
+    typealias Value = (WorkspaceFocusTarget) -> Void
 }
 
 extension FocusedValues {
@@ -17,5 +27,10 @@ extension FocusedValues {
     var inspectorVisibility: Binding<Bool>? {
         get { self[InspectorVisibilityKey.self] }
         set { self[InspectorVisibilityKey.self] = newValue }
+    }
+
+    var workspaceFocusAction: ((WorkspaceFocusTarget) -> Void)? {
+        get { self[WorkspaceFocusActionKey.self] }
+        set { self[WorkspaceFocusActionKey.self] = newValue }
     }
 }

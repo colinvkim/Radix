@@ -187,6 +187,15 @@ private extension WorkspaceNavigationState {
         return next.refreshedDerivedState()
     }
 
+    func navigatingToParent() -> WorkspaceNavigationState {
+        guard let focusNode = resolvedFocusNode,
+              let parent = fileTreeStore?.parent(of: focusNode.id) else {
+            return self
+        }
+
+        return focusing(parent.id, recordHistory: true)
+    }
+
     func resettingFocusToRoot() -> WorkspaceNavigationState {
         guard let rootID = fileTreeStore?.root.id else { return self }
 
@@ -299,6 +308,11 @@ final class WorkspaceNavigationModel: ObservableObject {
         state.resolvedFocusNode
     }
 
+    var currentFocusNodeParent: FileNodeRecord? {
+        guard let focusNode = currentFocusNode else { return nil }
+        return state.fileTreeStore?.parent(of: focusNode.id)
+    }
+
     var selectedNode: FileNodeRecord? {
         state.fileTreeStore?.node(id: selectedNodeID)
     }
@@ -323,6 +337,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     var canNavigateForward: Bool {
         !state.focusForwardStack.isEmpty
+    }
+
+    var canNavigateToParent: Bool {
+        currentFocusNodeParent != nil
     }
 
     var canClearSelection: Bool {
@@ -368,6 +386,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     func navigateForward() {
         publish(state.navigatingForward())
+    }
+
+    func navigateToParent() {
+        publish(state.navigatingToParent())
     }
 
     func resetFocusToRoot() {

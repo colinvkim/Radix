@@ -6,6 +6,7 @@ struct ActiveWorkspaceView: View {
 
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
+    @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let maxRenderedDepth: Int
     let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
@@ -63,6 +64,8 @@ struct ActiveWorkspaceView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(18)
+        .focusable()
+        .focused($focusedWorkspaceTarget, equals: .chart)
     }
 
     private var contentsPane: some View {
@@ -70,6 +73,7 @@ struct ActiveWorkspaceView: View {
             FileBrowserTableView(
                 scanState: scanState,
                 navigation: navigation,
+                focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 actions: fileBrowserActions
             )
 

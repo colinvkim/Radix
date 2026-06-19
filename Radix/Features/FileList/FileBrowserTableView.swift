@@ -11,6 +11,7 @@ struct FileBrowserActions {
 struct FileBrowserTableView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let actions: FileBrowserActions
 
     @StateObject private var model: FileBrowserModel
@@ -19,11 +20,13 @@ struct FileBrowserTableView: View {
     init(
         scanState: ScanCoordinator,
         navigation: WorkspaceNavigationModel,
+        focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
         actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
     ) {
         self.scanState = scanState
         self.navigation = navigation
+        self._focusedWorkspaceTarget = focusedWorkspaceTarget
         self.actions = actions
         _model = StateObject(wrappedValue: model())
     }
@@ -110,6 +113,7 @@ struct FileBrowserTableView: View {
             model.setSearchScope(target)
             isSearchFieldFocused = true
         }
+        .onExitCommand(perform: exitCommandHandler)
         .onAppear {
             updateModelContent()
         }
@@ -121,6 +125,11 @@ struct FileBrowserTableView: View {
         }
         .onChange(of: scanState.snapshot?.id) { _, _ in
             updateModelContent()
+        }
+        .onChange(of: focusedWorkspaceTarget) { _, target in
+            if target != nil {
+                isSearchFieldFocused = false
+            }
         }
     }
 
@@ -191,6 +200,7 @@ struct FileBrowserTableView: View {
         } primaryAction: { selectedIDs in
             performPrimaryAction(for: selectedIDs)
         }
+        .focused($focusedWorkspaceTarget, equals: .contents)
     }
 
     private func loadingContent(_ title: String) -> some View {
@@ -312,6 +322,19 @@ struct FileBrowserTableView: View {
                 trashSafetyPolicy: scanState.trashSafetyPolicy
             )
         )
+    }
+
+    private var exitCommandHandler: (() -> Void)? {
+        guard isSearchFieldFocused || !model.activeSearchText.isEmpty else { return nil }
+        return handleExitCommand
+    }
+
+    private func handleExitCommand() {
+        if !model.activeSearchText.isEmpty {
+            model.setActiveSearchText("")
+        } else {
+            isSearchFieldFocused = false
+        }
     }
 
     @ViewBuilder

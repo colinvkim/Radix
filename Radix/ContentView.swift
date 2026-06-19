@@ -14,16 +14,22 @@ struct ContentView: View {
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = true
+    @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
-            SidebarView(model: appModel.sidebar, actions: sidebarActions)
+            SidebarView(
+                model: appModel.sidebar,
+                focusedWorkspaceTarget: $focusedWorkspaceTarget,
+                actions: sidebarActions
+            )
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
         } detail: {
             WorkspaceDetailView(
                 scanState: appModel.scanState,
                 navigation: appModel.navigation,
                 isInspectorPresented: $showsInspector,
+                focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
@@ -31,6 +37,12 @@ struct ContentView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+        .focusedSceneValue(\.workspaceFocusAction) { target in
+            if target == .sidebar {
+                splitViewVisibility = .all
+            }
+            focusedWorkspaceTarget = target
+        }
         .background(WorkspaceWindowObserver { window in
             appModel.setWorkspaceWindowNumber(window?.windowNumber)
         })
@@ -165,6 +177,7 @@ private struct WorkspaceDetailView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @Binding var isInspectorPresented: Bool
+    @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     let maxRenderedDepth: Int
     let startupDiskTarget: ScanTarget?
@@ -176,6 +189,7 @@ private struct WorkspaceDetailView: View {
             scanState: scanState,
             navigation: navigation,
             isInspectorPresented: $isInspectorPresented,
+            focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,

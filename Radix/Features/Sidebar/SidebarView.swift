@@ -8,6 +8,7 @@ struct SidebarActions {
 
 struct SidebarView: View {
     @ObservedObject var model: SidebarModel
+    @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let actions: SidebarActions
 
     private var selection: Binding<String?> {
@@ -52,6 +53,7 @@ struct SidebarView: View {
         }
         .navigationTitle("Locations")
         .listStyle(.sidebar)
+        .focused($focusedWorkspaceTarget, equals: .sidebar)
     }
 }
 

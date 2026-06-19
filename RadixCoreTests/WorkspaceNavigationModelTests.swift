@@ -91,6 +91,35 @@ final class WorkspaceNavigationModelTests: XCTestCase {
     }
 
     @MainActor
+    func testNavigateToParentRecordsHistory() {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+
+        XCTAssertFalse(model.canNavigateToParent)
+        XCTAssertNil(model.currentFocusNodeParent)
+
+        model.focus(nodeID: fixture.docs.id)
+        model.select(nodeID: fixture.docFile.id)
+
+        XCTAssertTrue(model.canNavigateToParent)
+        XCTAssertEqual(model.currentFocusNodeParent?.id, fixture.root.id)
+
+        model.navigateToParent()
+
+        XCTAssertEqual(model.focusedNodeID, fixture.root.id)
+        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
+        XCTAssertNil(model.currentFocusNodeParent)
+        XCTAssertFalse(model.canNavigateToParent)
+        XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertTrue(model.canNavigateBack)
+        XCTAssertFalse(model.canNavigateForward)
+
+        model.navigateBack()
+        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
+    }
+
+    @MainActor
     func testResetFocusToRootClearsSelectionAndRecordsHistory() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -346,6 +375,10 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         XCTAssertEqual(model.navigation.focusedNodeID, fixture.cache.id)
 
         model.navigateBack()
+        XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
+
+        model.focus(nodeID: fixture.docs.id)
+        model.navigateToParent()
         XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
     }
 

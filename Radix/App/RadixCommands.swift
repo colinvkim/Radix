@@ -6,11 +6,32 @@ struct RadixCommands: Commands {
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusedValue(\.fileListFilterAction) private var fileListFilterAction
     @FocusedValue(\.inspectorVisibility) private var inspectorVisibility
+    @FocusedValue(\.workspaceFocusAction) private var workspaceFocusAction
 
     var body: some Commands {
         SidebarCommands()
 
         CommandGroup(after: .toolbar) {
+            Button("Focus Sidebar", systemImage: "sidebar.left") {
+                workspaceFocusAction?(.sidebar)
+            }
+            .keyboardShortcut("1")
+            .disabled(workspaceFocusAction == nil)
+
+            Button("Focus Chart", systemImage: "chart.pie") {
+                workspaceFocusAction?(.chart)
+            }
+            .keyboardShortcut("2")
+            .disabled(workspaceFocusAction == nil || scanState.snapshot == nil)
+
+            Button("Focus Contents", systemImage: "list.bullet") {
+                workspaceFocusAction?(.contents)
+            }
+            .keyboardShortcut("3")
+            .disabled(workspaceFocusAction == nil || scanState.snapshot == nil)
+
+            Divider()
+
             Button(inspectorToggleTitle, systemImage: "sidebar.trailing") {
                 inspectorVisibility?.wrappedValue.toggle()
             }
@@ -67,10 +88,18 @@ struct RadixCommands: Commands {
 
             Divider()
 
+            Button("Go to Parent", systemImage: "arrow.up") {
+                appModel.navigateToParent()
+            }
+            .keyboardShortcut(.upArrow, modifiers: [.command])
+            .disabled(!navigation.canNavigateToParent)
+
+            Divider()
+
             Button("Zoom Into Selection", systemImage: "plus.magnifyingglass") {
                 appModel.zoomIntoSelection()
             }
-            .keyboardShortcut(.return)
+            .keyboardShortcut(.downArrow, modifiers: [.command])
             .disabled(!navigation.canZoomIntoSelection)
 
             Button("Back to Scan Root", systemImage: "arrowshape.turn.up.backward") {

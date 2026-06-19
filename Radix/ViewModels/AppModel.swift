@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
         case selectAndFocus(FileNodeRecord.ID)
         case navigateBack
         case navigateForward
+        case navigateToParent
         case resetFocusToRoot
         case clearSelection
     }
@@ -489,6 +490,11 @@ final class AppModel: ObservableObject {
         performNavigationAction(.navigateForward)
     }
 
+    func navigateToParent() {
+        cancelDeferredNavigationAction()
+        performNavigationAction(.navigateToParent)
+    }
+
     func resetFocusToRoot() {
         cancelDeferredNavigationAction()
         performNavigationAction(.resetFocusToRoot)
@@ -517,6 +523,8 @@ final class AppModel: ObservableObject {
             navigationModel.navigateBack()
         case .navigateForward:
             navigationModel.navigateForward()
+        case .navigateToParent:
+            navigationModel.navigateToParent()
         case .resetFocusToRoot:
             navigationModel.resetFocusToRoot()
         case .clearSelection:

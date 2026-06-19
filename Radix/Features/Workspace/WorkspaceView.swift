@@ -46,6 +46,7 @@ struct WorkspaceView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @Binding var isInspectorPresented: Bool
+    @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     let maxRenderedDepth: Int
     let startupDiskTarget: ScanTarget?
@@ -61,6 +62,7 @@ struct WorkspaceView: View {
                     navigation: navigation,
                     snapshot: snapshot,
                     focusNode: focusNode,
+                    focusedWorkspaceTarget: $focusedWorkspaceTarget,
                     maxRenderedDepth: maxRenderedDepth,
                     fullDiskAccessStatus: fullDiskAccessStatus,
                     actions: actions
