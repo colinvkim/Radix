@@ -31,6 +31,7 @@ extension NSPasteboard: PathPasteboard {}
 
 enum SystemIntegration {
     typealias FullDiskAccessProbe = () throws -> Void
+    private nonisolated static let requiredReadableDataVaultProbeCount = 2
 
     enum SystemIntegrationError: LocalizedError {
         case openFailed(path: String)
@@ -218,40 +219,67 @@ enum SystemIntegration {
     private nonisolated static func probeFullDiskAccess() -> FullDiskAccessStatus {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
-        let candidates = [
+        let protectedDataVaultProbes = [
             ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Mail", directoryHint: .isDirectory), kind: .directory),
             ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Messages", directoryHint: .isDirectory), kind: .directory),
             ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Safari", directoryHint: .isDirectory), kind: .directory),
-            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/HomeKit", directoryHint: .isDirectory), kind: .directory),
-            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Application Support/com.apple.TCC/TCC.db"), kind: .file),
-            ProtectedPathProbe(url: URL(filePath: "/Library/Application Support/com.apple.TCC/TCC.db"), kind: .file)
+            ProtectedPathProbe(url: homeDirectory.appending(path: "Library/HomeKit", directoryHint: .isDirectory), kind: .directory)
         ]
-
-        let probes: [FullDiskAccessProbe] = candidates.compactMap { candidate in
-            guard fileManager.fileExists(atPath: candidate.url.path) else { return nil }
-            return {
-                try candidate.probe(using: fileManager)
+            .compactMap { candidate in
+                makeFullDiskAccessProbe(for: candidate, using: fileManager)
             }
-        }
 
-        return fullDiskAccessStatus(probes: probes)
+        let userTCCDatabaseProbe = makeFullDiskAccessProbe(
+            for: ProtectedPathProbe(
+                url: homeDirectory.appending(path: "Library/Application Support/com.apple.TCC/TCC.db"),
+                kind: .file
+            ),
+            using: fileManager
+        )
+
+        return fullDiskAccessStatus(
+            userTCCDatabaseProbe: userTCCDatabaseProbe,
+            protectedDataVaultProbes: protectedDataVaultProbes
+        )
     }
 
-    nonisolated static func fullDiskAccessStatus(probes: [FullDiskAccessProbe]) -> FullDiskAccessStatus {
-        var foundProtectedCandidate = false
+    nonisolated static func fullDiskAccessStatus(
+        userTCCDatabaseProbe: FullDiskAccessProbe?,
+        protectedDataVaultProbes: [FullDiskAccessProbe]
+    ) -> FullDiskAccessStatus {
+        let foundProtectedCandidate = userTCCDatabaseProbe != nil || !protectedDataVaultProbes.isEmpty
+        guard foundProtectedCandidate else { return .unknown }
+        guard let userTCCDatabaseProbe,
+              canReadFullDiskAccessProbe(userTCCDatabaseProbe) else {
+            return .notGranted
+        }
 
-        for probe in probes {
-            foundProtectedCandidate = true
-
-            do {
-                try probe()
-                return .granted
-            } catch {
-                continue
+        let readableDataVaultProbeCount = protectedDataVaultProbes.reduce(into: 0) { count, probe in
+            if canReadFullDiskAccessProbe(probe) {
+                count += 1
             }
         }
 
-        return foundProtectedCandidate ? .notGranted : .unknown
+        return readableDataVaultProbeCount >= requiredReadableDataVaultProbeCount ? .granted : .notGranted
+    }
+
+    private nonisolated static func makeFullDiskAccessProbe(
+        for candidate: ProtectedPathProbe,
+        using fileManager: FileManager
+    ) -> FullDiskAccessProbe? {
+        guard fileManager.fileExists(atPath: candidate.url.path) else { return nil }
+        return {
+            try candidate.probe(using: fileManager)
+        }
+    }
+
+    private nonisolated static func canReadFullDiskAccessProbe(_ probe: FullDiskAccessProbe) -> Bool {
+        do {
+            try probe()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private nonisolated static func deduplicate(_ targets: [ScanTarget]) -> [ScanTarget] {

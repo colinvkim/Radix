@@ -9,34 +9,52 @@ struct WarningFooter: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+        HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(summary)
-                    .font(.subheadline.weight(.semibold))
-                Text(warnings.first?.path ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if shouldSuggestFullDiskAccess {
-                Button("Open Full Disk Access") {
-                    actions.openFullDiskAccessSettings()
-                }
-            } else {
-                Button("Dismiss") {
-                    onDismiss()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(summary)
+                        .font(.subheadline.weight(.semibold))
+                    Text(warnings.first?.path ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            actionButtons
+                .controlSize(.small)
+                .fixedSize()
+                .layoutPriority(1)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            if shouldSuggestFullDiskAccess {
+                Button("Open Full Disk Access") {
+                    actions.openFullDiskAccessSettings()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Dismiss") {
+                    onDismiss()
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            } else {
+                Button("Dismiss") {
+                    onDismiss()
+                }
+                .buttonStyle(.bordered)
+            }
+        }
     }
 
     private var summary: String {

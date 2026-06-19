@@ -113,28 +113,45 @@ final class SystemIntegrationTests: XCTestCase {
     }
 
     func testFullDiskAccessStatusUsesInjectedProbes() {
-        XCTAssertEqual(SystemIntegration.fullDiskAccessStatus(probes: []), .unknown)
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: []
+            ),
+            .unknown
+        )
 
         XCTAssertEqual(
-            SystemIntegration.fullDiskAccessStatus(probes: [
-                { throw NSError(domain: "RadixTests", code: 1) }
-            ]),
+            SystemIntegration.fullDiskAccessStatus(
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: [successfulProbe, successfulProbe]
+            ),
             .notGranted
         )
 
-        var attempts = 0
-        let grantedStatus = SystemIntegration.fullDiskAccessStatus(probes: [
-            {
-                attempts += 1
-                throw NSError(domain: "RadixTests", code: 1)
-            },
-            {
-                attempts += 1
-            }
-        ])
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                userTCCDatabaseProbe: failedProbe,
+                protectedDataVaultProbes: [successfulProbe, successfulProbe]
+            ),
+            .notGranted
+        )
 
-        XCTAssertEqual(grantedStatus, .granted)
-        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                userTCCDatabaseProbe: successfulProbe,
+                protectedDataVaultProbes: [successfulProbe, failedProbe]
+            ),
+            .notGranted
+        )
+
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                userTCCDatabaseProbe: successfulProbe,
+                protectedDataVaultProbes: [successfulProbe, successfulProbe]
+            ),
+            .granted
+        )
     }
 
     func testMoveToTrashPreflightRejectsProtectedLocations() {
@@ -167,6 +184,16 @@ final class SystemIntegrationTests: XCTestCase {
                 URL(filePath: "/Applications/Example.app", directoryHint: .isDirectory)
             )
         )
+    }
+
+    private var successfulProbe: SystemIntegration.FullDiskAccessProbe {
+        {}
+    }
+
+    private var failedProbe: SystemIntegration.FullDiskAccessProbe {
+        {
+            throw NSError(domain: "RadixTests", code: 1)
+        }
     }
 }
 
