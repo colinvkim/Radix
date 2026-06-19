@@ -15,8 +15,13 @@ final class AppModel: ObservableObject {
         let fallbackFocusID: FileNodeRecord.ID?
     }
 
+    struct PendingTrashSelection {
+        let nodes: [FileNodeRecord]
+    }
+
     private enum NavigationAction: Sendable {
         case select(FileNodeRecord.ID?)
+        case selectMultiple(Set<FileNodeRecord.ID>, primary: FileNodeRecord.ID?)
         case focus(FileNodeRecord.ID?)
         case selectAndFocus(FileNodeRecord.ID)
         case navigateBack
@@ -94,6 +99,7 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var pendingTrashNode: FileNodeRecord?
+    @Published var pendingTrashSelection: PendingTrashSelection?
 
     private let dependencies: AppDependencies
     private let scanCoordinator: ScanCoordinator
@@ -439,8 +445,17 @@ final class AppModel: ObservableObject {
         performNavigationAction(.select(nodeID))
     }
 
+    func select(nodeIDs: Set<String>, primaryNodeID: String?) {
+        cancelDeferredNavigationAction()
+        performNavigationAction(.selectMultiple(nodeIDs, primary: primaryNodeID))
+    }
+
     func selectAfterViewUpdate(nodeID: String?) {
         scheduleDeferredNavigationAction(.select(nodeID))
+    }
+
+    func selectAfterViewUpdate(nodeIDs: Set<String>, primaryNodeID: String?) {
+        scheduleDeferredNavigationAction(.selectMultiple(nodeIDs, primary: primaryNodeID))
     }
 
     func focus(nodeID: String?) {
@@ -515,6 +530,8 @@ final class AppModel: ObservableObject {
         switch action {
         case .select(let nodeID):
             navigationModel.select(nodeID: nodeID)
+        case .selectMultiple(let nodeIDs, let primary):
+            navigationModel.select(nodeIDs: nodeIDs, primaryNodeID: primary)
         case .focus(let nodeID):
             navigationModel.focus(nodeID: nodeID)
         case .selectAndFocus(let nodeID):
@@ -577,8 +594,34 @@ final class AppModel: ObservableObject {
 
     func revealSelectedInFinder() {
         do {
+            let nodes = try validatedSelectedNodes()
+            if let node = nodes.first, nodes.count == 1 {
+                dependencies.systemActions.reveal(node.url)
+            } else {
+                dependencies.systemActions.revealMany(nodes.map(\.url))
+            }
+        } catch {
+            presentError(error)
+        }
+    }
+
+    func revealPrimarySelectionInFinder() {
+        do {
             let node = try validatedSelection()
             dependencies.systemActions.reveal(node.url)
+        } catch {
+            presentError(error)
+        }
+    }
+
+    func revealNodesInFinder(_ nodes: [FileNodeRecord]) {
+        do {
+            let nodes = try validatedNodes(nodes)
+            if let node = nodes.first, nodes.count == 1 {
+                dependencies.systemActions.reveal(node.url)
+            } else {
+                dependencies.systemActions.revealMany(nodes.map(\.url))
+            }
         } catch {
             presentError(error)
         }
@@ -607,6 +650,19 @@ final class AppModel: ObservableObject {
 
     func copySelectedPath() {
         do {
+            let nodes = try validatedSelectedNodes()
+            if let node = nodes.first, nodes.count == 1 {
+                try dependencies.systemActions.copyPath(node.url)
+            } else {
+                try dependencies.systemActions.copyPaths(nodes.map(\.url))
+            }
+        } catch {
+            presentError(error)
+        }
+    }
+
+    func copyPrimarySelectionPath() {
+        do {
             let node = try validatedSelection()
             try dependencies.systemActions.copyPath(node.url)
         } catch {
@@ -614,7 +670,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func copyPaths(for nodes: [FileNodeRecord]) {
+        do {
+            let nodes = try validatedNodes(nodes)
+            if let node = nodes.first, nodes.count == 1 {
+                try dependencies.systemActions.copyPath(node.url)
+            } else {
+                try dependencies.systemActions.copyPaths(nodes.map(\.url))
+            }
+        } catch {
+            presentError(error)
+        }
+    }
+
     func requestMoveSelectedToTrash() {
+        requestMoveNodesToTrash(navigationModel.selectedNodes)
+    }
+
+    func requestMovePrimarySelectionToTrash() {
         do {
             let node = try validatedSelection()
             guard node.supportsMoveToTrash(
@@ -623,49 +696,107 @@ final class AppModel: ObservableObject {
             ) else {
                 throw FileActionError.unsupported
             }
+
             pendingTrashNode = node
+            pendingTrashSelection = PendingTrashSelection(nodes: [node])
+        } catch {
+            presentError(error)
+        }
+    }
+
+    func requestMoveNodesToTrash(_ nodes: [FileNodeRecord]) {
+        do {
+            let nodes = try validatedNodes(nodes)
+            guard nodes.allSatisfy({ node in
+                node.supportsMoveToTrash(
+                    activeTarget: scanCoordinator.selectedTarget,
+                    trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+                )
+            }) else {
+                throw FileActionError.unsupported
+            }
+
+            let trashNodes = topLevelTrashNodes(from: nodes)
+            pendingTrashNode = trashNodes.first
+            pendingTrashSelection = PendingTrashSelection(nodes: trashNodes)
         } catch {
             presentError(error)
         }
     }
 
     func confirmMovePendingNodeToTrash() {
-        guard let node = pendingTrashNode else { return }
-        pendingTrashNode = nil
+        confirmMovePendingSelectionToTrash()
+    }
 
-        do {
+    func confirmMovePendingSelectionToTrash() {
+        let nodes = pendingTrashSelection?.nodes ?? pendingTrashNode.map { [$0] }
+        guard let nodes, !nodes.isEmpty else { return }
+        pendingTrashNode = nil
+        self.pendingTrashSelection = nil
+
+        var movedNodes: [FileNodeRecord] = []
+        var actionError: Error?
+
+        for node in nodes {
             guard dependencies.systemActions.fileExists(node.url) else {
-                throw FileActionError.unavailable(path: node.url.path)
+                actionError = FileActionError.unavailable(path: node.url.path)
+                break
             }
-            try dependencies.systemActions.moveToTrash(node.url)
+
+            do {
+                try dependencies.systemActions.moveToTrash(node.url)
+                movedNodes.append(node)
+            } catch {
+                actionError = error
+                break
+            }
+        }
+
+        if !movedNodes.isEmpty {
             sidebarScanCacheController.clearCache()
+            handleMovedToTrash(movedNodes)
+            refreshAvailableTargets()
+        }
+
+        if let actionError {
+            presentError(actionError)
+        }
+    }
+
+    private func handleMovedToTrash(_ nodes: [FileNodeRecord]) {
+        var shouldClearActiveScan = false
+        var shouldRescan = false
+
+        for node in nodes {
             switch ScanPostTrashAction.afterRemovingNode(activeTargetID: scanCoordinator.selectedTarget?.id, removedNodeID: node.id) {
             case .clearActiveScan:
-                cancelPostTrashSnapshotRemoval()
-                cancelPostTrashRescan()
-                scanCoordinator.clearScan()
-                navigationModel.reset()
-                sidebarModel.setActiveTargetID(nil)
-                sidebarScanCacheController.clearDisplayedSnapshot()
+                shouldClearActiveScan = true
             case .removeFromActiveScan:
                 enqueuePostTrashSnapshotRemoval(
                     nodeID: node.id,
                     fallbackFocusID: postTrashFocusFallbackID(for: node)
                 )
-                if let selectedTarget = scanCoordinator.selectedTarget {
-                    schedulePostTrashRescan(for: selectedTarget)
-                }
+                shouldRescan = true
             case .none:
                 break
             }
-            refreshAvailableTargets()
-        } catch {
-            presentError(error)
+        }
+
+        if shouldClearActiveScan {
+            cancelPostTrashSnapshotRemoval()
+            cancelPostTrashRescan()
+            scanCoordinator.clearScan()
+            navigationModel.reset()
+            sidebarModel.setActiveTargetID(nil)
+            sidebarScanCacheController.clearDisplayedSnapshot()
+        } else if shouldRescan, let selectedTarget = scanCoordinator.selectedTarget {
+            schedulePostTrashRescan(for: selectedTarget)
         }
     }
 
     func cancelPendingTrash() {
         pendingTrashNode = nil
+        pendingTrashSelection = nil
     }
 
     private func postTrashFocusFallbackID(for node: FileNodeRecord) -> FileNodeRecord.ID? {
@@ -795,6 +926,39 @@ final class AppModel: ObservableObject {
         return selectedNode
     }
 
+    private func validatedSelectedNodes() throws -> [FileNodeRecord] {
+        try validatedNodes(navigationModel.selectedNodes)
+    }
+
+    private func validatedNodes(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
+        guard !nodes.isEmpty else {
+            throw FileActionError.noSelection
+        }
+
+        for node in nodes {
+            guard node.supportsFileActions else {
+                throw FileActionError.unsupported
+            }
+            guard dependencies.systemActions.fileExists(node.url) else {
+                clearSelection()
+                throw FileActionError.unavailable(path: node.url.path)
+            }
+        }
+
+        return nodes
+    }
+
+    private func topLevelTrashNodes(from nodes: [FileNodeRecord]) -> [FileNodeRecord] {
+        guard let fileTreeStore = scanCoordinator.fileTreeStore else { return nodes }
+        let selectedIDs = Set(nodes.map(\.id))
+
+        return nodes.filter { node in
+            !selectedIDs.contains { selectedID in
+                selectedID != node.id && fileTreeStore.isAncestor(selectedID, of: node.id)
+            }
+        }
+    }
+
     private func isDirectoryURL(_ url: URL) -> Bool {
         dependencies.systemActions.isExistingDirectory(url)
     }
@@ -803,6 +967,7 @@ final class AppModel: ObservableObject {
         lastErrorMessage = nil
         navigationModel.reset()
         pendingTrashNode = nil
+        pendingTrashSelection = nil
         sidebarModel.setActiveTargetID(target.id)
 
         registerRecentTarget(target)
@@ -1013,7 +1178,10 @@ extension AppModel: AppQuickLookControllerDelegate {
     }
 
     var isQuickLookKeyboardShortcutBlocked: Bool {
-        showsOnboarding || pendingTrashNode != nil
+        showsOnboarding ||
+            pendingTrashNode != nil ||
+            pendingTrashSelection != nil ||
+            navigationModel.selectedNodeIDs.count > 1
     }
 
     func validatedSelectionForQuickLook() throws -> FileNodeRecord {

@@ -751,6 +751,43 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelBulkChildTrashRemovesNodesAndProducesOneDebouncedRescan() async throws {
+        let service = ControlledScanService()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in }
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: actions
+            )
+        )
+        let target = makeCoordinatorTarget("/app/trash-bulk")
+        let first = makeTestFileNode(id: target.id + "/first.txt", name: "first.txt", size: 20)
+        let second = makeTestFileNode(id: target.id + "/second.txt", name: "second.txt", size: 10)
+        let root = makeTestDirectoryNode(id: target.id, name: "trash-bulk", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
+        model.scanState.restoreCompletedSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.requestMoveNodesToTrash([first, second])
+        model.confirmMovePendingSelectionToTrash()
+
+        try await waitUntil("bulk trashed children removed") {
+            model.scanState.snapshot?.treeStore.node(id: first.id) == nil &&
+                model.scanState.snapshot?.treeStore.node(id: second.id) == nil
+        }
+        XCTAssertTrue(service.requests.isEmpty)
+
+        try await waitUntil("single debounced post-trash rescan", timeout: 2.5) {
+            service.requests.count == 1
+        }
+        XCTAssertEqual(service.requests.first?.target, target)
+        model.cleanup()
+    }
+
+    @MainActor
     func testAppModelActiveRootTrashClearsScanWithoutRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert

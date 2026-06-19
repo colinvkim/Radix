@@ -60,7 +60,9 @@ final class AppEventMonitorToken {
 struct AppSystemActions {
     var open: (URL) throws -> Void
     var reveal: (URL) -> Void
+    var revealMany: ([URL]) -> Void
     var copyPath: (URL) throws -> Void
+    var copyPaths: ([URL]) throws -> Void
     var moveToTrash: (URL) throws -> Void
     var quickLook: AppQuickLookActions
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
@@ -80,7 +82,9 @@ struct AppSystemActions {
     static let live = AppSystemActions(
         open: { try SystemIntegration.open($0) },
         reveal: { SystemIntegration.reveal($0) },
+        revealMany: { SystemIntegration.reveal($0) },
         copyPath: { try SystemIntegration.copyPath($0) },
+        copyPaths: { try SystemIntegration.copyPaths($0) },
         moveToTrash: { try SystemIntegration.moveToTrash($0) },
         quickLook: .live,
         prepareAndOpenFullDiskAccessSettings: {
@@ -143,7 +147,9 @@ struct AppSystemActions {
     static let inert = AppSystemActions(
         open: { _ in },
         reveal: { _ in },
+        revealMany: { _ in },
         copyPath: { _ in },
+        copyPaths: { _ in },
         moveToTrash: { _ in },
         quickLook: .disabled,
         prepareAndOpenFullDiskAccessSettings: { true },

@@ -3,9 +3,12 @@ import SwiftUI
 struct FileBrowserActions {
     let selectNode: (String?) -> Void
     let selectNodeAfterViewUpdate: (String?) -> Void
+    let selectNodes: (Set<String>, String?) -> Void
+    let selectNodesAfterViewUpdate: (Set<String>, String?) -> Void
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
+    let bulkFileActions: BulkFileActions
 }
 
 struct FileBrowserTableView: View {
@@ -31,16 +34,19 @@ struct FileBrowserTableView: View {
         _model = StateObject(wrappedValue: model())
     }
 
-    private var tableSelection: Binding<String?> {
+    private var tableSelection: Binding<Set<String>> {
         Binding(
             get: {
-                guard let selectedNodeID = navigation.selectedNodeID,
-                      model.displayedNode(id: selectedNodeID) != nil else { return nil }
-                return selectedNodeID
+                let displayedIDs = Set(model.displayedNodes.map(\.id))
+                return navigation.selectedNodeIDs.intersection(displayedIDs)
             },
             set: { newValue in
-                if navigation.selectedNodeID != newValue {
-                    actions.selectNodeAfterViewUpdate(newValue)
+                let displayedIDs = Set(model.displayedNodes.map(\.id))
+                let selectedIDs = newValue.intersection(displayedIDs)
+                let primaryID = primarySelectionID(in: selectedIDs)
+
+                if navigation.selectedNodeIDs != selectedIDs || navigation.selectedNodeID != primaryID {
+                    actions.selectNodesAfterViewUpdate(selectedIDs, primaryID)
                 }
             }
         )
@@ -262,28 +268,40 @@ struct FileBrowserTableView: View {
     @ViewBuilder
     private func fileContextMenu(for selectedIDs: Set<FileNodeRecord.ID>) -> some View {
         if let selection = selectionContext(for: selectedIDs) {
+            if selection.nodes.count > 1 {
+                bulkFileContextMenu(for: selection)
+            } else {
+                singleFileContextMenu(for: selection)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func singleFileContextMenu(for selection: FileBrowserSelectionContext) -> some View {
+        if let node = selection.primaryNode,
+           let id = selection.primaryID {
             fileActionButton(.quickLook, availability: selection.actionAvailability, selectedID: selection.id)
 
             fileActionButton(.revealInFinder, availability: selection.actionAvailability, selectedID: selection.id)
 
             fileActionButton(.open, availability: selection.actionAvailability, selectedID: selection.id)
 
-            if selection.node.isAutoSummarized {
-                let expansionIsActive = isExpanding(selection.node)
+            if node.isAutoSummarized {
+                let expansionIsActive = isExpanding(node)
                 Button(
                     expansionIsActive ? "Expanding…" : "Expand Fully",
                     systemImage: "arrowshape.turn.up.right.circle.fill"
                 ) {
-                    actions.selectNode(selection.id)
-                    expandSummarizedNode(selection.node)
+                    actions.selectNode(id)
+                    expandSummarizedNode(node)
                 }
                 .disabled(expansionIsActive)
             } else {
                 Button("Zoom In", systemImage: "magnifyingglass") {
-                    actions.selectNode(selection.id)
+                    actions.selectNode(id)
                     actions.zoomIntoSelection()
                 }
-                .disabled(!canRequestZoom(for: selection.node))
+                .disabled(!canRequestZoom(for: node))
             }
 
             Divider()
@@ -294,14 +312,40 @@ struct FileBrowserTableView: View {
         }
     }
 
+    @ViewBuilder
+    private func bulkFileContextMenu(for selection: FileBrowserSelectionContext) -> some View {
+        Button("Reveal in Finder", systemImage: FileNodeAction.revealInFinder.systemImageName) {
+            actions.selectNodes(selection.ids, selection.primaryID)
+            actions.bulkFileActions.revealInFinder(selection.nodes)
+        }
+        .disabled(!selection.actionAvailability.canRevealInFinder)
+
+        Button("Copy Paths", systemImage: FileNodeAction.copyPath.systemImageName) {
+            actions.selectNodes(selection.ids, selection.primaryID)
+            actions.bulkFileActions.copyPaths(selection.nodes)
+        }
+        .disabled(!selection.actionAvailability.canCopyPath)
+
+        Divider()
+
+        Button("Move \(selection.nodes.count) Items to Trash", systemImage: FileNodeAction.moveToTrash.systemImageName, role: .destructive) {
+            actions.selectNodes(selection.ids, selection.primaryID)
+            actions.bulkFileActions.moveToTrash(selection.nodes)
+        }
+        .disabled(!selection.actionAvailability.canMoveToTrash)
+    }
+
     private func performPrimaryAction(for selectedIDs: Set<FileNodeRecord.ID>) {
         guard let selection = selectionContext(for: selectedIDs) else { return }
+        guard selection.nodes.count == 1,
+              let node = selection.primaryNode,
+              let id = selection.primaryID else { return }
 
-        actions.selectNode(selection.id)
+        actions.selectNode(id)
 
-        if selection.node.isAutoSummarized && !isExpanding(selection.node) {
-            expandSummarizedNode(selection.node)
-        } else if canRequestZoom(for: selection.node) {
+        if node.isAutoSummarized && !isExpanding(node) {
+            expandSummarizedNode(node)
+        } else if canRequestZoom(for: node) {
             actions.zoomIntoSelection()
         } else if selection.actionAvailability.canOpen {
             actions.selectedFileActions.perform(.open)
@@ -309,19 +353,39 @@ struct FileBrowserTableView: View {
     }
 
     private func selectionContext(for selectedIDs: Set<FileNodeRecord.ID>) -> FileBrowserSelectionContext? {
-        guard let selectedID = selectedIDs.first,
-              let selectedNode = model.displayedNode(id: selectedID) else {
+        let nodes = selectedNodes(for: selectedIDs)
+        guard !nodes.isEmpty else {
             return nil
         }
 
+        let ids = Set(nodes.map(\.id))
+        let primaryID = primarySelectionID(in: ids)
+        let primaryNode = primaryID.flatMap { model.displayedNode(id: $0) } ?? nodes.first
+
         return FileBrowserSelectionContext(
-            id: selectedID,
-            node: selectedNode,
-            actionAvailability: selectedNode.actionAvailability(
+            ids: ids,
+            nodes: nodes,
+            primaryID: primaryNode?.id,
+            primaryNode: primaryNode,
+            actionAvailability: FileNodeActionAvailability(
+                nodes: nodes,
                 activeTarget: scanState.selectedTarget,
                 trashSafetyPolicy: scanState.trashSafetyPolicy
             )
         )
+    }
+
+    private func selectedNodes(for selectedIDs: Set<FileNodeRecord.ID>) -> [FileNodeRecord] {
+        model.displayedNodes.filter { selectedIDs.contains($0.id) }
+    }
+
+    private func primarySelectionID(in selectedIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
+        if let currentID = navigation.selectedNodeID,
+           selectedIDs.contains(currentID) {
+            return currentID
+        }
+
+        return model.displayedNodes.first(where: { selectedIDs.contains($0.id) })?.id
     }
 
     private var exitCommandHandler: (() -> Void)? {
@@ -352,7 +416,13 @@ struct FileBrowserTableView: View {
 }
 
 private struct FileBrowserSelectionContext {
-    let id: FileNodeRecord.ID
-    let node: FileNodeRecord
+    let ids: Set<FileNodeRecord.ID>
+    let nodes: [FileNodeRecord]
+    let primaryID: FileNodeRecord.ID?
+    let primaryNode: FileNodeRecord?
     let actionAvailability: FileNodeActionAvailability
+
+    var id: FileNodeRecord.ID {
+        primaryID ?? ids.sorted().first ?? ""
+    }
 }

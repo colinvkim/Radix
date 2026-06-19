@@ -10,12 +10,14 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.select(nodeID: fixture.docFile.id)
         XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
+        XCTAssertEqual(model.selectedNodeIDs, [fixture.docFile.id])
         XCTAssertEqual(model.selectedNode?.id, fixture.docFile.id)
         XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
         XCTAssertTrue(model.canClearSelection)
 
         model.select(nodeID: "/missing")
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedNodeIDs.isEmpty)
         XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
         XCTAssertFalse(model.canClearSelection)
 
@@ -25,6 +27,29 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.select(nodeID: nil)
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
+    }
+
+    @MainActor
+    func testSelectingMultipleNodesKeepsPrimarySelection() {
+        let fixture = makeNavigationFixture()
+        let model = makeConfiguredNavigationModel(fixture: fixture)
+
+        model.select(
+            nodeIDs: [fixture.cache.id, fixture.rootFile.id],
+            primaryNodeID: fixture.rootFile.id
+        )
+
+        XCTAssertEqual(model.selectedNodeID, fixture.rootFile.id)
+        XCTAssertEqual(model.selectedNodeIDs, [fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.selectedNodes.map(\.id), [fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.rootFile.id]))
+        XCTAssertTrue(model.canClearSelection)
+
+        model.focus(nodeID: fixture.docs.id)
+
+        XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedNodeIDs.isEmpty)
         XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
     }
 

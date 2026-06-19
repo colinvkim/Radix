@@ -134,7 +134,7 @@ struct RadixCommands: Commands {
 
     private var selectedActionAvailability: FileNodeActionAvailability {
         FileNodeActionAvailability(
-            node: navigation.selectedNode,
+            nodes: navigation.selectedNodes,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy
         )

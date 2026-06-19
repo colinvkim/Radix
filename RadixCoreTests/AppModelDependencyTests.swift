@@ -215,6 +215,65 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testMultiSelectedFileActionsUseInjectedBulkSystemActions() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.revealMany = { recorder.revealedManyURLs.append($0) }
+        actions.copyPaths = { recorder.copiedPathManyURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(root.id)
+        model.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
+
+        model.revealSelectedInFinder()
+        model.copySelectedPath()
+
+        XCTAssertEqual(recorder.revealedManyURLs, [[first.url, second.url]])
+        XCTAssertEqual(recorder.copiedPathManyURLs, [[first.url, second.url]])
+        XCTAssertNil(model.lastErrorMessage)
+    }
+
+    @MainActor
+    func testPrimarySelectedFileActionsUseOnlyPrimarySelection() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.reveal = { recorder.revealedURLs.append($0) }
+        actions.revealMany = { recorder.revealedManyURLs.append($0) }
+        actions.copyPath = { recorder.copiedPathURLs.append($0) }
+        actions.copyPaths = { recorder.copiedPathManyURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(root.id)
+        model.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
+
+        model.revealPrimarySelectionInFinder()
+        model.copyPrimarySelectionPath()
+        model.requestMovePrimarySelectionToTrash()
+
+        XCTAssertEqual(recorder.revealedURLs, [first.url])
+        XCTAssertTrue(recorder.revealedManyURLs.isEmpty)
+        XCTAssertEqual(recorder.copiedPathURLs, [first.url])
+        XCTAssertTrue(recorder.copiedPathManyURLs.isEmpty)
+        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [first.id])
+        XCTAssertEqual(model.pendingTrashNode?.id, first.id)
+        XCTAssertNil(model.lastErrorMessage)
+    }
+
+    @MainActor
     func testInstallsQuickLookKeyMonitorOnInit() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -475,6 +534,28 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertNil(model.pendingTrashNode)
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
+    func testRequestMoveNodesToTrashKeepsOnlyTopLevelSelectedNodes() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.requestMoveNodesToTrash([folder, child])
+
+        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
+        XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
     }
 
     @MainActor
@@ -798,7 +879,9 @@ private final class SpyRecentTargetPersistence: RecentTargetPersisting {
 private final class AppModelActionRecorder {
     var openedURLs: [URL] = []
     var revealedURLs: [URL] = []
+    var revealedManyURLs: [[URL]] = []
     var copiedPathURLs: [URL] = []
+    var copiedPathManyURLs: [[URL]] = []
     var movedToTrashURLs: [URL] = []
     var presentedQuickLookURLs: [URL] = []
     var toggledQuickLookURLs: [URL] = []

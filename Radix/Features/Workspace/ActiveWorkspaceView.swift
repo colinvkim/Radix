@@ -102,9 +102,12 @@ struct ActiveWorkspaceView: View {
         FileBrowserActions(
             selectNode: actions.selectNodeImmediately,
             selectNodeAfterViewUpdate: actions.selectNode,
+            selectNodes: actions.selectNodesImmediately,
+            selectNodesAfterViewUpdate: actions.selectNodes,
             expandSummarizedNode: actions.expandSummarizedNode,
             zoomIntoSelection: actions.zoomIntoSelection,
-            selectedFileActions: actions.selectedFileActions
+            selectedFileActions: actions.selectedFileActions,
+            bulkFileActions: actions.bulkFileActions
         )
     }
 }

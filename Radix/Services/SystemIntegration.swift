@@ -134,7 +134,11 @@ enum SystemIntegration {
     }
 
     static func reveal(_ url: URL, workspace: SystemWorkspace = NSWorkspace.shared) {
-        workspace.activateFileViewerSelecting([url])
+        reveal([url], workspace: workspace)
+    }
+
+    static func reveal(_ urls: [URL], workspace: SystemWorkspace = NSWorkspace.shared) {
+        workspace.activateFileViewerSelecting(urls)
     }
 
     static func open(_ url: URL, workspace: SystemWorkspace = NSWorkspace.shared) throws {
@@ -150,6 +154,21 @@ enum SystemIntegration {
 
         guard copiedPath && copiedURL else {
             throw SystemIntegrationError.copyPathFailed(path: url.path)
+        }
+    }
+
+    static func copyPaths(_ urls: [URL], pasteboard: PathPasteboard = NSPasteboard.general) throws {
+        guard let firstURL = urls.first else { return }
+        guard urls.count > 1 else {
+            try copyPath(firstURL, pasteboard: pasteboard)
+            return
+        }
+
+        pasteboard.clearContents()
+        let paths = urls.map(\.path).joined(separator: "\n")
+
+        guard pasteboard.setString(paths, forType: .string) else {
+            throw SystemIntegrationError.copyPathFailed(path: firstURL.path)
         }
     }
 

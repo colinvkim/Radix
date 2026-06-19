@@ -82,25 +82,24 @@ struct ContentView: View {
         .confirmationDialog(
             "Move to Trash?",
             isPresented: Binding(
-                get: { appModel.pendingTrashNode != nil },
+                get: { appModel.pendingTrashSelection != nil || appModel.pendingTrashNode != nil },
                 set: { newValue in
                     if !newValue {
                         appModel.cancelPendingTrash()
                     }
                 }
             ),
-            titleVisibility: .visible,
-            presenting: appModel.pendingTrashNode
-        ) { _ in
+            titleVisibility: .visible
+        ) {
             Button("Move to Trash", role: .destructive) {
-                appModel.confirmMovePendingNodeToTrash()
+                appModel.confirmMovePendingSelectionToTrash()
             }
 
             Button("Cancel", role: .cancel) {
                 appModel.cancelPendingTrash()
             }
-        } message: { node in
-            Text("Radix will ask macOS to move “\(node.name)” to the Trash.")
+        } message: {
+            Text(pendingTrashMessage)
         }
         .onDisappear {
             appModel.setWorkspaceWindowNumber(nil)
@@ -227,6 +226,8 @@ private extension ContentView {
             handleDroppedURLs: { appModel.handleDroppedURLs($0) },
             selectNodeImmediately: { appModel.select(nodeID: $0) },
             selectNode: { appModel.selectAfterViewUpdate(nodeID: $0) },
+            selectNodesImmediately: { appModel.select(nodeIDs: $0, primaryNodeID: $1) },
+            selectNodes: { appModel.selectAfterViewUpdate(nodeIDs: $0, primaryNodeID: $1) },
             focusNode: { appModel.focusAfterViewUpdate(nodeID: $0) },
             selectAndFocusNode: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             navigateBack: { appModel.navigateBack() },
@@ -234,6 +235,7 @@ private extension ContentView {
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: previewSelectedFileActions,
+            bulkFileActions: bulkFileActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
@@ -244,8 +246,18 @@ private extension ContentView {
             selectAndFocusNodeAfterViewUpdate: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
-            selectedFileActions: previewSelectedFileActions,
+            selectedFileActions: primarySelectedFileActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
+        )
+    }
+
+    var primarySelectedFileActions: SelectedFileActions {
+        SelectedFileActions(
+            quickLook: { appModel.previewSelectedWithQuickLook() },
+            revealInFinder: { appModel.revealPrimarySelectionInFinder() },
+            open: { appModel.openSelected() },
+            copyPath: { appModel.copyPrimarySelectionPath() },
+            moveToTrash: { appModel.requestMovePrimarySelectionToTrash() }
         )
     }
 
@@ -257,5 +269,21 @@ private extension ContentView {
             copyPath: { appModel.copySelectedPath() },
             moveToTrash: { appModel.requestMoveSelectedToTrash() }
         )
+    }
+
+    var bulkFileActions: BulkFileActions {
+        BulkFileActions(
+            revealInFinder: { appModel.revealNodesInFinder($0) },
+            copyPaths: { appModel.copyPaths(for: $0) },
+            moveToTrash: { appModel.requestMoveNodesToTrash($0) }
+        )
+    }
+
+    var pendingTrashMessage: String {
+        let nodes = appModel.pendingTrashSelection?.nodes ?? appModel.pendingTrashNode.map { [$0] } ?? []
+        guard nodes.count != 1 else {
+            return "Radix will ask macOS to move “\(nodes[0].name)” to the Trash."
+        }
+        return "Radix will ask macOS to move \(nodes.count) selected items to the Trash."
     }
 }

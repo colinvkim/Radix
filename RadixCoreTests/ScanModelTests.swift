@@ -153,6 +153,24 @@ final class ScanModelTests: XCTestCase {
         )
     }
 
+    func testMultiNodeActionAvailabilityAllowsOnlyBulkSafeActions() {
+        let first = makeNode(id: "/Users/example/Downloads/first.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let second = makeNode(id: "/Users/example/Downloads/second.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let syntheticNode = makeNode(id: "/Users/example/Downloads/system", isDirectory: false, isSynthetic: true, isAccessible: true)
+
+        let availability = FileNodeActionAvailability(nodes: [first, second], activeTarget: nil)
+        XCTAssertFalse(availability.canOpen)
+        XCTAssertFalse(availability.canPreviewWithQuickLook)
+        XCTAssertTrue(availability.canRevealInFinder)
+        XCTAssertTrue(availability.canCopyPath)
+        XCTAssertTrue(availability.canMoveToTrash)
+
+        let mixedAvailability = FileNodeActionAvailability(nodes: [first, syntheticNode], activeTarget: nil)
+        XCTAssertFalse(mixedAvailability.canRevealInFinder)
+        XCTAssertFalse(mixedAvailability.canCopyPath)
+        XCTAssertFalse(mixedAvailability.canMoveToTrash)
+    }
+
     func testFileNodeActionsDescribePresentationAndAvailability() {
         let availability = FileNodeActionAvailability(
             canOpen: true,

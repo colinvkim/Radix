@@ -109,6 +109,45 @@ struct FileNodeActionAvailability: Equatable, Sendable {
             ) == true
         )
     }
+
+    init(
+        nodes: [FileNodeRecord],
+        activeTarget: ScanTarget?,
+        trashSafetyPolicy: TrashSafetyPolicy = .live()
+    ) {
+        guard !nodes.isEmpty else {
+            self.init(
+                canOpen: false,
+                canPreviewWithQuickLook: false,
+                canRevealInFinder: false,
+                canCopyPath: false,
+                canMoveToTrash: false
+            )
+            return
+        }
+
+        guard nodes.count > 1 else {
+            self.init(
+                node: nodes.first,
+                activeTarget: activeTarget,
+                trashSafetyPolicy: trashSafetyPolicy
+            )
+            return
+        }
+
+        self.init(
+            canOpen: false,
+            canPreviewWithQuickLook: false,
+            canRevealInFinder: nodes.allSatisfy(\.supportsFileActions),
+            canCopyPath: nodes.allSatisfy(\.supportsFileActions),
+            canMoveToTrash: nodes.allSatisfy {
+                $0.supportsMoveToTrash(
+                    activeTarget: activeTarget,
+                    trashSafetyPolicy: trashSafetyPolicy
+                )
+            }
+        )
+    }
 }
 
 enum ScanPostTrashAction: Equatable {

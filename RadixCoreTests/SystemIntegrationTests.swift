@@ -35,6 +35,18 @@ final class SystemIntegrationTests: XCTestCase {
         XCTAssertEqual(workspace.revealedSelections, [[url]])
     }
 
+    func testRevealSelectsRequestedURLs() {
+        let urls = [
+            URL(filePath: "/tmp/first.txt"),
+            URL(filePath: "/tmp/second.txt")
+        ]
+        let workspace = WorkspaceSpy(openResult: true)
+
+        SystemIntegration.reveal(urls, workspace: workspace)
+
+        XCTAssertEqual(workspace.revealedSelections, [urls])
+    }
+
     func testCopyPathWritesPathAndFileURLToPasteboard() throws {
         let url = URL(filePath: "/tmp/example.txt")
         let pasteboard = PasteboardSpy()
@@ -68,6 +80,20 @@ final class SystemIntegrationTests: XCTestCase {
         XCTAssertEqual(pasteboard.clearCount, 1)
         XCTAssertEqual(pasteboard.writtenStrings[.string], url.path)
         XCTAssertEqual(pasteboard.writtenStrings[.fileURL], url.absoluteString)
+    }
+
+    func testCopyPathsWritesNewlineSeparatedPaths() throws {
+        let urls = [
+            URL(filePath: "/tmp/first.txt"),
+            URL(filePath: "/tmp/second.txt")
+        ]
+        let pasteboard = PasteboardSpy()
+
+        try SystemIntegration.copyPaths(urls, pasteboard: pasteboard)
+
+        XCTAssertEqual(pasteboard.clearCount, 1)
+        XCTAssertEqual(pasteboard.writtenStrings[.string], "/tmp/first.txt\n/tmp/second.txt")
+        XCTAssertNil(pasteboard.writtenStrings[.fileURL])
     }
 
     func testTargetCapacityDescriptionsSkipsUnavailableVolumes() {

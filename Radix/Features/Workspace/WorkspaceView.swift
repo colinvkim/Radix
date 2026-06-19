@@ -9,6 +9,8 @@ struct WorkspaceActions {
     let handleDroppedURLs: ([URL]) -> Bool
     let selectNodeImmediately: (String?) -> Void
     let selectNode: (String?) -> Void
+    let selectNodesImmediately: (Set<String>, String?) -> Void
+    let selectNodes: (Set<String>, String?) -> Void
     let focusNode: (String?) -> Void
     let selectAndFocusNode: (String) -> Void
     let navigateBack: () -> Void
@@ -16,6 +18,7 @@ struct WorkspaceActions {
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
+    let bulkFileActions: BulkFileActions
     let openFullDiskAccessSettings: () -> Void
 }
 
@@ -40,6 +43,12 @@ struct SelectedFileActions {
             moveToTrash()
         }
     }
+}
+
+struct BulkFileActions {
+    let revealInFinder: ([FileNodeRecord]) -> Void
+    let copyPaths: ([FileNodeRecord]) -> Void
+    let moveToTrash: ([FileNodeRecord]) -> Void
 }
 
 struct WorkspaceView: View {

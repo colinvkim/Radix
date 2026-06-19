@@ -12,6 +12,7 @@ struct WorkspaceNavigationState: Equatable {
     var snapshotID: UUID?
     var fileTreeStore: FileTreeStore?
     var selectedNodeID: FileNodeRecord.ID?
+    var selectedNodeIDs: Set<FileNodeRecord.ID>
     var focusedNodeID: FileNodeRecord.ID?
     var focusBackStack: [FileNodeRecord.ID]
     var focusForwardStack: [FileNodeRecord.ID]
@@ -23,6 +24,7 @@ struct WorkspaceNavigationState: Equatable {
         snapshotID: nil,
         fileTreeStore: nil,
         selectedNodeID: nil,
+        selectedNodeIDs: [],
         focusedNodeID: nil,
         focusBackStack: [],
         focusForwardStack: [],
@@ -36,6 +38,7 @@ struct WorkspaceNavigationState: Equatable {
             lhs.fileTreeStore?.rootID == rhs.fileTreeStore?.rootID &&
             lhs.fileTreeStore?.nodeCount == rhs.fileTreeStore?.nodeCount &&
             lhs.selectedNodeID == rhs.selectedNodeID &&
+            lhs.selectedNodeIDs == rhs.selectedNodeIDs &&
             lhs.focusedNodeID == rhs.focusedNodeID &&
             lhs.focusBackStack == rhs.focusBackStack &&
             lhs.focusForwardStack == rhs.focusForwardStack &&
@@ -57,6 +60,7 @@ private extension WorkspaceNavigationState {
 
         guard let snapshot else {
             next.selectedNodeID = nil
+            next.selectedNodeIDs = []
             next.focusedNodeID = nil
             next.focusBackStack = []
             next.focusForwardStack = []
@@ -79,6 +83,7 @@ private extension WorkspaceNavigationState {
 
         guard let snapshot else {
             next.selectedNodeID = nil
+            next.selectedNodeIDs = []
             next.focusedNodeID = nil
             return next.refreshedDerivedState()
         }
@@ -87,10 +92,7 @@ private extension WorkspaceNavigationState {
             next.focusedNodeID = snapshot.root.id
         }
 
-        if let selectedNodeID = next.selectedNodeID,
-           next.fileTreeStore?.node(id: selectedNodeID) == nil {
-            next.selectedNodeID = nil
-        }
+        next.clearMissingSelectionReferences()
 
         return next.refreshedDerivedState()
     }
@@ -101,10 +103,41 @@ private extension WorkspaceNavigationState {
         guard let nodeID,
               fileTreeStore?.node(id: nodeID) != nil else {
             next.selectedNodeID = nil
+            next.selectedNodeIDs = []
             return next.refreshedSelectionState()
         }
 
         next.selectedNodeID = nodeID
+        next.selectedNodeIDs = [nodeID]
+        return next.refreshedSelectionState()
+    }
+
+    func selecting(
+        _ nodeIDs: Set<FileNodeRecord.ID>,
+        primaryNodeID: FileNodeRecord.ID?
+    ) -> WorkspaceNavigationState {
+        guard let fileTreeStore else {
+            return selecting(nil)
+        }
+
+        let validIDs = Set(nodeIDs.filter { fileTreeStore.node(id: $0) != nil })
+        guard !validIDs.isEmpty else {
+            return selecting(nil)
+        }
+
+        var next = self
+        next.selectedNodeIDs = validIDs
+
+        if let primaryNodeID,
+           validIDs.contains(primaryNodeID) {
+            next.selectedNodeID = primaryNodeID
+        } else if let selectedNodeID,
+                  validIDs.contains(selectedNodeID) {
+            next.selectedNodeID = selectedNodeID
+        } else {
+            next.selectedNodeID = next.firstSelectedID(in: validIDs)
+        }
+
         return next.refreshedSelectionState()
     }
 
@@ -115,6 +148,7 @@ private extension WorkspaceNavigationState {
 
         var next = self
         next.selectedNodeID = nodeID
+        next.selectedNodeIDs = [nodeID]
 
         if next.focusedNodeID != nodeID {
             if let currentFocusID = next.focusedNodeID {
@@ -201,16 +235,14 @@ private extension WorkspaceNavigationState {
 
         var next = focusing(rootID, recordHistory: true)
         next.selectedNodeID = nil
+        next.selectedNodeIDs = []
         return next.refreshedSelectionState()
     }
 
     mutating func clearMissingNavigationReferences() {
         guard let fileTreeStore else { return }
 
-        if let selectedNodeID,
-           fileTreeStore.node(id: selectedNodeID) == nil {
-            self.selectedNodeID = nil
-        }
+        clearMissingSelectionReferences()
 
         if let focusedNodeID,
            fileTreeStore.node(id: focusedNodeID) == nil {
@@ -221,6 +253,32 @@ private extension WorkspaceNavigationState {
         focusForwardStack = focusForwardStack.filter { fileTreeStore.node(id: $0) != nil }
     }
 
+    mutating func clearMissingSelectionReferences() {
+        guard let fileTreeStore else {
+            selectedNodeID = nil
+            selectedNodeIDs = []
+            return
+        }
+
+        selectedNodeIDs = selectedNodeIDs.filter { fileTreeStore.node(id: $0) != nil }
+
+        if let selectedNodeID,
+           fileTreeStore.node(id: selectedNodeID) != nil {
+            selectedNodeIDs.insert(selectedNodeID)
+        } else {
+            selectedNodeID = nil
+        }
+
+        if let selectedNodeID,
+           !selectedNodeIDs.contains(selectedNodeID) {
+            self.selectedNodeID = nil
+        }
+
+        if selectedNodeID == nil {
+            selectedNodeID = firstSelectedID(in: selectedNodeIDs)
+        }
+    }
+
     mutating func clearSelectionIfNeeded(forFocus nodeID: FileNodeRecord.ID) {
         guard let selectedNodeID,
               selectedNodeID != nodeID,
@@ -229,6 +287,7 @@ private extension WorkspaceNavigationState {
         }
 
         self.selectedNodeID = nil
+        self.selectedNodeIDs = []
     }
 
     func refreshedDerivedState() -> WorkspaceNavigationState {
@@ -238,10 +297,16 @@ private extension WorkspaceNavigationState {
     func refreshedSelectionState() -> WorkspaceNavigationState {
         var next = self
 
-        guard let fileTreeStore,
-              let selectedNodeID,
-              fileTreeStore.node(id: selectedNodeID) != nil else {
+        guard let fileTreeStore else {
             next.selectedNodeID = nil
+            next.selectedNodeIDs = []
+            next.selectedAncestorIDs = []
+            return next
+        }
+
+        next.clearMissingSelectionReferences()
+
+        guard let selectedNodeID = next.selectedNodeID else {
             next.selectedAncestorIDs = []
             return next
         }
@@ -274,6 +339,10 @@ private extension WorkspaceNavigationState {
 
         return next
     }
+
+    func firstSelectedID(in nodeIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
+        tableNodes.first(where: { nodeIDs.contains($0.id) })?.id ?? nodeIDs.sorted().first
+    }
 }
 
 @MainActor
@@ -284,6 +353,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     var selectedNodeID: String? {
         state.selectedNodeID
+    }
+
+    var selectedNodeIDs: Set<String> {
+        state.selectedNodeIDs
     }
 
     var focusedNodeID: String? {
@@ -317,6 +390,26 @@ final class WorkspaceNavigationModel: ObservableObject {
         state.fileTreeStore?.node(id: selectedNodeID)
     }
 
+    var selectedNodes: [FileNodeRecord] {
+        guard let fileTreeStore = state.fileTreeStore else { return [] }
+
+        var emittedIDs = Set<FileNodeRecord.ID>()
+        var nodes: [FileNodeRecord] = []
+
+        for node in state.tableNodes where state.selectedNodeIDs.contains(node.id) {
+            nodes.append(node)
+            emittedIDs.insert(node.id)
+        }
+
+        for id in state.selectedNodeIDs.sorted() where !emittedIDs.contains(id) {
+            if let node = fileTreeStore.node(id: id) {
+                nodes.append(node)
+            }
+        }
+
+        return nodes
+    }
+
     var selectedNodeParent: FileNodeRecord? {
         state.fileTreeStore?.parent(of: selectedNode?.id)
     }
@@ -344,7 +437,7 @@ final class WorkspaceNavigationModel: ObservableObject {
     }
 
     var canClearSelection: Bool {
-        selectedNodeID != nil
+        !selectedNodeIDs.isEmpty
     }
 
     var isFocusedAtRoot: Bool {
@@ -362,6 +455,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     func select(nodeID: String?) {
         publish(state.selecting(nodeID))
+    }
+
+    func select(nodeIDs: Set<String>, primaryNodeID: String?) {
+        publish(state.selecting(nodeIDs, primaryNodeID: primaryNodeID))
     }
 
     func selectAndFocus(nodeID: String) {
@@ -404,9 +501,10 @@ final class WorkspaceNavigationModel: ObservableObject {
         guard nextState != state else { return }
 
         let oldSelectionID = state.selectedNodeID
+        let oldSelectionIDs = state.selectedNodeIDs
         state = nextState
 
-        if oldSelectionID != nextState.selectedNodeID {
+        if oldSelectionID != nextState.selectedNodeID || oldSelectionIDs != nextState.selectedNodeIDs {
             onSelectionChanged?()
         }
     }

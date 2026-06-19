@@ -33,7 +33,7 @@ struct SelectionInspectorView: View {
                     InspectorActionsSection(
                         availability: selectedActionAvailability,
                         canExpandSummarizedSelection: canExpandSummarizedSelection,
-                        canZoomIntoSelection: navigation.canZoomIntoSelection,
+                        canZoomIntoSelection: canZoomIntoSelection,
                         fileActions: actions.selectedFileActions,
                         expandAction: { expandSummarizedSelection() },
                         zoomAction: actions.zoomIntoSelection
@@ -107,6 +107,10 @@ struct SelectionInspectorView: View {
 
     private var canExpandSummarizedSelection: Bool {
         navigation.selectedNode?.isAutoSummarized == true
+    }
+
+    private var canZoomIntoSelection: Bool {
+        navigation.canZoomIntoSelection
     }
 
     private func expandSummarizedSelection() {
