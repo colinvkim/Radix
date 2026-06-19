@@ -43,18 +43,23 @@ struct WarningFooter: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("Dismiss") {
-                    onDismiss()
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
+                dismissButton
             } else {
-                Button("Dismiss") {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
+                dismissButton
             }
         }
+    }
+
+    private var dismissButton: some View {
+        Button {
+            onDismiss()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(.plain)
+        .help("Dismiss warning")
+        .accessibilityLabel("Dismiss warning")
     }
 
     private var summary: String {
