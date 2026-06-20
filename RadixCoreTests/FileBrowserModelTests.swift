@@ -73,6 +73,17 @@ final class FileBrowserModelTests: XCTestCase {
     func testSortsByDisplayedFileCountAndModifiedDateColumns() {
         let older = Date(timeIntervalSince1970: 10)
         let newer = Date(timeIntervalSince1970: 20)
+        let packagePayloads = [
+            makeTestFileNode(id: "/root/Sample.app/a.dat", name: "a.dat"),
+            makeTestFileNode(id: "/root/Sample.app/b.dat", name: "b.dat"),
+            makeTestFileNode(id: "/root/Sample.app/c.dat", name: "c.dat"),
+        ]
+        let hiddenPackage = makeTestDirectoryNode(
+            id: "/root/Sample.app",
+            name: "Sample.app",
+            children: packagePayloads,
+            isPackage: true
+        )
         let smallFolder = makeTestDirectoryNode(
             id: "/root/small",
             name: "small",
@@ -93,11 +104,28 @@ final class FileBrowserModelTests: XCTestCase {
         let unknownFile = makeTestFileNode(id: "/root/unknown.txt", name: "unknown.txt")
 
         let fileCountResults = FileBrowserResults.filteredAndSortedCurrentContents(
-            [smallFolder, largeFolder, oldFile],
+            [smallFolder, largeFolder, hiddenPackage, oldFile],
             searchText: "",
             sortOrder: [FileNodeTableComparator(field: .descendantFileCount, order: .reverse)]
         )
-        XCTAssertEqual(fileCountResults.map(\.id), [largeFolder.id, oldFile.id, smallFolder.id])
+        XCTAssertEqual(fileCountResults.map(\.id), [largeFolder.id, oldFile.id, smallFolder.id, hiddenPackage.id])
+
+        let root = makeTestDirectoryNode(
+            id: "/root",
+            name: "root",
+            children: [hiddenPackage, largeFolder, oldFile]
+        )
+        let visiblePackageStore = FileTreeStore(root: root, childrenByID: [
+            root.id: [hiddenPackage, largeFolder, oldFile],
+            hiddenPackage.id: packagePayloads,
+        ])
+        let visibleFileCountResults = FileBrowserResults.filteredAndSortedCurrentContents(
+            [largeFolder, hiddenPackage, oldFile],
+            searchText: "",
+            sortOrder: [FileNodeTableComparator(field: .descendantFileCount, order: .reverse)],
+            fileTreeStore: visiblePackageStore
+        )
+        XCTAssertEqual(visibleFileCountResults.map(\.id), [hiddenPackage.id, largeFolder.id, oldFile.id])
 
         let modifiedResults = FileBrowserResults.filteredAndSortedCurrentContents(
             [newFile, unknownFile, oldFile],
@@ -244,10 +272,18 @@ final class FileBrowserModelTests: XCTestCase {
                 makeTestFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 1),
             ]
         )
+        let package = makeTestDirectoryNode(
+            id: "/root/Sample.app",
+            name: "Sample.app",
+            children: [
+                makeTestFileNode(id: "/root/Sample.app/Contents/MacOS/Sample", name: "Sample", size: 1),
+            ],
+            isPackage: true
+        )
         let model = FileBrowserModel()
 
         model.updateContent(
-            nodes: [file, folder],
+            nodes: [file, folder, package],
             contentID: "snapshot|/root",
             snapshot: nil,
             fileTreeStore: nil
@@ -255,11 +291,15 @@ final class FileBrowserModelTests: XCTestCase {
 
         let fileValues = model.displayValues(for: file)
         let folderValues = model.displayValues(for: folder)
+        let visiblePackageValues = model.displayValues(for: package)
+        let hiddenPackageValues = model.displayValues(for: package, hidesPackageContents: true)
 
         XCTAssertEqual(fileValues.allocatedSize, "1 KB")
         XCTAssertEqual(fileValues.descendantCount, "1")
         XCTAssertEqual(fileValues.modifiedDate, RadixFormatters.date(modifiedDate))
         XCTAssertEqual(folderValues.descendantCount, "2")
+        XCTAssertEqual(visiblePackageValues.descendantCount, "1")
+        XCTAssertEqual(hiddenPackageValues.descendantCount, "—")
     }
 
     func testSearchServiceMatchesNameKindAndPathOnlyForPathQueries() async throws {
@@ -786,9 +826,11 @@ private actor DelayedFileSearchService: FileSearching {
             matchedIDs = immediateIDsByQuery[normalizedQuery] ?? []
         }
 
-        return matchedIDs
-            .compactMap { treeStore.nodesByID[$0] }
-            .sorted(using: sortOrder)
+        return FileBrowserResults.sorted(
+            matchedIDs.compactMap { treeStore.nodesByID[$0] },
+            sortOrder: sortOrder,
+            fileTreeStore: treeStore
+        )
     }
 
     func waitUntilStarted(_ query: String) async {

@@ -87,8 +87,15 @@ final class FileBrowserModel: ObservableObject {
         displayState.node(id: id)
     }
 
-    func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
-        displayState.displayValues(for: node)
+    func displayValues(
+        for node: FileNodeRecord,
+        hidesPackageContents: Bool = false
+    ) -> FileBrowserNodeDisplayValues {
+        displayState.displayValues(for: node, hidesPackageContents: hidesPackageContents)
+    }
+
+    func packageContentsAreHidden(for node: FileNodeRecord) -> Bool {
+        FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
     }
 
     var isShowingEntireScanResults: Bool {
@@ -229,7 +236,8 @@ final class FileBrowserModel: ObservableObject {
                 FileBrowserResults.filteredAndSortedCurrentContents(
                     nodes,
                     searchText: searchText,
-                    sortOrder: sortOrder
+                    sortOrder: sortOrder,
+                    fileTreeStore: fileTreeStore
                 ),
                 context: displayContext
             )
@@ -249,6 +257,7 @@ final class FileBrowserModel: ObservableObject {
     ) {
         let nodes = nodes
         let sortOrder = sortOrder
+        let fileTreeStore = fileTreeStore
         let request = FileBrowserDisplayRequest(
             generation: searchGeneration,
             displayContext: displayContext
@@ -262,6 +271,7 @@ final class FileBrowserModel: ObservableObject {
                     nodes,
                     searchText: searchText,
                     sortOrder: sortOrder,
+                    fileTreeStore: fileTreeStore,
                     debounceDuration: debounceDuration
                 )
                 try Task.checkCancellation()
@@ -402,6 +412,7 @@ private actor CurrentContentsSearchService {
         _ nodes: [FileNodeRecord],
         searchText: String,
         sortOrder: [FileNodeTableComparator],
+        fileTreeStore: FileTreeStore?,
         debounceDuration: Duration
     ) async throws -> [FileNodeRecord] {
         try await Task.sleep(for: debounceDuration)
@@ -409,6 +420,7 @@ private actor CurrentContentsSearchService {
             nodes,
             searchText: searchText,
             sortOrder: sortOrder,
+            fileTreeStore: fileTreeStore,
             cancellationCheck: {
                 try Task.checkCancellation()
             }
@@ -450,20 +462,48 @@ private struct FileBrowserDisplayState {
         return nodes[index]
     }
 
-    func displayValues(for node: FileNodeRecord) -> FileBrowserNodeDisplayValues {
-        if let cachedValues = displayValueCache.valuesByNodeID[node.id] {
+    func displayValues(
+        for node: FileNodeRecord,
+        hidesPackageContents: Bool = false
+    ) -> FileBrowserNodeDisplayValues {
+        let cacheKey = FileBrowserDisplayValueCacheKey(
+            nodeID: node.id,
+            hidesPackageContents: hidesPackageContents
+        )
+        if let cachedValues = displayValueCache.valuesByKey[cacheKey] {
             return cachedValues
         }
 
-        let values = FileBrowserNodeDisplayValues(node: node)
-        displayValueCache.valuesByNodeID[node.id] = values
+        let values = FileBrowserNodeDisplayValues(
+            node: node,
+            hidesPackageContents: hidesPackageContents
+        )
+        displayValueCache.valuesByKey[cacheKey] = values
         return values
     }
 
 }
 
 private final class FileBrowserDisplayValueCache {
-    var valuesByNodeID: [FileNodeRecord.ID: FileBrowserNodeDisplayValues] = [:]
+    var valuesByKey: [FileBrowserDisplayValueCacheKey: FileBrowserNodeDisplayValues] = [:]
+}
+
+private struct FileBrowserDisplayValueCacheKey: Hashable {
+    let nodeID: FileNodeRecord.ID
+    let hidesPackageContents: Bool
+}
+
+enum FileBrowserPackageContents {
+    nonisolated static func areHidden(
+        for node: FileNodeRecord,
+        fileTreeStore: FileTreeStore?
+    ) -> Bool {
+        node.isPackage &&
+            node.isDirectory &&
+            !node.isAutoSummarized &&
+            (node.descendantFileCount > 0 || node.allocatedSize > 0 || node.logicalSize > 0) &&
+            fileTreeStore?.containsChildren(id: node.id) != true
+    }
 }
 
 struct FileBrowserNodeDisplayValues: Equatable, Sendable {
@@ -471,13 +511,22 @@ struct FileBrowserNodeDisplayValues: Equatable, Sendable {
     let descendantCount: String
     let modifiedDate: String
 
-    init(node: FileNodeRecord) {
+    init(node: FileNodeRecord, hidesPackageContents: Bool = false) {
         allocatedSize = RadixFormatters.size(node.allocatedSize)
-        descendantCount = Self.descendantCountText(for: node)
+        descendantCount = Self.descendantCountText(
+            for: node,
+            hidesPackageContents: hidesPackageContents
+        )
         modifiedDate = RadixFormatters.date(node.lastModified)
     }
 
-    private static func descendantCountText(for node: FileNodeRecord) -> String {
+    private static func descendantCountText(
+        for node: FileNodeRecord,
+        hidesPackageContents: Bool
+    ) -> String {
+        if hidesPackageContents && node.isPackage {
+            return "—"
+        }
         if node.isDirectory {
             return "\(node.descendantFileCount)"
         }
@@ -557,7 +606,11 @@ actor FileSearchService: FileSearching {
         }
 
         try Task.checkCancellation()
-        let sortedNodes = matchedNodes.sorted(using: sortOrder)
+        let sortedNodes = FileBrowserResults.sorted(
+            matchedNodes,
+            sortOrder: sortOrder,
+            fileTreeStore: treeStore
+        )
         try Task.checkCancellation()
         return sortedNodes
     }
@@ -611,6 +664,14 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
     var order: SortOrder = .forward
 
     func compare(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord) -> ComparisonResult {
+        compare(lhs, rhs, fileTreeStore: nil)
+    }
+
+    func compare(
+        _ lhs: FileNodeRecord,
+        _ rhs: FileNodeRecord,
+        fileTreeStore: FileTreeStore?
+    ) -> ComparisonResult {
         let result: ComparisonResult = switch field {
         case .name:
             lhs.name.localizedStandardCompare(rhs.name)
@@ -619,7 +680,10 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
         case .itemKind:
             lhs.itemKind.localizedStandardCompare(rhs.itemKind)
         case .descendantFileCount:
-            compare(lhs.descendantFileCount, rhs.descendantFileCount)
+            compare(
+                displayedDescendantFileCount(for: lhs, fileTreeStore: fileTreeStore),
+                displayedDescendantFileCount(for: rhs, fileTreeStore: fileTreeStore)
+            )
         case .lastModified:
             compareOptional(lhs.lastModified, rhs.lastModified)
         }
@@ -658,6 +722,15 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
         }
     }
 
+    private func displayedDescendantFileCount(
+        for node: FileNodeRecord,
+        fileTreeStore: FileTreeStore?
+    ) -> Int {
+        FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
+            ? 0
+            : node.descendantFileCount
+    }
+
     private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
         if lhs < rhs {
             return .orderedAscending
@@ -686,12 +759,14 @@ enum FileBrowserResults {
     nonisolated static func filteredAndSortedCurrentContents(
         _ nodes: [FileNodeRecord],
         searchText: String,
-        sortOrder: [FileNodeTableComparator]
+        sortOrder: [FileNodeTableComparator],
+        fileTreeStore: FileTreeStore? = nil
     ) -> [FileNodeRecord] {
         (try? filteredAndSortedCurrentContents(
             nodes,
             searchText: searchText,
             sortOrder: sortOrder,
+            fileTreeStore: fileTreeStore,
             cancellationCheck: {}
         )) ?? []
     }
@@ -700,13 +775,14 @@ enum FileBrowserResults {
         _ nodes: [FileNodeRecord],
         searchText: String,
         sortOrder: [FileNodeTableComparator],
+        fileTreeStore: FileTreeStore? = nil,
         cancellationCheck: @Sendable () throws -> Void
     ) throws -> [FileNodeRecord] {
         let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedSearchText.isEmpty else {
             try cancellationCheck()
-            return nodes.sorted(using: sortOrder)
+            return sorted(nodes, sortOrder: sortOrder, fileTreeStore: fileTreeStore)
         }
 
         var filteredNodes: [FileNodeRecord] = []
@@ -725,7 +801,31 @@ enum FileBrowserResults {
         }
 
         try cancellationCheck()
-        return filteredNodes.sorted(using: sortOrder)
+        return sorted(filteredNodes, sortOrder: sortOrder, fileTreeStore: fileTreeStore)
+    }
+
+    nonisolated static func sorted(
+        _ nodes: [FileNodeRecord],
+        sortOrder: [FileNodeTableComparator],
+        fileTreeStore: FileTreeStore? = nil
+    ) -> [FileNodeRecord] {
+        guard !sortOrder.isEmpty else { return nodes }
+
+        return nodes.sorted { lhs, rhs in
+            for comparator in sortOrder {
+                switch comparator.compare(lhs, rhs, fileTreeStore: fileTreeStore) {
+                case .orderedAscending:
+                    return true
+                case .orderedDescending:
+                    return false
+                case .orderedSame:
+                    continue
+                @unknown default:
+                    continue
+                }
+            }
+            return false
+        }
     }
 }
 

@@ -190,7 +190,12 @@ struct FileBrowserTableView: View {
             .width(min: 110, ideal: 130)
 
             TableColumn("Files", sortUsing: FileNodeTableComparator(field: .descendantFileCount)) { node in
-                Text(model.displayValues(for: node).descendantCount)
+                Text(
+                    model.displayValues(
+                        for: node,
+                        hidesPackageContents: packageContentsAreHidden(for: node)
+                    ).descendantCount
+                )
             }
             .width(min: 70, ideal: 80)
 
@@ -229,10 +234,27 @@ struct FileBrowserTableView: View {
     }
 
     private func subtitle(for node: FileNodeRecord) -> String? {
+        if packageContentsAreHidden(for: node) {
+            var subtitleParts = ["Package contents hidden"]
+            if let secondaryStatusText = node.secondaryStatusText {
+                subtitleParts.append(secondaryStatusText)
+            }
+            guard model.isShowingEntireScanResults else {
+                return subtitleParts.joined(separator: " - ")
+            }
+
+            subtitleParts.append(parentPath(for: node))
+            return subtitleParts.joined(separator: " - ")
+        }
+
         guard model.isShowingEntireScanResults else {
             return node.secondaryStatusText
         }
 
+        return parentPath(for: node)
+    }
+
+    private func parentPath(for node: FileNodeRecord) -> String {
         guard let fileTreeStore = scanState.fileTreeStore else {
             return node.url.deletingLastPathComponent().path
         }
@@ -258,6 +280,10 @@ struct FileBrowserTableView: View {
             node.isDirectory &&
             !node.isAutoSummarized &&
             (node.descendantFileCount > 0 || node.allocatedSize > 0 || node.logicalSize > 0)
+    }
+
+    private func packageContentsAreHidden(for node: FileNodeRecord) -> Bool {
+        model.packageContentsAreHidden(for: node)
     }
 
     private func expandSummarizedNode(_ node: FileNodeRecord) {
