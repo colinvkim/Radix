@@ -167,6 +167,73 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.restoredSnapshots.isEmpty)
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
+
+    @MainActor
+    func testControllerScopedRestoreRebalancesHardLinksInsideTarget() async throws {
+        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let recorder = SidebarScanCacheRecorder()
+        let identity = FileIdentity(device: 1, inode: 90)
+        let ownerFile = makeTestFileNode(
+            id: "/cache/root/Owner/a.bin",
+            name: "a.bin",
+            size: 100,
+            fileIdentity: identity,
+            linkCount: 2
+        )
+        let scopedFile = makeTestFileNode(
+            id: "/cache/root/Scoped/z.bin",
+            name: "z.bin",
+            size: 0,
+            unduplicatedAllocatedSize: 100,
+            fileIdentity: identity,
+            linkCount: 2
+        )
+        let owner = makeTestDirectoryNode(id: "/cache/root/Owner", name: "Owner", children: [ownerFile])
+        let scoped = makeTestDirectoryNode(id: "/cache/root/Scoped", name: "Scoped", children: [scopedFile])
+        let root = makeTestDirectoryNode(id: "/cache/root", name: "root", children: [owner, scoped])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [owner, scoped],
+            owner.id: [ownerFile],
+            scoped.id: [scopedFile]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let options = ScanOptions()
+        let scopedTarget = ScanTarget(url: scoped.url)
+        recorder.activeTargetID = scopedTarget.id
+
+        controller.prepareForScanStart(target: snapshot.target, options: options)
+        controller.handleCompletedScanSnapshot(snapshot)
+
+        let shouldStartScan = controller.applyCachedOrContainedSidebarTarget(
+            scopedTarget,
+            options: options,
+            currentSnapshot: snapshot,
+            isTargetActive: { target in
+                recorder.activeTargetID == target.id
+            },
+            cancelDeferredScanStart: {
+                recorder.cancelDeferredScanStartCount += 1
+            },
+            restoreSnapshot: { snapshot, target in
+                recorder.restoredSnapshots.append(snapshot)
+                recorder.restoredTargets.append(target)
+            },
+            startScan: { target in
+                recorder.startedTargets.append(target)
+            }
+        )
+
+        XCTAssertFalse(shouldStartScan)
+        try await waitForSidebarCacheCondition("scoped hard-link restore") {
+            !recorder.restoredSnapshots.isEmpty
+        }
+
+        let restoredSnapshot = try XCTUnwrap(recorder.restoredSnapshots.first)
+        XCTAssertEqual(restoredSnapshot.root.id, scoped.id)
+        XCTAssertEqual(restoredSnapshot.root.allocatedSize, 100)
+        XCTAssertEqual(restoredSnapshot.treeStore.node(id: scopedFile.id)?.allocatedSize, 100)
+        XCTAssertTrue(recorder.startedTargets.isEmpty)
+    }
 }
 
 @MainActor

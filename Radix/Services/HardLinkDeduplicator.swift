@@ -103,6 +103,102 @@ nonisolated struct HardLinkDeduplicator {
         )
     }
 
+    nonisolated static func rebalancedStore(
+        _ store: FileTreeStore,
+        cancellationCheck: () throws -> Void = {}
+    ) throws -> FileTreeStore {
+        var claims: [HardLinkClaim] = []
+        claims.reserveCapacity(store.nodeCount)
+
+        for (offset, nodeID) in store.indexedNodeIDs().enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            guard let node = store.node(id: nodeID),
+                  let claim = claim(for: node) else {
+                continue
+            }
+            claims.append(claim)
+        }
+
+        guard !claims.isEmpty else { return store }
+
+        let duplicateAllocatedSizeByOwner = duplicateHardLinkAllocatedSizeByOwner(from: claims)
+        var targetAllocatedSizeByNodeID: [String: Int64] = [:]
+        targetAllocatedSizeByNodeID.reserveCapacity(claims.count)
+        for claim in claims {
+            targetAllocatedSizeByNodeID[claim.ownerNodeID] = claim.allocatedSize
+        }
+        for (nodeID, duplicateAllocatedSize) in duplicateAllocatedSizeByOwner {
+            let baseAllocatedSize = targetAllocatedSizeByNodeID[nodeID] ?? 0
+            targetAllocatedSizeByNodeID[nodeID] = max(0, baseAllocatedSize - duplicateAllocatedSize)
+        }
+
+        var nodesByID = store.nodesByID
+        var childIDsByID = store.childIDsByID
+        var changedNodeIDs: Set<String> = []
+        for (offset, entry) in targetAllocatedSizeByNodeID.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            guard let node = nodesByID[entry.key],
+                  node.allocatedSize != entry.value else {
+                continue
+            }
+            nodesByID[entry.key] = node.replacingAllocatedSize(entry.value)
+            changedNodeIDs.insert(entry.key)
+        }
+
+        let affectedDirectoryIDs = affectedAncestorDirectoryIDs(
+            for: changedNodeIDs,
+            nodesByID: nodesByID,
+            parentIDByID: store.parentIDByID
+        )
+        for nodeID in affectedDirectoryIDs {
+            try cancellationCheck()
+            guard let node = nodesByID[nodeID], node.isDirectory else { continue }
+            let children = (childIDsByID[nodeID] ?? []).compactMap { nodesByID[$0] }
+            let sortedChildren = FileTreeStore.sortedChildren(children)
+            nodesByID[nodeID] = FileNodeRecord.directory(
+                id: node.id,
+                url: node.url,
+                name: node.name,
+                children: sortedChildren,
+                lastModified: node.lastModified,
+                fileIdentity: node.fileIdentity,
+                linkCount: node.linkCount,
+                isPackage: node.isPackage,
+                isAccessible: node.isSelfAccessible,
+                childrenAreSorted: true
+            )
+            childIDsByID[nodeID] = sortedChildren.map(\.id)
+        }
+
+        return FileTreeStore(
+            rootID: store.rootID,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: store.parentIDByID
+        )
+    }
+
+    private nonisolated static func claim(for node: FileNodeRecord) -> HardLinkClaim? {
+        guard !node.isDirectory,
+              !node.isSymbolicLink,
+              !node.isSynthetic,
+              node.linkCount > 1,
+              let fileIdentity = node.fileIdentity else {
+            return nil
+        }
+
+        return HardLinkClaim(
+            identity: fileIdentity,
+            ownerNodeID: node.id,
+            path: node.url.path,
+            allocatedSize: node.unduplicatedAllocatedSize
+        )
+    }
+
     private nonisolated static func duplicateHardLinkAllocatedSizeByOwner(
         from claims: [HardLinkClaim]
     ) -> [String: Int64] {
@@ -185,6 +281,7 @@ private extension FileNodeRecord {
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             allocatedSize: allocatedSize,
+            unduplicatedAllocatedSize: unduplicatedAllocatedSize,
             logicalSize: logicalSize,
             descendantFileCount: descendantFileCount,
             lastModified: lastModified,

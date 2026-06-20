@@ -1106,6 +1106,8 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.root.allocatedSize, allocatedSizes.reduce(0, +))
         XCTAssertTrue(children.allSatisfy { $0.fileIdentity != nil })
         XCTAssertEqual(children.map(\.linkCount), [2, 2])
+        XCTAssertEqual(children.filter { $0.allocatedSize == 0 }.map(\.unduplicatedAllocatedSize).count, 1)
+        XCTAssertTrue(children.allSatisfy { $0.unduplicatedAllocatedSize > 0 })
     }
 
     func testParallelTraversalAssignsHardLinkStorageDeterministically() async throws {

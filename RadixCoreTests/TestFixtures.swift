@@ -9,6 +9,7 @@ func makeTestFileNode(
     id: String,
     name: String,
     size: Int64 = 1,
+    unduplicatedAllocatedSize: Int64? = nil,
     lastModified: Date? = nil,
     fileIdentity: FileIdentity? = nil,
     linkCount: UInt64 = 1
@@ -20,6 +21,7 @@ func makeTestFileNode(
         isDirectory: false,
         isSymbolicLink: false,
         allocatedSize: size,
+        unduplicatedAllocatedSize: unduplicatedAllocatedSize,
         logicalSize: size,
         descendantFileCount: 1,
         lastModified: lastModified,

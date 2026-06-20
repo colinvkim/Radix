@@ -14,6 +14,7 @@ struct FileNodeRecord: Identifiable, Sendable {
     let isDirectory: Bool
     let isSymbolicLink: Bool
     let allocatedSize: Int64
+    let unduplicatedAllocatedSize: Int64
     let logicalSize: Int64
     let descendantFileCount: Int
     let lastModified: Date?
@@ -32,6 +33,7 @@ struct FileNodeRecord: Identifiable, Sendable {
         isDirectory: Bool,
         isSymbolicLink: Bool,
         allocatedSize: Int64,
+        unduplicatedAllocatedSize: Int64? = nil,
         logicalSize: Int64,
         descendantFileCount: Int,
         lastModified: Date?,
@@ -49,6 +51,7 @@ struct FileNodeRecord: Identifiable, Sendable {
         self.isDirectory = isDirectory
         self.isSymbolicLink = isSymbolicLink
         self.allocatedSize = allocatedSize
+        self.unduplicatedAllocatedSize = unduplicatedAllocatedSize ?? allocatedSize
         self.logicalSize = logicalSize
         self.descendantFileCount = descendantFileCount
         self.lastModified = lastModified

@@ -366,12 +366,13 @@ struct FileTreeStore: Sendable {
             cursor = updatedParentIDs[currentID]
         }
 
-        return FileTreeStore(
+        let updatedStore = FileTreeStore(
             rootID: rootID,
             nodesByID: updatedNodes,
             childIDsByID: updatedChildIDs,
             parentIDByID: updatedParentIDs
         )
+        return try HardLinkDeduplicator.rebalancedStore(updatedStore, cancellationCheck: cancellationCheck)
     }
 
     nonisolated func replacingSubtree(id targetID: String, with replacement: FileTreeStore) -> FileTreeStore? {
@@ -463,12 +464,13 @@ struct FileTreeStore: Sendable {
             cursor = updatedParentIDs[currentID]
         }
 
-        return FileTreeStore(
+        let updatedStore = FileTreeStore(
             rootID: updatedRootID,
             nodesByID: updatedNodes,
             childIDsByID: updatedChildIDs,
             parentIDByID: updatedParentIDs
         )
+        return try HardLinkDeduplicator.rebalancedStore(updatedStore, cancellationCheck: cancellationCheck)
     }
 
     private nonisolated func preflightReplacement(
@@ -527,12 +529,13 @@ struct FileTreeStore: Sendable {
             }
         }
 
-        return FileTreeStore(
+        let scopedStore = FileTreeStore(
             rootID: targetID,
             nodesByID: scopedNodes,
             childIDsByID: scopedChildIDs,
             parentIDByID: scopedParentIDs
         )
+        return try HardLinkDeduplicator.rebalancedStore(scopedStore, cancellationCheck: cancellationCheck)
     }
 
     private nonisolated func subtreeNodeIDs(rootedAt id: String) -> [String] {
