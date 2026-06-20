@@ -679,28 +679,44 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
         case .name:
             lhs.name.localizedStandardCompare(rhs.name)
         case .allocatedSize:
-            compare(lhs.allocatedSize, rhs.allocatedSize)
+            FileNodeSortComparison.compare(lhs.allocatedSize, rhs.allocatedSize)
         case .itemKind:
             lhs.itemKind.localizedStandardCompare(rhs.itemKind)
         case .descendantFileCount:
-            compare(
+            FileNodeSortComparison.compare(
                 displayedDescendantFileCount(for: lhs, fileTreeStore: fileTreeStore),
                 displayedDescendantFileCount(for: rhs, fileTreeStore: fileTreeStore)
             )
         case .lastModified:
-            compareOptional(lhs.lastModified, rhs.lastModified)
+            FileNodeSortComparison.compareOptional(lhs.lastModified, rhs.lastModified)
         }
 
-        let orderedResult = applySortOrder(to: result)
+        let orderedResult = FileNodeSortComparison.applying(order, to: result)
         switch orderedResult {
         case .orderedSame:
-            return fallbackCompare(lhs, rhs)
+            return FileNodeSortComparison.fallback(
+                lhsName: lhs.name,
+                lhsID: lhs.id,
+                rhsName: rhs.name,
+                rhsID: rhs.id
+            )
         default:
             return orderedResult
         }
     }
 
-    private func applySortOrder(to result: ComparisonResult) -> ComparisonResult {
+    private func displayedDescendantFileCount(
+        for node: FileNodeRecord,
+        fileTreeStore: FileTreeStore?
+    ) -> Int {
+        FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
+            ? 0
+            : node.descendantFileCount
+    }
+}
+
+private enum FileNodeSortComparison {
+    nonisolated static func applying(_ order: SortOrder, to result: ComparisonResult) -> ComparisonResult {
         guard order == .reverse else { return result }
 
         return switch result {
@@ -715,26 +731,22 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
         }
     }
 
-    private func fallbackCompare(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord) -> ComparisonResult {
-        let nameResult = lhs.name.localizedStandardCompare(rhs.name)
+    nonisolated static func fallback(
+        lhsName: String,
+        lhsID: String,
+        rhsName: String,
+        rhsID: String
+    ) -> ComparisonResult {
+        let nameResult = lhsName.localizedStandardCompare(rhsName)
         switch nameResult {
         case .orderedSame:
-            return lhs.id.localizedStandardCompare(rhs.id)
+            return lhsID.localizedStandardCompare(rhsID)
         default:
             return nameResult
         }
     }
 
-    private func displayedDescendantFileCount(
-        for node: FileNodeRecord,
-        fileTreeStore: FileTreeStore?
-    ) -> Int {
-        FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
-            ? 0
-            : node.descendantFileCount
-    }
-
-    private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+    nonisolated static func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
         if lhs < rhs {
             return .orderedAscending
         }
@@ -744,7 +756,7 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
         return .orderedSame
     }
 
-    private func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
+    nonisolated static func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
         switch (lhs, rhs) {
         case let (lhs?, rhs?):
             return compare(lhs, rhs)
@@ -909,67 +921,26 @@ enum FileBrowserResults {
             case .name:
                 name.localizedStandardCompare(rhs.name)
             case .allocatedSize:
-                Self.compare(allocatedSize, rhs.allocatedSize)
+                FileNodeSortComparison.compare(allocatedSize, rhs.allocatedSize)
             case .itemKind:
                 itemKind.localizedStandardCompare(rhs.itemKind)
             case .descendantFileCount:
-                Self.compare(descendantFileCount, rhs.descendantFileCount)
+                FileNodeSortComparison.compare(descendantFileCount, rhs.descendantFileCount)
             case .lastModified:
-                Self.compareOptional(lastModified, rhs.lastModified)
+                FileNodeSortComparison.compareOptional(lastModified, rhs.lastModified)
             }
 
-            let orderedResult = comparator.order == .reverse ? Self.reversed(result) : result
+            let orderedResult = FileNodeSortComparison.applying(comparator.order, to: result)
             switch orderedResult {
             case .orderedSame:
-                return fallbackCompare(rhs)
+                return FileNodeSortComparison.fallback(
+                    lhsName: name,
+                    lhsID: id,
+                    rhsName: rhs.name,
+                    rhsID: rhs.id
+                )
             default:
                 return orderedResult
-            }
-        }
-
-        private nonisolated func fallbackCompare(_ rhs: PreparedSortNode) -> ComparisonResult {
-            let nameResult = name.localizedStandardCompare(rhs.name)
-            switch nameResult {
-            case .orderedSame:
-                return id.localizedStandardCompare(rhs.id)
-            default:
-                return nameResult
-            }
-        }
-
-        private nonisolated static func reversed(_ result: ComparisonResult) -> ComparisonResult {
-            switch result {
-            case .orderedAscending:
-                return .orderedDescending
-            case .orderedDescending:
-                return .orderedAscending
-            case .orderedSame:
-                return .orderedSame
-            @unknown default:
-                return result
-            }
-        }
-
-        private nonisolated static func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
-            if lhs < rhs {
-                return .orderedAscending
-            }
-            if lhs > rhs {
-                return .orderedDescending
-            }
-            return .orderedSame
-        }
-
-        private nonisolated static func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
-            switch (lhs, rhs) {
-            case let (lhs?, rhs?):
-                return compare(lhs, rhs)
-            case (nil, nil):
-                return .orderedSame
-            case (nil, _?):
-                return .orderedAscending
-            case (_?, nil):
-                return .orderedDescending
             }
         }
     }

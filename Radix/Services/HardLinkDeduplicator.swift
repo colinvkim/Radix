@@ -60,29 +60,13 @@ nonisolated struct HardLinkDeduplicator {
             changedNodeIDs.insert(nodeID)
         }
 
-        let affectedDirectoryIDs = affectedAncestorDirectoryIDs(
+        rebuildAffectedAncestorDirectories(
             for: changedNodeIDs,
-            nodesByID: nodesByID,
-            parentIDByID: parentIDByID
+            nodesByID: &nodesByID,
+            childIDsByID: &childIDsByID,
+            parentIDByID: parentIDByID,
+            cancellationCheck: {}
         )
-        for nodeID in affectedDirectoryIDs {
-            guard let node = nodesByID[nodeID], node.isDirectory else { continue }
-            let children = (childIDsByID[nodeID] ?? []).compactMap { nodesByID[$0] }
-            let sortedChildren = FileTreeStore.sortedChildren(children)
-            nodesByID[nodeID] = FileNodeRecord.directory(
-                id: node.id,
-                url: node.url,
-                name: node.name,
-                children: sortedChildren,
-                lastModified: node.lastModified,
-                fileIdentity: node.fileIdentity,
-                linkCount: node.linkCount,
-                isPackage: node.isPackage,
-                isAccessible: node.isSelfAccessible,
-                childrenAreSorted: true
-            )
-            childIDsByID[nodeID] = sortedChildren.map(\.id)
-        }
 
         let root = nodesByID[rootID] ?? inputNodesByID[rootID]
         let deduplicatedStats = ScanAggregateStats(
@@ -149,10 +133,33 @@ nonisolated struct HardLinkDeduplicator {
             changedNodeIDs.insert(entry.key)
         }
 
+        try rebuildAffectedAncestorDirectories(
+            for: changedNodeIDs,
+            nodesByID: &nodesByID,
+            childIDsByID: &childIDsByID,
+            parentIDByID: store.parentIDByID,
+            cancellationCheck: cancellationCheck
+        )
+
+        return FileTreeStore(
+            rootID: store.rootID,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: store.parentIDByID
+        )
+    }
+
+    private nonisolated static func rebuildAffectedAncestorDirectories(
+        for changedNodeIDs: Set<String>,
+        nodesByID: inout [String: FileNodeRecord],
+        childIDsByID: inout [String: [String]],
+        parentIDByID: [String: String],
+        cancellationCheck: () throws -> Void = {}
+    ) rethrows {
         let affectedDirectoryIDs = affectedAncestorDirectoryIDs(
             for: changedNodeIDs,
             nodesByID: nodesByID,
-            parentIDByID: store.parentIDByID
+            parentIDByID: parentIDByID
         )
         for nodeID in affectedDirectoryIDs {
             try cancellationCheck()
@@ -173,13 +180,6 @@ nonisolated struct HardLinkDeduplicator {
             )
             childIDsByID[nodeID] = sortedChildren.map(\.id)
         }
-
-        return FileTreeStore(
-            rootID: store.rootID,
-            nodesByID: nodesByID,
-            childIDsByID: childIDsByID,
-            parentIDByID: store.parentIDByID
-        )
     }
 
     private nonisolated static func claim(for node: FileNodeRecord) -> HardLinkClaim? {
