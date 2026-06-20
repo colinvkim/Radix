@@ -669,7 +669,7 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAppModelChildTrashRemovesNodeWithoutImmediateScanRequest() async throws {
+    func testAppModelChildTrashRemovesNodeWithoutAutomaticRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -681,14 +681,19 @@ final class ScanCoordinatorTests: XCTestCase {
             )
         )
         let target = makeCoordinatorTarget("/app/trash-local")
-        let child = makeTestFileNode(id: target.id + "/deleted.txt", name: "deleted.txt", size: 20)
-        let sibling = makeTestFileNode(id: target.id + "/kept.txt", name: "kept.txt", size: 10)
-        let root = makeTestDirectoryNode(id: target.id, name: "trash-local", children: [child, sibling])
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [child, sibling]])
+        let folderID = target.id + "/Folder"
+        let child = makeTestFileNode(id: folderID + "/deleted.txt", name: "deleted.txt", size: 20)
+        let sibling = makeTestFileNode(id: folderID + "/kept.txt", name: "kept.txt", size: 10)
+        let populatedFolder = makeTestDirectoryNode(id: folderID, name: "Folder", children: [child, sibling])
+        let root = makeTestDirectoryNode(id: target.id, name: "trash-local", children: [populatedFolder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [populatedFolder],
+            populatedFolder.id: [child, sibling]
+        ])
         let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
         model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.focus(nodeID: child.id)
+        model.focus(nodeID: populatedFolder.id)
         model.select(nodeID: child.id)
 
         model.pendingTrashNode = child
@@ -698,16 +703,17 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.treeStore.node(id: child.id) == nil
         }
         XCTAssertNil(model.navigation.selectedNodeID)
-        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+        XCTAssertEqual(model.navigation.focusedNodeID, populatedFolder.id)
         XCTAssertEqual(model.navigation.tableNodes.map(\.id), [sibling.id])
         XCTAssertTrue(service.requests.isEmpty)
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(1_150))
         XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(model.navigation.focusedNodeID, populatedFolder.id)
         model.cleanup()
     }
 
     @MainActor
-    func testAppModelMultipleChildTrashesProduceOneDebouncedRescan() async throws {
+    func testAppModelMultipleChildTrashesDoNotStartRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -741,17 +747,15 @@ final class ScanCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(service.requests.isEmpty)
 
-        try await waitUntil("single debounced post-trash rescan", timeout: 2.5) {
-            service.requests.count == 1
-        }
-        XCTAssertEqual(service.requests.first?.target, target)
-        try await Task.sleep(for: .milliseconds(150))
-        XCTAssertEqual(service.requests.count, 1)
+        try await Task.sleep(for: .milliseconds(1_150))
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(model.scanState.selectedTarget, target)
+        XCTAssertEqual(model.scanState.phase, .displaying)
         model.cleanup()
     }
 
     @MainActor
-    func testAppModelBulkChildTrashRemovesNodesAndProducesOneDebouncedRescan() async throws {
+    func testAppModelBulkChildTrashRemovesNodesWithoutRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -780,10 +784,10 @@ final class ScanCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(service.requests.isEmpty)
 
-        try await waitUntil("single debounced post-trash rescan", timeout: 2.5) {
-            service.requests.count == 1
-        }
-        XCTAssertEqual(service.requests.first?.target, target)
+        try await Task.sleep(for: .milliseconds(1_150))
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(model.scanState.selectedTarget, target)
+        XCTAssertEqual(model.scanState.phase, .displaying)
         model.cleanup()
     }
 
@@ -868,14 +872,16 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.pendingTrashNode = secondChild
         model.confirmMovePendingNodeToTrash()
-        try await waitUntil("post-trash rescan request", timeout: 2.5) {
-            service.requests.count == 3
+        try await waitUntil("trashed child removed from second snapshot") {
+            model.scanState.snapshot?.treeStore.node(id: secondChild.id) == nil
         }
+        try await Task.sleep(for: .milliseconds(1_150))
+        XCTAssertEqual(service.requests.count, 2)
 
         model.selectSidebarTarget(id: firstTarget.id)
 
         try await waitUntil("first target scans after cache invalidation") {
-            service.requests.count == 4
+            service.requests.count == 3
         }
         XCTAssertEqual(service.requests.last?.target, firstTarget)
     }

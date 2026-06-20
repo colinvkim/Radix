@@ -113,8 +113,6 @@ final class AppModel: ObservableObject {
 
     private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
     private static let scanPreferencePersistenceDebounce: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
-    private static let postTrashRescanDelay: Duration = .seconds(1)
-
     private var cancellables = Set<AnyCancellable>()
     private var deferredScanStartTask: Task<Void, Never>?
     private var deferredScanStartID: UUID?
@@ -122,8 +120,6 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
-    private var postTrashRescanTask: Task<Void, Never>?
-    private var postTrashRescanID: UUID?
     private var postTrashRemovalTask: Task<Void, Never>?
     private var postTrashRemovalRequests: [PostTrashRemovalRequest] = []
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
@@ -187,7 +183,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelPostTrashSnapshotRemoval()
-        cancelPostTrashRescan()
         sidebarScanCacheController.resetTransientState()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
@@ -203,7 +198,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelPostTrashSnapshotRemoval()
-        cancelPostTrashRescan()
         sidebarScanCacheController.clearActiveScanTracking()
         if scanCoordinator.canStopScan {
             scanCoordinator.stopScan()
@@ -214,7 +208,6 @@ final class AppModel: ObservableObject {
     }
 
     func suspendBackgroundActivity() {
-        cancelPostTrashRescan()
         quickLookController.closePreview()
     }
 
@@ -353,7 +346,6 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelPostTrashSnapshotRemoval()
-        cancelPostTrashRescan()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
         scheduleDeferredViewUpdate(
@@ -386,12 +378,6 @@ final class AppModel: ObservableObject {
         postTrashRemovalRequests.removeAll()
         postTrashRemovalTask?.cancel()
         postTrashRemovalTask = nil
-    }
-
-    private func cancelPostTrashRescan() {
-        postTrashRescanID = nil
-        postTrashRescanTask?.cancel()
-        postTrashRescanTask = nil
     }
 
     private func scheduleDeferredViewUpdate(
@@ -443,7 +429,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelPostTrashSnapshotRemoval()
-        cancelPostTrashRescan()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
         if resetState, scanCoordinator.snapshot == nil {
@@ -586,7 +571,6 @@ final class AppModel: ObservableObject {
 
         if scanCoordinator.selectedTarget?.id != target.id {
             cancelPostTrashSnapshotRemoval()
-            cancelPostTrashRescan()
         }
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarModel.setActiveTargetID(target.id)
@@ -778,7 +762,6 @@ final class AppModel: ObservableObject {
 
     private func handleMovedToTrash(_ nodes: [FileNodeRecord]) {
         var shouldClearActiveScan = false
-        var shouldRescan = false
 
         for node in nodes {
             switch ScanPostTrashAction.afterRemovingNode(activeTargetID: scanCoordinator.selectedTarget?.id, removedNodeID: node.id) {
@@ -789,7 +772,6 @@ final class AppModel: ObservableObject {
                     nodeID: node.id,
                     fallbackFocusID: postTrashFocusFallbackID(for: node)
                 )
-                shouldRescan = true
             case .none:
                 break
             }
@@ -797,13 +779,10 @@ final class AppModel: ObservableObject {
 
         if shouldClearActiveScan {
             cancelPostTrashSnapshotRemoval()
-            cancelPostTrashRescan()
             scanCoordinator.clearScan()
             navigationModel.reset()
             sidebarModel.setActiveTargetID(nil)
             sidebarScanCacheController.clearDisplayedSnapshot()
-        } else if shouldRescan, let selectedTarget = scanCoordinator.selectedTarget {
-            schedulePostTrashRescan(for: selectedTarget)
         }
     }
 
@@ -860,31 +839,6 @@ final class AppModel: ObservableObject {
             }
 
             self?.postTrashRemovalTask = nil
-        }
-    }
-
-    private func schedulePostTrashRescan(for target: ScanTarget) {
-        postTrashRescanTask?.cancel()
-
-        let rescanID = UUID()
-        postTrashRescanID = rescanID
-        postTrashRescanTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: Self.postTrashRescanDelay)
-            } catch {
-                return
-            }
-
-            guard let self,
-                  self.postTrashRescanID == rescanID,
-                  !Task.isCancelled else {
-                return
-            }
-
-            self.postTrashRescanID = nil
-            self.postTrashRescanTask = nil
-            guard self.scanCoordinator.selectedTarget?.id == target.id else { return }
-            self.startScan(target)
         }
     }
 
