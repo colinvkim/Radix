@@ -135,6 +135,91 @@ final class FileBrowserModelTests: XCTestCase {
         XCTAssertEqual(modifiedResults.map(\.id), [unknownFile.id, oldFile.id, newFile.id])
     }
 
+    func testCancellableSortThrowsBeforeSort() {
+        let probe = SortCancellationProbe(throwOnCheck: 1)
+        let node = makeTestFileNode(id: "/root/file.txt", name: "file.txt")
+
+        XCTAssertThrowsError(
+            try FileBrowserResults.sorted(
+                [node],
+                sortOrder: [FileNodeTableComparator(field: .name)],
+                cancellationCheck: probe.check
+            )
+        ) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(probe.checkCount, 1)
+    }
+
+    func testCancellableSortThrowsDuringPreparation() {
+        let probe = SortCancellationProbe(throwOnCheck: 3)
+        let nodes = (0..<600).map { index in
+            makeTestFileNode(id: "/root/file-\(index).txt", name: "file-\(index).txt")
+        }
+
+        XCTAssertThrowsError(
+            try FileBrowserResults.sorted(
+                nodes,
+                sortOrder: [FileNodeTableComparator(field: .name)],
+                cancellationCheck: probe.check
+            )
+        ) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(probe.checkCount, 3)
+    }
+
+    func testCancellableSortOrderMatchesTableComparators() throws {
+        let older = Date(timeIntervalSince1970: 10)
+        let newer = Date(timeIntervalSince1970: 20)
+        let alpha = makeTestFileNode(id: "/root/alpha.txt", name: "alpha.txt", size: 10, lastModified: newer)
+        let beta = makeTestFileNode(id: "/root/beta.txt", name: "beta.txt", size: 30)
+        let folder = makeTestDirectoryNode(
+            id: "/root/folder",
+            name: "folder",
+            children: [
+                makeTestFileNode(id: "/root/folder/a.txt", name: "a.txt", size: 10, lastModified: older),
+                makeTestFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 10, lastModified: older),
+            ]
+        )
+        let nodes = [folder, beta, alpha]
+
+        let nameResults = try FileBrowserResults.sorted(
+            nodes,
+            sortOrder: [FileNodeTableComparator(field: .name)],
+            cancellationCheck: {}
+        )
+        XCTAssertEqual(nameResults.map(\.id), [alpha.id, beta.id, folder.id])
+
+        let sizeResults = try FileBrowserResults.sorted(
+            nodes,
+            sortOrder: [FileNodeTableComparator(field: .allocatedSize, order: .reverse)],
+            cancellationCheck: {}
+        )
+        XCTAssertEqual(sizeResults.map(\.id), [beta.id, folder.id, alpha.id])
+
+        let kindResults = try FileBrowserResults.sorted(
+            nodes,
+            sortOrder: [FileNodeTableComparator(field: .itemKind)],
+            cancellationCheck: {}
+        )
+        XCTAssertEqual(kindResults.map(\.id), [alpha.id, beta.id, folder.id])
+
+        let countResults = try FileBrowserResults.sorted(
+            nodes,
+            sortOrder: [FileNodeTableComparator(field: .descendantFileCount, order: .reverse)],
+            cancellationCheck: {}
+        )
+        XCTAssertEqual(countResults.map(\.id), [folder.id, alpha.id, beta.id])
+
+        let modifiedResults = try FileBrowserResults.sorted(
+            nodes,
+            sortOrder: [FileNodeTableComparator(field: .lastModified)],
+            cancellationCheck: {}
+        )
+        XCTAssertEqual(modifiedResults.map(\.id), [beta.id, folder.id, alpha.id])
+    }
+
     @MainActor
     func testLargeCurrentContentsFilterDebouncesAndIgnoresStaleQuery() async throws {
         let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
@@ -910,5 +995,32 @@ private actor CancellablePruningFileSearchService: FileSearching {
 
     func didCancelPrune() -> Bool {
         pruneCancelled
+    }
+}
+
+private final class SortCancellationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let throwOnCheck: Int
+    private var checks = 0
+
+    init(throwOnCheck: Int) {
+        self.throwOnCheck = throwOnCheck
+    }
+
+    var checkCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return checks
+    }
+
+    func check() throws {
+        lock.lock()
+        checks += 1
+        let shouldThrow = checks >= throwOnCheck
+        lock.unlock()
+
+        if shouldThrow {
+            throw CancellationError()
+        }
     }
 }

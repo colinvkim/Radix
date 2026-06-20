@@ -606,10 +606,13 @@ actor FileSearchService: FileSearching {
         }
 
         try Task.checkCancellation()
-        let sortedNodes = FileBrowserResults.sorted(
+        let sortedNodes = try FileBrowserResults.sorted(
             matchedNodes,
             sortOrder: sortOrder,
-            fileTreeStore: treeStore
+            fileTreeStore: treeStore,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
         )
         try Task.checkCancellation()
         return sortedNodes
@@ -782,7 +785,12 @@ enum FileBrowserResults {
 
         guard !trimmedSearchText.isEmpty else {
             try cancellationCheck()
-            return sorted(nodes, sortOrder: sortOrder, fileTreeStore: fileTreeStore)
+            return try sorted(
+                nodes,
+                sortOrder: sortOrder,
+                fileTreeStore: fileTreeStore,
+                cancellationCheck: cancellationCheck
+            )
         }
 
         var filteredNodes: [FileNodeRecord] = []
@@ -801,7 +809,12 @@ enum FileBrowserResults {
         }
 
         try cancellationCheck()
-        return sorted(filteredNodes, sortOrder: sortOrder, fileTreeStore: fileTreeStore)
+        return try sorted(
+            filteredNodes,
+            sortOrder: sortOrder,
+            fileTreeStore: fileTreeStore,
+            cancellationCheck: cancellationCheck
+        )
     }
 
     nonisolated static func sorted(
@@ -809,11 +822,33 @@ enum FileBrowserResults {
         sortOrder: [FileNodeTableComparator],
         fileTreeStore: FileTreeStore? = nil
     ) -> [FileNodeRecord] {
+        (try? sorted(
+            nodes,
+            sortOrder: sortOrder,
+            fileTreeStore: fileTreeStore,
+            cancellationCheck: {}
+        )) ?? nodes
+    }
+
+    nonisolated static func sorted(
+        _ nodes: [FileNodeRecord],
+        sortOrder: [FileNodeTableComparator],
+        fileTreeStore: FileTreeStore? = nil,
+        cancellationCheck: @Sendable () throws -> Void
+    ) throws -> [FileNodeRecord] {
+        try cancellationCheck()
         guard !sortOrder.isEmpty else { return nodes }
 
-        return nodes.sorted { lhs, rhs in
+        let preparedNodes = try preparedSortNodes(
+            nodes,
+            fileTreeStore: fileTreeStore,
+            cancellationCheck: cancellationCheck
+        )
+        try cancellationCheck()
+
+        let sortedNodes = preparedNodes.sorted { lhs, rhs in
             for comparator in sortOrder {
-                switch comparator.compare(lhs, rhs, fileTreeStore: fileTreeStore) {
+                switch lhs.compare(rhs, using: comparator) {
                 case .orderedAscending:
                     return true
                 case .orderedDescending:
@@ -825,6 +860,117 @@ enum FileBrowserResults {
                 }
             }
             return false
+        }
+        try cancellationCheck()
+        return sortedNodes.map(\.node)
+    }
+
+    private nonisolated static func preparedSortNodes(
+        _ nodes: [FileNodeRecord],
+        fileTreeStore: FileTreeStore?,
+        cancellationCheck: @Sendable () throws -> Void
+    ) throws -> [PreparedSortNode] {
+        var preparedNodes: [PreparedSortNode] = []
+        preparedNodes.reserveCapacity(nodes.count)
+
+        for (offset, node) in nodes.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            preparedNodes.append(PreparedSortNode(node: node, fileTreeStore: fileTreeStore))
+        }
+
+        return preparedNodes
+    }
+
+    private struct PreparedSortNode {
+        let node: FileNodeRecord
+        let name: String
+        let id: String
+        let allocatedSize: Int64
+        let itemKind: String
+        let descendantFileCount: Int
+        let lastModified: Date?
+
+        init(node: FileNodeRecord, fileTreeStore: FileTreeStore?) {
+            self.node = node
+            self.name = node.name
+            self.id = node.id
+            self.allocatedSize = node.allocatedSize
+            self.itemKind = node.itemKind
+            self.descendantFileCount = FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
+                ? 0
+                : node.descendantFileCount
+            self.lastModified = node.lastModified
+        }
+
+        func compare(_ rhs: PreparedSortNode, using comparator: FileNodeTableComparator) -> ComparisonResult {
+            let result: ComparisonResult = switch comparator.field {
+            case .name:
+                name.localizedStandardCompare(rhs.name)
+            case .allocatedSize:
+                Self.compare(allocatedSize, rhs.allocatedSize)
+            case .itemKind:
+                itemKind.localizedStandardCompare(rhs.itemKind)
+            case .descendantFileCount:
+                Self.compare(descendantFileCount, rhs.descendantFileCount)
+            case .lastModified:
+                Self.compareOptional(lastModified, rhs.lastModified)
+            }
+
+            let orderedResult = comparator.order == .reverse ? Self.reversed(result) : result
+            switch orderedResult {
+            case .orderedSame:
+                return fallbackCompare(rhs)
+            default:
+                return orderedResult
+            }
+        }
+
+        private func fallbackCompare(_ rhs: PreparedSortNode) -> ComparisonResult {
+            let nameResult = name.localizedStandardCompare(rhs.name)
+            switch nameResult {
+            case .orderedSame:
+                return id.localizedStandardCompare(rhs.id)
+            default:
+                return nameResult
+            }
+        }
+
+        private static func reversed(_ result: ComparisonResult) -> ComparisonResult {
+            switch result {
+            case .orderedAscending:
+                return .orderedDescending
+            case .orderedDescending:
+                return .orderedAscending
+            case .orderedSame:
+                return .orderedSame
+            @unknown default:
+                return result
+            }
+        }
+
+        private static func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+            if lhs < rhs {
+                return .orderedAscending
+            }
+            if lhs > rhs {
+                return .orderedDescending
+            }
+            return .orderedSame
+        }
+
+        private static func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
+            switch (lhs, rhs) {
+            case let (lhs?, rhs?):
+                return compare(lhs, rhs)
+            case (nil, nil):
+                return .orderedSame
+            case (nil, _?):
+                return .orderedAscending
+            case (_?, nil):
+                return .orderedDescending
+            }
         }
     }
 }
