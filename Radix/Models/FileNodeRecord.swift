@@ -26,7 +26,7 @@ struct FileNodeRecord: Identifiable, Sendable {
     let isSynthetic: Bool
     let isAutoSummarized: Bool
 
-    init(
+    nonisolated init(
         id: String,
         url: URL,
         name: String,

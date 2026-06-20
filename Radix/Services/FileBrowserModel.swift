@@ -892,7 +892,7 @@ enum FileBrowserResults {
         let descendantFileCount: Int
         let lastModified: Date?
 
-        init(node: FileNodeRecord, fileTreeStore: FileTreeStore?) {
+        nonisolated init(node: FileNodeRecord, fileTreeStore: FileTreeStore?) {
             self.node = node
             self.name = node.name
             self.id = node.id
@@ -904,7 +904,7 @@ enum FileBrowserResults {
             self.lastModified = node.lastModified
         }
 
-        func compare(_ rhs: PreparedSortNode, using comparator: FileNodeTableComparator) -> ComparisonResult {
+        nonisolated func compare(_ rhs: PreparedSortNode, using comparator: FileNodeTableComparator) -> ComparisonResult {
             let result: ComparisonResult = switch comparator.field {
             case .name:
                 name.localizedStandardCompare(rhs.name)
@@ -927,7 +927,7 @@ enum FileBrowserResults {
             }
         }
 
-        private func fallbackCompare(_ rhs: PreparedSortNode) -> ComparisonResult {
+        private nonisolated func fallbackCompare(_ rhs: PreparedSortNode) -> ComparisonResult {
             let nameResult = name.localizedStandardCompare(rhs.name)
             switch nameResult {
             case .orderedSame:
@@ -937,7 +937,7 @@ enum FileBrowserResults {
             }
         }
 
-        private static func reversed(_ result: ComparisonResult) -> ComparisonResult {
+        private nonisolated static func reversed(_ result: ComparisonResult) -> ComparisonResult {
             switch result {
             case .orderedAscending:
                 return .orderedDescending
@@ -950,7 +950,7 @@ enum FileBrowserResults {
             }
         }
 
-        private static func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        private nonisolated static func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
             if lhs < rhs {
                 return .orderedAscending
             }
@@ -960,7 +960,7 @@ enum FileBrowserResults {
             return .orderedSame
         }
 
-        private static func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
+        private nonisolated static func compareOptional<T: Comparable>(_ lhs: T?, _ rhs: T?) -> ComparisonResult {
             switch (lhs, rhs) {
             case let (lhs?, rhs?):
                 return compare(lhs, rhs)
