@@ -15,6 +15,7 @@ struct WorkspaceActions {
     let selectAndFocusNode: (String) -> Void
     let navigateBack: () -> Void
     let navigateForward: () -> Void
+    let navigateToParent: () -> Void
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions

@@ -85,6 +85,28 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertEqual(SunburstHitTester.segment(at: hitPoint, in: size, segments: segments)?.id, firstSegment.id)
     }
 
+    func testCenterHitTesterMatchesLayoutHole() throws {
+        let root = makeDirectoryNode(
+            id: "/root",
+            name: "root",
+            children: [
+                makeFileNode(id: "/root/a", name: "a", size: 1)
+            ]
+        )
+        let store = makeStore(root: root, children: [
+            makeFileNode(id: "/root/a", name: "a", size: 1),
+        ])
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
+        let firstSegment = try XCTUnwrap(segments.first)
+        let size = CGSize(width: 300, height: 300)
+
+        XCTAssertEqual(firstSegment.innerRadius, SunburstLayout.centerRadius)
+        XCTAssertTrue(SunburstCenterHitTester.contains(point: CGPoint(x: 150, y: 150), in: size))
+        XCTAssertTrue(SunburstCenterHitTester.contains(point: pointInRing(radius: 0.21, in: size), in: size))
+        XCTAssertFalse(SunburstCenterHitTester.contains(point: pointInRing(radius: 0.23, in: size), in: size))
+        XCTAssertNil(SunburstHitTester.segment(at: CGPoint(x: 150, y: 150), in: size, segments: segments))
+    }
+
     func testHitTestIndexFindsSegmentInMatchingRing() throws {
         let size = CGSize(width: 300, height: 300)
         let innerRing = makeSegment(id: "inner", innerRadius: 0.1, outerRadius: 0.3, depth: 0)

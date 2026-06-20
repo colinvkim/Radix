@@ -232,6 +232,7 @@ private extension ContentView {
             selectAndFocusNode: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             navigateBack: { appModel.navigateBack() },
             navigateForward: { appModel.navigateForward() },
+            navigateToParent: { appModel.navigateToParent() },
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: previewSelectedFileActions,

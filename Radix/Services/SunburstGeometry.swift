@@ -37,6 +37,8 @@ enum StablePaletteIndex {
 }
 
 enum SunburstLayout {
+    nonisolated static let centerRadius: CGFloat = 0.22
+
     typealias CancellationCheck = () throws -> Void
 
     nonisolated static func segments(
@@ -67,7 +69,7 @@ enum SunburstLayout {
 
         let rootChildren = try treeStore.children(of: root.id, cancellationCheck: cancellationCheck)
         let visibleChildren = rootChildren.isEmpty ? [root] : rootChildren
-        let ringStart: CGFloat = 0.22
+        let ringStart = centerRadius
         let ringWidth = (0.98 - ringStart) / CGFloat(max(depthLimit, 1))
         let denominator = max(root.allocatedSize, Int64(visibleChildren.count))
 
@@ -297,6 +299,23 @@ enum SunburstHitTester {
         segments: [SunburstSegment]
     ) -> SunburstSegment? {
         SunburstHitTestIndex(segments: segments).segment(at: point, in: size)
+    }
+}
+
+enum SunburstCenterHitTester {
+    nonisolated static func contains(
+        point: CGPoint,
+        in size: CGSize,
+        radius: CGFloat = SunburstLayout.centerRadius
+    ) -> Bool {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let maxRadius = min(size.width, size.height) / 2
+        guard maxRadius > 0, radius > 0 else { return false }
+
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        let distance = sqrt((dx * dx) + (dy * dy))
+        return (distance / maxRadius) < radius
     }
 }
 

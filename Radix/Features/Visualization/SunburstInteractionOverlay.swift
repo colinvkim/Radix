@@ -4,22 +4,26 @@ import SwiftUI
 struct SunburstInteractionOverlay: NSViewRepresentable {
     let onHover: (CGPoint?) -> Void
     let onClick: (CGPoint, Int) -> Void
+    let help: (CGPoint) -> String?
 
     func makeNSView(context: Context) -> InteractionView {
         let view = InteractionView()
         view.onHover = onHover
         view.onClick = onClick
+        view.help = help
         return view
     }
 
     func updateNSView(_ nsView: InteractionView, context: Context) {
         nsView.onHover = onHover
         nsView.onClick = onClick
+        nsView.help = help
     }
 
     final class InteractionView: NSView {
         var onHover: (CGPoint?) -> Void = { _ in }
         var onClick: (CGPoint, Int) -> Void = { _, _ in }
+        var help: (CGPoint) -> String? = { _ in nil }
 
         private var trackingArea: NSTrackingArea?
 
@@ -45,19 +49,28 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         }
 
         override func mouseEntered(with event: NSEvent) {
-            onHover(convert(event.locationInWindow, from: nil))
+            let location = convert(event.locationInWindow, from: nil)
+            onHover(location)
+            updateHelp(at: location)
         }
 
         override func mouseMoved(with event: NSEvent) {
-            onHover(convert(event.locationInWindow, from: nil))
+            let location = convert(event.locationInWindow, from: nil)
+            onHover(location)
+            updateHelp(at: location)
         }
 
         override func mouseExited(with event: NSEvent) {
             onHover(nil)
+            toolTip = nil
         }
 
         override func mouseDown(with event: NSEvent) {
             onClick(convert(event.locationInWindow, from: nil), event.clickCount)
+        }
+
+        private func updateHelp(at location: CGPoint) {
+            toolTip = help(location)
         }
     }
 }

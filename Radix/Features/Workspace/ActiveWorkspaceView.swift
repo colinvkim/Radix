@@ -54,13 +54,15 @@ struct ActiveWorkspaceView: View {
     private var chartContent: some View {
         SunburstChartView(
             rootNode: focusNode,
+            parentNode: navigation.currentFocusNodeParent,
             treeStore: snapshot.treeStore,
             selectedNodeID: navigation.selectedNodeID,
             selectedAncestorIDs: navigation.selectedAncestorIDs,
             depthLimit: maxRenderedDepth,
             layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(maxRenderedDepth)",
             onSelect: actions.selectNode,
-            onZoom: actions.selectAndFocusNode
+            onZoom: actions.selectAndFocusNode,
+            onNavigateToParent: actions.navigateToParent
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(18)
