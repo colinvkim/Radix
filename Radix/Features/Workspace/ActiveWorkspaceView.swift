@@ -8,7 +8,9 @@ struct ActiveWorkspaceView: View {
     let focusNode: FileNodeRecord
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let maxRenderedDepth: Int
+    let showFreeSpaceInSunburst: Bool
     let fullDiskAccessStatus: FullDiskAccessStatus
+    let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
 
     // Dismissal is scoped to a single target scan: transformed snapshots keep it hidden.
@@ -52,14 +54,22 @@ struct ActiveWorkspaceView: View {
     }
 
     private var chartContent: some View {
-        SunburstChartView(
-            rootNode: focusNode,
+        let visualizationInput = sunburstVisualizationInput
+
+        return SunburstChartView(
+            rootNode: visualizationInput.rootNode,
             parentNode: navigation.currentFocusNodeParent,
-            treeStore: snapshot.treeStore,
+            treeStore: visualizationInput.treeStore,
             selectedNodeID: navigation.selectedNodeID,
             selectedAncestorIDs: navigation.selectedAncestorIDs,
             depthLimit: maxRenderedDepth,
-            layoutID: "\(snapshot.id.uuidString)|\(focusNode.id)|\(maxRenderedDepth)",
+            layoutID: [
+                snapshot.id.uuidString,
+                focusNode.id,
+                visualizationInput.rootNode.id,
+                String(maxRenderedDepth),
+                visualizationInput.layoutIDComponent
+            ].joined(separator: "|"),
             onSelect: actions.selectNode,
             onZoom: actions.selectAndFocusNode,
             onNavigateToParent: actions.navigateToParent
@@ -98,6 +108,15 @@ struct ActiveWorkspaceView: View {
 
     private var warningDismissalScope: WarningDismissalScope {
         WarningDismissalScope(targetID: snapshot.target.id, startedAt: snapshot.startedAt)
+    }
+
+    private var sunburstVisualizationInput: SunburstVisualizationInput {
+        SunburstFreeSpaceVisualization.input(
+            snapshot: snapshot,
+            focusNode: focusNode,
+            showFreeSpace: showFreeSpaceInSunburst,
+            availableCapacity: freeSpaceAvailableCapacity(snapshot, focusNode)
+        )
     }
 
     private var fileBrowserActions: FileBrowserActions {

@@ -17,6 +17,7 @@ final class AppPreferencesStoreTests: XCTestCase {
             treatPackagesAsDirectories: true,
             maxRenderedDepth: 9,
             autoSummarizeDirectories: false,
+            showFreeSpaceInSunburst: true,
             scanCloudStorageFolders: true,
             useScanExclusions: true,
             exclusionPatterns: ["node_modules", "*.log"]
@@ -42,6 +43,7 @@ final class AppPreferencesStoreTests: XCTestCase {
         defaults.set(true, forKey: "treatPackagesAsDirectories")
         defaults.set(42, forKey: "maxRenderedDepth")
         defaults.set(false, forKey: "autoSummarizeDirectories")
+        defaults.set(true, forKey: "showFreeSpaceInSunburst")
         defaults.set(true, forKey: "scanCloudStorageFolders")
         defaults.set(true, forKey: "useScanExclusions")
         defaults.set([".DS_Store"], forKey: "exclusionPatterns")
@@ -52,6 +54,7 @@ final class AppPreferencesStoreTests: XCTestCase {
         XCTAssertTrue(preferences.treatPackagesAsDirectories)
         XCTAssertEqual(preferences.maxRenderedDepth, AppScanPreferences.defaults.maxRenderedDepth)
         XCTAssertFalse(preferences.autoSummarizeDirectories)
+        XCTAssertTrue(preferences.showFreeSpaceInSunburst)
         XCTAssertTrue(preferences.scanCloudStorageFolders)
         XCTAssertTrue(preferences.useScanExclusions)
         XCTAssertEqual(preferences.exclusionPatterns, [".DS_Store"])

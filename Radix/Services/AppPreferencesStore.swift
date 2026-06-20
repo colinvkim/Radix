@@ -10,6 +10,7 @@ struct AppScanPreferences: Equatable {
     var treatPackagesAsDirectories: Bool
     var maxRenderedDepth: Int
     var autoSummarizeDirectories: Bool
+    var showFreeSpaceInSunburst: Bool
     var scanCloudStorageFolders: Bool
     var useScanExclusions: Bool
     var exclusionPatterns: [String]
@@ -19,6 +20,7 @@ struct AppScanPreferences: Equatable {
         treatPackagesAsDirectories: false,
         maxRenderedDepth: 6,
         autoSummarizeDirectories: true,
+        showFreeSpaceInSunburst: false,
         scanCloudStorageFolders: false,
         useScanExclusions: false,
         exclusionPatterns: ScanExclusionMatcher.commonPresetPatterns
@@ -49,6 +51,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
         static let maxRenderedDepth = "maxRenderedDepth"
         static let autoSummarizeDirectories = "autoSummarizeDirectories"
+        static let showFreeSpaceInSunburst = "showFreeSpaceInSunburst"
         static let scanCloudStorageFolders = "scanCloudStorageFolders"
         static let useScanExclusions = "useScanExclusions"
         static let exclusionPatterns = "exclusionPatterns"
@@ -87,6 +90,13 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
             scanCloudStorageFolders = defaults.bool(forKey: Key.scanCloudStorageFolders)
         }
 
+        let showFreeSpaceInSunburst: Bool
+        if defaults.object(forKey: Key.showFreeSpaceInSunburst) == nil {
+            showFreeSpaceInSunburst = AppScanPreferences.defaults.showFreeSpaceInSunburst
+        } else {
+            showFreeSpaceInSunburst = defaults.bool(forKey: Key.showFreeSpaceInSunburst)
+        }
+
         let useScanExclusions: Bool
         if defaults.object(forKey: Key.useScanExclusions) == nil {
             useScanExclusions = AppScanPreferences.defaults.useScanExclusions
@@ -103,6 +113,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
                 treatPackagesAsDirectories: defaults.bool(forKey: Key.treatPackagesAsDirectories),
                 maxRenderedDepth: maxRenderedDepth,
                 autoSummarizeDirectories: autoSummarizeDirectories,
+                showFreeSpaceInSunburst: showFreeSpaceInSunburst,
                 scanCloudStorageFolders: scanCloudStorageFolders,
                 useScanExclusions: useScanExclusions,
                 exclusionPatterns: exclusionPatterns
@@ -116,6 +127,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         defaults.set(preferences.treatPackagesAsDirectories, forKey: Key.treatPackagesAsDirectories)
         defaults.set(preferences.maxRenderedDepth, forKey: Key.maxRenderedDepth)
         defaults.set(preferences.autoSummarizeDirectories, forKey: Key.autoSummarizeDirectories)
+        defaults.set(preferences.showFreeSpaceInSunburst, forKey: Key.showFreeSpaceInSunburst)
         defaults.set(preferences.scanCloudStorageFolders, forKey: Key.scanCloudStorageFolders)
         defaults.set(preferences.useScanExclusions, forKey: Key.useScanExclusions)
         defaults.set(preferences.exclusionPatterns, forKey: Key.exclusionPatterns)

@@ -69,6 +69,7 @@ struct AppSystemActions {
     var fullDiskAccessStatus: () -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
     var targetCapacityDescriptions: () -> [String: String]
+    var volumeAvailableCapacityForImportantUsage: (URL) -> Int64?
     var trashSafetyPolicy: () -> TrashSafetyPolicy
     var asyncFullDiskAccessStatus: (@Sendable () async -> FullDiskAccessStatus)?
     var asyncTargetCapacityDescriptions: (@Sendable () async -> [String: String])?
@@ -98,6 +99,9 @@ struct AppSystemActions {
         },
         targetCapacityDescriptions: {
             SystemIntegration.targetCapacityDescriptions()
+        },
+        volumeAvailableCapacityForImportantUsage: {
+            SystemIntegration.volumeAvailableCapacityForImportantUsage(for: $0)
         },
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
@@ -156,6 +160,7 @@ struct AppSystemActions {
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         targetCapacityDescriptions: { [:] },
+        volumeAvailableCapacityForImportantUsage: { _ in nil },
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },

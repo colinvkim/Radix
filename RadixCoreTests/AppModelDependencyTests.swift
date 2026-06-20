@@ -16,6 +16,7 @@ final class AppModelDependencyTests: XCTestCase {
                     treatPackagesAsDirectories: true,
                     maxRenderedDepth: 8,
                     autoSummarizeDirectories: false,
+                    showFreeSpaceInSunburst: true,
                     scanCloudStorageFolders: true,
                     useScanExclusions: true,
                     exclusionPatterns: ["*.log"]
@@ -44,6 +45,7 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(model.treatPackagesAsDirectories)
         XCTAssertEqual(model.maxRenderedDepth, 8)
         XCTAssertFalse(model.autoSummarizeDirectories)
+        XCTAssertTrue(model.showFreeSpaceInSunburst)
         XCTAssertTrue(model.scanCloudStorageFolders)
         XCTAssertTrue(model.useScanExclusions)
         XCTAssertEqual(model.exclusionPatterns, ["*.log"])
@@ -104,6 +106,7 @@ final class AppModelDependencyTests: XCTestCase {
             treatPackagesAsDirectories: true,
             maxRenderedDepth: 10,
             autoSummarizeDirectories: false,
+            showFreeSpaceInSunburst: true,
             scanCloudStorageFolders: true,
             useScanExclusions: true,
             exclusionPatterns: ["node_modules"]
@@ -113,6 +116,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.treatPackagesAsDirectories = true
         model.maxRenderedDepth = 10
         model.autoSummarizeDirectories = false
+        model.showFreeSpaceInSunburst = true
         model.scanCloudStorageFolders = true
         model.useScanExclusions = true
         model.exclusionPatterns = ["node_modules"]
@@ -139,6 +143,7 @@ final class AppModelDependencyTests: XCTestCase {
             treatPackagesAsDirectories: AppScanPreferences.defaults.treatPackagesAsDirectories,
             maxRenderedDepth: AppScanPreferences.defaults.maxRenderedDepth,
             autoSummarizeDirectories: AppScanPreferences.defaults.autoSummarizeDirectories,
+            showFreeSpaceInSunburst: AppScanPreferences.defaults.showFreeSpaceInSunburst,
             scanCloudStorageFolders: AppScanPreferences.defaults.scanCloudStorageFolders,
             useScanExclusions: AppScanPreferences.defaults.useScanExclusions,
             exclusionPatterns: AppScanPreferences.defaults.exclusionPatterns
@@ -148,6 +153,36 @@ final class AppModelDependencyTests: XCTestCase {
         model.cleanup()
 
         XCTAssertEqual(preferences.savedScanPreferences, [expectedPreferences])
+    }
+
+    @MainActor
+    func testSunburstFreeSpaceCapacityRequiresEnabledVolumeRoot() {
+        var requestedURLs: [URL] = []
+        var actions = AppSystemActions.inert
+        actions.volumeAvailableCapacityForImportantUsage = { url in
+            requestedURLs.append(url)
+            return 123
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/volume/file.txt", name: "file.txt")
+        let volumeRoot = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [child])
+        let store = FileTreeStore(root: volumeRoot, childrenByID: [volumeRoot.id: [child]])
+        let volumeSnapshot = makeTestSnapshot(
+            target: ScanTarget(url: volumeRoot.url, kind: .volume),
+            root: volumeRoot,
+            store: store
+        )
+
+        XCTAssertNil(model.sunburstFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot))
+
+        model.showFreeSpaceInSunburst = true
+
+        XCTAssertEqual(model.sunburstFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot), 123)
+        XCTAssertNil(model.sunburstFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: child))
+
+        let folderSnapshot = makeTestSnapshot(root: volumeRoot, store: store)
+        XCTAssertNil(model.sunburstFreeSpaceAvailableCapacity(for: folderSnapshot, focusNode: volumeRoot))
+        XCTAssertEqual(requestedURLs, [volumeRoot.url])
     }
 
     @MainActor

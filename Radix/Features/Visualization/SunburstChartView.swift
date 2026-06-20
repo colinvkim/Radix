@@ -221,6 +221,13 @@ struct SunburstChartView: View {
             return
         }
 
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(nodeID) {
+            if clickCount == 1 {
+                onSelect(nil)
+            }
+            return
+        }
+
         if clickCount >= 2,
            treeStore.node(id: nodeID)?.isDirectory == true {
             onZoom(nodeID)
@@ -231,7 +238,7 @@ struct SunburstChartView: View {
 
     private var accessibilityValue: String {
         let node = displayedNode ?? rootNode
-        return "\(node.name), \(RadixFormatters.size(node.allocatedSize)), \(node.itemKind)"
+        return "\(node.name), \(RadixFormatters.size(node.allocatedSize)), \(summaryStatus(for: node))"
     }
 
     private var accessibilityHint: String {
@@ -279,6 +286,15 @@ struct SunburstChartView: View {
     }
 
     private func summary(for node: FileNodeRecord) -> ChartSummary {
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
+            return ChartSummary(
+                status: summaryStatus(for: node),
+                title: node.name,
+                value: RadixFormatters.size(node.allocatedSize),
+                detail: "APFS available capacity"
+            )
+        }
+
         let detail: String
         if node.id != rootNode.id,
            let percentText = RadixFormatters.percentage(part: node.allocatedSize, total: rootNode.allocatedSize) {
@@ -293,6 +309,13 @@ struct SunburstChartView: View {
             value: RadixFormatters.size(node.allocatedSize),
             detail: detail
         )
+    }
+
+    private func summaryStatus(for node: FileNodeRecord) -> String {
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
+            return "Available Space"
+        }
+        return node.itemKind
     }
 }
 

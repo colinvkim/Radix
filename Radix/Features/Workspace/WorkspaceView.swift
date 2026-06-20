@@ -59,8 +59,10 @@ struct WorkspaceView: View {
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     let maxRenderedDepth: Int
+    let showFreeSpaceInSunburst: Bool
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
+    let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
 
     var body: some View {
@@ -74,7 +76,9 @@ struct WorkspaceView: View {
                     focusNode: focusNode,
                     focusedWorkspaceTarget: $focusedWorkspaceTarget,
                     maxRenderedDepth: maxRenderedDepth,
+                    showFreeSpaceInSunburst: showFreeSpaceInSunburst,
                     fullDiskAccessStatus: fullDiskAccessStatus,
+                    freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
                     actions: actions
                 )
             } else if scanState.isScanning {

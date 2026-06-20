@@ -31,8 +31,12 @@ struct ContentView: View {
                 isInspectorPresented: $showsInspector,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
+                showFreeSpaceInSunburst: appModel.showFreeSpaceInSunburst,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
+                freeSpaceAvailableCapacity: { snapshot, focusNode in
+                    appModel.sunburstFreeSpaceAvailableCapacity(for: snapshot, focusNode: focusNode)
+                },
                 actions: workspaceActions
             )
         }
@@ -179,8 +183,10 @@ private struct WorkspaceDetailView: View {
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     let maxRenderedDepth: Int
+    let showFreeSpaceInSunburst: Bool
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
+    let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
 
     var body: some View {
@@ -190,8 +196,10 @@ private struct WorkspaceDetailView: View {
             isInspectorPresented: $isInspectorPresented,
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
+            showFreeSpaceInSunburst: showFreeSpaceInSunburst,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,
+            freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
             actions: actions
         )
             .toolbar {

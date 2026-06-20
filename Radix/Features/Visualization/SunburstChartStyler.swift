@@ -83,6 +83,9 @@ enum SunburstChartStyler {
     }
 
     private static func baseColor(for segment: SunburstSegment) -> Color {
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(segment.nodeID) {
+            return Color(nsColor: .systemGray)
+        }
         if segment.isAggregate {
             return Color(nsColor: .tertiaryLabelColor)
         }
@@ -92,10 +95,16 @@ enum SunburstChartStyler {
     }
 
     private static func standardOpacity(for segment: SunburstSegment) -> Double {
-        max(0.24, 0.78 - (Double(segment.depth) * 0.09) - (segment.isAggregate ? 0.16 : 0))
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(segment.nodeID) {
+            return 0.34
+        }
+        return max(0.24, 0.78 - (Double(segment.depth) * 0.09) - (segment.isAggregate ? 0.16 : 0))
     }
 
     private static func hoverFillOpacity(for segment: SunburstSegment) -> Double {
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(segment.nodeID) {
+            return 0.5
+        }
         if segment.isAggregate {
             return 0.4
         }

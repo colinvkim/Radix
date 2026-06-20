@@ -59,6 +59,8 @@ private struct GeneralSettingsPane: View {
             }
 
             Section("Visualization") {
+                Toggle("Show free space in sunburst", isOn: $appModel.showFreeSpaceInSunburst)
+
                 Picker("Sunburst depth", selection: $appModel.maxRenderedDepth) {
                     ForEach(3...10, id: \.self) { depth in
                         Text("\(depth) rings")
@@ -68,6 +70,10 @@ private struct GeneralSettingsPane: View {
                 .pickerStyle(.menu)
 
                 Text("Changes apply immediately to the current disk map.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Free space appears only for mounted volume scans and uses macOS available capacity, which can include purgeable APFS space.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

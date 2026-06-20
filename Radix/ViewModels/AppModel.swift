@@ -76,6 +76,7 @@ final class AppModel: ObservableObject {
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
+    @Published var showFreeSpaceInSunburst = false
     @Published var scanCloudStorageFolders = false
     @Published var useScanExclusions = false
     @Published var exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
@@ -150,6 +151,7 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = preferences.scan.treatPackagesAsDirectories
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
+        showFreeSpaceInSunburst = preferences.scan.showFreeSpaceInSunburst
         scanCloudStorageFolders = preferences.scan.scanCloudStorageFolders
         useScanExclusions = preferences.scan.useScanExclusions
         exclusionPatterns = preferences.scan.exclusionPatterns
@@ -294,6 +296,7 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
         maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
         autoSummarizeDirectories = AppScanPreferences.defaults.autoSummarizeDirectories
+        showFreeSpaceInSunburst = AppScanPreferences.defaults.showFreeSpaceInSunburst
         scanCloudStorageFolders = AppScanPreferences.defaults.scanCloudStorageFolders
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
         exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
@@ -423,6 +426,16 @@ final class AppModel: ObservableObject {
     func rescan() {
         guard let selectedTarget = scanCoordinator.selectedTarget else { return }
         startScan(selectedTarget)
+    }
+
+    func sunburstFreeSpaceAvailableCapacity(for snapshot: ScanSnapshot, focusNode: FileNodeRecord) -> Int64? {
+        guard showFreeSpaceInSunburst,
+              snapshot.target.kind == .volume,
+              focusNode.id == snapshot.root.id else {
+            return nil
+        }
+
+        return dependencies.systemActions.volumeAvailableCapacityForImportantUsage(snapshot.target.url)
     }
 
     func stopScan(resetState: Bool = true) {
@@ -1117,7 +1130,12 @@ final class AppModel: ObservableObject {
             $maxRenderedDepth,
             $scanCloudStorageFolders
         )
-            .combineLatest(Publishers.CombineLatest3($autoSummarizeDirectories, $useScanExclusions, $exclusionPatterns))
+            .combineLatest(Publishers.CombineLatest4(
+                $autoSummarizeDirectories,
+                $showFreeSpaceInSunburst,
+                $useScanExclusions,
+                $exclusionPatterns
+            ))
             .map { scanBasics, scanFilters in
                 Self.scanPreferences(scanBasics, scanFilters)
             }
@@ -1136,6 +1154,7 @@ final class AppModel: ObservableObject {
             treatPackagesAsDirectories: treatPackagesAsDirectories,
             maxRenderedDepth: maxRenderedDepth,
             autoSummarizeDirectories: autoSummarizeDirectories,
+            showFreeSpaceInSunburst: showFreeSpaceInSunburst,
             scanCloudStorageFolders: scanCloudStorageFolders,
             useScanExclusions: useScanExclusions,
             exclusionPatterns: exclusionPatterns
@@ -1154,16 +1173,17 @@ final class AppModel: ObservableObject {
 
     private static func scanPreferences(
         _ scanBasics: (Bool, Bool, Int, Bool),
-        _ scanFilters: (Bool, Bool, [String])
+        _ scanFilters: (Bool, Bool, Bool, [String])
     ) -> AppScanPreferences {
         AppScanPreferences(
             showHiddenFiles: scanBasics.0,
             treatPackagesAsDirectories: scanBasics.1,
             maxRenderedDepth: scanBasics.2,
             autoSummarizeDirectories: scanFilters.0,
+            showFreeSpaceInSunburst: scanFilters.1,
             scanCloudStorageFolders: scanBasics.3,
-            useScanExclusions: scanFilters.1,
-            exclusionPatterns: scanFilters.2
+            useScanExclusions: scanFilters.2,
+            exclusionPatterns: scanFilters.3
         )
     }
 }
