@@ -352,6 +352,8 @@ struct FileTreeStore: Sendable {
                 name: current.name,
                 children: sortedChildRecords,
                 lastModified: current.lastModified,
+                fileIdentity: current.fileIdentity,
+                linkCount: current.linkCount,
                 isPackage: current.isPackage,
                 isAccessible: current.isSelfAccessible,
                 childrenAreSorted: true
@@ -451,6 +453,8 @@ struct FileTreeStore: Sendable {
                 name: current.name,
                 children: sortedChildRecords,
                 lastModified: current.lastModified,
+                fileIdentity: current.fileIdentity,
+                linkCount: current.linkCount,
                 isPackage: current.isPackage,
                 isAccessible: current.isSelfAccessible,
                 childrenAreSorted: true
@@ -680,6 +684,8 @@ struct FileTreeStore: Sendable {
             logicalSize: logicalSize,
             descendantFileCount: descendantFileCount,
             lastModified: node.lastModified,
+            fileIdentity: node.fileIdentity,
+            linkCount: node.linkCount,
             isPackage: node.isPackage,
             isAccessible: node.isSelfAccessible && children.allSatisfy(\.isAccessible),
             isSelfAccessible: node.isSelfAccessible,

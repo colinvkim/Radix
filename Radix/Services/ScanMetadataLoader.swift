@@ -307,7 +307,11 @@ nonisolated struct ScanMetadataLoader: Sendable {
         let isReadable = values.isReadable ?? false
         var fileIdentity = Self.fileIdentity(from: values.fileResourceIdentifier)
         var linkCount = values.linkCount.map(UInt64.init) ?? 1
-        if shouldReadFileSystemIdentity(
+        if isSymbolicLink {
+            let fileSystemInfo = fileSystemInfoProvider(url, diagnostics)
+            fileIdentity = fileSystemInfo.identity
+            linkCount = fileSystemInfo.linkCount
+        } else if shouldReadFileSystemIdentity(
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             url: url,
@@ -418,5 +422,12 @@ nonisolated enum FileIdentity: Hashable, Sendable {
 
     nonisolated init(resourceIdentifier: Data) {
         self = .resourceIdentifier(resourceIdentifier)
+    }
+
+    nonisolated var isFileSystemIdentity: Bool {
+        if case .fileSystem = self {
+            return true
+        }
+        return false
     }
 }

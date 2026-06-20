@@ -75,6 +75,8 @@ nonisolated struct HardLinkDeduplicator {
                 name: node.name,
                 children: sortedChildren,
                 lastModified: node.lastModified,
+                fileIdentity: node.fileIdentity,
+                linkCount: node.linkCount,
                 isPackage: node.isPackage,
                 isAccessible: node.isSelfAccessible,
                 childrenAreSorted: true
@@ -186,6 +188,8 @@ private extension FileNodeRecord {
             logicalSize: logicalSize,
             descendantFileCount: descendantFileCount,
             lastModified: lastModified,
+            fileIdentity: fileIdentity,
+            linkCount: linkCount,
             isPackage: isPackage,
             isAccessible: isAccessible,
             isSelfAccessible: isSelfAccessible,

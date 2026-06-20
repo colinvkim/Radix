@@ -17,11 +17,49 @@ struct FileNodeRecord: Identifiable, Sendable {
     let logicalSize: Int64
     let descendantFileCount: Int
     let lastModified: Date?
+    let fileIdentity: FileIdentity?
+    let linkCount: UInt64
     let isPackage: Bool
     let isAccessible: Bool
     let isSelfAccessible: Bool
     let isSynthetic: Bool
     let isAutoSummarized: Bool
+
+    init(
+        id: String,
+        url: URL,
+        name: String,
+        isDirectory: Bool,
+        isSymbolicLink: Bool,
+        allocatedSize: Int64,
+        logicalSize: Int64,
+        descendantFileCount: Int,
+        lastModified: Date?,
+        fileIdentity: FileIdentity? = nil,
+        linkCount: UInt64 = 1,
+        isPackage: Bool,
+        isAccessible: Bool,
+        isSelfAccessible: Bool,
+        isSynthetic: Bool,
+        isAutoSummarized: Bool
+    ) {
+        self.id = id
+        self.url = url
+        self.name = name
+        self.isDirectory = isDirectory
+        self.isSymbolicLink = isSymbolicLink
+        self.allocatedSize = allocatedSize
+        self.logicalSize = logicalSize
+        self.descendantFileCount = descendantFileCount
+        self.lastModified = lastModified
+        self.fileIdentity = fileIdentity
+        self.linkCount = linkCount
+        self.isPackage = isPackage
+        self.isAccessible = isAccessible
+        self.isSelfAccessible = isSelfAccessible
+        self.isSynthetic = isSynthetic
+        self.isAutoSummarized = isAutoSummarized
+    }
 
     nonisolated var itemKind: String {
         if isSynthetic {
@@ -49,6 +87,8 @@ struct FileNodeRecord: Identifiable, Sendable {
         name: String,
         children: [FileNodeRecord],
         lastModified: Date?,
+        fileIdentity: FileIdentity? = nil,
+        linkCount: UInt64 = 1,
         isPackage: Bool,
         isAccessible: Bool,
         childrenAreSorted: Bool = false
@@ -79,6 +119,8 @@ struct FileNodeRecord: Identifiable, Sendable {
             logicalSize: logicalSize,
             descendantFileCount: descendantFileCount,
             lastModified: lastModified,
+            fileIdentity: fileIdentity,
+            linkCount: linkCount,
             isPackage: isPackage,
             isAccessible: isFullyAccessible,
             isSelfAccessible: isAccessible,

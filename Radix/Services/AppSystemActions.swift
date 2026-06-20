@@ -35,6 +35,14 @@ struct AppQuickLookActions {
     )
 }
 
+enum TrashIdentityVerificationResult: Equatable, Sendable {
+    case matches
+    case missingScannedIdentity
+    case missingCurrentItem
+    case mismatch
+    case metadataUnavailable(String)
+}
+
 @MainActor
 final class AppEventMonitorToken {
     private var removeAction: (() -> Void)?
@@ -75,6 +83,7 @@ struct AppSystemActions {
     var asyncTargetCapacityDescriptions: (@Sendable () async -> [String: String])?
     var presentOpenPanel: () -> ScanTarget?
     var fileExists: (URL) -> Bool
+    var verifyTrashIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
     var isExistingDirectory: (URL) -> Bool
     var preferredSmartTargetIDs: () -> [String]
     var mountedVolumeEvents: () -> AnyPublisher<Void, Never>
@@ -122,6 +131,9 @@ struct AppSystemActions {
         fileExists: { url in
             FileManager.default.fileExists(atPath: url.path)
         },
+        verifyTrashIdentity: { node in
+            SystemIntegration.verifyTrashIdentity(node)
+        },
         isExistingDirectory: { url in
             Self.isExistingDirectoryURL(url)
         },
@@ -168,6 +180,7 @@ struct AppSystemActions {
         asyncTargetCapacityDescriptions: nil,
         presentOpenPanel: { nil },
         fileExists: { _ in false },
+        verifyTrashIdentity: { _ in .matches },
         isExistingDirectory: { _ in false },
         preferredSmartTargetIDs: { [] },
         mountedVolumeEvents: { Empty().eraseToAnyPublisher() },

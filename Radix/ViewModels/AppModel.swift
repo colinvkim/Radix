@@ -34,6 +34,9 @@ final class AppModel: ObservableObject {
     private enum FileActionError: LocalizedError {
         case noSelection
         case unavailable(path: String)
+        case changedSinceScan(path: String)
+        case missingScannedIdentity(path: String)
+        case currentIdentityUnavailable(path: String, reason: String)
         case unsupported
         case directoryRequired
         case packageContentsHidden(settingEnabled: Bool)
@@ -55,6 +58,12 @@ final class AppModel: ObservableObject {
                 return "Select an item first."
             case .unavailable(let path):
                 return "The item at \(path) is no longer available."
+            case .changedSinceScan(let path):
+                return "The item at \(path) changed since this scan. Rescan before moving it to Trash."
+            case .missingScannedIdentity(let path):
+                return "Radix could not verify the scanned identity for \(path). Rescan before moving it to Trash."
+            case .currentIdentityUnavailable(let path, let reason):
+                return "Radix could not verify the current identity for \(path): \(reason)"
             case .unsupported:
                 return "This item does not support that action."
             case .directoryRequired:
@@ -735,11 +744,29 @@ final class AppModel: ObservableObject {
         var actionError: Error?
 
         for node in nodes {
-            guard dependencies.systemActions.fileExists(node.url) else {
+            switch dependencies.systemActions.verifyTrashIdentity(node) {
+            case .matches:
+                continue
+            case .missingCurrentItem:
                 actionError = FileActionError.unavailable(path: node.url.path)
-                break
+            case .missingScannedIdentity:
+                actionError = FileActionError.missingScannedIdentity(path: node.url.path)
+            case .mismatch:
+                actionError = FileActionError.changedSinceScan(path: node.url.path)
+            case .metadataUnavailable(let reason):
+                actionError = FileActionError.currentIdentityUnavailable(path: node.url.path, reason: reason)
             }
+            break
+        }
 
+        guard actionError == nil else {
+            if let actionError {
+                presentError(actionError)
+            }
+            return
+        }
+
+        for node in nodes {
             do {
                 try dependencies.systemActions.moveToTrash(node.url)
                 movedNodes.append(node)

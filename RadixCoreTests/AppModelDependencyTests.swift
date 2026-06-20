@@ -547,6 +547,116 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testConfirmPendingTrashAllowsMatchingIdentity() {
+        let recorder = AppModelActionRecorder()
+        let identity = FileIdentity(device: 12, inode: 34)
+        let file = makeTestFileNode(
+            id: "/selection/file.txt",
+            name: "file.txt",
+            fileIdentity: identity
+        )
+        var verifiedNodeIDs: [String] = []
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { node in
+            verifiedNodeIDs.append(node.id)
+            return .matches
+        }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        installSelection(on: model, file: file)
+
+        model.pendingTrashNode = file
+        model.confirmMovePendingNodeToTrash()
+
+        XCTAssertEqual(verifiedNodeIDs, [file.id])
+        XCTAssertEqual(recorder.movedToTrashURLs, [file.url])
+        XCTAssertNil(model.lastErrorMessage)
+    }
+
+    @MainActor
+    func testConfirmPendingTrashBlocksMismatchedIdentity() {
+        let recorder = AppModelActionRecorder()
+        let file = makeTestFileNode(
+            id: "/selection/replaced.txt",
+            name: "replaced.txt",
+            fileIdentity: FileIdentity(device: 1, inode: 2)
+        )
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { _ in .mismatch }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        installSelection(on: model, file: file)
+
+        model.pendingTrashNode = file
+        model.confirmMovePendingNodeToTrash()
+
+        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
+        XCTAssertEqual(
+            model.lastErrorMessage,
+            "The item at \(file.url.path) changed since this scan. Rescan before moving it to Trash."
+        )
+    }
+
+    @MainActor
+    func testConfirmPendingTrashBlocksMissingScannedIdentity() {
+        let recorder = AppModelActionRecorder()
+        let file = makeTestFileNode(id: "/selection/unverified.txt", name: "unverified.txt")
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { _ in .missingScannedIdentity }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        installSelection(on: model, file: file)
+
+        model.pendingTrashNode = file
+        model.confirmMovePendingNodeToTrash()
+
+        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
+        XCTAssertEqual(
+            model.lastErrorMessage,
+            "Radix could not verify the scanned identity for \(file.url.path). Rescan before moving it to Trash."
+        )
+    }
+
+    @MainActor
+    func testConfirmPendingTrashBatchMismatchBlocksAllMoves() {
+        let recorder = AppModelActionRecorder()
+        let first = makeTestFileNode(
+            id: "/selection/first.txt",
+            name: "first.txt",
+            fileIdentity: FileIdentity(device: 1, inode: 10)
+        )
+        let second = makeTestFileNode(
+            id: "/selection/second.txt",
+            name: "second.txt",
+            fileIdentity: FileIdentity(device: 1, inode: 11)
+        )
+        var verifiedNodeIDs: [String] = []
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { node in
+            verifiedNodeIDs.append(node.id)
+            return node.id == second.id ? .mismatch : .matches
+        }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first, second])
+        model.pendingTrashNode = first
+        model.confirmMovePendingNodeToTrash()
+
+        XCTAssertEqual(verifiedNodeIDs, [first.id, second.id])
+        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
+        XCTAssertEqual(
+            model.lastErrorMessage,
+            "The item at \(second.url.path) changed since this scan. Rescan before moving it to Trash."
+        )
+    }
+
+    @MainActor
     func testRequestMoveSelectedToTrashRejectsProtectedRoots() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -839,9 +949,10 @@ private func waitUntil(
 @discardableResult
 private func installSelection(
     on model: AppModel,
-    selectNode: Bool = true
+    selectNode: Bool = true,
+    file inputFile: FileNodeRecord? = nil
 ) -> FileNodeRecord {
-    let file = makeTestFileNode(id: "/selection/file.txt", name: "file.txt")
+    let file = inputFile ?? makeTestFileNode(id: "/selection/file.txt", name: "file.txt")
     let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [file])
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
     let snapshot = makeTestSnapshot(root: root, store: store)

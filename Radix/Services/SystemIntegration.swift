@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import Darwin
 import Foundation
 
 enum FullDiskAccessStatus: Equatable, Sendable {
@@ -32,6 +33,20 @@ extension NSPasteboard: PathPasteboard {}
 enum SystemIntegration {
     typealias FullDiskAccessProbe = () throws -> Void
     private nonisolated static let requiredReadableDataVaultProbeCount = 2
+
+    private enum CurrentIdentityError: Error {
+        case missingCurrentItem
+        case metadataUnavailable(String)
+
+        var verificationResult: TrashIdentityVerificationResult {
+            switch self {
+            case .missingCurrentItem:
+                return .missingCurrentItem
+            case .metadataUnavailable(let message):
+                return .metadataUnavailable(message)
+            }
+        }
+    }
 
     enum SystemIntegrationError: LocalizedError {
         case openFailed(path: String)
@@ -190,10 +205,77 @@ enum SystemIntegration {
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingItemURL)
     }
 
+    static func verifyTrashIdentity(_ node: FileNodeRecord) -> TrashIdentityVerificationResult {
+        guard !node.isSynthetic else { return .matches }
+        guard let scannedIdentity = node.fileIdentity else {
+            return .missingScannedIdentity
+        }
+
+        switch currentFileSystemIdentity(for: node.url) {
+        case .success(let currentIdentity):
+            if node.isSymbolicLink || scannedIdentity.isFileSystemIdentity {
+                return currentIdentity == scannedIdentity ? .matches : .mismatch
+            }
+        case .failure(let error):
+            return error.verificationResult
+        }
+
+        switch currentResourceIdentity(for: node.url) {
+        case .success(let currentIdentity):
+            return currentIdentity == scannedIdentity ? .matches : .mismatch
+        case .failure(let error):
+            return error.verificationResult
+        }
+    }
+
     static func validateCanMoveToTrash(_ url: URL) throws {
         if let reason = TrashSafetyPolicy.blockReason(for: url) {
             throw SystemIntegrationError.protectedTrashLocation(path: reason.path)
         }
+    }
+
+    private static func currentFileSystemIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
+        var fileStat = stat()
+        errno = 0
+        let result = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Int(lstat(path, &fileStat))
+        }
+
+        guard result == 0 else {
+            return .failure(currentIdentityError(errnoCode: errno))
+        }
+
+        return .success(FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)))
+    }
+
+    private static func currentResourceIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
+        do {
+            let values = try url.resourceValues(forKeys: [.fileResourceIdentifierKey])
+            guard let identifierData = values.fileResourceIdentifier as? Data else {
+                return .failure(.metadataUnavailable("file resource identifier unavailable"))
+            }
+            return .success(FileIdentity(resourceIdentifier: identifierData))
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileNoSuchFileError {
+                return .failure(.missingCurrentItem)
+            }
+            return .failure(.metadataUnavailable(ScanWarningFactory.diagnosticErrorDescription(error)))
+        }
+    }
+
+    private static func currentIdentityError(errnoCode: Int32) -> CurrentIdentityError {
+        if errnoCode == ENOENT || errnoCode == ENOTDIR {
+            return .missingCurrentItem
+        }
+        let message: String
+        if let cString = strerror(errnoCode) {
+            message = String(cString: cString)
+        } else {
+            message = "errno \(errnoCode)"
+        }
+        return .metadataUnavailable(message)
     }
 
     @discardableResult

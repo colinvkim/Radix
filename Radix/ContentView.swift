@@ -291,8 +291,11 @@ private extension ContentView {
     var pendingTrashMessage: String {
         let nodes = appModel.pendingTrashSelection?.nodes ?? appModel.pendingTrashNode.map { [$0] } ?? []
         guard nodes.count != 1 else {
-            return "Radix will ask macOS to move “\(nodes[0].name)” to the Trash."
+            return "Radix will ask macOS to move \(nodes[0].url.path) to the Trash."
         }
-        return "Radix will ask macOS to move \(nodes.count) selected items to the Trash."
+        let shownPaths = nodes.prefix(3).map(\.url.path).joined(separator: "\n")
+        let remainingCount = nodes.count - 3
+        let remainingText = remainingCount > 0 ? "\n+\(remainingCount) more" : ""
+        return "Radix will ask macOS to move \(nodes.count) selected items to the Trash:\n\(shownPaths)\(remainingText)"
     }
 }

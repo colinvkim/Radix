@@ -9,7 +9,9 @@ func makeTestFileNode(
     id: String,
     name: String,
     size: Int64 = 1,
-    lastModified: Date? = nil
+    lastModified: Date? = nil,
+    fileIdentity: FileIdentity? = nil,
+    linkCount: UInt64 = 1
 ) -> FileNodeRecord {
     FileNodeRecord(
         id: id,
@@ -21,6 +23,8 @@ func makeTestFileNode(
         logicalSize: size,
         descendantFileCount: 1,
         lastModified: lastModified,
+        fileIdentity: fileIdentity,
+        linkCount: linkCount,
         isPackage: false,
         isAccessible: true,
         isSelfAccessible: true,
@@ -34,7 +38,9 @@ func makeTestDirectoryNode(
     name: String,
     children: [FileNodeRecord],
     isPackage: Bool = false,
-    isAccessible: Bool = true
+    isAccessible: Bool = true,
+    fileIdentity: FileIdentity? = nil,
+    linkCount: UInt64 = 1
 ) -> FileNodeRecord {
     FileNodeRecord.directory(
         id: id,
@@ -42,6 +48,8 @@ func makeTestDirectoryNode(
         name: name,
         children: children,
         lastModified: nil,
+        fileIdentity: fileIdentity,
+        linkCount: linkCount,
         isPackage: isPackage,
         isAccessible: isAccessible
     )
