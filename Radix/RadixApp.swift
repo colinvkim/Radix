@@ -48,6 +48,7 @@ struct CheckForUpdatesView: View {
 struct RadixApp: App {
     @StateObject private var appModel = AppModel()
     private let updaterController: SPUStandardUpdaterController
+    private let issueReportURL = URL(string: "https://github.com/colinvkim/Radix/issues/new/choose")
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -75,6 +76,14 @@ struct RadixApp: App {
 
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updater: updaterController.updater)
+            }
+
+            CommandGroup(after: .help) {
+                Button("Report Issue…", systemImage: "flag") {
+                    if let issueReportURL {
+                        NSWorkspace.shared.open(issueReportURL)
+                    }
+                }
             }
         }
 
