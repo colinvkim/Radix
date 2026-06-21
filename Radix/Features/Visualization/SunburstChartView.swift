@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SunburstChartView: View {
     private static let chartPadding: CGFloat = 22
+    private static let loadingDiskMapDelay: Duration = .milliseconds(150)
 
     let rootNode: FileNodeRecord
     let parentNode: FileNodeRecord?
@@ -18,6 +19,7 @@ struct SunburstChartView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var chartModel: SunburstChartModel
     @State private var isHoveringCenter = false
+    @State private var showsLoadingDiskMapProgress = false
     @State private var viewportTransform = SunburstViewportTransform.identity
 
     init(
@@ -81,6 +83,10 @@ struct SunburstChartView: View {
         !chartModel.isLayoutPending && !chartModel.renderedSegments.isEmpty
     }
 
+    private var loadingDiskMapProgressTaskID: String {
+        "\(layoutID)|\(chartModel.isLayoutPending)"
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let baseChartFrame = chartFrame(in: geometry.size)
@@ -129,8 +135,11 @@ struct SunburstChartView: View {
                         .opacity(0.28)
                         .allowsHitTesting(false)
 
-                    ProgressView("Loading Disk Map…")
-                        .controlSize(.small)
+                    if showsLoadingDiskMapProgress {
+                        ProgressView("Loading Disk Map…")
+                            .controlSize(.small)
+                            .transition(.opacity)
+                    }
                 } else if chartModel.renderedSegments.isEmpty {
                     ProgressView()
                         .controlSize(.small)
@@ -208,6 +217,7 @@ struct SunburstChartView: View {
             }
             .animation(chartTransitionAnimation, value: chartModel.renderedLayoutVersion)
             .animation(centerHoverAnimation, value: isHoveringCenter)
+            .animation(loadingIndicatorAnimation, value: showsLoadingDiskMapProgress)
             .onChange(of: baseChartFrame) { _, nextFrame in
                 viewportTransform = viewportTransform.constrained(to: nextFrame)
             }
@@ -216,6 +226,9 @@ struct SunburstChartView: View {
             }
             .focusedSceneValue(\.sunburstViewportAction) { action in
                 handleViewportAction(action, in: baseChartFrame)
+            }
+            .task(id: loadingDiskMapProgressTaskID) {
+                await updateLoadingDiskMapProgress(isPending: chartModel.isLayoutPending)
             }
             .task(id: layoutID) {
                 await chartModel.loadLayout(
@@ -239,6 +252,10 @@ struct SunburstChartView: View {
 
     private var centerHoverAnimation: Animation {
         reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.14)
+    }
+
+    private var loadingIndicatorAnimation: Animation {
+        reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.12)
     }
 
     private var viewportAnimation: Animation {
@@ -446,6 +463,24 @@ struct SunburstChartView: View {
         } else {
             update()
         }
+    }
+
+    private func updateLoadingDiskMapProgress(isPending: Bool) async {
+        guard isPending else {
+            showsLoadingDiskMapProgress = false
+            return
+        }
+
+        showsLoadingDiskMapProgress = false
+
+        do {
+            try await Task.sleep(for: Self.loadingDiskMapDelay)
+        } catch {
+            return
+        }
+
+        guard chartModel.isLayoutPending else { return }
+        showsLoadingDiskMapProgress = true
     }
 }
 
