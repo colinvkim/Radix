@@ -6,6 +6,12 @@ enum WorkspaceFocusTarget: Hashable {
     case contents
 }
 
+enum SunburstViewportAction {
+    case zoomIn
+    case zoomOut
+    case reset
+}
+
 private struct FileListFilterActionKey: FocusedValueKey {
     typealias Value = (FileBrowserFindTarget) -> Void
 }
@@ -16,6 +22,10 @@ private struct InspectorVisibilityKey: FocusedValueKey {
 
 private struct WorkspaceFocusActionKey: FocusedValueKey {
     typealias Value = (WorkspaceFocusTarget) -> Void
+}
+
+private struct SunburstViewportActionKey: FocusedValueKey {
+    typealias Value = (SunburstViewportAction) -> Void
 }
 
 extension FocusedValues {
@@ -32,5 +42,10 @@ extension FocusedValues {
     var workspaceFocusAction: ((WorkspaceFocusTarget) -> Void)? {
         get { self[WorkspaceFocusActionKey.self] }
         set { self[WorkspaceFocusActionKey.self] = newValue }
+    }
+
+    var sunburstViewportAction: ((SunburstViewportAction) -> Void)? {
+        get { self[SunburstViewportActionKey.self] }
+        set { self[SunburstViewportActionKey.self] = newValue }
     }
 }

@@ -7,6 +7,7 @@ struct RadixCommands: Commands {
     @FocusedValue(\.fileListFilterAction) private var fileListFilterAction
     @FocusedValue(\.inspectorVisibility) private var inspectorVisibility
     @FocusedValue(\.workspaceFocusAction) private var workspaceFocusAction
+    @FocusedValue(\.sunburstViewportAction) private var sunburstViewportAction
 
     var body: some Commands {
         SidebarCommands()
@@ -37,6 +38,26 @@ struct RadixCommands: Commands {
             }
             .keyboardShortcut("i", modifiers: [.control, .command])
             .disabled(inspectorVisibility == nil)
+
+            Divider()
+
+            Button("Zoom In", systemImage: "plus.magnifyingglass") {
+                sunburstViewportAction?(.zoomIn)
+            }
+            .keyboardShortcut("+", modifiers: [.command])
+            .disabled(sunburstViewportAction == nil || scanState.snapshot == nil)
+
+            Button("Zoom Out", systemImage: "minus.magnifyingglass") {
+                sunburstViewportAction?(.zoomOut)
+            }
+            .keyboardShortcut("-", modifiers: [.command])
+            .disabled(sunburstViewportAction == nil || scanState.snapshot == nil)
+
+            Button("Actual Size", systemImage: "arrow.counterclockwise") {
+                sunburstViewportAction?(.reset)
+            }
+            .keyboardShortcut("0", modifiers: [.command])
+            .disabled(sunburstViewportAction == nil || scanState.snapshot == nil)
         }
 
         CommandGroup(replacing: .newItem) {

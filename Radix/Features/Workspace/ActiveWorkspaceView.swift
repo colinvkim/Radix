@@ -75,8 +75,8 @@ struct ActiveWorkspaceView: View {
             onNavigateToParent: actions.navigateToParent
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(18)
         .focusable()
+        .focusEffectDisabled()
         .focused($focusedWorkspaceTarget, equals: .chart)
     }
 

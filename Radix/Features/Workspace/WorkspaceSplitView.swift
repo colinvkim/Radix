@@ -9,6 +9,7 @@ import SwiftUI
 /// are views in the window"), crashing the app once scan content is visible.
 struct WorkspaceSplitView<Top: View, Bottom: View>: View {
     private static var dividerHitHeight: CGFloat { 9 }
+    private static var dividerLineHeight: CGFloat { 1 }
 
     let topMinHeight: CGFloat
     let bottomMinHeight: CGFloat
@@ -32,44 +33,48 @@ struct WorkspaceSplitView<Top: View, Bottom: View>: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let contentHeight = max(proxy.size.height - Self.dividerHitHeight, 0)
+            let contentHeight = max(proxy.size.height - Self.dividerLineHeight, 0)
+            let topHeight = topHeight(forContentHeight: contentHeight)
 
-            VStack(spacing: 0) {
-                top
-                    .frame(maxWidth: .infinity)
-                    .frame(height: topHeight(forContentHeight: contentHeight))
-                    .clipped()
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    top
+                        .frame(maxWidth: .infinity)
+                        .frame(height: topHeight)
+                        .clipped()
 
-                divider(contentHeight: contentHeight)
+                    Divider()
+                        .frame(height: Self.dividerLineHeight)
 
-                bottom
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
+                    bottom
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
+                }
+
+                resizeHandle(contentHeight: contentHeight)
+                    .offset(y: topHeight + (Self.dividerLineHeight / 2) - (Self.dividerHitHeight / 2))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
     }
 
-    private func divider(contentHeight: CGFloat) -> some View {
-        ZStack {
-            Divider()
-            PaneResizeHandle(
-                onDragChanged: { translationHeight in
-                    guard contentHeight > 0 else { return }
+    private func resizeHandle(contentHeight: CGFloat) -> some View {
+        PaneResizeHandle(
+            onDragChanged: { translationHeight in
+                guard contentHeight > 0 else { return }
 
-                    let baseFraction = dragStartFraction ?? topFraction
-                    dragStartFraction = baseFraction
-                    topFraction = clampedFraction(
-                        baseFraction + (translationHeight / contentHeight),
-                        contentHeight: contentHeight
-                    )
-                },
-                onDragEnded: {
-                    dragStartFraction = nil
-                }
-            )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+                let baseFraction = dragStartFraction ?? topFraction
+                dragStartFraction = baseFraction
+                topFraction = clampedFraction(
+                    baseFraction + (translationHeight / contentHeight),
+                    contentHeight: contentHeight
+                )
+            },
+            onDragEnded: {
+                dragStartFraction = nil
+            }
+        )
         .frame(maxWidth: .infinity)
         .frame(height: Self.dividerHitHeight)
         .accessibilityLabel("Resize panes")

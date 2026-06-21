@@ -59,6 +59,7 @@ let package = Package(
                 "Services/SunburstChartModel.swift",
                 "Services/SunburstFreeSpaceVisualization.swift",
                 "Services/SunburstGeometry.swift",
+                "Services/SunburstViewportTransform.swift",
                 "Services/SystemIntegration.swift",
                 "ViewModels/AppQuickLookController.swift",
                 "ViewModels/AppModel.swift",
