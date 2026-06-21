@@ -154,6 +154,84 @@ final class SystemIntegrationTests: XCTestCase {
         )
     }
 
+    func testFullDiskAccessStatusKeepsLegacyLogicBeforeMacOS27() {
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                macOSMajorVersion: 26,
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: [successfulProbe, successfulProbe],
+                timeMachinePreferencesProbe: successfulProbe,
+                stocksContainerProbe: successfulProbe,
+                systemTCCDatabaseProbe: successfulProbe
+            ),
+            .notGranted
+        )
+
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                macOSMajorVersion: 26,
+                userTCCDatabaseProbe: successfulProbe,
+                protectedDataVaultProbes: [successfulProbe, successfulProbe],
+                timeMachinePreferencesProbe: failedProbe,
+                stocksContainerProbe: failedProbe,
+                systemTCCDatabaseProbe: failedProbe
+            ),
+            .granted
+        )
+    }
+
+    func testFullDiskAccessStatusUsesMacOS27PrimarySentinels() {
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                macOSMajorVersion: 27,
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: [],
+                timeMachinePreferencesProbe: successfulProbe,
+                stocksContainerProbe: successfulProbe,
+                systemTCCDatabaseProbe: nil
+            ),
+            .granted
+        )
+
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                macOSMajorVersion: 27,
+                userTCCDatabaseProbe: successfulProbe,
+                protectedDataVaultProbes: [successfulProbe, successfulProbe],
+                timeMachinePreferencesProbe: successfulProbe,
+                stocksContainerProbe: failedProbe,
+                systemTCCDatabaseProbe: successfulProbe
+            ),
+            .notGranted
+        )
+    }
+
+    func testFullDiskAccessStatusUsesMacOS27SystemTCCOnlyAsFallbackEvidence() {
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                macOSMajorVersion: 27,
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: [],
+                timeMachinePreferencesProbe: successfulProbe,
+                stocksContainerProbe: nil,
+                systemTCCDatabaseProbe: successfulProbe
+            ),
+            .granted
+        )
+
+        XCTAssertEqual(
+            SystemIntegration.fullDiskAccessStatus(
+                macOSMajorVersion: 27,
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: [],
+                timeMachinePreferencesProbe: successfulProbe,
+                stocksContainerProbe: nil,
+                systemTCCDatabaseProbe: failedProbe
+            ),
+            .unknown
+        )
+    }
+
     func testMoveToTrashPreflightRejectsProtectedLocations() {
         XCTAssertThrowsError(
             try SystemIntegration.validateCanMoveToTrash(

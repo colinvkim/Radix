@@ -33,6 +33,8 @@ extension NSPasteboard: PathPasteboard {}
 enum SystemIntegration {
     typealias FullDiskAccessProbe = () throws -> Void
     private nonisolated static let requiredReadableDataVaultProbeCount = 2
+    private nonisolated static let requiredReadableMacOS27SentinelCount = 2
+    private nonisolated static let macOS27MajorVersion = 27
 
     private enum CurrentIdentityError: Error {
         case missingCurrentItem
@@ -312,6 +314,41 @@ enum SystemIntegration {
     private nonisolated static func probeFullDiskAccess() -> FullDiskAccessStatus {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
+        let macOSMajorVersion = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+
+        guard macOSMajorVersion < macOS27MajorVersion else {
+            let timeMachinePreferencesProbe = makeFullDiskAccessProbe(
+                for: ProtectedPathProbe(
+                    url: URL(filePath: "/Library/Preferences/com.apple.TimeMachine.plist"),
+                    kind: .file
+                ),
+                using: fileManager
+            )
+            let stocksContainerProbe = makeFullDiskAccessProbe(
+                for: ProtectedPathProbe(
+                    url: homeDirectory.appending(path: "Library/Containers/com.apple.stocks", directoryHint: .isDirectory),
+                    kind: .directory
+                ),
+                using: fileManager
+            )
+            let systemTCCDatabaseProbe = makeFullDiskAccessProbe(
+                for: ProtectedPathProbe(
+                    url: URL(filePath: "/Library/Application Support/com.apple.TCC/TCC.db"),
+                    kind: .file
+                ),
+                using: fileManager
+            )
+
+            return fullDiskAccessStatus(
+                macOSMajorVersion: macOSMajorVersion,
+                userTCCDatabaseProbe: nil,
+                protectedDataVaultProbes: [],
+                timeMachinePreferencesProbe: timeMachinePreferencesProbe,
+                stocksContainerProbe: stocksContainerProbe,
+                systemTCCDatabaseProbe: systemTCCDatabaseProbe
+            )
+        }
+
         let protectedDataVaultProbes = [
             ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Mail", directoryHint: .isDirectory), kind: .directory),
             ProtectedPathProbe(url: homeDirectory.appending(path: "Library/Messages", directoryHint: .isDirectory), kind: .directory),
@@ -331,12 +368,48 @@ enum SystemIntegration {
         )
 
         return fullDiskAccessStatus(
+            macOSMajorVersion: macOSMajorVersion,
+            userTCCDatabaseProbe: userTCCDatabaseProbe,
+            protectedDataVaultProbes: protectedDataVaultProbes,
+            timeMachinePreferencesProbe: nil,
+            stocksContainerProbe: nil,
+            systemTCCDatabaseProbe: nil
+        )
+    }
+
+    nonisolated static func fullDiskAccessStatus(
+        macOSMajorVersion: Int,
+        userTCCDatabaseProbe: FullDiskAccessProbe?,
+        protectedDataVaultProbes: [FullDiskAccessProbe],
+        timeMachinePreferencesProbe: FullDiskAccessProbe?,
+        stocksContainerProbe: FullDiskAccessProbe?,
+        systemTCCDatabaseProbe: FullDiskAccessProbe?
+    ) -> FullDiskAccessStatus {
+        guard macOSMajorVersion < macOS27MajorVersion else {
+            return macOS27FullDiskAccessStatus(
+                timeMachinePreferencesProbe: timeMachinePreferencesProbe,
+                stocksContainerProbe: stocksContainerProbe,
+                systemTCCDatabaseProbe: systemTCCDatabaseProbe
+            )
+        }
+
+        return legacyFullDiskAccessStatus(
             userTCCDatabaseProbe: userTCCDatabaseProbe,
             protectedDataVaultProbes: protectedDataVaultProbes
         )
     }
 
     nonisolated static func fullDiskAccessStatus(
+        userTCCDatabaseProbe: FullDiskAccessProbe?,
+        protectedDataVaultProbes: [FullDiskAccessProbe]
+    ) -> FullDiskAccessStatus {
+        legacyFullDiskAccessStatus(
+            userTCCDatabaseProbe: userTCCDatabaseProbe,
+            protectedDataVaultProbes: protectedDataVaultProbes
+        )
+    }
+
+    private nonisolated static func legacyFullDiskAccessStatus(
         userTCCDatabaseProbe: FullDiskAccessProbe?,
         protectedDataVaultProbes: [FullDiskAccessProbe]
     ) -> FullDiskAccessStatus {
@@ -354,6 +427,30 @@ enum SystemIntegration {
         }
 
         return readableDataVaultProbeCount >= requiredReadableDataVaultProbeCount ? .granted : .notGranted
+    }
+
+    private nonisolated static func macOS27FullDiskAccessStatus(
+        timeMachinePreferencesProbe: FullDiskAccessProbe?,
+        stocksContainerProbe: FullDiskAccessProbe?,
+        systemTCCDatabaseProbe: FullDiskAccessProbe?
+    ) -> FullDiskAccessStatus {
+        let primaryProbes = [timeMachinePreferencesProbe, stocksContainerProbe]
+
+        if primaryProbes.allSatisfy({ $0 != nil }) {
+            return primaryProbes.allSatisfy { probe in
+                guard let probe else { return false }
+                return canReadFullDiskAccessProbe(probe)
+            } ? .granted : .notGranted
+        }
+
+        let fallbackReadableCount = [timeMachinePreferencesProbe, stocksContainerProbe, systemTCCDatabaseProbe]
+            .reduce(into: 0) { count, probe in
+                if let probe, canReadFullDiskAccessProbe(probe) {
+                    count += 1
+                }
+            }
+
+        return fallbackReadableCount >= requiredReadableMacOS27SentinelCount ? .granted : .unknown
     }
 
     private nonisolated static func makeFullDiskAccessProbe(
