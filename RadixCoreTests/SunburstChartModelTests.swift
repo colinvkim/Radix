@@ -332,7 +332,7 @@ private func makeSegment(id: String, depth: Int = 0) -> SunburstSegment {
         innerRadius: 0,
         outerRadius: 1,
         depth: depth,
-        colorKey: id,
+        colorToken: .single(id: id, depth: depth),
         totalSize: 1,
         isAggregate: false
     )

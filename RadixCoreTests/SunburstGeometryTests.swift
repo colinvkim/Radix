@@ -61,6 +61,7 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertNil(aggregate.nodeID)
         XCTAssertEqual(aggregate.label, "Smaller Items")
         XCTAssertEqual(aggregate.totalSize, 3)
+        XCTAssertEqual(aggregate.colorToken.role, .aggregate)
     }
 
     func testHitTesterReturnsExpectedSegment() throws {
@@ -127,10 +128,98 @@ final class SunburstGeometryTests: XCTestCase {
         XCTAssertEqual(index.segment(at: pointInside(segment: second, in: size), in: size)?.id, second.id)
     }
 
-    func testStablePaletteIndexIsDeterministicAndBounded() {
-        XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 6), 3)
-        XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 1), 0)
-        XCTAssertEqual(StablePaletteIndex.index(for: "/root/Documents", count: 0), 0)
+    func testTopLevelSiblingColorTokensUseDistinctBranches() throws {
+        let children = [
+            makeFileNode(id: "/root/a", name: "a", size: 3),
+            makeFileNode(id: "/root/b", name: "b", size: 2),
+            makeFileNode(id: "/root/c", name: "c", size: 1)
+        ]
+        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
+
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
+        let tokens = segments.map(\.colorToken)
+
+        XCTAssertEqual(tokens.map(\.branchID), ["/root/a", "/root/b", "/root/c"])
+        XCTAssertEqual(tokens.map(\.branchIndex), [0, 1, 2])
+        XCTAssertEqual(tokens.map(\.branchCount), [3, 3, 3])
+        XCTAssertEqual(Set(tokens.map { SunburstColorResolver.components(for: $0) }).count, 3)
+    }
+
+    func testBranchColorStaysStableWhenSiblingSortOrderChanges() throws {
+        let firstStoreChildren = [
+            makeFileNode(id: "/root/a", name: "a", size: 3),
+            makeFileNode(id: "/root/b", name: "b", size: 2)
+        ]
+        let firstRoot = makeDirectoryNode(id: "/root", name: "root", children: firstStoreChildren)
+        let firstStore = makeStore(root: firstRoot, children: firstStoreChildren)
+        let secondStoreChildren = [
+            makeFileNode(id: "/root/a", name: "a", size: 1),
+            makeFileNode(id: "/root/b", name: "b", size: 4)
+        ]
+        let secondRoot = makeDirectoryNode(id: "/root", name: "root", children: secondStoreChildren)
+        let secondStore = makeStore(root: secondRoot, children: secondStoreChildren)
+
+        let firstSegment = try XCTUnwrap(
+            SunburstLayout.segments(in: firstStore, rootID: firstRoot.id, depthLimit: 1)
+                .first { $0.nodeID == "/root/a" }
+        )
+        let secondSegment = try XCTUnwrap(
+            SunburstLayout.segments(in: secondStore, rootID: secondRoot.id, depthLimit: 1)
+                .first { $0.nodeID == "/root/a" }
+        )
+
+        XCTAssertNotEqual(firstSegment.colorToken.branchIndex, secondSegment.colorToken.branchIndex)
+        XCTAssertEqual(
+            SunburstColorResolver.components(for: firstSegment.colorToken),
+            SunburstColorResolver.components(for: secondSegment.colorToken)
+        )
+    }
+
+    func testChildColorTokensKeepBranchFamilyButVaryBySibling() throws {
+        let children = [
+            makeFileNode(id: "/root/a/one", name: "one", size: 3),
+            makeFileNode(id: "/root/a/two", name: "two", size: 2),
+            makeFileNode(id: "/root/a/three", name: "three", size: 1)
+        ]
+        let branch = makeDirectoryNode(id: "/root/a", name: "a", children: children)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [branch])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [branch],
+            branch.id: children
+        ])
+
+        let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 2)
+        let childTokens = segments
+            .filter { $0.depth == 1 }
+            .map(\.colorToken)
+
+        XCTAssertEqual(childTokens.map(\.branchID), Array(repeating: branch.id, count: 3))
+        XCTAssertEqual(childTokens.map(\.siblingIndex), [0, 1, 2])
+        XCTAssertEqual(childTokens.map(\.siblingCount), [3, 3, 3])
+        XCTAssertEqual(Set(childTokens.map { SunburstColorResolver.components(for: $0) }).count, 3)
+    }
+
+    func testFocusedSubtreeKeepsScanRootBranchFamily() throws {
+        let nestedChildren = [
+            makeFileNode(id: "/root/a/child-1", name: "child-1", size: 2),
+            makeFileNode(id: "/root/a/child-2", name: "child-2", size: 1)
+        ]
+        let branchA = makeDirectoryNode(id: "/root/a", name: "a", children: nestedChildren)
+        let branchB = makeFileNode(id: "/root/b", name: "b", size: 1)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [branchA, branchB])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [branchA, branchB],
+            branchA.id: nestedChildren
+        ])
+
+        let rootSegments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
+        let branchToken = try XCTUnwrap(rootSegments.first { $0.nodeID == branchA.id }).colorToken
+        let focusedSegments = SunburstLayout.segments(in: store, rootID: branchA.id, depthLimit: 1)
+
+        XCTAssertEqual(focusedSegments.map(\.colorToken.branchID), [branchA.id, branchA.id])
+        XCTAssertEqual(focusedSegments.map(\.colorToken.branchIndex), [branchToken.branchIndex, branchToken.branchIndex])
+        XCTAssertEqual(focusedSegments.map(\.colorToken.branchCount), [branchToken.branchCount, branchToken.branchCount])
     }
 
     func testLayoutStopsWhenCancellationCheckThrows() throws {
@@ -195,7 +284,7 @@ private func makeSegment(
         innerRadius: innerRadius,
         outerRadius: outerRadius,
         depth: depth,
-        colorKey: id,
+        colorToken: .single(id: id, depth: depth),
         totalSize: 1,
         isAggregate: false
     )

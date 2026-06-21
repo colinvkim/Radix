@@ -12,15 +12,6 @@ struct SunburstSegmentDrawingStyle {
 }
 
 enum SunburstChartStyler {
-    private static let palette: [Color] = [
-        Color(nsColor: .systemBlue),
-        Color(nsColor: .systemTeal),
-        Color(nsColor: .systemGreen),
-        Color(nsColor: .systemOrange),
-        Color(nsColor: .systemIndigo),
-        Color(nsColor: .systemPink)
-    ]
-
     static func baseStyle(
         for segment: SunburstSegment
     ) -> SunburstSegmentDrawingStyle {
@@ -83,26 +74,25 @@ enum SunburstChartStyler {
     }
 
     private static func baseColor(for segment: SunburstSegment) -> Color {
-        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(segment.nodeID) {
+        if segment.colorToken.role == .freeSpace {
             return Color(nsColor: .systemGray)
         }
-        if segment.isAggregate {
+        if segment.colorToken.role == .aggregate {
             return Color(nsColor: .tertiaryLabelColor)
         }
 
-        let paletteIndex = StablePaletteIndex.index(for: segment.colorKey, count: palette.count)
-        return palette[paletteIndex]
+        return SunburstColorResolver.color(for: segment.colorToken)
     }
 
     private static func standardOpacity(for segment: SunburstSegment) -> Double {
-        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(segment.nodeID) {
+        if segment.colorToken.role == .freeSpace {
             return 0.34
         }
         return max(0.24, 0.78 - (Double(segment.depth) * 0.09) - (segment.isAggregate ? 0.16 : 0))
     }
 
     private static func hoverFillOpacity(for segment: SunburstSegment) -> Double {
-        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(segment.nodeID) {
+        if segment.colorToken.role == .freeSpace {
             return 0.5
         }
         if segment.isAggregate {

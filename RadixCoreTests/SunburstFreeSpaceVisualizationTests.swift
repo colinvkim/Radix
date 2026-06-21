@@ -19,14 +19,36 @@ final class SunburstFreeSpaceVisualizationTests: XCTestCase {
             showFreeSpace: true,
             availableCapacity: 40
         )
+        let largerFreeSpaceInput = SunburstFreeSpaceVisualization.input(
+            snapshot: snapshot,
+            focusNode: root,
+            showFreeSpace: true,
+            availableCapacity: 80
+        )
         let segments = SunburstLayout.segments(in: input.treeStore, rootID: input.rootNode.id, depthLimit: 1)
         let freeSegment = try XCTUnwrap(segments.first { SunburstFreeSpaceVisualization.isFreeSpaceNodeID($0.nodeID) })
         let usedSegment = try XCTUnwrap(segments.first { $0.nodeID == root.id })
+        let largerFreeSpaceUsedSegment = try XCTUnwrap(
+            SunburstLayout.segments(
+                in: largerFreeSpaceInput.treeStore,
+                rootID: largerFreeSpaceInput.rootNode.id,
+                depthLimit: 1
+            )
+            .first { $0.nodeID == root.id }
+        )
 
         XCTAssertEqual(input.rootNode.allocatedSize, 100)
         XCTAssertEqual(usedSegment.totalSize, 60)
+        XCTAssertEqual(usedSegment.colorToken.role, .normal)
+        XCTAssertEqual(usedSegment.colorToken.branchIndex, 0)
+        XCTAssertEqual(usedSegment.colorToken.branchCount, 1)
+        XCTAssertEqual(
+            SunburstColorResolver.components(for: usedSegment.colorToken),
+            SunburstColorResolver.components(for: largerFreeSpaceUsedSegment.colorToken)
+        )
         XCTAssertEqual(freeSegment.label, "Free Space")
         XCTAssertEqual(freeSegment.totalSize, 40)
+        XCTAssertEqual(freeSegment.colorToken.role, .freeSpace)
         XCTAssertEqual(segmentFraction(freeSegment), 0.4, accuracy: 0.0001)
         XCTAssertNil(snapshot.treeStore.node(id: freeSegment.nodeID))
     }

@@ -57,6 +57,7 @@ let package = Package(
                 "Services/ScanSnapshotTransformService.swift",
                 "Services/ScanWarningFactory.swift",
                 "Services/SunburstChartModel.swift",
+                "Services/SunburstColorResolver.swift",
                 "Services/SunburstFreeSpaceVisualization.swift",
                 "Services/SunburstGeometry.swift",
                 "Services/SunburstViewportTransform.swift",

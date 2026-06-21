@@ -16,24 +16,9 @@ struct SunburstSegment: Identifiable, Hashable, Sendable {
     let innerRadius: CGFloat
     let outerRadius: CGFloat
     let depth: Int
-    let colorKey: String
+    let colorToken: SunburstColorToken
     let totalSize: Int64
     let isAggregate: Bool
-}
-
-enum StablePaletteIndex {
-    nonisolated static func index(for key: String, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-
-        let fnvPrime: UInt64 = 1_099_511_628_211
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in key.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= fnvPrime
-        }
-
-        return Int(hash % UInt64(count))
-    }
 }
 
 enum SunburstLayout {
@@ -84,7 +69,7 @@ enum SunburstLayout {
             depthLimit: depthLimit,
             ringStart: ringStart,
             ringWidth: ringWidth,
-            topColorKey: nil,
+            branchContext: nil,
             minimumAngle: minimumAngle,
             cancellationCheck: cancellationCheck,
             into: &result
@@ -102,7 +87,7 @@ enum SunburstLayout {
         depthLimit: Int,
         ringStart: CGFloat,
         ringWidth: CGFloat,
-        topColorKey: String?,
+        branchContext: ColorBranch?,
         minimumAngle: Double,
         cancellationCheck: CancellationCheck,
         into segments: inout [SunburstSegment]
@@ -123,12 +108,30 @@ enum SunburstLayout {
             cancellationCheck: cancellationCheck
         )
 
+        let siblingIndexes = colorableIndexes(for: grouped)
+        let siblingCount = max(siblingIndexes.count, 1)
         var cursor = startAngle
         for entry in grouped {
             try cancellationCheck()
             let proportion = Double(entry.totalSize) / Double(safeDenominator)
             let segmentEnd = cursor + (totalAngle * proportion)
-            let colorKey = topColorKey ?? entry.colorKey
+            let siblingIndex = siblingIndexes[entry.id] ?? 0
+            let branch = branchContext ?? colorBranch(
+                for: entry,
+                in: treeStore,
+                fallbackIndex: siblingIndex,
+                fallbackCount: siblingCount
+            )
+            let colorToken = SunburstColorToken(
+                branchID: branch.id,
+                localID: entry.colorID,
+                branchIndex: branch.index,
+                branchCount: branch.count,
+                siblingIndex: siblingIndex,
+                siblingCount: siblingCount,
+                depth: depth,
+                role: colorRole(for: entry)
+            )
             let segment = SunburstSegment(
                 id: entry.id,
                 nodeID: entry.nodeID,
@@ -138,7 +141,7 @@ enum SunburstLayout {
                 innerRadius: ringStart + CGFloat(depth) * ringWidth,
                 outerRadius: ringStart + CGFloat(depth + 1) * ringWidth - 0.015,
                 depth: depth,
-                colorKey: colorKey,
+                colorToken: colorToken,
                 totalSize: entry.totalSize,
                 isAggregate: entry.isAggregate
             )
@@ -164,7 +167,7 @@ enum SunburstLayout {
                     depthLimit: depthLimit,
                     ringStart: ringStart,
                     ringWidth: ringWidth,
-                    topColorKey: colorKey,
+                    branchContext: branch,
                     minimumAngle: minimumAngle,
                     cancellationCheck: cancellationCheck,
                     into: &segments
@@ -190,7 +193,7 @@ enum SunburstLayout {
                     label: $0.name,
                     totalSize: max($0.allocatedSize, 1),
                     isAggregate: false,
-                    colorKey: $0.id,
+                    colorID: $0.id,
                     node: $0
                 )
             }
@@ -215,7 +218,7 @@ enum SunburstLayout {
                         label: child.name,
                         totalSize: size,
                         isAggregate: false,
-                        colorKey: child.id,
+                        colorID: child.id,
                         node: child
                     )
                 )
@@ -230,7 +233,7 @@ enum SunburstLayout {
                     label: "Smaller Items",
                     totalSize: groupedSize,
                     isAggregate: true,
-                    colorKey: children.first?.id ?? "aggregate",
+                    colorID: "aggregate-\(children.first?.id ?? UUID().uuidString)",
                     node: nil
                 )
             )
@@ -242,7 +245,7 @@ enum SunburstLayout {
                     label: onlyGrouped.name,
                     totalSize: max(onlyGrouped.allocatedSize, 1),
                     isAggregate: false,
-                    colorKey: onlyGrouped.id,
+                    colorID: onlyGrouped.id,
                     node: onlyGrouped
                 )
             )
@@ -251,13 +254,88 @@ enum SunburstLayout {
         return visible
     }
 
+    private nonisolated static func colorRole(for entry: GroupEntry) -> SunburstColorRole {
+        if entry.isAggregate {
+            return .aggregate
+        }
+        if SunburstFreeSpaceVisualization.isFreeSpaceNodeID(entry.nodeID) {
+            return .freeSpace
+        }
+        return .normal
+    }
+
+    private nonisolated static func colorBranch(
+        for entry: GroupEntry,
+        in treeStore: FileTreeStore,
+        fallbackIndex: Int,
+        fallbackCount: Int
+    ) -> ColorBranch {
+        guard let branchID = topLevelBranchID(for: entry.nodeID, in: treeStore) else {
+            return ColorBranch(id: entry.colorID, index: fallbackIndex, count: fallbackCount)
+        }
+
+        let rootChildIDs = rootColorBranchIDs(in: treeStore)
+        guard let index = rootChildIDs.firstIndex(of: branchID) else {
+            return ColorBranch(id: branchID, index: fallbackIndex, count: fallbackCount)
+        }
+
+        return ColorBranch(
+            id: branchID,
+            index: index,
+            count: max(rootChildIDs.count, 1)
+        )
+    }
+
+    private nonisolated static func rootColorBranchIDs(in treeStore: FileTreeStore) -> [String] {
+        treeStore.children(of: treeStore.rootID)
+            .map(\.id)
+            .filter { !SunburstFreeSpaceVisualization.isFreeSpaceNodeID($0) }
+    }
+
+    private nonisolated static func topLevelBranchID(
+        for nodeID: String?,
+        in treeStore: FileTreeStore
+    ) -> String? {
+        guard let nodeID else { return nil }
+        guard nodeID != treeStore.rootID else { return nodeID }
+
+        var currentID = nodeID
+        while let parentID = treeStore.parentIDByID[currentID] {
+            if parentID == treeStore.rootID {
+                return currentID
+            }
+            currentID = parentID
+        }
+
+        return nodeID
+    }
+
+    private nonisolated static func colorableIndexes(
+        for entries: [GroupEntry]
+    ) -> [String: Int] {
+        var indexes: [String: Int] = [:]
+        indexes.reserveCapacity(entries.count)
+
+        for entry in entries where !entry.isAggregate {
+            indexes[entry.id] = indexes.count
+        }
+
+        return indexes
+    }
+
+    private struct ColorBranch {
+        let id: String
+        let index: Int
+        let count: Int
+    }
+
     private struct GroupEntry {
         let id: String
         let nodeID: String?
         let label: String
         let totalSize: Int64
         let isAggregate: Bool
-        let colorKey: String
+        let colorID: String
         let node: FileNodeRecord?
     }
 }
