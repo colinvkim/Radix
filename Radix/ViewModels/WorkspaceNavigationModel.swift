@@ -53,7 +53,10 @@ private extension WorkspaceNavigationState {
         fileTreeStore?.node(id: focusedNodeID) ?? fileTreeStore?.root
     }
 
-    func applyingScanContext(_ snapshot: ScanSnapshot?) -> WorkspaceNavigationState {
+    func applyingScanContext(
+        _ snapshot: ScanSnapshot?,
+        loadTableNodesImmediately: Bool = true
+    ) -> WorkspaceNavigationState {
         var next = self
         next.snapshotID = snapshot?.id
         next.fileTreeStore = snapshot?.treeStore
@@ -71,7 +74,7 @@ private extension WorkspaceNavigationState {
         if next.focusedNodeID == nil {
             next.focusedNodeID = snapshot.root.id
         }
-        return next.refreshedDerivedState()
+        return next.refreshedDerivedState(loadTableNodesImmediately: loadTableNodesImmediately)
     }
 
     func reconcilingAfterSnapshotApplied(_ snapshot: ScanSnapshot?) -> WorkspaceNavigationState {
@@ -290,8 +293,8 @@ private extension WorkspaceNavigationState {
         self.selectedNodeIDs = []
     }
 
-    func refreshedDerivedState() -> WorkspaceNavigationState {
-        refreshedSelectionState().refreshedTableState()
+    func refreshedDerivedState(loadTableNodesImmediately: Bool = true) -> WorkspaceNavigationState {
+        refreshedSelectionState().refreshedTableState(loadNodes: loadTableNodesImmediately)
     }
 
     func refreshedSelectionState() -> WorkspaceNavigationState {
@@ -315,7 +318,7 @@ private extension WorkspaceNavigationState {
         return next
     }
 
-    func refreshedTableState() -> WorkspaceNavigationState {
+    func refreshedTableState(loadNodes: Bool = true) -> WorkspaceNavigationState {
         var next = self
         let focusNode = next.resolvedFocusNode
         next.tableContentID = [
@@ -325,6 +328,11 @@ private extension WorkspaceNavigationState {
 
         guard let fileTreeStore,
               let focusNode else {
+            next.tableNodes = []
+            return next
+        }
+
+        guard loadNodes else {
             next.tableNodes = []
             return next
         }
@@ -445,8 +453,12 @@ final class WorkspaceNavigationModel: ObservableObject {
         return (focusedNodeID ?? rootID) == rootID
     }
 
-    func updateScanContext(snapshot: ScanSnapshot?) {
-        publish(state.applyingScanContext(snapshot))
+    func updateScanContext(snapshot: ScanSnapshot?, loadTableNodesImmediately: Bool = true) {
+        publish(state.applyingScanContext(snapshot, loadTableNodesImmediately: loadTableNodesImmediately))
+    }
+
+    func refreshTableNodesForCurrentContext() {
+        publish(state.refreshedTableState())
     }
 
     func reset() {

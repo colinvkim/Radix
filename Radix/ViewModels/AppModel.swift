@@ -153,6 +153,9 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
+    private var deferredNavigationContextTask: Task<Void, Never>?
+    private var deferredNavigationContextID: UUID?
+    private var deferredNavigationContextSnapshotID: UUID?
     private var postTrashRemovalTask: Task<Void, Never>?
     private var exportPanelTask: Task<Void, Never>?
     private var snapshotArchiveTask: Task<Void, Never>?
@@ -218,6 +221,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.resetTransientState()
         fullDiskAccessRefreshTask?.cancel()
@@ -238,6 +242,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.clearActiveScanTracking()
         if scanCoordinator.canStopScan {
@@ -651,6 +656,7 @@ final class AppModel: ObservableObject {
         // "Publishing changes from within view updates is not allowed."
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
@@ -678,6 +684,31 @@ final class AppModel: ObservableObject {
         deferredNavigationActionID = nil
         deferredNavigationActionTask?.cancel()
         deferredNavigationActionTask = nil
+    }
+
+    private func cancelDeferredNavigationContextUpdate() {
+        deferredNavigationContextSnapshotID = nil
+        deferredNavigationContextID = nil
+        deferredNavigationContextTask?.cancel()
+        deferredNavigationContextTask = nil
+    }
+
+    private func scheduleDeferredNavigationContextUpdate(for snapshotID: UUID) {
+        scheduleDeferredViewUpdate(
+            id: \.deferredNavigationContextID,
+            task: \.deferredNavigationContextTask
+        ) { model in
+            guard model.deferredNavigationContextSnapshotID == snapshotID,
+                  model.scanCoordinator.snapshot?.id == snapshotID else {
+                if model.deferredNavigationContextSnapshotID == snapshotID {
+                    model.deferredNavigationContextSnapshotID = nil
+                }
+                return
+            }
+
+            model.deferredNavigationContextSnapshotID = nil
+            model.navigationModel.refreshTableNodesForCurrentContext()
+        }
     }
 
     private func cancelPostTrashSnapshotRemoval() {
@@ -734,6 +765,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
@@ -1345,14 +1377,18 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
         sidebarScanCacheController.clearDisplayedSnapshot()
 
+        deferredNavigationContextSnapshotID = snapshot.id
         scanCoordinator.restoreCompletedSnapshot(snapshot) {
             prepareForImportedSnapshot()
         }
+        navigationModel.updateScanContext(snapshot: snapshot, loadTableNodesImmediately: false)
+        scheduleDeferredNavigationContextUpdate(for: snapshot.id)
     }
 
     private func prepareForImportedSnapshot() {
@@ -1442,7 +1478,14 @@ final class AppModel: ObservableObject {
     private func observeScanCoordinator() {
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
-                self?.navigationModel.updateScanContext(snapshot: snapshot)
+                guard let self else { return }
+                if let snapshotID = snapshot?.id,
+                   snapshotID == deferredNavigationContextSnapshotID {
+                    return
+                }
+
+                cancelDeferredNavigationContextUpdate()
+                navigationModel.updateScanContext(snapshot: snapshot)
             }
             .store(in: &cancellables)
 

@@ -910,6 +910,87 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testImportScanSnapshotDefersWideRootTableMaterializationUntilAfterSnapshotPublish() async throws {
+        let archiveURL = URL(filePath: "/tmp/wide-imported.radixscan", directoryHint: .isDirectory)
+        let childCount = 20_000
+        let children = (0..<childCount).map { index in
+            makeTestFileNode(
+                id: "/wide-imported/file-\(String(format: "%05d", index)).txt",
+                name: "file-\(String(format: "%05d", index)).txt",
+                size: Int64(childCount - index)
+            )
+        }
+        let root = makeTestDirectoryNode(id: "/wide-imported", name: "wide-imported", children: children)
+        let store = FileTreeStore(root: root, childrenByID: [root.id: children])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "wide-imported", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(store.aggregateStats)
+            ),
+            importResult: ScanArchiveImportResult(
+                archiveURL: archiveURL,
+                snapshot: importedSnapshot,
+                manifest: manifest
+            )
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+        var tableNodeCountAtSnapshotPublish: Int?
+        let snapshotCancellable = model.scanState.$snapshot.sink { snapshot in
+            guard snapshot?.id == importedSnapshot.id else { return }
+            tableNodeCountAtSnapshotPublish = model.navigation.tableNodes.count
+        }
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("wide import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+
+        model.confirmImportPreview()
+        try await waitForAppModelCondition("wide imported snapshot restored") {
+            model.scanState.snapshot?.id == importedSnapshot.id
+        }
+
+        XCTAssertEqual(tableNodeCountAtSnapshotPublish, 0)
+        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+
+        try await waitForAppModelCondition("wide imported table materialized") {
+            model.navigation.tableNodes.count == childCount
+        }
+
+        withExtendedLifetime(snapshotCancellable) {}
+    }
+
+    @MainActor
     func testExportCurrentScanUsesInjectedPanelAndArchiveService() async throws {
         let archiveURL = URL(filePath: "/tmp/export.radixscan", directoryHint: .isDirectory)
         let archiveService = SpyScanArchiveService()
