@@ -138,57 +138,19 @@ private struct ScanCurrentPathText: View {
             .frame(maxWidth: 540)
             .overlay {
                 if shouldShimmer {
-                    ShimmeringTextHighlight(text: path)
+                    ShimmeringTextHighlight(
+                        text: path,
+                        lineLimit: 2,
+                        reservesSpace: true,
+                        multilineTextAlignment: .center,
+                        truncationMode: .middle
+                    )
                 }
             }
     }
 
     private var shouldShimmer: Bool {
         isFinalizing && path == Self.finalizingSummary && !reduceMotion
-    }
-}
-
-private struct ShimmeringTextHighlight: View {
-    let text: String
-
-    private let cycleDuration = 1.7
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            GeometryReader { proxy in
-                let width = max(proxy.size.width, 1)
-                let height = max(proxy.size.height, 1)
-                let highlightWidth = min(max(width * 0.42, 48), 160)
-                let progress = timeline.date.timeIntervalSinceReferenceDate
-                    .truncatingRemainder(dividingBy: cycleDuration) / cycleDuration
-                let offset = progress * (width + highlightWidth * 2) - highlightWidth
-
-                Text(text)
-                    .foregroundStyle(Color.primary.opacity(0.68))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2, reservesSpace: true)
-                    .truncationMode(.middle)
-                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
-                    .mask {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: .white.opacity(0.2), location: 0.28),
-                                .init(color: .white, location: 0.5),
-                                .init(color: .white.opacity(0.2), location: 0.72),
-                                .init(color: .clear, location: 1)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: highlightWidth, height: height)
-                        .offset(x: offset)
-                        .frame(width: width, height: height, alignment: .leading)
-                    }
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 

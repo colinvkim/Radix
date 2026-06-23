@@ -153,6 +153,8 @@ private struct ArchiveOperationBanner: View {
     let operation: ArchiveOperationState
     let onCancel: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(spacing: 12) {
             progressView
@@ -160,9 +162,7 @@ private struct ArchiveOperationBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(operation.title)
                     .font(.subheadline.weight(.semibold))
-                Text(operation.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                messageText
             }
             .lineLimit(1)
 
@@ -179,6 +179,21 @@ private struct ArchiveOperationBanner: View {
         .padding(.vertical, 9)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+
+    private var messageText: some View {
+        Text(operation.message)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .overlay {
+                if shouldShimmerMessage {
+                    ShimmeringTextHighlight(text: operation.message)
+                }
+            }
+    }
+
+    private var shouldShimmerMessage: Bool {
+        operation.kind == .import && !reduceMotion
     }
 
     @ViewBuilder
