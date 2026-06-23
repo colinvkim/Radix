@@ -83,6 +83,74 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(preview.directoryCount, snapshot.aggregateStats.directoryCount)
     }
 
+    func testExportReplacesExistingArchiveAfterSuccessfulWrite() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(
+            snapshot: makeArchiveSnapshot(),
+            to: archiveURL,
+            options: ScanArchiveExportOptions(appVersion: "Old")
+        )
+        let oldOnlyURL = archiveURL.appending(path: "old-only.txt", directoryHint: .notDirectory)
+        try Data("old".utf8).write(to: oldOnlyURL)
+
+        let replacementSnapshot = makeLargeArchiveSnapshot(childCount: 3)
+        _ = try await service.export(
+            snapshot: replacementSnapshot,
+            to: archiveURL,
+            options: ScanArchiveExportOptions(appVersion: "New")
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldOnlyURL.path))
+        let preview = try await service.previewSnapshot(from: archiveURL)
+        XCTAssertEqual(preview.appVersion, "New")
+        XCTAssertEqual(preview.nodeCount, replacementSnapshot.treeStore.nodeCount)
+        let importedSnapshot = try await service.importSnapshot(from: archiveURL).snapshot
+        XCTAssertEqual(importedSnapshot.treeStore.nodeCount, replacementSnapshot.treeStore.nodeCount)
+    }
+
+    func testCancelledExportKeepsExistingArchiveAndRemovesTemporaryPackage() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        let originalSnapshot = makeArchiveSnapshot()
+        _ = try await service.export(
+            snapshot: originalSnapshot,
+            to: archiveURL,
+            options: ScanArchiveExportOptions(appVersion: "Original")
+        )
+
+        let progressReporter = ScanArchiveProgressReporter()
+        let replacementSnapshot = makeLargeArchiveSnapshot(childCount: 20_000)
+        let exportTask = Task {
+            try await service.export(
+                snapshot: replacementSnapshot,
+                to: archiveURL,
+                options: ScanArchiveExportOptions(
+                    appVersion: "Cancelled",
+                    progressReporter: progressReporter
+                )
+            )
+        }
+        defer {
+            progressReporter.finish()
+            exportTask.cancel()
+        }
+
+        try await waitForProgressPhase(.writingNodes, from: progressReporter)
+        exportTask.cancel()
+
+        do {
+            _ = try await exportTask.value
+            XCTFail("Cancelled export should not replace existing archive.")
+        } catch is CancellationError {
+        }
+
+        let preview = try await service.previewSnapshot(from: archiveURL)
+        XCTAssertEqual(preview.appVersion, "Original")
+        XCTAssertEqual(preview.nodeCount, originalSnapshot.treeStore.nodeCount)
+        XCTAssertTrue(try temporaryArchiveSiblings(for: archiveURL).isEmpty)
+    }
+
     func testImportRejectsNodesChecksumMismatch() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()
@@ -183,6 +251,39 @@ final class ScanArchiveServiceTests: XCTestCase {
             try? FileManager.default.removeItem(at: directoryURL)
         }
         return directoryURL.appending(path: "Export.radixscan", directoryHint: .isDirectory)
+    }
+
+    private func temporaryArchiveSiblings(for archiveURL: URL) throws -> [URL] {
+        let parentURL = archiveURL.deletingLastPathComponent()
+        let tempPrefix = ".\(archiveURL.lastPathComponent)."
+        return try FileManager.default.contentsOfDirectory(
+            at: parentURL,
+            includingPropertiesForKeys: nil
+        )
+        .filter { url in
+            url.lastPathComponent.hasPrefix(tempPrefix) && url.lastPathComponent.hasSuffix(".tmp")
+        }
+    }
+
+    private func waitForProgressPhase(
+        _ phase: ScanArchiveProgressPhase,
+        from progressReporter: ScanArchiveProgressReporter
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await progress in progressReporter.updates where progress.phase == phase {
+                    return
+                }
+                throw AsyncWaitError.streamFinished
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(2))
+                throw AsyncWaitError.timedOut
+            }
+
+            _ = try await group.next()
+            group.cancelAll()
+        }
     }
 
     private func makeArchiveSnapshot() -> ScanSnapshot {
@@ -350,4 +451,9 @@ final class ScanArchiveServiceTests: XCTestCase {
         let rewrittenData = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         try rewrittenData.write(to: url, options: [.atomic])
     }
+}
+
+private enum AsyncWaitError: Error {
+    case streamFinished
+    case timedOut
 }

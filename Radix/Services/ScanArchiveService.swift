@@ -227,10 +227,13 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             throw ScanArchiveError.incompleteSnapshot
         }
 
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            try fileManager.removeItem(at: destinationURL)
+        let archiveURL = try createTemporaryArchiveDirectory(for: destinationURL)
+        var didInstallArchive = false
+        defer {
+            if !didInstallArchive {
+                try? fileManager.removeItem(at: archiveURL)
+            }
         }
-        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: false)
 
         let archiveSections = ScanArchiveSections(
             nodes: Self.nodesFileName,
@@ -238,11 +241,11 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             warnings: Self.warningsFileName,
             stats: Self.statsFileName
         )
-        let nodesURL = destinationURL.appending(path: archiveSections.nodes, directoryHint: .notDirectory)
-        let topologyURL = destinationURL.appending(path: archiveSections.topology, directoryHint: .notDirectory)
-        let warningsURL = destinationURL.appending(path: archiveSections.warnings, directoryHint: .notDirectory)
-        let statsURL = destinationURL.appending(path: archiveSections.stats, directoryHint: .notDirectory)
-        let manifestURL = destinationURL.appending(path: Self.manifestFileName, directoryHint: .notDirectory)
+        let nodesURL = archiveURL.appending(path: archiveSections.nodes, directoryHint: .notDirectory)
+        let topologyURL = archiveURL.appending(path: archiveSections.topology, directoryHint: .notDirectory)
+        let warningsURL = archiveURL.appending(path: archiveSections.warnings, directoryHint: .notDirectory)
+        let statsURL = archiveURL.appending(path: archiveSections.stats, directoryHint: .notDirectory)
+        let manifestURL = archiveURL.appending(path: Self.manifestFileName, directoryHint: .notDirectory)
 
         options.progressReporter?.report(ScanArchiveProgress(
             phase: .preparing,
@@ -277,6 +280,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             nodeChecksum: nodeChecksum
         )
         try writeJSON(manifest, to: manifestURL)
+
+        try Task.checkCancellation()
+        try installArchive(from: archiveURL, to: destinationURL)
+        didInstallArchive = true
 
         return ScanArchiveExportResult(archiveURL: destinationURL, nodeChecksum: nodeChecksum)
     }
@@ -537,6 +544,29 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             throw ScanArchiveError.manifest("invalid \(sectionDescription) section path")
         }
         return archiveURL.appending(path: sectionName, directoryHint: .notDirectory)
+    }
+
+    private func createTemporaryArchiveDirectory(for destinationURL: URL) throws -> URL {
+        let parentURL = destinationURL.deletingLastPathComponent()
+        let tempName = ".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp"
+        let tempURL = parentURL.appending(path: tempName, directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: tempURL, withIntermediateDirectories: false)
+        return tempURL
+    }
+
+    private func installArchive(from temporaryURL: URL, to destinationURL: URL) throws {
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            var resultingURL: NSURL?
+            try fileManager.replaceItem(
+                at: destinationURL,
+                withItemAt: temporaryURL,
+                backupItemName: nil,
+                options: [],
+                resultingItemURL: &resultingURL
+            )
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        }
     }
 
     private func writeNodes(
