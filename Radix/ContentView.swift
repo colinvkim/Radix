@@ -187,7 +187,10 @@ private struct ArchiveOperationBanner: View {
             .foregroundStyle(.secondary)
             .overlay {
                 if shouldShimmerMessage {
-                    ShimmeringTextHighlight(text: operation.message)
+                    ShimmeringTextHighlight(
+                        text: operation.message,
+                        font: .caption
+                    )
                 }
             }
     }

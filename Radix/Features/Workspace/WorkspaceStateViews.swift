@@ -143,7 +143,8 @@ private struct ScanCurrentPathText: View {
                         lineLimit: 2,
                         reservesSpace: true,
                         multilineTextAlignment: .center,
-                        truncationMode: .middle
+                        truncationMode: .middle,
+                        frameAlignment: .center
                     )
                 }
             }

@@ -2,10 +2,12 @@ import SwiftUI
 
 struct ShimmeringTextHighlight: View {
     let text: String
+    var font: Font?
     var lineLimit = 1
     var reservesSpace = false
     var multilineTextAlignment: TextAlignment = .leading
     var truncationMode: Text.TruncationMode = .tail
+    var frameAlignment: Alignment = .leading
 
     private let cycleDuration = 1.7
 
@@ -20,11 +22,12 @@ struct ShimmeringTextHighlight: View {
                 let offset = progress * (width + highlightWidth * 2) - highlightWidth
 
                 Text(text)
+                    .font(font)
                     .foregroundStyle(Color.primary.opacity(0.68))
                     .multilineTextAlignment(multilineTextAlignment)
                     .lineLimit(lineLimit, reservesSpace: reservesSpace)
                     .truncationMode(truncationMode)
-                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: frameAlignment)
                     .mask {
                         LinearGradient(
                             stops: [
