@@ -93,6 +93,10 @@ final class ScanCoordinator: ObservableObject {
         isScanning
     }
 
+    var snapshotSource: ScanSnapshotSource {
+        snapshot?.source ?? .live
+    }
+
     func replaceTrashSafetyPolicy(_ policy: TrashSafetyPolicy) {
         trashSafetyPolicy = policy
     }
@@ -171,7 +175,7 @@ final class ScanCoordinator: ObservableObject {
         scanErrorMessage = nil
         resetProgressThrottling()
         apply(snapshot: snapshot)
-        completedScanSnapshot = snapshot
+        completedScanSnapshot = snapshot.source.allowsFileMutation ? snapshot : nil
 
         var metrics = ScanMetrics()
         metrics.recalculateProgress(isComplete: true)

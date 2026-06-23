@@ -67,6 +67,20 @@ struct RadixCommands: Commands {
             .keyboardShortcut("o")
             .disabled(scanState.isScanning)
 
+            Button("Import Scan…", systemImage: "square.and.arrow.down") {
+                appModel.importScanSnapshot()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(!appModel.canImportScanSnapshot)
+
+            Button("Export Scan…", systemImage: "square.and.arrow.up") {
+                appModel.exportCurrentScan()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(!appModel.canExportCurrentScan)
+
+            Divider()
+
             Button("Rescan", systemImage: "arrow.clockwise") {
                 appModel.rescan()
             }
@@ -157,7 +171,8 @@ struct RadixCommands: Commands {
         FileNodeActionAvailability(
             nodes: navigation.selectedNodes,
             activeTarget: scanState.selectedTarget,
-            trashSafetyPolicy: scanState.trashSafetyPolicy
+            trashSafetyPolicy: scanState.trashSafetyPolicy,
+            snapshotSource: scanState.snapshotSource
         )
     }
 

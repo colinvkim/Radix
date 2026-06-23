@@ -8,6 +8,7 @@
 import AppKit
 import Darwin
 import Foundation
+import UniformTypeIdentifiers
 
 enum FullDiskAccessStatus: Equatable, Sendable {
     case granted
@@ -74,6 +75,10 @@ enum SystemIntegration {
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
+    private static var radixScanArchiveContentType: UTType {
+        UTType(exportedAs: ScanArchiveService.formatIdentifier, conformingTo: .package)
+    }
+
     @MainActor
     static func presentScanPanel() -> ScanTarget? {
         let panel = NSOpenPanel()
@@ -89,6 +94,67 @@ enum SystemIntegration {
         }
 
         return ScanTarget(url: url)
+    }
+
+    @MainActor
+    static func presentExportScanPanel(defaultFileName: String) async -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [radixScanArchiveContentType]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = defaultFileName
+        panel.prompt = "Export"
+
+        guard let parentWindow = exportPanelParentWindow else {
+            guard panel.runModal() == .OK else {
+                return nil
+            }
+            return normalizedExportPanelURL(panel.url)
+        }
+
+        return await withCheckedContinuation { continuation in
+            panel.beginSheetModal(for: parentWindow) { response in
+                panel.orderOut(nil)
+                guard response == .OK else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: normalizedExportPanelURL(panel.url))
+            }
+        }
+    }
+
+    @MainActor
+    static func presentImportScanPanel() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [radixScanArchiveContentType]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.canCreateDirectories = false
+        panel.prompt = "Import"
+        panel.message = "Choose a Radix scan snapshot."
+
+        guard panel.runModal() == .OK else {
+            return nil
+        }
+        return panel.url
+    }
+
+    @MainActor
+    private static var exportPanelParentWindow: NSWindow? {
+        NSApp.mainWindow ??
+            NSApp.keyWindow ??
+            NSApp.windows.first { window in
+                window.isVisible && !window.isMiniaturized
+            }
+    }
+
+    private static func normalizedExportPanelURL(_ url: URL?) -> URL? {
+        guard let url else { return nil }
+        if url.pathExtension == ScanArchiveService.fileExtension {
+            return url
+        }
+        return url.appendingPathExtension(ScanArchiveService.fileExtension)
     }
 
     nonisolated static func defaultTargets() -> [ScanTarget] {

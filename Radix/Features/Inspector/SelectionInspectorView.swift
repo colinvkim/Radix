@@ -101,7 +101,8 @@ struct SelectionInspectorView: View {
         FileNodeActionAvailability(
             node: navigation.selectedNode,
             activeTarget: scanState.selectedTarget,
-            trashSafetyPolicy: scanState.trashSafetyPolicy
+            trashSafetyPolicy: scanState.trashSafetyPolicy,
+            snapshotSource: scanState.snapshotSource
         )
     }
 

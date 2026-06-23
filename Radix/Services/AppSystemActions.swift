@@ -82,6 +82,8 @@ struct AppSystemActions {
     var asyncFullDiskAccessStatus: (@Sendable () async -> FullDiskAccessStatus)?
     var asyncTargetCapacityDescriptions: (@Sendable () async -> [String: String])?
     var presentOpenPanel: () -> ScanTarget?
+    var presentExportScanPanel: (String) async -> URL?
+    var presentImportScanPanel: () -> URL?
     var fileExists: (URL) -> Bool
     var verifyTrashIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
     var isExistingDirectory: (URL) -> Bool
@@ -127,6 +129,12 @@ struct AppSystemActions {
         },
         presentOpenPanel: {
             SystemIntegration.presentScanPanel()
+        },
+        presentExportScanPanel: { defaultFileName in
+            await SystemIntegration.presentExportScanPanel(defaultFileName: defaultFileName)
+        },
+        presentImportScanPanel: {
+            SystemIntegration.presentImportScanPanel()
         },
         fileExists: { url in
             FileManager.default.fileExists(atPath: url.path)
@@ -179,6 +187,8 @@ struct AppSystemActions {
         asyncFullDiskAccessStatus: nil,
         asyncTargetCapacityDescriptions: nil,
         presentOpenPanel: { nil },
+        presentExportScanPanel: { _ in nil },
+        presentImportScanPanel: { nil },
         fileExists: { _ in false },
         verifyTrashIdentity: { _ in .matches },
         isExistingDirectory: { _ in false },

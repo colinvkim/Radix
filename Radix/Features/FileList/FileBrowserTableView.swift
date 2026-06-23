@@ -396,7 +396,8 @@ struct FileBrowserTableView: View {
             actionAvailability: FileNodeActionAvailability(
                 nodes: nodes,
                 activeTarget: scanState.selectedTarget,
-                trashSafetyPolicy: scanState.trashSafetyPolicy
+                trashSafetyPolicy: scanState.trashSafetyPolicy,
+                snapshotSource: scanState.snapshotSource
             )
         )
     }

@@ -497,6 +497,7 @@ actor ScanEngine {
             finishedAt: Date(),
             warnings: warnings,
             isComplete: true,
+            scanOptions: options,
             expectedTotalBytes: exclusionMatcher.isEmpty ? metrics.estimatedTotalBytes : 0
         )
 
@@ -1587,6 +1588,7 @@ actor ScanEngine {
         finishedAt: Date?,
         warnings: [ScanWarning],
         isComplete: Bool,
+        scanOptions: ScanOptions?,
         expectedTotalBytes: Int64 = 0
     ) -> ScanSnapshot {
         let reconciledStore = reconcileVolumeRoot(treeStore, for: target, expectedTotalBytes: expectedTotalBytes)
@@ -1598,7 +1600,8 @@ actor ScanEngine {
             finishedAt: finishedAt,
             scanWarnings: warnings,
             aggregateStats: reconciledStore.aggregateStats,
-            isComplete: isComplete
+            isComplete: isComplete,
+            scanOptions: scanOptions
         )
     }
 

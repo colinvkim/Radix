@@ -29,6 +29,18 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
         self.kind = kind ?? ScanTarget.inferredKind(for: normalizedURL)
     }
 
+    nonisolated init(
+        id: String,
+        url: URL,
+        displayName: String,
+        kind: ScanTargetKind
+    ) {
+        self.id = id
+        self.url = url
+        self.displayName = displayName
+        self.kind = kind
+    }
+
     private nonisolated static func normalizedURL(from url: URL) -> URL {
         let standardizedURL = url.standardizedFileURL
         let path = standardizedURL.path
@@ -88,7 +100,7 @@ struct ScanTarget: Identifiable, Hashable, Sendable {
     }
 }
 
-struct ScanOptions: Hashable, Sendable {
+nonisolated struct ScanOptions: Hashable, Codable, Sendable {
     var includeHiddenFiles = false
     var treatPackagesAsDirectories = false
     var autoSummarizeDirectories = true

@@ -1,0 +1,1009 @@
+//
+//  ScanArchiveService.swift
+//  Radix
+//
+//  Created by Codex on 6/22/26.
+//
+
+import CryptoKit
+import Foundation
+
+nonisolated protocol ScanArchiveServicing: Sendable {
+    func export(
+        snapshot: ScanSnapshot,
+        to destinationURL: URL,
+        options: ScanArchiveExportOptions
+    ) async throws -> ScanArchiveExportResult
+
+    func previewSnapshot(from sourceURL: URL) async throws -> ScanArchivePreview
+
+    func importSnapshot(
+        from sourceURL: URL,
+        progressReporter: ScanArchiveProgressReporter?
+    ) async throws -> ScanArchiveImportResult
+}
+
+extension ScanArchiveServicing {
+    func importSnapshot(from sourceURL: URL) async throws -> ScanArchiveImportResult {
+        try await importSnapshot(from: sourceURL, progressReporter: nil)
+    }
+}
+
+nonisolated struct ScanArchiveExportOptions: Sendable {
+    var pathMode: ScanArchivePathMode
+    var appVersion: String?
+    var progressReporter: ScanArchiveProgressReporter?
+
+    nonisolated init(
+        pathMode: ScanArchivePathMode = .absolute,
+        appVersion: String? = nil,
+        progressReporter: ScanArchiveProgressReporter? = nil
+    ) {
+        self.pathMode = pathMode
+        self.appVersion = appVersion
+        self.progressReporter = progressReporter
+    }
+}
+
+nonisolated struct ScanArchiveExportResult: Sendable {
+    let archiveURL: URL
+    let nodeChecksum: String
+}
+
+nonisolated struct ScanArchiveImportResult: Sendable {
+    let archiveURL: URL
+    let snapshot: ScanSnapshot
+    let manifest: ScanArchiveDocument
+}
+
+nonisolated enum ScanArchiveProgressPhase: String, Sendable {
+    case preparing
+    case writingNodes
+    case writingTopology
+    case writingMetadata
+    case readingManifest
+    case readingNodes
+    case readingTopology
+    case validatingTopology
+    case readingMetadata
+    case rebuildingSnapshot
+    case openingSnapshot
+}
+
+nonisolated struct ScanArchiveProgress: Equatable, Sendable {
+    let phase: ScanArchiveProgressPhase
+    let completedUnitCount: Int
+    let totalUnitCount: Int?
+    let message: String
+
+    nonisolated init(
+        phase: ScanArchiveProgressPhase,
+        completedUnitCount: Int = 0,
+        totalUnitCount: Int? = nil,
+        message: String
+    ) {
+        self.phase = phase
+        self.completedUnitCount = completedUnitCount
+        self.totalUnitCount = totalUnitCount
+        self.message = message
+    }
+
+    var fractionCompleted: Double? {
+        guard let totalUnitCount, totalUnitCount > 0 else { return nil }
+        return min(1, max(0, Double(completedUnitCount) / Double(totalUnitCount)))
+    }
+}
+
+nonisolated final class ScanArchiveProgressReporter: @unchecked Sendable {
+    let updates: AsyncStream<ScanArchiveProgress>
+    private let continuation: AsyncStream<ScanArchiveProgress>.Continuation
+
+    nonisolated init() {
+        let streamPair = AsyncStream.makeStream(
+            of: ScanArchiveProgress.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.updates = streamPair.stream
+        self.continuation = streamPair.continuation
+    }
+
+    func report(_ progress: ScanArchiveProgress) {
+        continuation.yield(progress)
+    }
+
+    func finish() {
+        continuation.finish()
+    }
+}
+
+nonisolated struct ScanArchivePreview: Identifiable, Sendable {
+    let archiveURL: URL
+    let exportedAt: Date
+    let appVersion: String
+    let formatVersion: Int
+    let target: ScanArchiveTargetV1
+    let startedAt: Date
+    let finishedAt: Date?
+    let isComplete: Bool
+    let nodeCount: Int
+    let warningCount: Int
+    let pathMode: ScanArchivePathMode
+    let totalAllocatedSize: Int64
+    let totalLogicalSize: Int64
+    let fileCount: Int
+    let directoryCount: Int
+    let accessibleItemCount: Int
+    let inaccessibleItemCount: Int
+
+    var id: URL {
+        archiveURL
+    }
+
+    init(archiveURL: URL, manifest: ScanArchiveDocument, stats: ScanArchiveStatsV1) {
+        self.archiveURL = archiveURL
+        self.exportedAt = manifest.exportedAt
+        self.appVersion = manifest.createdBy.appVersion
+        self.formatVersion = manifest.formatVersion
+        self.target = manifest.snapshot.target
+        self.startedAt = manifest.snapshot.startedAt
+        self.finishedAt = manifest.snapshot.finishedAt
+        self.isComplete = manifest.snapshot.isComplete
+        self.nodeCount = manifest.snapshot.nodeCount
+        self.warningCount = manifest.snapshot.warningCount
+        self.pathMode = manifest.snapshot.pathMode
+        self.totalAllocatedSize = stats.totalAllocatedSize
+        self.totalLogicalSize = stats.totalLogicalSize
+        self.fileCount = stats.fileCount
+        self.directoryCount = stats.directoryCount
+        self.accessibleItemCount = stats.accessibleItemCount
+        self.inaccessibleItemCount = stats.inaccessibleItemCount
+    }
+}
+
+nonisolated enum ScanArchiveError: LocalizedError, Equatable {
+    case incompleteSnapshot
+    case invalidArchivePackage(String)
+    case unsupportedFormat(String)
+    case unsupportedVersion(Int)
+    case manifest(String)
+    case nodes(String)
+    case topology(String)
+    case integrity(String)
+    case stats(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .incompleteSnapshot:
+            return "Only complete scans can be exported."
+        case .invalidArchivePackage(let detail):
+            return "The Radix scan archive package is invalid: \(detail)"
+        case .unsupportedFormat(let format):
+            return "Unsupported Radix scan archive format: \(format)."
+        case .unsupportedVersion(let version):
+            return "Unsupported Radix scan archive version: \(version)."
+        case .manifest(let detail):
+            return "Radix could not read the scan archive manifest: \(detail)"
+        case .nodes(let detail):
+            return "Radix could not read the scan archive node payload: \(detail)"
+        case .topology(let detail):
+            return "Radix could not read the scan archive topology: \(detail)"
+        case .integrity(let detail):
+            return "Radix scan archive integrity check failed: \(detail)"
+        case .stats(let detail):
+            return "Radix could not read the scan archive stats: \(detail)"
+        }
+    }
+}
+
+nonisolated struct ScanArchiveService: ScanArchiveServicing {
+    nonisolated static let fileExtension = "radixscan"
+    nonisolated static let formatIdentifier = "dev.colinkim.radix.scan"
+    nonisolated static let currentFormatVersion = 1
+
+    private nonisolated static let manifestFileName = "manifest.json"
+    private nonisolated static let nodesFileName = "nodes.jsonl"
+    private nonisolated static let topologyFileName = "topology.json"
+    private nonisolated static let warningsFileName = "warnings.json"
+    private nonisolated static let statsFileName = "stats.json"
+    private nonisolated static let readChunkSize = 1024 * 1024
+    private nonisolated static let progressReportInterval = 512
+    private nonisolated static let newlineData = Data([0x0A])
+
+    init(fileManager: FileManager = .default) {
+        _ = fileManager
+    }
+
+    private var fileManager: FileManager {
+        .default
+    }
+
+    func export(
+        snapshot: ScanSnapshot,
+        to destinationURL: URL,
+        options: ScanArchiveExportOptions = ScanArchiveExportOptions()
+    ) async throws -> ScanArchiveExportResult {
+        try Task.checkCancellation()
+        guard snapshot.isComplete else {
+            throw ScanArchiveError.incompleteSnapshot
+        }
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: false)
+
+        let archiveSections = ScanArchiveSections(
+            nodes: Self.nodesFileName,
+            topology: Self.topologyFileName,
+            warnings: Self.warningsFileName,
+            stats: Self.statsFileName
+        )
+        let nodesURL = destinationURL.appending(path: archiveSections.nodes, directoryHint: .notDirectory)
+        let topologyURL = destinationURL.appending(path: archiveSections.topology, directoryHint: .notDirectory)
+        let warningsURL = destinationURL.appending(path: archiveSections.warnings, directoryHint: .notDirectory)
+        let statsURL = destinationURL.appending(path: archiveSections.stats, directoryHint: .notDirectory)
+        let manifestURL = destinationURL.appending(path: Self.manifestFileName, directoryHint: .notDirectory)
+
+        options.progressReporter?.report(ScanArchiveProgress(
+            phase: .preparing,
+            message: "Preparing archive"
+        ))
+        let nodeChecksum = try await writeNodes(
+            snapshot.treeStore,
+            to: nodesURL,
+            progressReporter: options.progressReporter
+        )
+        try Task.checkCancellation()
+
+        options.progressReporter?.report(ScanArchiveProgress(
+            phase: .writingTopology,
+            message: "Writing topology"
+        ))
+        try writeJSON(ScanArchiveTopologyV1(snapshot.treeStore), to: topologyURL)
+
+        options.progressReporter?.report(ScanArchiveProgress(
+            phase: .writingMetadata,
+            message: "Writing metadata"
+        ))
+        try writeJSON(snapshot.scanWarnings.map(ScanArchiveWarningV1.init), to: warningsURL)
+        try writeJSON(ScanArchiveStatsV1(snapshot.aggregateStats), to: statsURL)
+
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(),
+            appVersion: options.appVersion ?? Self.currentAppVersion(),
+            snapshot: snapshot,
+            pathMode: options.pathMode,
+            sections: archiveSections,
+            nodeChecksum: nodeChecksum
+        )
+        try writeJSON(manifest, to: manifestURL)
+
+        return ScanArchiveExportResult(archiveURL: destinationURL, nodeChecksum: nodeChecksum)
+    }
+
+    func previewSnapshot(from sourceURL: URL) async throws -> ScanArchivePreview {
+        try Task.checkCancellation()
+        let manifest = try readValidatedManifest(from: sourceURL)
+        let statsURL = try sectionURL(
+            named: manifest.sections.stats,
+            in: sourceURL,
+            sectionDescription: "stats"
+        )
+        let stats: ScanArchiveStatsV1 = try readJSON(ScanArchiveStatsV1.self, from: statsURL) { detail in
+            ScanArchiveError.stats(detail)
+        }
+        return ScanArchivePreview(archiveURL: sourceURL, manifest: manifest, stats: stats)
+    }
+
+    func importSnapshot(
+        from sourceURL: URL,
+        progressReporter: ScanArchiveProgressReporter? = nil
+    ) async throws -> ScanArchiveImportResult {
+        try Task.checkCancellation()
+        progressReporter?.report(ScanArchiveProgress(
+            phase: .readingManifest,
+            message: "Reading manifest"
+        ))
+        let manifest = try readValidatedManifest(from: sourceURL)
+
+        let nodesURL = try sectionURL(
+            named: manifest.sections.nodes,
+            in: sourceURL,
+            sectionDescription: "nodes"
+        )
+        let topologyURL = try sectionURL(
+            named: manifest.sections.topology,
+            in: sourceURL,
+            sectionDescription: "topology"
+        )
+        let warningsURL = try sectionURL(
+            named: manifest.sections.warnings,
+            in: sourceURL,
+            sectionDescription: "warnings"
+        )
+        let statsURL = try sectionURL(
+            named: manifest.sections.stats,
+            in: sourceURL,
+            sectionDescription: "stats"
+        )
+
+        let nodesByID = try await readNodes(
+            from: nodesURL,
+            expectedChecksum: manifest.integrity.nodes,
+            expectedNodeCount: manifest.snapshot.nodeCount,
+            progressReporter: progressReporter
+        )
+
+        progressReporter?.report(ScanArchiveProgress(
+            phase: .readingTopology,
+            message: "Reading topology"
+        ))
+        let topology: ScanArchiveTopologyV1 = try readJSON(ScanArchiveTopologyV1.self, from: topologyURL) { detail in
+            ScanArchiveError.topology(detail)
+        }
+
+        progressReporter?.report(ScanArchiveProgress(
+            phase: .readingMetadata,
+            message: "Reading metadata"
+        ))
+        let warnings: [ScanArchiveWarningV1] = try readJSON([ScanArchiveWarningV1].self, from: warningsURL) { detail in
+            ScanArchiveError.manifest("warnings section failed: \(detail)")
+        }
+        let archivedStats: ScanArchiveStatsV1 = try readJSON(ScanArchiveStatsV1.self, from: statsURL) { detail in
+            ScanArchiveError.stats(detail)
+        }
+
+        try Task.checkCancellation()
+        progressReporter?.report(ScanArchiveProgress(
+            phase: .rebuildingSnapshot,
+            message: "Rebuilding snapshot"
+        ))
+        try validateCounts(manifest: manifest, nodesByID: nodesByID, warnings: warnings)
+        let rebuiltParentIDs = try await validateTopology(
+            topology,
+            nodesByID: nodesByID,
+            expectedRootID: manifest.snapshot.rootID,
+            progressReporter: progressReporter
+        )
+        let treeStore = FileTreeStore(
+            rootID: topology.rootID,
+            nodesByID: nodesByID,
+            childIDsByID: topology.childIDsByID,
+            parentIDByID: rebuiltParentIDs
+        )
+        var importedWarnings = try warnings.map { try $0.modelWarning() }
+        let computedStats = treeStore.aggregateStats
+        if !archivedStats.matches(computedStats) {
+            importedWarnings.append(Self.repairedStatsWarning(rootID: topology.rootID))
+        }
+
+        let snapshot = ScanSnapshot(
+            id: manifest.snapshot.id,
+            target: manifest.snapshot.target.modelTarget(),
+            treeStore: treeStore,
+            startedAt: manifest.snapshot.startedAt,
+            finishedAt: manifest.snapshot.finishedAt,
+            scanWarnings: importedWarnings,
+            aggregateStats: computedStats,
+            isComplete: manifest.snapshot.isComplete,
+            scanOptions: nil,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: sourceURL,
+                pathMode: manifest.snapshot.pathMode,
+                liveActionCapability: manifest.snapshot.pathMode == .absolute ? .pathValidation : .disabled
+            ))
+        )
+
+        return ScanArchiveImportResult(archiveURL: sourceURL, snapshot: snapshot, manifest: manifest)
+    }
+
+    private func readValidatedManifest(from sourceURL: URL) throws -> ScanArchiveDocument {
+        try validatePackage(at: sourceURL)
+
+        let manifestURL = sourceURL.appending(path: Self.manifestFileName, directoryHint: .notDirectory)
+        let manifest: ScanArchiveDocument = try readJSON(ScanArchiveDocument.self, from: manifestURL) { detail in
+            ScanArchiveError.manifest(detail)
+        }
+        try validateManifest(manifest)
+        return manifest
+    }
+
+    private func validatePackage(at url: URL) throws {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw ScanArchiveError.invalidArchivePackage("expected a .\(Self.fileExtension) package directory")
+        }
+    }
+
+    private func validateManifest(_ manifest: ScanArchiveDocument) throws {
+        guard manifest.format == Self.formatIdentifier else {
+            throw ScanArchiveError.unsupportedFormat(manifest.format)
+        }
+        guard manifest.formatVersion == Self.currentFormatVersion else {
+            throw ScanArchiveError.unsupportedVersion(manifest.formatVersion)
+        }
+        guard manifest.snapshot.isComplete else {
+            throw ScanArchiveError.manifest("snapshot is not complete")
+        }
+        guard manifest.snapshot.nodeCount > 0 else {
+            throw ScanArchiveError.manifest("snapshot has no nodes")
+        }
+        guard manifest.integrity.algorithm == "sha256" else {
+            throw ScanArchiveError.integrity("unsupported integrity algorithm \(manifest.integrity.algorithm)")
+        }
+    }
+
+    private func validateCounts(
+        manifest: ScanArchiveDocument,
+        nodesByID: [String: FileNodeRecord],
+        warnings: [ScanArchiveWarningV1]
+    ) throws {
+        guard nodesByID.count == manifest.snapshot.nodeCount else {
+            throw ScanArchiveError.nodes("manifest expected \(manifest.snapshot.nodeCount) nodes, found \(nodesByID.count)")
+        }
+        guard warnings.count == manifest.snapshot.warningCount else {
+            throw ScanArchiveError.manifest("manifest expected \(manifest.snapshot.warningCount) warnings, found \(warnings.count)")
+        }
+    }
+
+    private func validateTopology(
+        _ topology: ScanArchiveTopologyV1,
+        nodesByID: [String: FileNodeRecord],
+        expectedRootID: String,
+        progressReporter: ScanArchiveProgressReporter?
+    ) async throws -> [String: String] {
+        guard topology.rootID == expectedRootID else {
+            throw ScanArchiveError.topology("root ID does not match manifest")
+        }
+        guard nodesByID[topology.rootID] != nil else {
+            throw ScanArchiveError.topology("root node is missing")
+        }
+        for parentID in topology.childIDsByID.keys where nodesByID[parentID] == nil {
+            throw ScanArchiveError.topology("child map parent \(parentID) is missing from node payload")
+        }
+
+        var parentIDByID: [String: String] = [:]
+        var visited: Set<String> = []
+        var visiting: Set<String> = []
+
+        func visit(_ nodeID: String) async throws {
+            guard nodesByID[nodeID] != nil else {
+                throw ScanArchiveError.topology("node \(nodeID) is missing from node payload")
+            }
+            if visiting.contains(nodeID) {
+                throw ScanArchiveError.topology("cycle detected at node \(nodeID)")
+            }
+            if visited.contains(nodeID) {
+                return
+            }
+
+            visiting.insert(nodeID)
+            let childIDs = topology.childIDsByID[nodeID] ?? []
+            var seenChildIDs = Set<String>()
+            if !childIDs.isEmpty && nodesByID[nodeID]?.isDirectory != true {
+                throw ScanArchiveError.topology("non-directory node \(nodeID) has children")
+            }
+
+            for childID in childIDs {
+                guard seenChildIDs.insert(childID).inserted else {
+                    throw ScanArchiveError.topology("node \(nodeID) contains duplicate child \(childID)")
+                }
+                guard childID != nodeID else {
+                    throw ScanArchiveError.topology("node \(nodeID) references itself as a child")
+                }
+                guard nodesByID[childID] != nil else {
+                    throw ScanArchiveError.topology("child \(childID) is missing from node payload")
+                }
+                if let existingParentID = parentIDByID[childID], existingParentID != nodeID {
+                    throw ScanArchiveError.topology("child \(childID) has multiple parents")
+                }
+                parentIDByID[childID] = nodeID
+                try await visit(childID)
+            }
+
+            visiting.remove(nodeID)
+            visited.insert(nodeID)
+            if Self.shouldReportProgress(visited.count) || visited.count == nodesByID.count {
+                try Task.checkCancellation()
+                progressReporter?.report(ScanArchiveProgress(
+                    phase: .validatingTopology,
+                    completedUnitCount: visited.count,
+                    totalUnitCount: nodesByID.count,
+                    message: "Validating topology"
+                ))
+                await Task.yield()
+            }
+        }
+
+        try await visit(topology.rootID)
+        guard visited.count == nodesByID.count else {
+            let missingCount = nodesByID.count - visited.count
+            throw ScanArchiveError.topology("\(missingCount) node(s) are not reachable from root")
+        }
+
+        if let suppliedParentIDs = topology.parentIDByID,
+           suppliedParentIDs != parentIDByID {
+            throw ScanArchiveError.topology("parent map does not match child edges")
+        }
+
+        return parentIDByID
+    }
+
+    private func sectionURL(named sectionName: String, in archiveURL: URL, sectionDescription: String) throws -> URL {
+        guard !sectionName.isEmpty,
+              !sectionName.contains("/"),
+              !sectionName.contains("\\") else {
+            throw ScanArchiveError.manifest("invalid \(sectionDescription) section path")
+        }
+        return archiveURL.appending(path: sectionName, directoryHint: .notDirectory)
+    }
+
+    private func writeNodes(
+        _ treeStore: FileTreeStore,
+        to url: URL,
+        progressReporter: ScanArchiveProgressReporter?
+    ) async throws -> String {
+        guard fileManager.createFile(atPath: url.path, contents: nil) else {
+            throw ScanArchiveError.nodes("could not create nodes section")
+        }
+
+        let fileHandle = try FileHandle(forWritingTo: url)
+        defer { try? fileHandle.close() }
+
+        var hasher = SHA256()
+        let encoder = Self.makeJSONLineEncoder()
+        let totalNodeCount = treeStore.nodeCount
+        var processedNodeCount = 0
+
+        for nodeID in treeStore.indexedNodeIDs() {
+            try Task.checkCancellation()
+            guard let node = treeStore.node(id: nodeID) else {
+                throw ScanArchiveError.nodes("node \(nodeID) disappeared while exporting")
+            }
+            var lineData = try encoder.encode(ScanArchiveNodeV1(node))
+            lineData.append(Self.newlineData)
+            hasher.update(data: lineData)
+            try fileHandle.write(contentsOf: lineData)
+            processedNodeCount += 1
+
+            if Self.shouldReportProgress(processedNodeCount) || processedNodeCount == totalNodeCount {
+                progressReporter?.report(ScanArchiveProgress(
+                    phase: .writingNodes,
+                    completedUnitCount: processedNodeCount,
+                    totalUnitCount: totalNodeCount,
+                    message: "Writing node records"
+                ))
+                await Task.yield()
+            }
+        }
+
+        return Data(hasher.finalize()).base64EncodedString()
+    }
+
+    private func readNodes(
+        from url: URL,
+        expectedChecksum: String,
+        expectedNodeCount: Int,
+        progressReporter: ScanArchiveProgressReporter?
+    ) async throws -> [String: FileNodeRecord] {
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
+
+        let decoder = Self.makeJSONDecoder()
+        var nodesByID: [String: FileNodeRecord] = [:]
+        var buffer = Data()
+        var hasher = SHA256()
+        var decodedNodeCount = 0
+
+        while true {
+            try Task.checkCancellation()
+            let chunk = try fileHandle.read(upToCount: Self.readChunkSize) ?? Data()
+            guard !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+            buffer.append(chunk)
+
+            while let newlineRange = buffer.firstRange(of: Self.newlineData) {
+                let lineData = Data(buffer[..<newlineRange.lowerBound])
+                buffer.removeSubrange(..<newlineRange.upperBound)
+                if try decodeNodeLine(lineData, decoder: decoder, nodesByID: &nodesByID) {
+                    decodedNodeCount += 1
+                    if Self.shouldReportProgress(decodedNodeCount) || decodedNodeCount == expectedNodeCount {
+                        progressReporter?.report(ScanArchiveProgress(
+                            phase: .readingNodes,
+                            completedUnitCount: decodedNodeCount,
+                            totalUnitCount: expectedNodeCount,
+                            message: "Reading node records"
+                        ))
+                        await Task.yield()
+                    }
+                }
+            }
+        }
+
+        if !buffer.isEmpty {
+            if try decodeNodeLine(buffer, decoder: decoder, nodesByID: &nodesByID) {
+                decodedNodeCount += 1
+            }
+        }
+
+        progressReporter?.report(ScanArchiveProgress(
+            phase: .readingNodes,
+            completedUnitCount: decodedNodeCount,
+            totalUnitCount: expectedNodeCount,
+            message: "Reading node records"
+        ))
+
+        let actualChecksum = Data(hasher.finalize()).base64EncodedString()
+        guard actualChecksum == expectedChecksum else {
+            throw ScanArchiveError.integrity("nodes checksum mismatch")
+        }
+
+        return nodesByID
+    }
+
+    private func decodeNodeLine(
+        _ lineData: Data,
+        decoder: JSONDecoder,
+        nodesByID: inout [String: FileNodeRecord]
+    ) throws -> Bool {
+        guard !lineData.isEmpty else { return false }
+        let archiveNode: ScanArchiveNodeV1
+        do {
+            archiveNode = try decoder.decode(ScanArchiveNodeV1.self, from: lineData)
+        } catch {
+            throw ScanArchiveError.nodes("invalid JSONL node: \(error.localizedDescription)")
+        }
+        let node = try archiveNode.modelNode()
+        guard nodesByID[node.id] == nil else {
+            throw ScanArchiveError.nodes("duplicate node ID \(node.id)")
+        }
+        nodesByID[node.id] = node
+        return true
+    }
+
+    private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+        let data = try Self.makeJSONEncoder().encode(value)
+        try data.write(to: url, options: [.atomic])
+    }
+
+    private func readJSON<T: Decodable>(
+        _ type: T.Type,
+        from url: URL,
+        mapError: (String) -> ScanArchiveError
+    ) throws -> T {
+        do {
+            let data = try Data(contentsOf: url)
+            return try Self.makeJSONDecoder().decode(type, from: data)
+        } catch let error as ScanArchiveError {
+            throw error
+        } catch {
+            throw mapError(error.localizedDescription)
+        }
+    }
+
+    private static func makeJSONEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }
+
+    private static func makeJSONLineEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }
+
+    private static func makeJSONDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    private static func shouldReportProgress(_ completedUnitCount: Int) -> Bool {
+        completedUnitCount == 0 || completedUnitCount % progressReportInterval == 0
+    }
+
+    nonisolated static func scanOptionsFingerprint(_ options: ScanOptions?) throws -> String? {
+        guard let options else { return nil }
+        let data = try makeJSONEncoder().encode(options)
+        return Data(SHA256.hash(data: data)).base64EncodedString()
+    }
+
+    private static func currentAppVersion() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private static func repairedStatsWarning(rootID: String) -> ScanWarning {
+        ScanWarning(
+            path: rootID,
+            message: "Archive stats did not match node payload. Radix repaired totals during import.",
+            category: .fileSystem
+        )
+    }
+}
+
+nonisolated struct ScanArchiveDocument: Codable, Sendable {
+    let format: String
+    let formatVersion: Int
+    let createdBy: ScanArchiveCreatedBy
+    let exportedAt: Date
+    let snapshot: ScanArchiveSnapshotSummary
+    let sections: ScanArchiveSections
+    let integrity: ScanArchiveIntegrity
+
+    init(
+        exportedAt: Date,
+        appVersion: String,
+        snapshot: ScanSnapshot,
+        pathMode: ScanArchivePathMode,
+        sections: ScanArchiveSections,
+        nodeChecksum: String
+    ) throws {
+        self.format = ScanArchiveService.formatIdentifier
+        self.formatVersion = ScanArchiveService.currentFormatVersion
+        self.createdBy = ScanArchiveCreatedBy(appVersion: appVersion)
+        self.exportedAt = exportedAt
+        self.snapshot = try ScanArchiveSnapshotSummary(snapshot, pathMode: pathMode)
+        self.sections = sections
+        self.integrity = ScanArchiveIntegrity(nodes: nodeChecksum)
+    }
+}
+
+nonisolated struct ScanArchiveCreatedBy: Codable, Sendable {
+    let app: String
+    let appVersion: String
+    let swiftSchema: String
+
+    init(appVersion: String) {
+        self.app = "Radix"
+        self.appVersion = appVersion
+        self.swiftSchema = "ScanArchiveV1"
+    }
+}
+
+nonisolated struct ScanArchiveSnapshotSummary: Codable, Sendable {
+    let id: UUID
+    let startedAt: Date
+    let finishedAt: Date?
+    let isComplete: Bool
+    let target: ScanArchiveTargetV1
+    let rootID: String
+    let nodeCount: Int
+    let warningCount: Int
+    let pathMode: ScanArchivePathMode
+    let scanOptionsFingerprint: String?
+
+    init(_ snapshot: ScanSnapshot, pathMode: ScanArchivePathMode) throws {
+        self.id = snapshot.id
+        self.startedAt = snapshot.startedAt
+        self.finishedAt = snapshot.finishedAt
+        self.isComplete = snapshot.isComplete
+        self.target = ScanArchiveTargetV1(snapshot.target)
+        self.rootID = snapshot.treeStore.rootID
+        self.nodeCount = snapshot.treeStore.nodeCount
+        self.warningCount = snapshot.scanWarnings.count
+        self.pathMode = pathMode
+        self.scanOptionsFingerprint = try ScanArchiveService.scanOptionsFingerprint(snapshot.scanOptions)
+    }
+}
+
+nonisolated struct ScanArchiveTargetV1: Codable, Sendable {
+    let path: String
+    let displayName: String
+    let kind: ScanTargetKind
+
+    init(_ target: ScanTarget) {
+        self.path = target.url.path
+        self.displayName = target.displayName
+        self.kind = target.kind
+    }
+
+    func modelTarget() -> ScanTarget {
+        ScanTarget(
+            id: path,
+            url: URL(filePath: path, directoryHint: .isDirectory),
+            displayName: displayName,
+            kind: kind
+        )
+    }
+}
+
+nonisolated struct ScanArchiveSections: Codable, Sendable {
+    let nodes: String
+    let topology: String
+    let warnings: String
+    let stats: String
+}
+
+nonisolated struct ScanArchiveIntegrity: Codable, Sendable {
+    let algorithm: String
+    let nodes: String
+
+    init(nodes: String) {
+        self.algorithm = "sha256"
+        self.nodes = nodes
+    }
+}
+
+nonisolated struct ScanArchiveNodeV1: Codable, Sendable {
+    let id: String
+    let path: String
+    let name: String
+    let isDirectory: Bool
+    let isSymbolicLink: Bool
+    let allocatedSize: Int64
+    let unduplicatedAllocatedSize: Int64
+    let logicalSize: Int64
+    let descendantFileCount: Int
+    let lastModified: Date?
+    let fileIdentity: ScanArchiveFileIdentityV1?
+    let linkCount: UInt64
+    let isPackage: Bool
+    let isAccessible: Bool
+    let isSelfAccessible: Bool
+    let isSynthetic: Bool
+    let isAutoSummarized: Bool
+
+    init(_ node: FileNodeRecord) {
+        self.id = node.id
+        self.path = node.url.path
+        self.name = node.name
+        self.isDirectory = node.isDirectory
+        self.isSymbolicLink = node.isSymbolicLink
+        self.allocatedSize = node.allocatedSize
+        self.unduplicatedAllocatedSize = node.unduplicatedAllocatedSize
+        self.logicalSize = node.logicalSize
+        self.descendantFileCount = node.descendantFileCount
+        self.lastModified = node.lastModified
+        self.fileIdentity = node.fileIdentity.map(ScanArchiveFileIdentityV1.init)
+        self.linkCount = node.linkCount
+        self.isPackage = node.isPackage
+        self.isAccessible = node.isAccessible
+        self.isSelfAccessible = node.isSelfAccessible
+        self.isSynthetic = node.isSynthetic
+        self.isAutoSummarized = node.isAutoSummarized
+    }
+
+    func modelNode() throws -> FileNodeRecord {
+        guard allocatedSize >= 0, unduplicatedAllocatedSize >= 0, logicalSize >= 0 else {
+            throw ScanArchiveError.nodes("node \(id) has negative size")
+        }
+        guard descendantFileCount >= 0 else {
+            throw ScanArchiveError.nodes("node \(id) has negative descendant count")
+        }
+
+        return FileNodeRecord(
+            id: id,
+            url: URL(filePath: path, directoryHint: isDirectory ? .isDirectory : .notDirectory),
+            name: name,
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            allocatedSize: allocatedSize,
+            unduplicatedAllocatedSize: unduplicatedAllocatedSize,
+            logicalSize: logicalSize,
+            descendantFileCount: descendantFileCount,
+            lastModified: lastModified,
+            fileIdentity: try fileIdentity?.modelIdentity(),
+            linkCount: max(linkCount, 1),
+            isPackage: isPackage,
+            isAccessible: isAccessible,
+            isSelfAccessible: isSelfAccessible,
+            isSynthetic: isSynthetic,
+            isAutoSummarized: isAutoSummarized
+        )
+    }
+}
+
+nonisolated struct ScanArchiveFileIdentityV1: Codable, Sendable {
+    nonisolated enum Kind: String, Codable, Sendable {
+        case resourceIdentifier
+        case fileSystem
+    }
+
+    let kind: Kind
+    let resourceIdentifier: String?
+    let device: UInt64?
+    let inode: UInt64?
+
+    init(_ identity: FileIdentity) {
+        switch identity {
+        case .resourceIdentifier(let data):
+            self.kind = .resourceIdentifier
+            self.resourceIdentifier = data.base64EncodedString()
+            self.device = nil
+            self.inode = nil
+        case .fileSystem(let device, let inode):
+            self.kind = .fileSystem
+            self.resourceIdentifier = nil
+            self.device = device
+            self.inode = inode
+        }
+    }
+
+    func modelIdentity() throws -> FileIdentity {
+        switch kind {
+        case .resourceIdentifier:
+            guard let resourceIdentifier,
+                  let data = Data(base64Encoded: resourceIdentifier) else {
+                throw ScanArchiveError.nodes("file identity has invalid resource identifier")
+            }
+            return FileIdentity(resourceIdentifier: data)
+        case .fileSystem:
+            guard let device, let inode else {
+                throw ScanArchiveError.nodes("file identity has incomplete file system identity")
+            }
+            return FileIdentity(device: device, inode: inode)
+        }
+    }
+}
+
+nonisolated struct ScanArchiveTopologyV1: Codable, Sendable {
+    let rootID: String
+    let childIDsByID: [String: [String]]
+    let parentIDByID: [String: String]?
+
+    init(
+        rootID: String,
+        childIDsByID: [String: [String]],
+        parentIDByID: [String: String]?
+    ) {
+        self.rootID = rootID
+        self.childIDsByID = childIDsByID
+        self.parentIDByID = parentIDByID
+    }
+
+    init(_ treeStore: FileTreeStore) {
+        self.rootID = treeStore.rootID
+        self.childIDsByID = treeStore.childIDsByID
+        self.parentIDByID = treeStore.parentIDByID
+    }
+}
+
+nonisolated struct ScanArchiveWarningV1: Codable, Sendable {
+    let path: String
+    let message: String
+    let category: String
+
+    init(_ warning: ScanWarning) {
+        self.path = warning.path
+        self.message = warning.message
+        self.category = warning.category.rawValue
+    }
+
+    func modelWarning() throws -> ScanWarning {
+        guard let category = ScanWarningCategory(rawValue: category) else {
+            throw ScanArchiveError.manifest("unknown warning category \(category)")
+        }
+        return ScanWarning(path: path, message: message, category: category)
+    }
+}
+
+nonisolated struct ScanArchiveStatsV1: Codable, Sendable {
+    let totalAllocatedSize: Int64
+    let totalLogicalSize: Int64
+    let fileCount: Int
+    let directoryCount: Int
+    let accessibleItemCount: Int
+    let inaccessibleItemCount: Int
+
+    init(_ stats: ScanAggregateStats) {
+        self.totalAllocatedSize = stats.totalAllocatedSize
+        self.totalLogicalSize = stats.totalLogicalSize
+        self.fileCount = stats.fileCount
+        self.directoryCount = stats.directoryCount
+        self.accessibleItemCount = stats.accessibleItemCount
+        self.inaccessibleItemCount = stats.inaccessibleItemCount
+    }
+
+    func matches(_ stats: ScanAggregateStats) -> Bool {
+        totalAllocatedSize == stats.totalAllocatedSize &&
+            totalLogicalSize == stats.totalLogicalSize &&
+            fileCount == stats.fileCount &&
+            directoryCount == stats.directoryCount &&
+            accessibleItemCount == stats.accessibleItemCount &&
+            inaccessibleItemCount == stats.inaccessibleItemCount
+    }
+}
