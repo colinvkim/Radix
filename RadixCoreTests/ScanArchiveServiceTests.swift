@@ -243,6 +243,21 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(importedSnapshot.aggregateStats.fileCount, 1_500)
     }
 
+    func testDeepTopologyImportDoesNotOverflowStack() async throws {
+        let service = ScanArchiveService()
+        let depth = 12_000
+        let snapshot = makeDeepArchiveSnapshot(depth: depth)
+        let archiveURL = try makeTemporaryArchiveURL()
+
+        _ = try await service.export(snapshot: snapshot, to: archiveURL, options: ScanArchiveExportOptions())
+        let importedSnapshot = try await service.importSnapshot(from: archiveURL).snapshot
+
+        XCTAssertEqual(importedSnapshot.treeStore.nodeCount, snapshot.treeStore.nodeCount)
+        XCTAssertEqual(importedSnapshot.treeStore.childIDsByID, snapshot.treeStore.childIDsByID)
+        XCTAssertEqual(importedSnapshot.aggregateStats.fileCount, 1)
+        XCTAssertEqual(importedSnapshot.treeStore.path(to: makeDeepArchiveNodeID(depth)).count, depth + 1)
+    }
+
     private func makeTemporaryArchiveURL() throws -> URL {
         let directoryURL = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -435,6 +450,62 @@ final class ScanArchiveServiceTests: XCTestCase {
         let root = makeTestDirectoryNode(id: "/large", name: "large", children: children)
         let store = FileTreeStore(root: root, childrenByID: [root.id: children])
         return makeTestSnapshot(root: root, store: store)
+    }
+
+    private func makeDeepArchiveSnapshot(depth: Int) -> ScanSnapshot {
+        precondition(depth > 0)
+
+        let rootID = "/deep"
+        var nodesByID: [String: FileNodeRecord] = [
+            rootID: makeDeepArchiveDirectoryNode(id: rootID, name: "deep")
+        ]
+        var childIDsByID: [String: [String]] = [:]
+        var parentIDByID: [String: String] = [:]
+        var parentID = rootID
+
+        for index in 1...depth {
+            let nodeID = makeDeepArchiveNodeID(index)
+            let nodeName = "node-\(String(format: "%05d", index))"
+            let node = index == depth
+                ? makeTestFileNode(id: nodeID, name: nodeName, size: 64)
+                : makeDeepArchiveDirectoryNode(id: nodeID, name: nodeName)
+
+            nodesByID[nodeID] = node
+            childIDsByID[parentID] = [nodeID]
+            parentIDByID[nodeID] = parentID
+            parentID = nodeID
+        }
+
+        let store = FileTreeStore(
+            rootID: rootID,
+            nodesByID: nodesByID,
+            childIDsByID: childIDsByID,
+            parentIDByID: parentIDByID
+        )
+        return makeTestSnapshot(root: store.root, store: store)
+    }
+
+    private func makeDeepArchiveDirectoryNode(id: String, name: String) -> FileNodeRecord {
+        FileNodeRecord(
+            id: id,
+            url: URL(filePath: id, directoryHint: .isDirectory),
+            name: name,
+            isDirectory: true,
+            isSymbolicLink: false,
+            allocatedSize: 0,
+            logicalSize: 0,
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true,
+            isSelfAccessible: true,
+            isSynthetic: false,
+            isAutoSummarized: false
+        )
+    }
+
+    private func makeDeepArchiveNodeID(_ index: Int) -> String {
+        "/deep/node-\(String(format: "%05d", index))"
     }
 
     private func encodeArchiveJSON<T: Encodable>(_ value: T, to url: URL) throws {

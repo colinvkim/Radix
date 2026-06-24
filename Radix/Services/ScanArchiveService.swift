@@ -473,8 +473,14 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         var parentIDByID: [String: String] = [:]
         var visited: Set<String> = []
         var visiting: Set<String> = []
+        var stack: [(
+            nodeID: String,
+            childIDs: [String],
+            nextChildIndex: Int,
+            seenChildIDs: Set<String>
+        )] = []
 
-        func visit(_ nodeID: String) async throws {
+        func enter(_ nodeID: String) throws {
             guard nodesByID[nodeID] != nil else {
                 throw ScanArchiveError.topology("node \(nodeID) is missing from node payload")
             }
@@ -487,43 +493,58 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
 
             visiting.insert(nodeID)
             let childIDs = topology.childIDsByID[nodeID] ?? []
-            var seenChildIDs = Set<String>()
             if !childIDs.isEmpty && nodesByID[nodeID]?.isDirectory != true {
                 throw ScanArchiveError.topology("non-directory node \(nodeID) has children")
             }
 
-            for childID in childIDs {
-                guard seenChildIDs.insert(childID).inserted else {
-                    throw ScanArchiveError.topology("node \(nodeID) contains duplicate child \(childID)")
-                }
-                guard childID != nodeID else {
-                    throw ScanArchiveError.topology("node \(nodeID) references itself as a child")
-                }
-                guard nodesByID[childID] != nil else {
-                    throw ScanArchiveError.topology("child \(childID) is missing from node payload")
-                }
-                if let existingParentID = parentIDByID[childID], existingParentID != nodeID {
-                    throw ScanArchiveError.topology("child \(childID) has multiple parents")
-                }
-                parentIDByID[childID] = nodeID
-                try await visit(childID)
-            }
-
-            visiting.remove(nodeID)
-            visited.insert(nodeID)
-            if Self.shouldReportProgress(visited.count) || visited.count == nodesByID.count {
-                try Task.checkCancellation()
-                progressReporter?.report(ScanArchiveProgress(
-                    phase: .validatingTopology,
-                    completedUnitCount: visited.count,
-                    totalUnitCount: nodesByID.count,
-                    message: "Validating topology"
-                ))
-                await Task.yield()
-            }
+            stack.append((
+                nodeID: nodeID,
+                childIDs: childIDs,
+                nextChildIndex: 0,
+                seenChildIDs: []
+            ))
         }
 
-        try await visit(topology.rootID)
+        try enter(topology.rootID)
+        while !stack.isEmpty {
+            var frame = stack.removeLast()
+
+            guard frame.nextChildIndex < frame.childIDs.count else {
+                visiting.remove(frame.nodeID)
+                visited.insert(frame.nodeID)
+                if Self.shouldReportProgress(visited.count) || visited.count == nodesByID.count {
+                    try Task.checkCancellation()
+                    progressReporter?.report(ScanArchiveProgress(
+                        phase: .validatingTopology,
+                        completedUnitCount: visited.count,
+                        totalUnitCount: nodesByID.count,
+                        message: "Validating topology"
+                    ))
+                    await Task.yield()
+                }
+                continue
+            }
+
+            let childID = frame.childIDs[frame.nextChildIndex]
+            frame.nextChildIndex += 1
+            guard frame.seenChildIDs.insert(childID).inserted else {
+                throw ScanArchiveError.topology("node \(frame.nodeID) contains duplicate child \(childID)")
+            }
+            stack.append(frame)
+
+            guard childID != frame.nodeID else {
+                throw ScanArchiveError.topology("node \(frame.nodeID) references itself as a child")
+            }
+            guard nodesByID[childID] != nil else {
+                throw ScanArchiveError.topology("child \(childID) is missing from node payload")
+            }
+            if let existingParentID = parentIDByID[childID], existingParentID != frame.nodeID {
+                throw ScanArchiveError.topology("child \(childID) has multiple parents")
+            }
+            parentIDByID[childID] = frame.nodeID
+            try enter(childID)
+        }
+
         guard visited.count == nodesByID.count else {
             let missingCount = nodesByID.count - visited.count
             throw ScanArchiveError.topology("\(missingCount) node(s) are not reachable from root")
