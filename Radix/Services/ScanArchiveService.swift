@@ -410,7 +410,14 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         try validatePackage(at: sourceURL)
 
         let manifestURL = sourceURL.appending(path: Self.manifestFileName, directoryHint: .notDirectory)
-        let manifest: ScanArchiveDocument = try readJSON(ScanArchiveDocument.self, from: manifestURL) { detail in
+        let manifestData = try readData(from: manifestURL) { detail in
+            ScanArchiveError.manifest(detail)
+        }
+        let header: ScanArchiveHeader = try decodeJSON(ScanArchiveHeader.self, from: manifestData) { detail in
+            ScanArchiveError.manifest(detail)
+        }
+        try validateManifestHeader(format: header.format, formatVersion: header.formatVersion)
+        let manifest: ScanArchiveDocument = try decodeJSON(ScanArchiveDocument.self, from: manifestData) { detail in
             ScanArchiveError.manifest(detail)
         }
         try validateManifest(manifest)
@@ -433,12 +440,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     }
 
     private func validateManifest(_ manifest: ScanArchiveDocument) throws {
-        guard manifest.format == Self.formatIdentifier else {
-            throw ScanArchiveError.unsupportedFormat(manifest.format)
-        }
-        guard manifest.formatVersion == Self.currentFormatVersion else {
-            throw ScanArchiveError.unsupportedVersion(manifest.formatVersion)
-        }
+        try validateManifestHeader(format: manifest.format, formatVersion: manifest.formatVersion)
         guard manifest.snapshot.isComplete else {
             throw ScanArchiveError.manifest("snapshot is not complete")
         }
@@ -451,6 +453,15 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         }
         guard manifest.integrity.algorithm == "sha256" else {
             throw ScanArchiveError.integrity("unsupported integrity algorithm \(manifest.integrity.algorithm)")
+        }
+    }
+
+    private func validateManifestHeader(format: String, formatVersion: Int) throws {
+        guard format == Self.formatIdentifier else {
+            throw ScanArchiveError.unsupportedFormat(format)
+        }
+        guard formatVersion == Self.currentFormatVersion else {
+            throw ScanArchiveError.unsupportedVersion(formatVersion)
         }
     }
 
@@ -756,8 +767,29 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         from url: URL,
         mapError: (String) -> ScanArchiveError
     ) throws -> T {
+        let data = try readData(from: url, mapError: mapError)
+        return try decodeJSON(type, from: data, mapError: mapError)
+    }
+
+    private func readData(
+        from url: URL,
+        mapError: (String) -> ScanArchiveError
+    ) throws -> Data {
         do {
-            let data = try Data(contentsOf: url)
+            return try Data(contentsOf: url)
+        } catch let error as ScanArchiveError {
+            throw error
+        } catch {
+            throw mapError(error.localizedDescription)
+        }
+    }
+
+    private func decodeJSON<T: Decodable>(
+        _ type: T.Type,
+        from data: Data,
+        mapError: (String) -> ScanArchiveError
+    ) throws -> T {
+        do {
             return try Self.makeJSONDecoder().decode(type, from: data)
         } catch let error as ScanArchiveError {
             throw error
@@ -807,6 +839,11 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             category: .fileSystem
         )
     }
+}
+
+private nonisolated struct ScanArchiveHeader: Decodable, Sendable {
+    let format: String
+    let formatVersion: Int
 }
 
 nonisolated struct ScanArchiveDocument: Codable, Sendable {

@@ -330,6 +330,36 @@ final class ScanArchiveServiceTests: XCTestCase {
         }
     }
 
+    func testImportRejectsMinimalFutureVersionManifest() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        try FileManager.default.createDirectory(at: archiveURL, withIntermediateDirectories: false)
+        let manifestData = Data("""
+        {
+          "format": "\(ScanArchiveService.formatIdentifier)",
+          "formatVersion": 99
+        }
+        """.utf8)
+        try manifestData.write(
+            to: archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory),
+            options: [.atomic]
+        )
+
+        do {
+            _ = try await service.previewSnapshot(from: archiveURL)
+            XCTFail("Preview should reject future versions before decoding the v1 body.")
+        } catch ScanArchiveError.unsupportedVersion(let version) {
+            XCTAssertEqual(version, 99)
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject future versions before decoding the v1 body.")
+        } catch ScanArchiveError.unsupportedVersion(let version) {
+            XCTAssertEqual(version, 99)
+        }
+    }
+
     func testImportRepairsMismatchedStatsAndRecordsWarning() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()
