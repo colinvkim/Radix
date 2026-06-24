@@ -67,13 +67,13 @@ struct RadixCommands: Commands {
             .keyboardShortcut("o")
             .disabled(scanState.isScanning)
 
-            Button("Import Scan…", systemImage: "square.and.arrow.down") {
+            Button("Import Snapshot…", systemImage: "square.and.arrow.down") {
                 appModel.importScanSnapshot()
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(!appModel.canImportScanSnapshot)
 
-            Button("Export Scan…", systemImage: "square.and.arrow.up") {
+            Button("Export Snapshot…", systemImage: "square.and.arrow.up") {
                 appModel.exportCurrentScan()
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])

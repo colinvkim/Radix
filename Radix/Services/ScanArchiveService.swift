@@ -176,21 +176,21 @@ nonisolated enum ScanArchiveError: LocalizedError, Equatable {
         case .incompleteSnapshot:
             return "Only complete scans can be exported."
         case .invalidArchivePackage(let detail):
-            return "The Radix scan archive package is invalid: \(detail)"
+            return "The Radix scan snapshot package is invalid: \(detail)"
         case .unsupportedFormat(let format):
-            return "Unsupported Radix scan archive format: \(format)."
+            return "Unsupported Radix scan snapshot format: \(format)."
         case .unsupportedVersion(let version):
-            return "Unsupported Radix scan archive version: \(version)."
+            return "Unsupported Radix scan snapshot version: \(version)."
         case .manifest(let detail):
-            return "Radix could not read the scan archive manifest: \(detail)"
+            return "Radix could not read the scan snapshot manifest: \(detail)"
         case .nodes(let detail):
-            return "Radix could not read the scan archive node payload: \(detail)"
+            return "Radix could not read the scan snapshot node payload: \(detail)"
         case .topology(let detail):
-            return "Radix could not read the scan archive topology: \(detail)"
+            return "Radix could not read the scan snapshot topology: \(detail)"
         case .integrity(let detail):
-            return "Radix scan archive integrity check failed: \(detail)"
+            return "Radix scan snapshot integrity check failed: \(detail)"
         case .stats(let detail):
-            return "Radix could not read the scan archive stats: \(detail)"
+            return "Radix could not read the scan snapshot stats: \(detail)"
         }
     }
 }

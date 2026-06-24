@@ -906,8 +906,8 @@
         </div>
 
         <div class="tabs" role="tablist" aria-label="User flow tabs">
-          <button class="tab-button" role="tab" aria-selected="true" aria-controls="export-flow" id="export-tab" data-tab="export-flow">Export Scan</button>
-          <button class="tab-button" role="tab" aria-selected="false" aria-controls="import-flow" id="import-tab" data-tab="import-flow">Import Scan</button>
+          <button class="tab-button" role="tab" aria-selected="true" aria-controls="export-flow" id="export-tab" data-tab="export-flow">Export Snapshot</button>
+          <button class="tab-button" role="tab" aria-selected="false" aria-controls="import-flow" id="import-tab" data-tab="import-flow">Import Snapshot</button>
           <button class="tab-button" role="tab" aria-selected="false" aria-controls="library-flow" id="library-tab" data-tab="library-flow">Snapshot Library</button>
           <button class="tab-button" role="tab" aria-selected="false" aria-controls="compare-flow" id="compare-tab" data-tab="compare-flow">Compare Later</button>
         </div>
@@ -918,7 +918,7 @@
               <div class="flow-step">
                 <span class="step-index">1</span>
                 <div>
-                  <h4>Command: File > Export Scan...</h4>
+                  <h4>Command: File > Export Snapshot...</h4>
                   <p>Enabled when <code>scanState.snapshot?.isComplete == true</code>. Save panel defaults to target name plus scan date.</p>
                 </div>
               </div>
@@ -960,7 +960,7 @@
               <div class="flow-step">
                 <span class="step-index">1</span>
                 <div>
-                  <h4>Command: File > Import Scan...</h4>
+                  <h4>Command: File > Import Snapshot...</h4>
                   <p>Open panel accepts <code>.radixscan</code>. Import parser validates manifest before loading large node payload.</p>
                 </div>
               </div>
@@ -1235,7 +1235,7 @@
             </div>
             <div class="panel-body">
               <ul>
-                <li><code>RadixCommands</code>: add Export Scan and Import Scan to File menu.</li>
+                <li><code>RadixCommands</code>: add Export Snapshot and Import Snapshot to File menu.</li>
                 <li><code>AppModel</code>: present save/open panel, call service, restore snapshot.</li>
                 <li><code>ScanCoordinator</code>: retain source kind, live vs imported.</li>
                 <li><code>FileNodeActionAvailability</code>: gate actions by imported snapshot trust state.</li>

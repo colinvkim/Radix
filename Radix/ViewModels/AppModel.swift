@@ -450,7 +450,7 @@ final class AppModel: ObservableObject {
         let progressReporter = ScanArchiveProgressReporter()
         let operationID = beginArchiveOperation(
             kind: .export,
-            title: "Exporting Scan",
+            title: "Exporting Snapshot",
             message: "Preparing archive",
             progressReporter: progressReporter
         )
