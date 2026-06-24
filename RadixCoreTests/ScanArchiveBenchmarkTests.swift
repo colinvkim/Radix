@@ -4,6 +4,10 @@ import XCTest
 @testable import RadixCore
 
 final class ScanArchiveBenchmarkTests: XCTestCase {
+    private static let readChunkSize = 1024 * 1024
+    private static let maxNodeLineByteCount = 1024 * 1024
+    private static let newlineData = Data([0x0A])
+
     func testArchiveExportImportBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RADIX_BENCH_ARCHIVE"] == "1" else {
@@ -83,7 +87,7 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             Data(SHA256.hash(data: nodesData)).base64EncodedString()
         }
         let nodeDecode = try await Self.measureMemoryAndTime {
-            try Self.decodeCurrentNodes(nodesData)
+            try Self.decodeCurrentNodes(from: nodesURL)
         }
         let topologyEncode = try await Self.measureMemoryAndTime {
             try Self.archiveJSONEncoder().encode(ScanArchiveTopologyV1(snapshot.treeStore))
@@ -531,10 +535,48 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         return data
     }
 
-    private static func decodeCurrentNodes(_ data: Data) throws -> [FileNodeRecord] {
+    private static func decodeCurrentNodes(from url: URL) throws -> [FileNodeRecord] {
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
+
         let decoder = archiveJSONDecoder()
-        return try data.split(separator: 0x0A).map { line in
-            try decoder.decode(ScanArchiveNodeV2.self, from: Data(line)).modelNode()
+        var buffer = Data()
+        var result: [FileNodeRecord] = []
+
+        while true {
+            let chunk = try fileHandle.read(upToCount: readChunkSize) ?? Data()
+            guard !chunk.isEmpty else { break }
+            buffer.append(chunk)
+
+            while let newlineRange = buffer.firstRange(of: newlineData) {
+                let lineData = Data(buffer[..<newlineRange.lowerBound])
+                buffer.removeSubrange(..<newlineRange.upperBound)
+                try validateNodeLineSize(lineData)
+                if let node = try decodeCurrentNodeLine(lineData, decoder: decoder) {
+                    result.append(node)
+                }
+            }
+            try validateNodeLineSize(buffer)
+        }
+
+        if !buffer.isEmpty {
+            try validateNodeLineSize(buffer)
+            if let node = try decodeCurrentNodeLine(buffer, decoder: decoder) {
+                result.append(node)
+            }
+        }
+
+        return result
+    }
+
+    private static func decodeCurrentNodeLine(_ lineData: Data, decoder: JSONDecoder) throws -> FileNodeRecord? {
+        guard !lineData.isEmpty else { return nil }
+        return try decoder.decode(ScanArchiveNodeV2.self, from: lineData).modelNode()
+    }
+
+    private static func validateNodeLineSize(_ lineData: Data) throws {
+        guard lineData.count <= maxNodeLineByteCount else {
+            throw ScanArchiveError.nodes("node record is too large")
         }
     }
 
