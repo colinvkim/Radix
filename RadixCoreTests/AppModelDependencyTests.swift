@@ -1206,6 +1206,93 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(states, [true])
         XCTAssertNil(model.scanState.snapshot)
     }
+
+    @MainActor
+    func testStartingScanCancelsPendingImportBeforeItRestoresSnapshot() async throws {
+        let archiveURL = URL(filePath: "/tmp/import-race.radixscan", directoryHint: .isDirectory)
+        let importedFile = makeTestFileNode(id: "/import-race/file.txt", name: "file.txt")
+        let importedRoot = makeTestDirectoryNode(id: "/import-race", name: "import-race", children: [importedFile])
+        let importedStore = FileTreeStore(root: importedRoot, childrenByID: [importedRoot.id: [importedFile]])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: importedRoot.id, url: importedRoot.url, displayName: "import-race", kind: .folder),
+            treeStore: importedStore,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: importedStore.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let importProbe = AsyncValueProbe<Void>()
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(importedStore.aggregateStats)
+            ),
+            importResult: ScanArchiveImportResult(
+                archiveURL: archiveURL,
+                snapshot: importedSnapshot,
+                manifest: manifest
+            ),
+            importWaitProbe: importProbe
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let scanService = NeverFinishingScanService()
+        let model = AppModel(dependencies: makeDependencies(
+            systemActions: actions,
+            scanService: scanService,
+            scanArchiveService: archiveService
+        ))
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+        model.confirmImportPreview()
+        try await waitForAsyncCondition("import request waiting") {
+            await importProbe.isWaiting
+        }
+
+        let liveTarget = ScanTarget(
+            id: "/live-scan",
+            url: URL(filePath: "/live-scan", directoryHint: .isDirectory),
+            displayName: "live-scan",
+            kind: .folder
+        )
+        model.startScan(liveTarget)
+        try await waitForAppModelCondition("live scan started") {
+            model.scanState.selectedTarget == liveTarget && model.scanState.isScanning
+        }
+
+        await importProbe.resume(returning: ())
+        try await waitForAsyncCondition("import cancellation recorded") {
+            await archiveService.importCancellationStatesSnapshot().count == 1
+        }
+
+        let states = await archiveService.importCancellationStatesSnapshot()
+        XCTAssertEqual(states, [true])
+        XCTAssertEqual(model.scanState.selectedTarget, liveTarget)
+        XCTAssertNotEqual(model.scanState.snapshot?.id, importedSnapshot.id)
+    }
 }
 
 @MainActor
@@ -1259,12 +1346,23 @@ private actor AsyncValueProbe<Value: Sendable> {
     }
 }
 
+private final class NeverFinishingScanService: ScanEventStreaming, @unchecked Sendable {
+    private var continuations: [AsyncThrowingStream<ScanProgressEvent, Error>.Continuation] = []
+
+    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuations.append(continuation)
+        }
+    }
+}
+
 @MainActor
 private func makeDependencies(
     preferences: SpyAppPreferencesStore = SpyAppPreferencesStore(preferences: .defaults),
     recentPersistence: SpyRecentTargetPersistence = SpyRecentTargetPersistence(),
     availableRecentIDs: Set<String> = [],
     systemActions: AppSystemActions = .inert,
+    scanService: any ScanEventStreaming = ScanEngine(),
     scanArchiveService: any ScanArchiveServicing = ScanArchiveService()
 ) -> AppDependencies {
     AppDependencies(
@@ -1274,6 +1372,7 @@ private func makeDependencies(
             isAvailable: { availableRecentIDs.contains($0.id) }
         ),
         systemActions: systemActions,
+        scanService: scanService,
         scanArchiveService: scanArchiveService
     )
 }

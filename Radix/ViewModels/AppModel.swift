@@ -665,6 +665,7 @@ final class AppModel: ObservableObject {
     func startScan(_ target: ScanTarget) {
         // Defer state mutations to the next runloop to avoid
         // "Publishing changes from within view updates is not allowed."
+        cancelArchiveOperation()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationContextUpdate()
@@ -750,6 +751,7 @@ final class AppModel: ObservableObject {
     }
 
     private func startScanNow(_ target: ScanTarget) {
+        cancelArchiveOperation()
         let options = scanOptions(for: target)
         sidebarScanCacheController.prepareForScanStart(target: target, options: options)
         scanCoordinator.startScan(target, options: options) {
