@@ -690,7 +690,6 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
 
         let decoder = Self.makeJSONDecoder()
         var nodesByID: [String: FileNodeRecord] = [:]
-        nodesByID.reserveCapacity(expectedNodeCount)
         var decodedNodeCount = 0
         var lineStart = nodesData.startIndex
 
