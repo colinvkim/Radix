@@ -37,9 +37,11 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(hardLinkedNode.unduplicatedAllocatedSize, 40)
         XCTAssertEqual(hardLinkedNode.fileIdentity, FileIdentity(device: 10, inode: 20))
         XCTAssertEqual(hardLinkedNode.linkCount, 2)
+        XCTAssertEqual(hardLinkedNode.lastModified, Date(timeIntervalSince1970: 100))
 
         let resourceNode = try XCTUnwrap(importedSnapshot.treeStore.node(id: "/archive/folder/resource-id.bin"))
         XCTAssertEqual(resourceNode.fileIdentity, FileIdentity(resourceIdentifier: Data([1, 2, 3, 4])))
+        XCTAssertEqual(resourceNode.lastModified, Date(timeIntervalSince1970: 200))
 
         let summarizedNode = try XCTUnwrap(importedSnapshot.treeStore.node(id: "/archive/folder/tiny-cache"))
         XCTAssertTrue(summarizedNode.isAutoSummarized)
@@ -82,6 +84,38 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(preview.totalLogicalSize, snapshot.aggregateStats.totalLogicalSize)
         XCTAssertEqual(preview.fileCount, snapshot.aggregateStats.fileCount)
         XCTAssertEqual(preview.directoryCount, snapshot.aggregateStats.directoryCount)
+    }
+
+    func testImportReadsLegacyV1ArchiveWithParentTopologyMap() async throws {
+        let service = ScanArchiveService()
+        let snapshot = makeArchiveSnapshot()
+        let archiveURL = try makeTemporaryArchiveURL()
+        try writeLegacyV1Archive(snapshot: snapshot, to: archiveURL)
+
+        let preview = try await service.previewSnapshot(from: archiveURL)
+        XCTAssertEqual(preview.formatVersion, 1)
+        XCTAssertEqual(preview.nodeCount, snapshot.treeStore.nodeCount)
+
+        let importResult = try await service.importSnapshot(from: archiveURL)
+        let importedSnapshot = importResult.snapshot
+
+        XCTAssertEqual(importResult.manifest.createdBy.swiftSchema, "ScanArchiveV1")
+        XCTAssertEqual(importedSnapshot.treeStore.nodeCount, snapshot.treeStore.nodeCount)
+        XCTAssertEqual(importedSnapshot.treeStore.childIDsByID, snapshot.treeStore.childIDsByID)
+        XCTAssertEqual(importedSnapshot.treeStore.parentIDByID, snapshot.treeStore.parentIDByID)
+        XCTAssertEqual(importedSnapshot.aggregateStats.totalAllocatedSize, snapshot.aggregateStats.totalAllocatedSize)
+        XCTAssertEqual(importedSnapshot.scanWarnings.map(\.path), snapshot.scanWarnings.map(\.path))
+
+        let hardLinkedNode = try XCTUnwrap(importedSnapshot.treeStore.node(id: "/archive/folder/hard-link-a.bin"))
+        XCTAssertEqual(hardLinkedNode.fileIdentity, FileIdentity(device: 10, inode: 20))
+        XCTAssertEqual(hardLinkedNode.unduplicatedAllocatedSize, 40)
+        XCTAssertEqual(hardLinkedNode.logicalSize, 120)
+        XCTAssertEqual(hardLinkedNode.lastModified, Date(timeIntervalSince1970: 100))
+
+        guard case .imported(let context) = importedSnapshot.source else {
+            return XCTFail("Imported snapshot source missing.")
+        }
+        XCTAssertEqual(context.liveActionCapability, .pathValidation)
     }
 
     func testExportReplacesExistingArchiveAfterSuccessfulWrite() async throws {
@@ -252,21 +286,9 @@ final class ScanArchiveServiceTests: XCTestCase {
         _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
 
         let checksum = try appendArchiveNode([
-            "id": "/archive/extra.txt",
-            "path": "/archive/extra.txt",
-            "name": "extra.txt",
-            "isDirectory": false,
-            "isSymbolicLink": false,
-            "allocatedSize": 1,
-            "unduplicatedAllocatedSize": 1,
-            "logicalSize": 1,
-            "descendantFileCount": 1,
-            "linkCount": 1,
-            "isPackage": false,
-            "isAccessible": true,
-            "isSelfAccessible": true,
-            "isSynthetic": false,
-            "isAutoSummarized": false,
+            "i": "/archive/extra.txt",
+            "n": "extra.txt",
+            "a": 1,
         ], in: archiveURL)
         try rewriteManifestNodeChecksum(checksum, in: archiveURL)
 
@@ -324,8 +346,8 @@ final class ScanArchiveServiceTests: XCTestCase {
         _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
 
         let checksum = try rewriteArchiveNodes(in: archiveURL) { node in
-            if node["id"] as? String == "/archive/folder/hard-link-a.bin" {
-                node["path"] = "/tmp/other.txt"
+            if archiveNodeID(node) == "/archive/folder/hard-link-a.bin" {
+                setArchiveNodePath("/tmp/other.txt", in: &node)
             }
         }
         try rewriteManifestNodeChecksum(checksum, in: archiveURL)
@@ -368,10 +390,10 @@ final class ScanArchiveServiceTests: XCTestCase {
         let oldID = "/archive/folder/hard-link-a.bin"
         let newID = "/tmp/other.txt"
         let checksum = try rewriteArchiveNodes(in: archiveURL) { node in
-            if node["id"] as? String == oldID {
-                node["id"] = newID
-                node["path"] = newID
-                node["name"] = "other.txt"
+            if archiveNodeID(node) == oldID {
+                setArchiveNodeID(newID, in: &node)
+                setArchiveNodePath(newID, in: &node)
+                setArchiveNodeName("other.txt", in: &node)
             }
         }
         try rewriteManifestNodeChecksum(checksum, in: archiveURL)
@@ -738,11 +760,100 @@ final class ScanArchiveServiceTests: XCTestCase {
         "/deep/node-\(String(format: "%05d", index))"
     }
 
+    private func archiveNodeID(_ node: [String: Any]) -> String? {
+        node["id"] as? String ?? node["i"] as? String
+    }
+
+    private func setArchiveNodeID(_ id: String, in node: inout [String: Any]) {
+        if node["id"] != nil {
+            node["id"] = id
+        } else {
+            node["i"] = id
+        }
+    }
+
+    private func setArchiveNodePath(_ path: String, in node: inout [String: Any]) {
+        if node["path"] != nil {
+            node["path"] = path
+        } else {
+            node["p"] = path
+        }
+    }
+
+    private func setArchiveNodeName(_ name: String, in node: inout [String: Any]) {
+        if node["name"] != nil {
+            node["name"] = name
+        } else {
+            node["n"] = name
+        }
+    }
+
     private func encodeArchiveJSON<T: Encodable>(_ value: T, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(value).write(to: url, options: [.atomic])
+    }
+
+    private func writeLegacyV1Archive(snapshot: ScanSnapshot, to archiveURL: URL) throws {
+        try FileManager.default.createDirectory(at: archiveURL, withIntermediateDirectories: false)
+        let sections = ScanArchiveSections(
+            nodes: "nodes.jsonl",
+            topology: "topology.json",
+            warnings: "warnings.json",
+            stats: "stats.json"
+        )
+
+        let nodesData = try legacyV1NodesData(snapshot.treeStore)
+        try nodesData.write(
+            to: archiveURL.appending(path: sections.nodes, directoryHint: .notDirectory),
+            options: [.atomic]
+        )
+        try encodeArchiveJSON(
+            ScanArchiveTopologyV1(
+                rootID: snapshot.treeStore.rootID,
+                childIDsByID: snapshot.treeStore.childIDsByID,
+                parentIDByID: snapshot.treeStore.parentIDByID
+            ),
+            to: archiveURL.appending(path: sections.topology, directoryHint: .notDirectory)
+        )
+        try encodeArchiveJSON(
+            snapshot.scanWarnings.map(ScanArchiveWarningV1.init),
+            to: archiveURL.appending(path: sections.warnings, directoryHint: .notDirectory)
+        )
+        try encodeArchiveJSON(
+            ScanArchiveStatsV1(snapshot.aggregateStats),
+            to: archiveURL.appending(path: sections.stats, directoryHint: .notDirectory)
+        )
+
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 30),
+            appVersion: "LegacyTests",
+            snapshot: snapshot,
+            pathMode: .absolute,
+            sections: sections,
+            nodeChecksum: Data(SHA256.hash(data: nodesData)).base64EncodedString(),
+            formatVersion: 1,
+            swiftSchema: "ScanArchiveV1"
+        )
+        try encodeArchiveJSON(
+            manifest,
+            to: archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
+        )
+    }
+
+    private func legacyV1NodesData(_ treeStore: FileTreeStore) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+
+        var data = Data()
+        for nodeID in treeStore.indexedNodeIDs() {
+            let node = try XCTUnwrap(treeStore.node(id: nodeID))
+            data.append(try encoder.encode(ScanArchiveNodeV1(node)))
+            data.append(Data("\n".utf8))
+        }
+        return data
     }
 
     private func rewriteArchiveNodes(

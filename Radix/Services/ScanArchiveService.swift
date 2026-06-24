@@ -198,14 +198,13 @@ nonisolated enum ScanArchiveError: LocalizedError, Equatable {
 nonisolated struct ScanArchiveService: ScanArchiveServicing {
     nonisolated static let fileExtension = "radixscan"
     nonisolated static let formatIdentifier = "dev.colinkim.radix.scan"
-    nonisolated static let currentFormatVersion = 1
+    nonisolated static let currentFormatVersion = 2
 
     private nonisolated static let manifestFileName = "manifest.json"
     private nonisolated static let nodesFileName = "nodes.jsonl"
     private nonisolated static let topologyFileName = "topology.json"
     private nonisolated static let warningsFileName = "warnings.json"
     private nonisolated static let statsFileName = "stats.json"
-    private nonisolated static let readChunkSize = 1024 * 1024
     private nonisolated static let maxNodeLineByteCount = 1024 * 1024
     private nonisolated static let progressReportInterval = 512
     private nonisolated static let newlineData = Data([0x0A])
@@ -340,6 +339,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             from: nodesURL,
             expectedChecksum: manifest.integrity.nodes,
             expectedNodeCount: manifest.snapshot.nodeCount,
+            formatVersion: manifest.formatVersion,
             progressReporter: progressReporter
         )
 
@@ -461,7 +461,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         guard format == Self.formatIdentifier else {
             throw ScanArchiveError.unsupportedFormat(format)
         }
-        guard formatVersion == Self.currentFormatVersion else {
+        guard (1...Self.currentFormatVersion).contains(formatVersion) else {
             throw ScanArchiveError.unsupportedVersion(formatVersion)
         }
     }
@@ -657,7 +657,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             guard let node = treeStore.node(id: nodeID) else {
                 throw ScanArchiveError.nodes("node \(nodeID) disappeared while exporting")
             }
-            var lineData = try encoder.encode(ScanArchiveNodeV1(node))
+            var lineData = try encoder.encode(ScanArchiveNodeV2(node))
             lineData.append(Self.newlineData)
             hasher.update(data: lineData)
             try fileHandle.write(contentsOf: lineData)
@@ -681,62 +681,43 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         from url: URL,
         expectedChecksum: String,
         expectedNodeCount: Int,
+        formatVersion: Int,
         progressReporter: ScanArchiveProgressReporter?
     ) async throws -> [String: FileNodeRecord] {
-        let fileHandle: FileHandle
-        do {
-            fileHandle = try FileHandle(forReadingFrom: url)
-        } catch {
-            throw ScanArchiveError.nodes(error.localizedDescription)
+        let nodesData = try readData(from: url) { detail in
+            ScanArchiveError.nodes(detail)
         }
-        defer { try? fileHandle.close() }
 
         let decoder = Self.makeJSONDecoder()
         var nodesByID: [String: FileNodeRecord] = [:]
-        var buffer = Data()
-        var hasher = SHA256()
+        nodesByID.reserveCapacity(expectedNodeCount)
         var decodedNodeCount = 0
+        var lineStart = nodesData.startIndex
 
-        while true {
+        while lineStart < nodesData.endIndex {
             try Task.checkCancellation()
-            let chunk: Data
-            do {
-                chunk = try fileHandle.read(upToCount: Self.readChunkSize) ?? Data()
-            } catch let error as ScanArchiveError {
-                throw error
-            } catch {
-                throw ScanArchiveError.nodes(error.localizedDescription)
-            }
-            guard !chunk.isEmpty else { break }
-            hasher.update(data: chunk)
-            buffer.append(chunk)
+            let lineEnd = nodesData[lineStart...].firstIndex(of: 0x0A) ?? nodesData.endIndex
+            let lineData = Data(nodesData[lineStart..<lineEnd])
+            lineStart = lineEnd == nodesData.endIndex ? nodesData.endIndex : nodesData.index(after: lineEnd)
 
-            while let newlineRange = buffer.firstRange(of: Self.newlineData) {
-                let lineData = Data(buffer[..<newlineRange.lowerBound])
-                buffer.removeSubrange(..<newlineRange.upperBound)
-                try validateNodeLineSize(lineData)
-                if try decodeNodeLine(lineData, decoder: decoder, nodesByID: &nodesByID) {
-                    decodedNodeCount += 1
-                    try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
-                    if Self.shouldReportProgress(decodedNodeCount) || decodedNodeCount == expectedNodeCount {
-                        progressReporter?.report(ScanArchiveProgress(
-                            phase: .readingNodes,
-                            completedUnitCount: decodedNodeCount,
-                            totalUnitCount: expectedNodeCount,
-                            message: "Reading node records"
-                        ))
-                        await Task.yield()
-                    }
-                }
-            }
-            try validateNodeLineSize(buffer)
-        }
-
-        if !buffer.isEmpty {
-            try validateNodeLineSize(buffer)
-            if try decodeNodeLine(buffer, decoder: decoder, nodesByID: &nodesByID) {
+            try validateNodeLineSize(lineData)
+            if try decodeNodeLine(
+                lineData,
+                decoder: decoder,
+                formatVersion: formatVersion,
+                nodesByID: &nodesByID
+            ) {
                 decodedNodeCount += 1
                 try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
+                if Self.shouldReportProgress(decodedNodeCount) || decodedNodeCount == expectedNodeCount {
+                    progressReporter?.report(ScanArchiveProgress(
+                        phase: .readingNodes,
+                        completedUnitCount: decodedNodeCount,
+                        totalUnitCount: expectedNodeCount,
+                        message: "Reading node records"
+                    ))
+                    await Task.yield()
+                }
             }
         }
 
@@ -747,7 +728,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             message: "Reading node records"
         ))
 
-        let actualChecksum = Data(hasher.finalize()).base64EncodedString()
+        let actualChecksum = Data(SHA256.hash(data: nodesData)).base64EncodedString()
         guard actualChecksum == expectedChecksum else {
             throw ScanArchiveError.integrity("nodes checksum mismatch")
         }
@@ -770,16 +751,22 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     private func decodeNodeLine(
         _ lineData: Data,
         decoder: JSONDecoder,
+        formatVersion: Int,
         nodesByID: inout [String: FileNodeRecord]
     ) throws -> Bool {
         guard !lineData.isEmpty else { return false }
-        let archiveNode: ScanArchiveNodeV1
+        let node: FileNodeRecord
         do {
-            archiveNode = try decoder.decode(ScanArchiveNodeV1.self, from: lineData)
+            if formatVersion == 1 {
+                node = try decoder.decode(ScanArchiveNodeV1.self, from: lineData).modelNode()
+            } else {
+                node = try decoder.decode(ScanArchiveNodeV2.self, from: lineData).modelNode()
+            }
+        } catch let error as ScanArchiveError {
+            throw error
         } catch {
             throw ScanArchiveError.nodes("invalid JSONL node: \(error.localizedDescription)")
         }
-        let node = try archiveNode.modelNode()
         guard nodesByID[node.id] == nil else {
             throw ScanArchiveError.nodes("duplicate node ID \(node.id)")
         }
@@ -788,7 +775,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
-        let data = try Self.makeJSONEncoder().encode(value)
+        let data = try Self.makeSectionJSONEncoder().encode(value)
         try data.write(to: url, options: [.atomic])
     }
 
@@ -828,7 +815,14 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         }
     }
 
-    private static func makeJSONEncoder() -> JSONEncoder {
+    private static func makeSectionJSONEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        return encoder
+    }
+
+    private static func makeFingerprintJSONEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -838,7 +832,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     private static func makeJSONLineEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        encoder.outputFormatting = [.withoutEscapingSlashes]
         return encoder
     }
 
@@ -854,7 +848,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
 
     nonisolated static func scanOptionsFingerprint(_ options: ScanOptions?) throws -> String? {
         guard let options else { return nil }
-        let data = try makeJSONEncoder().encode(options)
+        let data = try makeFingerprintJSONEncoder().encode(options)
         return Data(SHA256.hash(data: data)).base64EncodedString()
     }
 
@@ -891,11 +885,13 @@ nonisolated struct ScanArchiveDocument: Codable, Sendable {
         snapshot: ScanSnapshot,
         pathMode: ScanArchivePathMode,
         sections: ScanArchiveSections,
-        nodeChecksum: String
+        nodeChecksum: String,
+        formatVersion: Int = ScanArchiveService.currentFormatVersion,
+        swiftSchema: String = "ScanArchiveV2"
     ) throws {
         self.format = ScanArchiveService.formatIdentifier
-        self.formatVersion = ScanArchiveService.currentFormatVersion
-        self.createdBy = ScanArchiveCreatedBy(appVersion: appVersion)
+        self.formatVersion = formatVersion
+        self.createdBy = ScanArchiveCreatedBy(appVersion: appVersion, swiftSchema: swiftSchema)
         self.exportedAt = exportedAt
         self.snapshot = try ScanArchiveSnapshotSummary(snapshot, pathMode: pathMode)
         self.sections = sections
@@ -908,10 +904,10 @@ nonisolated struct ScanArchiveCreatedBy: Codable, Sendable {
     let appVersion: String
     let swiftSchema: String
 
-    init(appVersion: String) {
+    init(appVersion: String, swiftSchema: String = "ScanArchiveV2") {
         self.app = "Radix"
         self.appVersion = appVersion
-        self.swiftSchema = "ScanArchiveV1"
+        self.swiftSchema = swiftSchema
     }
 }
 
@@ -1059,6 +1055,236 @@ nonisolated struct ScanArchiveNodeV1: Codable, Sendable {
     }
 }
 
+nonisolated struct ScanArchiveNodeV2: Codable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id = "i"
+        case path = "p"
+        case name = "n"
+        case isDirectory = "d"
+        case isSymbolicLink = "s"
+        case allocatedSize = "a"
+        case unduplicatedAllocatedSize = "u"
+        case logicalSize = "l"
+        case descendantFileCount = "c"
+        case lastModified = "m"
+        case fileIdentity = "f"
+        case linkCount = "k"
+        case isPackage = "g"
+        case isAccessible = "r"
+        case isSelfAccessible = "q"
+        case isSynthetic = "y"
+        case isAutoSummarized = "z"
+    }
+
+    let id: String
+    let path: String?
+    let name: String
+    let isDirectory: Bool
+    let isSymbolicLink: Bool
+    let allocatedSize: Int64
+    let unduplicatedAllocatedSize: Int64
+    let logicalSize: Int64
+    let descendantFileCount: Int
+    let lastModified: Date?
+    let fileIdentity: ScanArchiveFileIdentityV2?
+    let linkCount: UInt64
+    let isPackage: Bool
+    let isAccessible: Bool
+    let isSelfAccessible: Bool
+    let isSynthetic: Bool
+    let isAutoSummarized: Bool
+
+    init(_ node: FileNodeRecord) {
+        self.id = node.id
+        self.path = node.isSynthetic || node.url.path != node.id ? node.url.path : nil
+        self.name = node.name
+        self.isDirectory = node.isDirectory
+        self.isSymbolicLink = node.isSymbolicLink
+        self.allocatedSize = node.allocatedSize
+        self.unduplicatedAllocatedSize = node.unduplicatedAllocatedSize
+        self.logicalSize = node.logicalSize
+        self.descendantFileCount = node.descendantFileCount
+        self.lastModified = node.lastModified
+        self.fileIdentity = node.fileIdentity.map(ScanArchiveFileIdentityV2.init)
+        self.linkCount = node.linkCount
+        self.isPackage = node.isPackage
+        self.isAccessible = node.isAccessible
+        self.isSelfAccessible = node.isSelfAccessible
+        self.isSynthetic = node.isSynthetic
+        self.isAutoSummarized = node.isAutoSummarized
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.path = try container.decodeIfPresent(String.self, forKey: .path)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.isDirectory = try container.decodeIfPresent(Bool.self, forKey: .isDirectory) ?? false
+        self.isSymbolicLink = try container.decodeIfPresent(Bool.self, forKey: .isSymbolicLink) ?? false
+        self.allocatedSize = try container.decode(Int64.self, forKey: .allocatedSize)
+        self.unduplicatedAllocatedSize = try container.decodeIfPresent(
+            Int64.self,
+            forKey: .unduplicatedAllocatedSize
+        ) ?? allocatedSize
+        self.logicalSize = try container.decodeIfPresent(Int64.self, forKey: .logicalSize) ?? allocatedSize
+        self.descendantFileCount = try container.decodeIfPresent(Int.self, forKey: .descendantFileCount) ??
+            (isDirectory ? 0 : 1)
+        if let lastModifiedSeconds = try container.decodeIfPresent(Double.self, forKey: .lastModified) {
+            self.lastModified = Date(timeIntervalSince1970: lastModifiedSeconds)
+        } else {
+            self.lastModified = nil
+        }
+        self.fileIdentity = try container.decodeIfPresent(ScanArchiveFileIdentityV2.self, forKey: .fileIdentity)
+        self.linkCount = try container.decodeIfPresent(UInt64.self, forKey: .linkCount) ?? 1
+        self.isPackage = try container.decodeIfPresent(Bool.self, forKey: .isPackage) ?? false
+        self.isAccessible = try container.decodeIfPresent(Bool.self, forKey: .isAccessible) ?? true
+        self.isSelfAccessible = try container.decodeIfPresent(Bool.self, forKey: .isSelfAccessible) ?? isAccessible
+        self.isSynthetic = try container.decodeIfPresent(Bool.self, forKey: .isSynthetic) ?? false
+        self.isAutoSummarized = try container.decodeIfPresent(Bool.self, forKey: .isAutoSummarized) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        if let path {
+            try container.encode(path, forKey: .path)
+        }
+        if isDirectory {
+            try container.encode(true, forKey: .isDirectory)
+        }
+        if isSymbolicLink {
+            try container.encode(true, forKey: .isSymbolicLink)
+        }
+        try container.encode(allocatedSize, forKey: .allocatedSize)
+        if unduplicatedAllocatedSize != allocatedSize {
+            try container.encode(unduplicatedAllocatedSize, forKey: .unduplicatedAllocatedSize)
+        }
+        if logicalSize != allocatedSize {
+            try container.encode(logicalSize, forKey: .logicalSize)
+        }
+        let defaultDescendantFileCount = isDirectory ? 0 : 1
+        if descendantFileCount != defaultDescendantFileCount {
+            try container.encode(descendantFileCount, forKey: .descendantFileCount)
+        }
+        if let lastModified {
+            try container.encode(lastModified.timeIntervalSince1970, forKey: .lastModified)
+        }
+        if let fileIdentity {
+            try container.encode(fileIdentity, forKey: .fileIdentity)
+        }
+        if linkCount != 1 {
+            try container.encode(linkCount, forKey: .linkCount)
+        }
+        if isPackage {
+            try container.encode(true, forKey: .isPackage)
+        }
+        if !isAccessible {
+            try container.encode(false, forKey: .isAccessible)
+        }
+        if isSelfAccessible != isAccessible {
+            try container.encode(isSelfAccessible, forKey: .isSelfAccessible)
+        }
+        if isSynthetic {
+            try container.encode(true, forKey: .isSynthetic)
+        }
+        if isAutoSummarized {
+            try container.encode(true, forKey: .isAutoSummarized)
+        }
+    }
+
+    func modelNode() throws -> FileNodeRecord {
+        guard !id.isEmpty else {
+            throw ScanArchiveError.nodes("node has empty ID")
+        }
+        let resolvedPath = path ?? id
+        guard !resolvedPath.isEmpty else {
+            throw ScanArchiveError.nodes("node \(id) has empty path")
+        }
+        guard allocatedSize >= 0, unduplicatedAllocatedSize >= 0, logicalSize >= 0 else {
+            throw ScanArchiveError.nodes("node \(id) has negative size")
+        }
+        guard descendantFileCount >= 0 else {
+            throw ScanArchiveError.nodes("node \(id) has negative descendant count")
+        }
+
+        let nodeURL = URL(filePath: resolvedPath, directoryHint: isDirectory ? .isDirectory : .notDirectory)
+        guard isSynthetic || id == nodeURL.path else {
+            throw ScanArchiveError.nodes("node \(id) path does not match ID")
+        }
+
+        return FileNodeRecord(
+            id: id,
+            url: nodeURL,
+            name: name,
+            isDirectory: isDirectory,
+            isSymbolicLink: isSymbolicLink,
+            allocatedSize: allocatedSize,
+            unduplicatedAllocatedSize: unduplicatedAllocatedSize,
+            logicalSize: logicalSize,
+            descendantFileCount: descendantFileCount,
+            lastModified: lastModified,
+            fileIdentity: try fileIdentity?.modelIdentity(),
+            linkCount: max(linkCount, 1),
+            isPackage: isPackage,
+            isAccessible: isAccessible,
+            isSelfAccessible: isSelfAccessible,
+            isSynthetic: isSynthetic,
+            isAutoSummarized: isAutoSummarized
+        )
+    }
+}
+
+nonisolated struct ScanArchiveFileIdentityV2: Codable, Sendable {
+    nonisolated enum Kind: Int, Codable, Sendable {
+        case resourceIdentifier = 0
+        case fileSystem = 1
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind = "k"
+        case resourceIdentifier = "r"
+        case device = "d"
+        case inode = "i"
+    }
+
+    let kind: Kind
+    let resourceIdentifier: String?
+    let device: UInt64?
+    let inode: UInt64?
+
+    init(_ identity: FileIdentity) {
+        switch identity {
+        case .resourceIdentifier(let data):
+            self.kind = .resourceIdentifier
+            self.resourceIdentifier = data.base64EncodedString()
+            self.device = nil
+            self.inode = nil
+        case .fileSystem(let device, let inode):
+            self.kind = .fileSystem
+            self.resourceIdentifier = nil
+            self.device = device
+            self.inode = inode
+        }
+    }
+
+    func modelIdentity() throws -> FileIdentity {
+        switch kind {
+        case .resourceIdentifier:
+            guard let resourceIdentifier,
+                  let data = Data(base64Encoded: resourceIdentifier) else {
+                throw ScanArchiveError.nodes("file identity has invalid resource identifier")
+            }
+            return FileIdentity(resourceIdentifier: data)
+        case .fileSystem:
+            guard let device, let inode else {
+                throw ScanArchiveError.nodes("file identity has incomplete file system identity")
+            }
+            return FileIdentity(device: device, inode: inode)
+        }
+    }
+}
+
 nonisolated struct ScanArchiveFileIdentityV1: Codable, Sendable {
     nonisolated enum Kind: String, Codable, Sendable {
         case resourceIdentifier
@@ -1120,7 +1346,7 @@ nonisolated struct ScanArchiveTopologyV1: Codable, Sendable {
     init(_ treeStore: FileTreeStore) {
         self.rootID = treeStore.rootID
         self.childIDsByID = treeStore.childIDsByID
-        self.parentIDByID = treeStore.parentIDByID
+        self.parentIDByID = nil
     }
 }
 
