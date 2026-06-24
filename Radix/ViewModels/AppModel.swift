@@ -460,13 +460,14 @@ final class AppModel: ObservableObject {
                     appVersion: Self.currentAppVersion(),
                     progressReporter: progressReporter
                 )
-                _ = try await Task.detached(priority: .utility) {
+                let exportTask = Task.detached(priority: .utility) {
                     try await archiveService.export(
                         snapshot: snapshot,
                         to: destinationURL,
                         options: exportOptions
                     )
-                }.value
+                }
+                _ = try await Self.value(cancelling: exportTask)
                 guard !Task.isCancelled,
                       self.isCurrentArchiveOperation(id: operationID) else { return }
                 self.lastErrorMessage = nil
@@ -533,9 +534,10 @@ final class AppModel: ObservableObject {
 
             do {
                 let archiveService = self.dependencies.scanArchiveService
-                let preview = try await Task.detached(priority: .utility) {
+                let previewTask = Task.detached(priority: .utility) {
                     try await archiveService.previewSnapshot(from: sourceURL)
-                }.value
+                }
+                let preview = try await Self.value(cancelling: previewTask)
                 guard !Task.isCancelled,
                       self.isCurrentArchiveOperation(id: operationID) else { return }
                 self.pendingImportPreview = preview
@@ -566,12 +568,13 @@ final class AppModel: ObservableObject {
 
             do {
                 let archiveService = self.dependencies.scanArchiveService
-                let result = try await Task.detached(priority: .utility) {
+                let importTask = Task.detached(priority: .utility) {
                     try await archiveService.importSnapshot(
                         from: sourceURL,
                         progressReporter: progressReporter
                     )
-                }.value
+                }
+                let result = try await Self.value(cancelling: importTask)
                 guard !Task.isCancelled,
                       self.isCurrentArchiveOperation(id: operationID) else { return }
                 progressReporter.report(ScanArchiveProgress(
@@ -649,6 +652,14 @@ final class AppModel: ObservableObject {
 
     private func isCurrentArchiveOperation(id operationID: UUID) -> Bool {
         archiveOperation?.id == operationID
+    }
+
+    nonisolated private static func value<T: Sendable>(cancelling task: Task<T, Error>) async throws -> T {
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     func startScan(_ target: ScanTarget) {
