@@ -151,6 +151,26 @@ final class ScanArchiveServiceTests: XCTestCase {
         }
     }
 
+    func testImportRejectsEmptyArchivePackage() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        try FileManager.default.createDirectory(at: archiveURL, withIntermediateDirectories: false)
+
+        do {
+            _ = try await service.previewSnapshot(from: archiveURL)
+            XCTFail("Preview should reject empty archive packages.")
+        } catch ScanArchiveError.manifest(let detail) {
+            XCTAssertFalse(detail.isEmpty)
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject empty archive packages.")
+        } catch ScanArchiveError.manifest(let detail) {
+            XCTAssertFalse(detail.isEmpty)
+        }
+    }
+
     func testCancelledExportKeepsExistingArchiveAndRemovesTemporaryPackage() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()
