@@ -205,6 +205,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     private nonisolated static let topologyFileName = "topology.json"
     private nonisolated static let warningsFileName = "warnings.json"
     private nonisolated static let statsFileName = "stats.json"
+    private nonisolated static let readChunkSize = 1024 * 1024
     private nonisolated static let maxNodeLineByteCount = 1024 * 1024
     private nonisolated static let progressReportInterval = 512
     private nonisolated static let newlineData = Data([0x0A])
@@ -684,39 +685,70 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         formatVersion: Int,
         progressReporter: ScanArchiveProgressReporter?
     ) async throws -> [String: FileNodeRecord] {
-        let nodesData = try readData(from: url) { detail in
-            ScanArchiveError.nodes(detail)
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forReadingFrom: url)
+        } catch {
+            throw ScanArchiveError.nodes(error.localizedDescription)
         }
+        defer { try? fileHandle.close() }
 
         let decoder = Self.makeJSONDecoder()
         var nodesByID: [String: FileNodeRecord] = [:]
+        var buffer = Data()
+        var hasher = SHA256()
         var decodedNodeCount = 0
-        var lineStart = nodesData.startIndex
 
-        while lineStart < nodesData.endIndex {
+        while true {
             try Task.checkCancellation()
-            let lineEnd = nodesData[lineStart...].firstIndex(of: 0x0A) ?? nodesData.endIndex
-            let lineData = Data(nodesData[lineStart..<lineEnd])
-            lineStart = lineEnd == nodesData.endIndex ? nodesData.endIndex : nodesData.index(after: lineEnd)
+            let chunk: Data
+            do {
+                chunk = try fileHandle.read(upToCount: Self.readChunkSize) ?? Data()
+            } catch let error as ScanArchiveError {
+                throw error
+            } catch {
+                throw ScanArchiveError.nodes(error.localizedDescription)
+            }
+            guard !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+            buffer.append(chunk)
 
-            try validateNodeLineSize(lineData)
+            while let newlineRange = buffer.firstRange(of: Self.newlineData) {
+                let lineData = Data(buffer[..<newlineRange.lowerBound])
+                buffer.removeSubrange(..<newlineRange.upperBound)
+                try validateNodeLineSize(lineData)
+                if try decodeNodeLine(
+                    lineData,
+                    decoder: decoder,
+                    formatVersion: formatVersion,
+                    nodesByID: &nodesByID
+                ) {
+                    decodedNodeCount += 1
+                    try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
+                    if Self.shouldReportProgress(decodedNodeCount) || decodedNodeCount == expectedNodeCount {
+                        progressReporter?.report(ScanArchiveProgress(
+                            phase: .readingNodes,
+                            completedUnitCount: decodedNodeCount,
+                            totalUnitCount: expectedNodeCount,
+                            message: "Reading node records"
+                        ))
+                        await Task.yield()
+                    }
+                }
+            }
+            try validateNodeLineSize(buffer)
+        }
+
+        if !buffer.isEmpty {
+            try validateNodeLineSize(buffer)
             if try decodeNodeLine(
-                lineData,
+                buffer,
                 decoder: decoder,
                 formatVersion: formatVersion,
                 nodesByID: &nodesByID
             ) {
                 decodedNodeCount += 1
                 try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
-                if Self.shouldReportProgress(decodedNodeCount) || decodedNodeCount == expectedNodeCount {
-                    progressReporter?.report(ScanArchiveProgress(
-                        phase: .readingNodes,
-                        completedUnitCount: decodedNodeCount,
-                        totalUnitCount: expectedNodeCount,
-                        message: "Reading node records"
-                    ))
-                    await Task.yield()
-                }
             }
         }
 
@@ -727,7 +759,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             message: "Reading node records"
         ))
 
-        let actualChecksum = Data(SHA256.hash(data: nodesData)).base64EncodedString()
+        let actualChecksum = Data(hasher.finalize()).base64EncodedString()
         guard actualChecksum == expectedChecksum else {
             throw ScanArchiveError.integrity("nodes checksum mismatch")
         }
