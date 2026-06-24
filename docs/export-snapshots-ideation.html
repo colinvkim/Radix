@@ -794,7 +794,7 @@
             <span class="pill"><strong>File type</strong> .radixscan</span>
             <span class="pill"><strong>Core boundary</strong> RadixCore service</span>
             <span class="pill"><strong>Default import</strong> read-only snapshot</span>
-            <span class="pill"><strong>Schema</strong> versioned, migratable</span>
+            <span class="pill"><strong>Schema</strong> strict v1, future versions rejected</span>
           </div>
         </div>
 
@@ -890,8 +890,8 @@
                 comparison, tags, comments, and cloud handoff.
               </p>
               <ul>
-                <li>Explicit <code>formatVersion</code> with migration pipeline.</li>
-                <li>Unknown future fields ignored only in forward-compatible sections.</li>
+                <li>Explicit <code>formatVersion</code>; v1 imports reject unsupported future versions before decoding the v1 body.</li>
+                <li>Unknown future fields stay out of v1's compatibility promise until a migration path exists.</li>
                 <li>Import errors point to manifest, node, or topology failure.</li>
               </ul>
             </div>
@@ -925,8 +925,8 @@
               <div class="flow-step">
                 <span class="step-index">2</span>
                 <div>
-                  <h4>Choose fidelity</h4>
-                  <p>Full fidelity keeps absolute paths and file identities. Shareable mode redacts home path and disables live file actions.</p>
+                  <h4>Use v1 fidelity</h4>
+                  <p>v1 keeps absolute paths and file identities. Shareable redaction is future scope.</p>
                 </div>
               </div>
               <div class="flow-step">
@@ -1044,7 +1044,7 @@
       <section id="format" class="band">
         <div class="section-head">
           <h3>Archive Format</h3>
-          <p>A strong v1 format should round-trip current models, stream large scans, and keep schema migration explicit.</p>
+          <p>A strong v1 format should round-trip current models, stream large scans, and fail clearly when a future schema appears.</p>
         </div>
 
         <div class="schema-layout">
@@ -1059,7 +1059,7 @@
             </div>
             <div class="table-row">
               <strong>Container</strong>
-              <span>Single package or compressed archive with manifest plus streamed node payload.</span>
+              <span>macOS package directory with manifest plus streamed node payload.</span>
             </div>
             <div class="table-row">
               <strong>Payload</strong>
@@ -1239,7 +1239,7 @@
                 <li><code>AppModel</code>: present save/open panel, call service, restore snapshot.</li>
                 <li><code>ScanCoordinator</code>: retain source kind, live vs imported.</li>
                 <li><code>FileNodeActionAvailability</code>: gate actions by imported snapshot trust state.</li>
-                <li><code>RadixCoreTests</code>: round-trip, migration, corrupt archive, large topology tests.</li>
+                <li><code>RadixCoreTests</code>: round-trip, unsupported version, corrupt archive, large topology tests.</li>
               </ul>
             </div>
           </div>
@@ -1284,7 +1284,7 @@
             <strong>Phase 4</strong>
             <div>
               <h4>Snapshot library and compare prep</h4>
-              <p>Recent archives, metadata preview, optional shareable mode, diff-ready archive invariants.</p>
+              <p>Recent archives, metadata preview, future shareable mode, diff-ready archive invariants.</p>
             </div>
           </div>
         </div>
@@ -1297,10 +1297,10 @@
             </div>
             <div class="panel-body">
               <ul>
-                <li>Should shareable redaction ship in v1 or wait until full-fidelity export is solid?</li>
-                <li>Should <code>.radixscan</code> be a package directory or a single compressed file?</li>
+                <li>What redaction model should a future shareable export use?</li>
+                <li>What compatibility policy should a future v2 migrator provide?</li>
                 <li>Should import replace current scan immediately or preview first?</li>
-                <li>Should Radix register as default opener for <code>.radixscan</code> in v1?</li>
+                <li>Should recent imported snapshots appear in a dedicated library?</li>
               </ul>
             </div>
           </div>
