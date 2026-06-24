@@ -226,6 +226,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         guard snapshot.isComplete else {
             throw ScanArchiveError.incompleteSnapshot
         }
+        try validateArchiveExtension(destinationURL)
 
         let archiveURL = try createTemporaryArchiveDirectory(for: destinationURL)
         var didInstallArchive = false
@@ -417,10 +418,17 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     }
 
     private func validatePackage(at url: URL) throws {
+        try validateArchiveExtension(url)
         var isDirectory = ObjCBool(false)
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
               isDirectory.boolValue else {
             throw ScanArchiveError.invalidArchivePackage("expected a .\(Self.fileExtension) package directory")
+        }
+    }
+
+    private func validateArchiveExtension(_ url: URL) throws {
+        guard url.pathExtension.lowercased() == Self.fileExtension else {
+            throw ScanArchiveError.invalidArchivePackage("expected a .\(Self.fileExtension) package")
         }
     }
 

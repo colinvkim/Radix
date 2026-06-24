@@ -110,6 +110,47 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(importedSnapshot.treeStore.nodeCount, replacementSnapshot.treeStore.nodeCount)
     }
 
+    func testExportRejectsWrongArchiveExtension() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        let wrongExtensionURL = archiveURL.deletingPathExtension().appendingPathExtension("foo")
+
+        do {
+            _ = try await service.export(
+                snapshot: makeArchiveSnapshot(),
+                to: wrongExtensionURL,
+                options: ScanArchiveExportOptions()
+            )
+            XCTFail("Export should reject destinations without the .radixscan extension.")
+        } catch ScanArchiveError.invalidArchivePackage(let detail) {
+            XCTAssertTrue(detail.contains(".radixscan"))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: wrongExtensionURL.path))
+    }
+
+    func testImportRejectsWrongArchiveExtension() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+        let wrongExtensionURL = archiveURL.deletingPathExtension().appendingPathExtension("foo")
+        try FileManager.default.moveItem(at: archiveURL, to: wrongExtensionURL)
+
+        do {
+            _ = try await service.previewSnapshot(from: wrongExtensionURL)
+            XCTFail("Preview should reject packages without the .radixscan extension.")
+        } catch ScanArchiveError.invalidArchivePackage(let detail) {
+            XCTAssertTrue(detail.contains(".radixscan"))
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: wrongExtensionURL)
+            XCTFail("Import should reject packages without the .radixscan extension.")
+        } catch ScanArchiveError.invalidArchivePackage(let detail) {
+            XCTAssertTrue(detail.contains(".radixscan"))
+        }
+    }
+
     func testCancelledExportKeepsExistingArchiveAndRemovesTemporaryPackage() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()
