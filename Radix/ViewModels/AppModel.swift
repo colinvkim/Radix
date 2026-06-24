@@ -400,6 +400,13 @@ final class AppModel: ObservableObject {
     var canImportScanSnapshot: Bool {
         !scanCoordinator.isScanning &&
             !isExportPanelPresented &&
+            !isArchiveOperationInProgress &&
+            pendingImportPreview == nil
+    }
+
+    private var canConfirmImportPreview: Bool {
+        !scanCoordinator.isScanning &&
+            !isExportPanelPresented &&
             !isArchiveOperationInProgress
     }
 
@@ -507,11 +514,14 @@ final class AppModel: ObservableObject {
         if isArchiveOperationInProgress {
             return "Cancel the current archive operation before importing a snapshot."
         }
+        if pendingImportPreview != nil {
+            return "Finish or cancel the current import preview before importing another snapshot."
+        }
         return "Radix cannot import a snapshot right now."
     }
 
     func confirmImportPreview() {
-        guard canImportScanSnapshot,
+        guard canConfirmImportPreview,
               let preview = pendingImportPreview else {
             return
         }

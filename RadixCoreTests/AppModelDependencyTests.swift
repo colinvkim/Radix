@@ -910,6 +910,62 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testImportPreviewDisablesStartingAnotherImport() async throws {
+        let archiveURL = URL(filePath: "/tmp/import-preview.radixscan", directoryHint: .isDirectory)
+        let file = makeTestFileNode(id: "/import-preview/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/import-preview", name: "import-preview", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "import-preview", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(store.aggregateStats)
+            )
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+
+        XCTAssertFalse(model.canImportScanSnapshot)
+
+        model.cancelImportPreview()
+
+        XCTAssertTrue(model.canImportScanSnapshot)
+    }
+
+    @MainActor
     func testImportScanSnapshotDefersWideRootTableMaterializationUntilAfterSnapshotPublish() async throws {
         let archiveURL = URL(filePath: "/tmp/wide-imported.radixscan", directoryHint: .isDirectory)
         let childCount = 20_000
