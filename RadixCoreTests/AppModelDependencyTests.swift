@@ -991,6 +991,27 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testURLImportWhileScanningShowsError() async throws {
+        let scanService = NeverFinishingScanService()
+        let model = AppModel(dependencies: makeDependencies(scanService: scanService))
+        let scanTarget = ScanTarget(
+            id: "/active-scan",
+            url: URL(filePath: "/active-scan", directoryHint: .isDirectory),
+            displayName: "active-scan",
+            kind: .folder
+        )
+
+        model.startScan(scanTarget)
+        try await waitForAppModelCondition("scan started") {
+            model.scanState.isScanning
+        }
+
+        model.importScanSnapshot(from: URL(filePath: "/tmp/opened.radixscan", directoryHint: .isDirectory))
+
+        XCTAssertEqual(model.lastErrorMessage, "Stop the current scan before importing a snapshot.")
+    }
+
+    @MainActor
     func testExportCurrentScanUsesInjectedPanelAndArchiveService() async throws {
         let archiveURL = URL(filePath: "/tmp/export.radixscan", directoryHint: .isDirectory)
         let archiveService = SpyScanArchiveService()

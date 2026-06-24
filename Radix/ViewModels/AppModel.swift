@@ -489,9 +489,25 @@ final class AppModel: ObservableObject {
     }
 
     func importScanSnapshot(from sourceURL: URL) {
-        guard canImportScanSnapshot else { return }
+        guard canImportScanSnapshot else {
+            presentErrorMessage(importUnavailableMessage)
+            return
+        }
 
         previewImportScanSnapshot(from: sourceURL)
+    }
+
+    private var importUnavailableMessage: String {
+        if scanCoordinator.isScanning {
+            return "Stop the current scan before importing a snapshot."
+        }
+        if isExportPanelPresented {
+            return "Finish choosing an export location before importing a snapshot."
+        }
+        if isArchiveOperationInProgress {
+            return "Cancel the current archive operation before importing a snapshot."
+        }
+        return "Radix cannot import a snapshot right now."
     }
 
     func confirmImportPreview() {
