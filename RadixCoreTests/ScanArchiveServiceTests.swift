@@ -212,6 +212,20 @@ final class ScanArchiveServiceTests: XCTestCase {
         }
     }
 
+    func testImportRejectsMissingNodeSectionAsArchiveError() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+        try FileManager.default.removeItem(at: archiveURL.appending(path: "nodes.jsonl", directoryHint: .notDirectory))
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject missing node sections as archive node errors.")
+        } catch ScanArchiveError.nodes(let detail) {
+            XCTAssertFalse(detail.isEmpty)
+        }
+    }
+
     func testImportRejectsNodePayloadExceedingManifestCountEarly() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()

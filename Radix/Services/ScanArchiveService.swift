@@ -683,7 +683,12 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         expectedNodeCount: Int,
         progressReporter: ScanArchiveProgressReporter?
     ) async throws -> [String: FileNodeRecord] {
-        let fileHandle = try FileHandle(forReadingFrom: url)
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forReadingFrom: url)
+        } catch {
+            throw ScanArchiveError.nodes(error.localizedDescription)
+        }
         defer { try? fileHandle.close() }
 
         let decoder = Self.makeJSONDecoder()
@@ -694,7 +699,14 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
 
         while true {
             try Task.checkCancellation()
-            let chunk = try fileHandle.read(upToCount: Self.readChunkSize) ?? Data()
+            let chunk: Data
+            do {
+                chunk = try fileHandle.read(upToCount: Self.readChunkSize) ?? Data()
+            } catch let error as ScanArchiveError {
+                throw error
+            } catch {
+                throw ScanArchiveError.nodes(error.localizedDescription)
+            }
             guard !chunk.isEmpty else { break }
             hasher.update(data: chunk)
             buffer.append(chunk)
