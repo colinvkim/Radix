@@ -212,6 +212,54 @@ final class ScanArchiveServiceTests: XCTestCase {
         }
     }
 
+    func testImportRejectsNodePayloadExceedingManifestCountEarly() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+
+        let checksum = try appendArchiveNode([
+            "id": "/archive/extra.txt",
+            "path": "/archive/extra.txt",
+            "name": "extra.txt",
+            "isDirectory": false,
+            "isSymbolicLink": false,
+            "allocatedSize": 1,
+            "unduplicatedAllocatedSize": 1,
+            "logicalSize": 1,
+            "descendantFileCount": 1,
+            "linkCount": 1,
+            "isPackage": false,
+            "isAccessible": true,
+            "isSelfAccessible": true,
+            "isSynthetic": false,
+            "isAutoSummarized": false,
+        ], in: archiveURL)
+        try rewriteManifestNodeChecksum(checksum, in: archiveURL)
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject node payloads that exceed the manifest count while reading.")
+        } catch ScanArchiveError.nodes(let detail) {
+            XCTAssertTrue(detail.contains("more nodes"))
+        }
+    }
+
+    func testImportRejectsOversizedNodeLineBeforeDecoding() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+
+        let nodesURL = archiveURL.appending(path: "nodes.jsonl", directoryHint: .notDirectory)
+        try Data(repeating: 0x7B, count: 2 * 1024 * 1024).write(to: nodesURL, options: [.atomic])
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject oversized node lines before decoding JSON.")
+        } catch ScanArchiveError.nodes(let detail) {
+            XCTAssertTrue(detail.contains("too large"))
+        }
+    }
+
     func testImportRejectsMalformedTopology() async throws {
         let service = ScanArchiveService()
         let snapshot = makeArchiveSnapshot()
@@ -684,6 +732,19 @@ final class ScanArchiveServiceTests: XCTestCase {
 
         try rewrittenData.write(to: nodesURL, options: [.atomic])
         return Data(SHA256.hash(data: rewrittenData)).base64EncodedString()
+    }
+
+    private func appendArchiveNode(_ node: [String: Any], in archiveURL: URL) throws -> String {
+        let nodesURL = archiveURL.appending(path: "nodes.jsonl", directoryHint: .notDirectory)
+        var data = try Data(contentsOf: nodesURL)
+        if data.last != 0x0A {
+            data.append(Data("\n".utf8))
+        }
+        let encodedLine = try JSONSerialization.data(withJSONObject: node, options: [.sortedKeys])
+        data.append(encodedLine)
+        data.append(Data("\n".utf8))
+        try data.write(to: nodesURL, options: [.atomic])
+        return Data(SHA256.hash(data: data)).base64EncodedString()
     }
 
     private func rewriteManifestNodeChecksum(_ checksum: String, in archiveURL: URL) throws {

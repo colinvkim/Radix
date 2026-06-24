@@ -206,6 +206,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     private nonisolated static let warningsFileName = "warnings.json"
     private nonisolated static let statsFileName = "stats.json"
     private nonisolated static let readChunkSize = 1024 * 1024
+    private nonisolated static let maxNodeLineByteCount = 1024 * 1024
     private nonisolated static let progressReportInterval = 512
     private nonisolated static let newlineData = Data([0x0A])
 
@@ -701,8 +702,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             while let newlineRange = buffer.firstRange(of: Self.newlineData) {
                 let lineData = Data(buffer[..<newlineRange.lowerBound])
                 buffer.removeSubrange(..<newlineRange.upperBound)
+                try validateNodeLineSize(lineData)
                 if try decodeNodeLine(lineData, decoder: decoder, nodesByID: &nodesByID) {
                     decodedNodeCount += 1
+                    try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
                     if Self.shouldReportProgress(decodedNodeCount) || decodedNodeCount == expectedNodeCount {
                         progressReporter?.report(ScanArchiveProgress(
                             phase: .readingNodes,
@@ -714,11 +717,14 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
                     }
                 }
             }
+            try validateNodeLineSize(buffer)
         }
 
         if !buffer.isEmpty {
+            try validateNodeLineSize(buffer)
             if try decodeNodeLine(buffer, decoder: decoder, nodesByID: &nodesByID) {
                 decodedNodeCount += 1
+                try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
             }
         }
 
@@ -735,6 +741,18 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         }
 
         return nodesByID
+    }
+
+    private func validateNodeLineSize(_ lineData: Data) throws {
+        guard lineData.count <= Self.maxNodeLineByteCount else {
+            throw ScanArchiveError.nodes("node record is too large")
+        }
+    }
+
+    private func validateDecodedNodeCount(_ decodedNodeCount: Int, expectedNodeCount: Int) throws {
+        guard decodedNodeCount <= expectedNodeCount else {
+            throw ScanArchiveError.nodes("node payload contains more nodes than manifest expected")
+        }
     }
 
     private func decodeNodeLine(
