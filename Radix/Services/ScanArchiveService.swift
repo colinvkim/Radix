@@ -370,6 +370,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             topology,
             nodesByID: nodesByID,
             expectedRootID: manifest.snapshot.rootID,
+            expectedTargetPath: manifest.snapshot.target.path,
             progressReporter: progressReporter
         )
         let treeStore = FileTreeStore(
@@ -436,6 +437,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         guard manifest.snapshot.nodeCount > 0 else {
             throw ScanArchiveError.manifest("snapshot has no nodes")
         }
+        guard !manifest.snapshot.rootID.isEmpty,
+              manifest.snapshot.rootID == manifest.snapshot.target.path else {
+            throw ScanArchiveError.manifest("snapshot root does not match target path")
+        }
         guard manifest.integrity.algorithm == "sha256" else {
             throw ScanArchiveError.integrity("unsupported integrity algorithm \(manifest.integrity.algorithm)")
         }
@@ -458,13 +463,17 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         _ topology: ScanArchiveTopologyV1,
         nodesByID: [String: FileNodeRecord],
         expectedRootID: String,
+        expectedTargetPath: String,
         progressReporter: ScanArchiveProgressReporter?
     ) async throws -> [String: String] {
         guard topology.rootID == expectedRootID else {
             throw ScanArchiveError.topology("root ID does not match manifest")
         }
-        guard nodesByID[topology.rootID] != nil else {
+        guard let rootNode = nodesByID[topology.rootID] else {
             throw ScanArchiveError.topology("root node is missing")
+        }
+        guard rootNode.url.path == expectedTargetPath else {
+            throw ScanArchiveError.topology("root path does not match target path")
         }
         for parentID in topology.childIDsByID.keys where nodesByID[parentID] == nil {
             throw ScanArchiveError.topology("child map parent \(parentID) is missing from node payload")
@@ -538,6 +547,12 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             guard nodesByID[childID] != nil else {
                 throw ScanArchiveError.topology("child \(childID) is missing from node payload")
             }
+            if let parentNode = nodesByID[frame.nodeID],
+               let childNode = nodesByID[childID],
+               !childNode.isSynthetic,
+               !Self.path(childNode.url.path, isContainedIn: expectedTargetPath) {
+                throw ScanArchiveError.topology("child \(childID) path is outside target \(parentNode.id)")
+            }
             if let existingParentID = parentIDByID[childID], existingParentID != frame.nodeID {
                 throw ScanArchiveError.topology("child \(childID) has multiple parents")
             }
@@ -556,6 +571,16 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         }
 
         return parentIDByID
+    }
+
+    private static func path(_ childPath: String, isContainedIn parentPath: String) -> Bool {
+        guard childPath != parentPath else { return true }
+        if parentPath == "/" {
+            return childPath.hasPrefix("/")
+        }
+
+        let parentPrefix = parentPath.hasSuffix("/") ? parentPath : "\(parentPath)/"
+        return childPath.hasPrefix(parentPrefix)
     }
 
     private func sectionURL(named sectionName: String, in archiveURL: URL, sectionDescription: String) throws -> URL {
@@ -919,6 +944,12 @@ nonisolated struct ScanArchiveNodeV1: Codable, Sendable {
     }
 
     func modelNode() throws -> FileNodeRecord {
+        guard !id.isEmpty else {
+            throw ScanArchiveError.nodes("node has empty ID")
+        }
+        guard !path.isEmpty else {
+            throw ScanArchiveError.nodes("node \(id) has empty path")
+        }
         guard allocatedSize >= 0, unduplicatedAllocatedSize >= 0, logicalSize >= 0 else {
             throw ScanArchiveError.nodes("node \(id) has negative size")
         }
@@ -926,9 +957,14 @@ nonisolated struct ScanArchiveNodeV1: Codable, Sendable {
             throw ScanArchiveError.nodes("node \(id) has negative descendant count")
         }
 
+        let nodeURL = URL(filePath: path, directoryHint: isDirectory ? .isDirectory : .notDirectory)
+        guard isSynthetic || id == nodeURL.path else {
+            throw ScanArchiveError.nodes("node \(id) path does not match ID")
+        }
+
         return FileNodeRecord(
             id: id,
-            url: URL(filePath: path, directoryHint: isDirectory ? .isDirectory : .notDirectory),
+            url: nodeURL,
             name: name,
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,

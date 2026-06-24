@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import RadixCore
 
@@ -191,6 +192,82 @@ final class ScanArchiveServiceTests: XCTestCase {
             XCTFail("Import should reject missing topology nodes.")
         } catch ScanArchiveError.topology(let detail) {
             XCTAssertTrue(detail.contains("missing"))
+        }
+    }
+
+    func testImportRejectsNodePathMismatch() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+
+        let checksum = try rewriteArchiveNodes(in: archiveURL) { node in
+            if node["id"] as? String == "/archive/folder/hard-link-a.bin" {
+                node["path"] = "/tmp/other.txt"
+            }
+        }
+        try rewriteManifestNodeChecksum(checksum, in: archiveURL)
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject node path mismatches.")
+        } catch ScanArchiveError.nodes(let detail) {
+            XCTAssertTrue(detail.contains("path"))
+        }
+    }
+
+    func testImportRejectsTargetRootPathMismatch() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+
+        let manifestURL = archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
+        try rewriteJSONObject(at: manifestURL) { object in
+            var snapshot = object["snapshot"] as? [String: Any] ?? [:]
+            var target = snapshot["target"] as? [String: Any] ?? [:]
+            target["path"] = "/other"
+            snapshot["target"] = target
+            object["snapshot"] = snapshot
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject target/root mismatches.")
+        } catch ScanArchiveError.manifest(let detail) {
+            XCTAssertTrue(detail.contains("root"))
+        }
+    }
+
+    func testImportRejectsChildOutsideParentPath() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+
+        let oldID = "/archive/folder/hard-link-a.bin"
+        let newID = "/tmp/other.txt"
+        let checksum = try rewriteArchiveNodes(in: archiveURL) { node in
+            if node["id"] as? String == oldID {
+                node["id"] = newID
+                node["path"] = newID
+                node["name"] = "other.txt"
+            }
+        }
+        try rewriteManifestNodeChecksum(checksum, in: archiveURL)
+        try rewriteTopology(in: archiveURL) { topology in
+            var childIDsByID = topology["childIDsByID"] as? [String: [String]] ?? [:]
+            childIDsByID["/archive/folder"] = (childIDsByID["/archive/folder"] ?? []).map { $0 == oldID ? newID : $0 }
+            topology["childIDsByID"] = childIDsByID
+
+            var parentIDByID = topology["parentIDByID"] as? [String: String] ?? [:]
+            parentIDByID.removeValue(forKey: oldID)
+            parentIDByID[newID] = "/archive/folder"
+            topology["parentIDByID"] = parentIDByID
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject children outside the parent path.")
+        } catch ScanArchiveError.topology(let detail) {
+            XCTAssertTrue(detail.contains("path"))
         }
     }
 
@@ -513,6 +590,46 @@ final class ScanArchiveServiceTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(value).write(to: url, options: [.atomic])
+    }
+
+    private func rewriteArchiveNodes(
+        in archiveURL: URL,
+        mutate: (inout [String: Any]) -> Void
+    ) throws -> String {
+        let nodesURL = archiveURL.appending(path: "nodes.jsonl", directoryHint: .notDirectory)
+        let data = try Data(contentsOf: nodesURL)
+        let lines = String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+        var rewrittenData = Data()
+
+        for line in lines where !line.isEmpty {
+            let lineData = Data(line.utf8)
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: lineData) as? [String: Any])
+            mutate(&object)
+            let encodedLine = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            rewrittenData.append(encodedLine)
+            rewrittenData.append(Data("\n".utf8))
+        }
+
+        try rewrittenData.write(to: nodesURL, options: [.atomic])
+        return Data(SHA256.hash(data: rewrittenData)).base64EncodedString()
+    }
+
+    private func rewriteManifestNodeChecksum(_ checksum: String, in archiveURL: URL) throws {
+        let manifestURL = archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
+        try rewriteJSONObject(at: manifestURL) { object in
+            var integrity = object["integrity"] as? [String: Any] ?? [:]
+            integrity["nodes"] = checksum
+            object["integrity"] = integrity
+        }
+    }
+
+    private func rewriteTopology(
+        in archiveURL: URL,
+        mutate: (inout [String: Any]) -> Void
+    ) throws {
+        let topologyURL = archiveURL.appending(path: "topology.json", directoryHint: .notDirectory)
+        try rewriteJSONObject(at: topologyURL, mutate: mutate)
     }
 
     private func rewriteJSONObject(at url: URL, mutate: (inout [String: Any]) -> Void) throws {
