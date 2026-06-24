@@ -24,6 +24,7 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(importedSnapshot.treeStore.childIDsByID, snapshot.treeStore.childIDsByID)
         XCTAssertEqual(importedSnapshot.aggregateStats.totalAllocatedSize, snapshot.aggregateStats.totalAllocatedSize)
         XCTAssertEqual(importedSnapshot.scanWarnings.map(\.path), snapshot.scanWarnings.map(\.path))
+        XCTAssertEqual(importResult.manifest.createdBy.swiftSchema, "ScanArchiveV3")
         XCTAssertNotNil(importResult.manifest.snapshot.scanOptionsFingerprint)
 
         guard case .imported(let context) = importedSnapshot.source else {
@@ -86,36 +87,23 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(preview.directoryCount, snapshot.aggregateStats.directoryCount)
     }
 
-    func testImportReadsLegacyV1ArchiveWithParentTopologyMap() async throws {
+    func testExportWritesOrdinalTopology() async throws {
         let service = ScanArchiveService()
         let snapshot = makeArchiveSnapshot()
         let archiveURL = try makeTemporaryArchiveURL()
-        try writeLegacyV1Archive(snapshot: snapshot, to: archiveURL)
+        _ = try await service.export(snapshot: snapshot, to: archiveURL, options: ScanArchiveExportOptions())
 
-        let preview = try await service.previewSnapshot(from: archiveURL)
-        XCTAssertEqual(preview.formatVersion, 1)
-        XCTAssertEqual(preview.nodeCount, snapshot.treeStore.nodeCount)
+        let topologyURL = archiveURL.appending(path: "topology.json", directoryHint: .notDirectory)
+        let topologyData = try Data(contentsOf: topologyURL)
+        let topologyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: topologyData) as? [String: Any])
+        let childMap = try XCTUnwrap(topologyObject["c"] as? [String: Any])
+        let encodedTopology = try XCTUnwrap(String(data: topologyData, encoding: .utf8))
 
-        let importResult = try await service.importSnapshot(from: archiveURL)
-        let importedSnapshot = importResult.snapshot
-
-        XCTAssertEqual(importResult.manifest.createdBy.swiftSchema, "ScanArchiveV1")
-        XCTAssertEqual(importedSnapshot.treeStore.nodeCount, snapshot.treeStore.nodeCount)
-        XCTAssertEqual(importedSnapshot.treeStore.childIDsByID, snapshot.treeStore.childIDsByID)
-        XCTAssertEqual(importedSnapshot.treeStore.parentIDByID, snapshot.treeStore.parentIDByID)
-        XCTAssertEqual(importedSnapshot.aggregateStats.totalAllocatedSize, snapshot.aggregateStats.totalAllocatedSize)
-        XCTAssertEqual(importedSnapshot.scanWarnings.map(\.path), snapshot.scanWarnings.map(\.path))
-
-        let hardLinkedNode = try XCTUnwrap(importedSnapshot.treeStore.node(id: "/archive/folder/hard-link-a.bin"))
-        XCTAssertEqual(hardLinkedNode.fileIdentity, FileIdentity(device: 10, inode: 20))
-        XCTAssertEqual(hardLinkedNode.unduplicatedAllocatedSize, 40)
-        XCTAssertEqual(hardLinkedNode.logicalSize, 120)
-        XCTAssertEqual(hardLinkedNode.lastModified, Date(timeIntervalSince1970: 100))
-
-        guard case .imported(let context) = importedSnapshot.source else {
-            return XCTFail("Imported snapshot source missing.")
-        }
-        XCTAssertEqual(context.liveActionCapability, .pathValidation)
+        XCTAssertEqual(topologyObject["r"] as? Int, 0)
+        XCTAssertNotNil(childMap["0"] as? [Int])
+        XCTAssertNil(topologyObject["rootID"])
+        XCTAssertNil(topologyObject["childIDsByID"])
+        XCTAssertFalse(encodedTopology.contains("/archive"))
     }
 
     func testExportReplacesExistingArchiveAfterSuccessfulWrite() async throws {
@@ -319,24 +307,68 @@ final class ScanArchiveServiceTests: XCTestCase {
     func testImportRejectsMalformedTopology() async throws {
         let service = ScanArchiveService()
         let snapshot = makeArchiveSnapshot()
-        let archiveURL = try makeTemporaryArchiveURL()
-        _ = try await service.export(snapshot: snapshot, to: archiveURL, options: ScanArchiveExportOptions())
+        let validTopology = try ScanArchiveTopology(snapshot.treeStore)
+        let rootKey = String(validTopology.rootOrdinal)
+        let rootChildren = try XCTUnwrap(validTopology.childOrdinalsByOrdinal[rootKey])
+        let firstChildOrdinal = try XCTUnwrap(rootChildren.first)
+        let nodeCount = snapshot.treeStore.nodeCount
+        let cases: [(name: String, topology: ScanArchiveTopology, expectedDetail: String)] = [
+            (
+                "missing root",
+                ScanArchiveTopology(rootOrdinal: nodeCount, childOrdinalsByOrdinal: [:]),
+                "root ordinal"
+            ),
+            (
+                "out-of-range child",
+                ScanArchiveTopology(
+                    rootOrdinal: validTopology.rootOrdinal,
+                    childOrdinalsByOrdinal: [rootKey: [nodeCount]]
+                ),
+                "child ordinal"
+            ),
+            (
+                "duplicate child",
+                ScanArchiveTopology(
+                    rootOrdinal: validTopology.rootOrdinal,
+                    childOrdinalsByOrdinal: [rootKey: [firstChildOrdinal, firstChildOrdinal]]
+                ),
+                "duplicate"
+            ),
+            (
+                "self cycle",
+                ScanArchiveTopology(
+                    rootOrdinal: validTopology.rootOrdinal,
+                    childOrdinalsByOrdinal: [rootKey: [validTopology.rootOrdinal]]
+                ),
+                "references itself"
+            ),
+            (
+                "unreachable",
+                ScanArchiveTopology(
+                    rootOrdinal: validTopology.rootOrdinal,
+                    childOrdinalsByOrdinal: [:]
+                ),
+                "not reachable"
+            ),
+        ]
 
-        let invalidTopology = ScanArchiveTopologyV1(
-            rootID: snapshot.root.id,
-            childIDsByID: [snapshot.root.id: ["/archive/missing"]],
-            parentIDByID: nil
-        )
-        try encodeArchiveJSON(
-            invalidTopology,
-            to: archiveURL.appending(path: "topology.json", directoryHint: .notDirectory)
-        )
+        for testCase in cases {
+            let archiveURL = try makeTemporaryArchiveURL()
+            _ = try await service.export(snapshot: snapshot, to: archiveURL, options: ScanArchiveExportOptions())
+            try encodeArchiveJSON(
+                testCase.topology,
+                to: archiveURL.appending(path: "topology.json", directoryHint: .notDirectory)
+            )
 
-        do {
-            _ = try await service.importSnapshot(from: archiveURL)
-            XCTFail("Import should reject missing topology nodes.")
-        } catch ScanArchiveError.topology(let detail) {
-            XCTAssertTrue(detail.contains("missing"))
+            do {
+                _ = try await service.importSnapshot(from: archiveURL)
+                XCTFail("Import should reject malformed topology: \(testCase.name).")
+            } catch ScanArchiveError.topology(let detail) {
+                XCTAssertTrue(
+                    detail.contains(testCase.expectedDetail),
+                    "Expected \(testCase.expectedDetail) for \(testCase.name), got \(detail)."
+                )
+            }
         }
     }
 
@@ -397,16 +429,6 @@ final class ScanArchiveServiceTests: XCTestCase {
             }
         }
         try rewriteManifestNodeChecksum(checksum, in: archiveURL)
-        try rewriteTopology(in: archiveURL) { topology in
-            var childIDsByID = topology["childIDsByID"] as? [String: [String]] ?? [:]
-            childIDsByID["/archive/folder"] = (childIDsByID["/archive/folder"] ?? []).map { $0 == oldID ? newID : $0 }
-            topology["childIDsByID"] = childIDsByID
-
-            var parentIDByID = topology["parentIDByID"] as? [String: String] ?? [:]
-            parentIDByID.removeValue(forKey: oldID)
-            parentIDByID[newID] = "/archive/folder"
-            topology["parentIDByID"] = parentIDByID
-        }
 
         do {
             _ = try await service.importSnapshot(from: archiveURL)
@@ -434,6 +456,31 @@ final class ScanArchiveServiceTests: XCTestCase {
         }
     }
 
+    func testImportRejectsOldFormatVersion() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeArchiveSnapshot(), to: archiveURL, options: ScanArchiveExportOptions())
+
+        let manifestURL = archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
+        try rewriteJSONObject(at: manifestURL) { object in
+            object["formatVersion"] = 2
+        }
+
+        do {
+            _ = try await service.previewSnapshot(from: archiveURL)
+            XCTFail("Preview should reject old format versions.")
+        } catch ScanArchiveError.unsupportedVersion(let version) {
+            XCTAssertEqual(version, 2)
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject old format versions.")
+        } catch ScanArchiveError.unsupportedVersion(let version) {
+            XCTAssertEqual(version, 2)
+        }
+    }
+
     func testImportRejectsMinimalFutureVersionManifest() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()
@@ -451,14 +498,14 @@ final class ScanArchiveServiceTests: XCTestCase {
 
         do {
             _ = try await service.previewSnapshot(from: archiveURL)
-            XCTFail("Preview should reject future versions before decoding the v1 body.")
+            XCTFail("Preview should reject future versions before decoding the archive body.")
         } catch ScanArchiveError.unsupportedVersion(let version) {
             XCTAssertEqual(version, 99)
         }
 
         do {
             _ = try await service.importSnapshot(from: archiveURL)
-            XCTFail("Import should reject future versions before decoding the v1 body.")
+            XCTFail("Import should reject future versions before decoding the archive body.")
         } catch ScanArchiveError.unsupportedVersion(let version) {
             XCTAssertEqual(version, 99)
         }
@@ -795,67 +842,6 @@ final class ScanArchiveServiceTests: XCTestCase {
         try encoder.encode(value).write(to: url, options: [.atomic])
     }
 
-    private func writeLegacyV1Archive(snapshot: ScanSnapshot, to archiveURL: URL) throws {
-        try FileManager.default.createDirectory(at: archiveURL, withIntermediateDirectories: false)
-        let sections = ScanArchiveSections(
-            nodes: "nodes.jsonl",
-            topology: "topology.json",
-            warnings: "warnings.json",
-            stats: "stats.json"
-        )
-
-        let nodesData = try legacyV1NodesData(snapshot.treeStore)
-        try nodesData.write(
-            to: archiveURL.appending(path: sections.nodes, directoryHint: .notDirectory),
-            options: [.atomic]
-        )
-        try encodeArchiveJSON(
-            ScanArchiveTopologyV1(
-                rootID: snapshot.treeStore.rootID,
-                childIDsByID: snapshot.treeStore.childIDsByID,
-                parentIDByID: snapshot.treeStore.parentIDByID
-            ),
-            to: archiveURL.appending(path: sections.topology, directoryHint: .notDirectory)
-        )
-        try encodeArchiveJSON(
-            snapshot.scanWarnings.map(ScanArchiveWarningV1.init),
-            to: archiveURL.appending(path: sections.warnings, directoryHint: .notDirectory)
-        )
-        try encodeArchiveJSON(
-            ScanArchiveStatsV1(snapshot.aggregateStats),
-            to: archiveURL.appending(path: sections.stats, directoryHint: .notDirectory)
-        )
-
-        let manifest = try ScanArchiveDocument(
-            exportedAt: Date(timeIntervalSince1970: 30),
-            appVersion: "LegacyTests",
-            snapshot: snapshot,
-            pathMode: .absolute,
-            sections: sections,
-            nodeChecksum: Data(SHA256.hash(data: nodesData)).base64EncodedString(),
-            formatVersion: 1,
-            swiftSchema: "ScanArchiveV1"
-        )
-        try encodeArchiveJSON(
-            manifest,
-            to: archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
-        )
-    }
-
-    private func legacyV1NodesData(_ treeStore: FileTreeStore) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-
-        var data = Data()
-        for nodeID in treeStore.indexedNodeIDs() {
-            let node = try XCTUnwrap(treeStore.node(id: nodeID))
-            data.append(try encoder.encode(ScanArchiveNodeV1(node)))
-            data.append(Data("\n".utf8))
-        }
-        return data
-    }
-
     private func rewriteArchiveNodes(
         in archiveURL: URL,
         mutate: (inout [String: Any]) -> Void
@@ -899,14 +885,6 @@ final class ScanArchiveServiceTests: XCTestCase {
             integrity["nodes"] = checksum
             object["integrity"] = integrity
         }
-    }
-
-    private func rewriteTopology(
-        in archiveURL: URL,
-        mutate: (inout [String: Any]) -> Void
-    ) throws {
-        let topologyURL = archiveURL.appending(path: "topology.json", directoryHint: .notDirectory)
-        try rewriteJSONObject(at: topologyURL, mutate: mutate)
     }
 
     private func rewriteJSONObject(at url: URL, mutate: (inout [String: Any]) -> Void) throws {

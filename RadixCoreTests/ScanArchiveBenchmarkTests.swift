@@ -78,7 +78,8 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         let topologyURL = archiveURL.appending(path: "topology.json", directoryHint: .notDirectory)
         let nodesData = try Data(contentsOf: nodesURL)
         let topologyData = try Data(contentsOf: topologyURL)
-        let nodeRecords = snapshot.treeStore.indexedNodeIDs().compactMap { snapshot.treeStore.node(id: $0) }
+        let orderedNodeIDs = snapshot.treeStore.indexedNodeIDs()
+        let nodeRecords = orderedNodeIDs.compactMap { snapshot.treeStore.node(id: $0) }
 
         let nodeEncode = try await Self.measureMemoryAndTime {
             try Self.encodeCurrentNodes(nodeRecords)
@@ -90,14 +91,19 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             try Self.decodeCurrentNodes(from: nodesURL)
         }
         let topologyEncode = try await Self.measureMemoryAndTime {
-            try Self.archiveJSONEncoder().encode(ScanArchiveTopologyV1(snapshot.treeStore))
+            try Self.archiveJSONEncoder().encode(ScanArchiveTopology(snapshot.treeStore))
         }
         let topologyDecode = try await Self.measureMemoryAndTime {
-            try Self.archiveJSONDecoder().decode(ScanArchiveTopologyV1.self, from: topologyData)
+            try Self.archiveJSONDecoder().decode(ScanArchiveTopology.self, from: topologyData)
         }
         let topologyValidate = try await Self.measureMemoryAndTime {
-            try Self.validateTopologyForBenchmark(
+            let resolvedTopology = try Self.resolvedTopologyForBenchmark(
                 topologyDecode.value,
+                orderedNodeIDs: orderedNodeIDs
+            )
+            return try Self.validateTopologyForBenchmark(
+                rootID: resolvedTopology.rootID,
+                childIDsByID: resolvedTopology.childIDsByID,
                 nodesByID: snapshot.treeStore.nodesByID,
                 expectedRootID: snapshot.treeStore.rootID,
                 expectedTargetPath: snapshot.target.url.path
@@ -124,7 +130,13 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
 
         XCTAssertEqual(nodeDecode.value.count, snapshot.treeStore.nodeCount)
         XCTAssertFalse(nodeChecksum.value.isEmpty)
-        XCTAssertEqual(topologyDecode.value.childIDsByID, snapshot.treeStore.childIDsByID)
+        XCTAssertEqual(
+            try Self.resolvedTopologyForBenchmark(
+                topologyDecode.value,
+                orderedNodeIDs: orderedNodeIDs
+            ).childIDsByID,
+            snapshot.treeStore.childIDsByID
+        )
         XCTAssertEqual(topologyValidate.value.count, snapshot.treeStore.parentIDByID.count)
         XCTAssertEqual(topologyRebuild.value.nodeCount, snapshot.treeStore.nodeCount)
         XCTAssertEqual(fileRead.value.count, nodesData.count)
@@ -529,7 +541,7 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         let encoder = archiveJSONLineEncoder()
         var data = Data()
         for node in nodes {
-            data.append(try encoder.encode(ScanArchiveNodeV2(node)))
+            data.append(try encoder.encode(ScanArchiveNode(node)))
             data.append(0x0A)
         }
         return data
@@ -571,7 +583,7 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
 
     private static func decodeCurrentNodeLine(_ lineData: Data, decoder: JSONDecoder) throws -> FileNodeRecord? {
         guard !lineData.isEmpty else { return nil }
-        return try decoder.decode(ScanArchiveNodeV2.self, from: lineData).modelNode()
+        return try decoder.decode(ScanArchiveNode.self, from: lineData).modelNode()
     }
 
     private static func validateNodeLineSize(_ lineData: Data) throws {
@@ -581,21 +593,22 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
     }
 
     private static func validateTopologyForBenchmark(
-        _ topology: ScanArchiveTopologyV1,
+        rootID: String,
+        childIDsByID: [String: [String]],
         nodesByID: [String: FileNodeRecord],
         expectedRootID: String,
         expectedTargetPath: String
     ) throws -> [String: String] {
-        guard topology.rootID == expectedRootID else {
+        guard rootID == expectedRootID else {
             throw ScanArchiveError.topology("root ID does not match manifest")
         }
-        guard let rootNode = nodesByID[topology.rootID] else {
+        guard let rootNode = nodesByID[rootID] else {
             throw ScanArchiveError.topology("root node is missing")
         }
         guard rootNode.url.path == expectedTargetPath else {
             throw ScanArchiveError.topology("root path does not match target path")
         }
-        for parentID in topology.childIDsByID.keys where nodesByID[parentID] == nil {
+        for parentID in childIDsByID.keys where nodesByID[parentID] == nil {
             throw ScanArchiveError.topology("child map parent \(parentID) is missing from node payload")
         }
 
@@ -621,7 +634,7 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             }
 
             visiting.insert(nodeID)
-            let childIDs = topology.childIDsByID[nodeID] ?? []
+            let childIDs = childIDsByID[nodeID] ?? []
             if !childIDs.isEmpty && nodesByID[nodeID]?.isDirectory != true {
                 throw ScanArchiveError.topology("non-directory node \(nodeID) has children")
             }
@@ -634,7 +647,7 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             ))
         }
 
-        try enter(topology.rootID)
+        try enter(rootID)
         while !stack.isEmpty {
             var frame = stack.removeLast()
 
@@ -674,12 +687,33 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             throw ScanArchiveError.topology("\(missingCount) node(s) are not reachable from root")
         }
 
-        if let suppliedParentIDs = topology.parentIDByID,
-           suppliedParentIDs != parentIDByID {
-            throw ScanArchiveError.topology("parent map does not match child edges")
+        return parentIDByID
+    }
+
+    private static func resolvedTopologyForBenchmark(
+        _ topology: ScanArchiveTopology,
+        orderedNodeIDs: [String]
+    ) throws -> (rootID: String, childIDsByID: [String: [String]]) {
+        guard orderedNodeIDs.indices.contains(topology.rootOrdinal) else {
+            throw ScanArchiveError.topology("root ordinal \(topology.rootOrdinal) is out of range")
         }
 
-        return parentIDByID
+        var childIDsByID: [String: [String]] = [:]
+        childIDsByID.reserveCapacity(topology.childOrdinalsByOrdinal.count)
+        for (parentOrdinalKey, childOrdinals) in topology.childOrdinalsByOrdinal {
+            guard let parentOrdinal = Int(parentOrdinalKey),
+                  orderedNodeIDs.indices.contains(parentOrdinal) else {
+                throw ScanArchiveError.topology("parent ordinal \(parentOrdinalKey) is out of range")
+            }
+            childIDsByID[orderedNodeIDs[parentOrdinal]] = try childOrdinals.map { childOrdinal in
+                guard orderedNodeIDs.indices.contains(childOrdinal) else {
+                    throw ScanArchiveError.topology("child ordinal \(childOrdinal) is out of range")
+                }
+                return orderedNodeIDs[childOrdinal]
+            }
+        }
+
+        return (orderedNodeIDs[topology.rootOrdinal], childIDsByID)
     }
 
     private static func path(_ childPath: String, isContainedIn parentPath: String) -> Bool {

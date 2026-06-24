@@ -198,7 +198,7 @@ nonisolated enum ScanArchiveError: LocalizedError, Equatable {
 nonisolated struct ScanArchiveService: ScanArchiveServicing {
     nonisolated static let fileExtension = "radixscan"
     nonisolated static let formatIdentifier = "dev.colinkim.radix.scan"
-    nonisolated static let currentFormatVersion = 2
+    nonisolated static let currentFormatVersion = 3
 
     private nonisolated static let manifestFileName = "manifest.json"
     private nonisolated static let nodesFileName = "nodes.jsonl"
@@ -264,7 +264,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             phase: .writingTopology,
             message: "Writing topology"
         ))
-        try writeJSON(ScanArchiveTopologyV1(snapshot.treeStore), to: topologyURL)
+        try writeJSON(ScanArchiveTopology(snapshot.treeStore), to: topologyURL)
 
         options.progressReporter?.report(ScanArchiveProgress(
             phase: .writingMetadata,
@@ -336,11 +336,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             sectionDescription: "stats"
         )
 
-        let nodesByID = try await readNodes(
+        let nodePayload = try await readNodes(
             from: nodesURL,
             expectedChecksum: manifest.integrity.nodes,
             expectedNodeCount: manifest.snapshot.nodeCount,
-            formatVersion: manifest.formatVersion,
             progressReporter: progressReporter
         )
 
@@ -348,9 +347,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             phase: .readingTopology,
             message: "Reading topology"
         ))
-        let topology: ScanArchiveTopologyV1 = try readJSON(ScanArchiveTopologyV1.self, from: topologyURL) { detail in
+        let archivedTopology: ScanArchiveTopology = try readJSON(ScanArchiveTopology.self, from: topologyURL) { detail in
             ScanArchiveError.topology(detail)
         }
+        let topology = try archivedTopology.resolvedTopology(orderedNodeIDs: nodePayload.orderedNodeIDs)
 
         progressReporter?.report(ScanArchiveProgress(
             phase: .readingMetadata,
@@ -368,17 +368,17 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             phase: .rebuildingSnapshot,
             message: "Rebuilding snapshot"
         ))
-        try validateCounts(manifest: manifest, nodesByID: nodesByID, warnings: warnings)
+        try validateCounts(manifest: manifest, nodesByID: nodePayload.nodesByID, warnings: warnings)
         let rebuiltParentIDs = try await validateTopology(
             topology,
-            nodesByID: nodesByID,
+            nodesByID: nodePayload.nodesByID,
             expectedRootID: manifest.snapshot.rootID,
             expectedTargetPath: manifest.snapshot.target.path,
             progressReporter: progressReporter
         )
         let treeStore = FileTreeStore(
             rootID: topology.rootID,
-            nodesByID: nodesByID,
+            nodesByID: nodePayload.nodesByID,
             childIDsByID: topology.childIDsByID,
             parentIDByID: rebuiltParentIDs
         )
@@ -462,7 +462,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         guard format == Self.formatIdentifier else {
             throw ScanArchiveError.unsupportedFormat(format)
         }
-        guard (1...Self.currentFormatVersion).contains(formatVersion) else {
+        guard formatVersion == Self.currentFormatVersion else {
             throw ScanArchiveError.unsupportedVersion(formatVersion)
         }
     }
@@ -481,7 +481,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     }
 
     private func validateTopology(
-        _ topology: ScanArchiveTopologyV1,
+        _ topology: ScanArchiveResolvedTopology,
         nodesByID: [String: FileNodeRecord],
         expectedRootID: String,
         expectedTargetPath: String,
@@ -586,11 +586,6 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             throw ScanArchiveError.topology("\(missingCount) node(s) are not reachable from root")
         }
 
-        if let suppliedParentIDs = topology.parentIDByID,
-           suppliedParentIDs != parentIDByID {
-            throw ScanArchiveError.topology("parent map does not match child edges")
-        }
-
         return parentIDByID
     }
 
@@ -658,7 +653,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             guard let node = treeStore.node(id: nodeID) else {
                 throw ScanArchiveError.nodes("node \(nodeID) disappeared while exporting")
             }
-            var lineData = try encoder.encode(ScanArchiveNodeV2(node))
+            var lineData = try encoder.encode(ScanArchiveNode(node))
             lineData.append(Self.newlineData)
             hasher.update(data: lineData)
             try fileHandle.write(contentsOf: lineData)
@@ -682,9 +677,8 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         from url: URL,
         expectedChecksum: String,
         expectedNodeCount: Int,
-        formatVersion: Int,
         progressReporter: ScanArchiveProgressReporter?
-    ) async throws -> [String: FileNodeRecord] {
+    ) async throws -> ScanArchiveNodePayload {
         let fileHandle: FileHandle
         do {
             fileHandle = try FileHandle(forReadingFrom: url)
@@ -695,6 +689,8 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
 
         let decoder = Self.makeJSONDecoder()
         var nodesByID: [String: FileNodeRecord] = [:]
+        var orderedNodeIDs: [String] = []
+        orderedNodeIDs.reserveCapacity(expectedNodeCount)
         var buffer = Data()
         var hasher = SHA256()
         var decodedNodeCount = 0
@@ -720,8 +716,8 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
                 if try decodeNodeLine(
                     lineData,
                     decoder: decoder,
-                    formatVersion: formatVersion,
-                    nodesByID: &nodesByID
+                    nodesByID: &nodesByID,
+                    orderedNodeIDs: &orderedNodeIDs
                 ) {
                     decodedNodeCount += 1
                     try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
@@ -744,8 +740,8 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             if try decodeNodeLine(
                 buffer,
                 decoder: decoder,
-                formatVersion: formatVersion,
-                nodesByID: &nodesByID
+                nodesByID: &nodesByID,
+                orderedNodeIDs: &orderedNodeIDs
             ) {
                 decodedNodeCount += 1
                 try validateDecodedNodeCount(decodedNodeCount, expectedNodeCount: expectedNodeCount)
@@ -764,7 +760,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             throw ScanArchiveError.integrity("nodes checksum mismatch")
         }
 
-        return nodesByID
+        return ScanArchiveNodePayload(nodesByID: nodesByID, orderedNodeIDs: orderedNodeIDs)
     }
 
     private func validateNodeLineSize(_ lineData: Data) throws {
@@ -782,17 +778,13 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     private func decodeNodeLine(
         _ lineData: Data,
         decoder: JSONDecoder,
-        formatVersion: Int,
-        nodesByID: inout [String: FileNodeRecord]
+        nodesByID: inout [String: FileNodeRecord],
+        orderedNodeIDs: inout [String]
     ) throws -> Bool {
         guard !lineData.isEmpty else { return false }
         let node: FileNodeRecord
         do {
-            if formatVersion == 1 {
-                node = try decoder.decode(ScanArchiveNodeV1.self, from: lineData).modelNode()
-            } else {
-                node = try decoder.decode(ScanArchiveNodeV2.self, from: lineData).modelNode()
-            }
+            node = try decoder.decode(ScanArchiveNode.self, from: lineData).modelNode()
         } catch let error as ScanArchiveError {
             throw error
         } catch {
@@ -802,6 +794,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             throw ScanArchiveError.nodes("duplicate node ID \(node.id)")
         }
         nodesByID[node.id] = node
+        orderedNodeIDs.append(node.id)
         return true
     }
 
@@ -896,6 +889,16 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     }
 }
 
+private nonisolated struct ScanArchiveNodePayload: Sendable {
+    let nodesByID: [String: FileNodeRecord]
+    let orderedNodeIDs: [String]
+}
+
+fileprivate nonisolated struct ScanArchiveResolvedTopology: Sendable {
+    let rootID: String
+    let childIDsByID: [String: [String]]
+}
+
 private nonisolated struct ScanArchiveHeader: Decodable, Sendable {
     let format: String
     let formatVersion: Int
@@ -918,7 +921,7 @@ nonisolated struct ScanArchiveDocument: Codable, Sendable {
         sections: ScanArchiveSections,
         nodeChecksum: String,
         formatVersion: Int = ScanArchiveService.currentFormatVersion,
-        swiftSchema: String = "ScanArchiveV2"
+        swiftSchema: String = "ScanArchiveV3"
     ) throws {
         self.format = ScanArchiveService.formatIdentifier
         self.formatVersion = formatVersion
@@ -935,7 +938,7 @@ nonisolated struct ScanArchiveCreatedBy: Codable, Sendable {
     let appVersion: String
     let swiftSchema: String
 
-    init(appVersion: String, swiftSchema: String = "ScanArchiveV2") {
+    init(appVersion: String, swiftSchema: String = "ScanArchiveV3") {
         self.app = "Radix"
         self.appVersion = appVersion
         self.swiftSchema = swiftSchema
@@ -1006,87 +1009,7 @@ nonisolated struct ScanArchiveIntegrity: Codable, Sendable {
     }
 }
 
-nonisolated struct ScanArchiveNodeV1: Codable, Sendable {
-    let id: String
-    let path: String
-    let name: String
-    let isDirectory: Bool
-    let isSymbolicLink: Bool
-    let allocatedSize: Int64
-    let unduplicatedAllocatedSize: Int64
-    let logicalSize: Int64
-    let descendantFileCount: Int
-    let lastModified: Date?
-    let fileIdentity: ScanArchiveFileIdentityV1?
-    let linkCount: UInt64
-    let isPackage: Bool
-    let isAccessible: Bool
-    let isSelfAccessible: Bool
-    let isSynthetic: Bool
-    let isAutoSummarized: Bool
-
-    init(_ node: FileNodeRecord) {
-        self.id = node.id
-        self.path = node.url.path
-        self.name = node.name
-        self.isDirectory = node.isDirectory
-        self.isSymbolicLink = node.isSymbolicLink
-        self.allocatedSize = node.allocatedSize
-        self.unduplicatedAllocatedSize = node.unduplicatedAllocatedSize
-        self.logicalSize = node.logicalSize
-        self.descendantFileCount = node.descendantFileCount
-        self.lastModified = node.lastModified
-        self.fileIdentity = node.fileIdentity.map(ScanArchiveFileIdentityV1.init)
-        self.linkCount = node.linkCount
-        self.isPackage = node.isPackage
-        self.isAccessible = node.isAccessible
-        self.isSelfAccessible = node.isSelfAccessible
-        self.isSynthetic = node.isSynthetic
-        self.isAutoSummarized = node.isAutoSummarized
-    }
-
-    func modelNode() throws -> FileNodeRecord {
-        guard !id.isEmpty else {
-            throw ScanArchiveError.nodes("node has empty ID")
-        }
-        guard !path.isEmpty else {
-            throw ScanArchiveError.nodes("node \(id) has empty path")
-        }
-        guard allocatedSize >= 0, unduplicatedAllocatedSize >= 0, logicalSize >= 0 else {
-            throw ScanArchiveError.nodes("node \(id) has negative size")
-        }
-        guard descendantFileCount >= 0 else {
-            throw ScanArchiveError.nodes("node \(id) has negative descendant count")
-        }
-
-        let nodeURL = URL(filePath: path, directoryHint: isDirectory ? .isDirectory : .notDirectory)
-        guard isSynthetic || id == nodeURL.path else {
-            throw ScanArchiveError.nodes("node \(id) path does not match ID")
-        }
-
-        return FileNodeRecord(
-            id: id,
-            url: nodeURL,
-            name: name,
-            isDirectory: isDirectory,
-            isSymbolicLink: isSymbolicLink,
-            allocatedSize: allocatedSize,
-            unduplicatedAllocatedSize: unduplicatedAllocatedSize,
-            logicalSize: logicalSize,
-            descendantFileCount: descendantFileCount,
-            lastModified: lastModified,
-            fileIdentity: try fileIdentity?.modelIdentity(),
-            linkCount: max(linkCount, 1),
-            isPackage: isPackage,
-            isAccessible: isAccessible,
-            isSelfAccessible: isSelfAccessible,
-            isSynthetic: isSynthetic,
-            isAutoSummarized: isAutoSummarized
-        )
-    }
-}
-
-nonisolated struct ScanArchiveNodeV2: Codable, Sendable {
+nonisolated struct ScanArchiveNode: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id = "i"
         case path = "p"
@@ -1117,7 +1040,7 @@ nonisolated struct ScanArchiveNodeV2: Codable, Sendable {
     let logicalSize: Int64
     let descendantFileCount: Int
     let lastModified: Date?
-    let fileIdentity: ScanArchiveFileIdentityV2?
+    let fileIdentity: ScanArchiveFileIdentity?
     let linkCount: UInt64
     let isPackage: Bool
     let isAccessible: Bool
@@ -1136,7 +1059,7 @@ nonisolated struct ScanArchiveNodeV2: Codable, Sendable {
         self.logicalSize = node.logicalSize
         self.descendantFileCount = node.descendantFileCount
         self.lastModified = node.lastModified
-        self.fileIdentity = node.fileIdentity.map(ScanArchiveFileIdentityV2.init)
+        self.fileIdentity = node.fileIdentity.map(ScanArchiveFileIdentity.init)
         self.linkCount = node.linkCount
         self.isPackage = node.isPackage
         self.isAccessible = node.isAccessible
@@ -1165,7 +1088,7 @@ nonisolated struct ScanArchiveNodeV2: Codable, Sendable {
         } else {
             self.lastModified = nil
         }
-        self.fileIdentity = try container.decodeIfPresent(ScanArchiveFileIdentityV2.self, forKey: .fileIdentity)
+        self.fileIdentity = try container.decodeIfPresent(ScanArchiveFileIdentity.self, forKey: .fileIdentity)
         self.linkCount = try container.decodeIfPresent(UInt64.self, forKey: .linkCount) ?? 1
         self.isPackage = try container.decodeIfPresent(Bool.self, forKey: .isPackage) ?? false
         self.isAccessible = try container.decodeIfPresent(Bool.self, forKey: .isAccessible) ?? true
@@ -1266,7 +1189,7 @@ nonisolated struct ScanArchiveNodeV2: Codable, Sendable {
     }
 }
 
-nonisolated struct ScanArchiveFileIdentityV2: Codable, Sendable {
+nonisolated struct ScanArchiveFileIdentity: Codable, Sendable {
     nonisolated enum Kind: Int, Codable, Sendable {
         case resourceIdentifier = 0
         case fileSystem = 1
@@ -1316,68 +1239,92 @@ nonisolated struct ScanArchiveFileIdentityV2: Codable, Sendable {
     }
 }
 
-nonisolated struct ScanArchiveFileIdentityV1: Codable, Sendable {
-    nonisolated enum Kind: String, Codable, Sendable {
-        case resourceIdentifier
-        case fileSystem
+nonisolated struct ScanArchiveTopology: Codable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case rootOrdinal = "r"
+        case childOrdinalsByOrdinal = "c"
     }
 
-    let kind: Kind
-    let resourceIdentifier: String?
-    let device: UInt64?
-    let inode: UInt64?
+    let rootOrdinal: Int
+    let childOrdinalsByOrdinal: [String: [Int]]
 
-    init(_ identity: FileIdentity) {
-        switch identity {
-        case .resourceIdentifier(let data):
-            self.kind = .resourceIdentifier
-            self.resourceIdentifier = data.base64EncodedString()
-            self.device = nil
-            self.inode = nil
-        case .fileSystem(let device, let inode):
-            self.kind = .fileSystem
-            self.resourceIdentifier = nil
-            self.device = device
-            self.inode = inode
+    init(rootOrdinal: Int, childOrdinalsByOrdinal: [String: [Int]]) {
+        self.rootOrdinal = rootOrdinal
+        self.childOrdinalsByOrdinal = childOrdinalsByOrdinal
+    }
+
+    init(_ treeStore: FileTreeStore) throws {
+        let orderedNodeIDs = treeStore.indexedNodeIDs()
+        var ordinalByID: [String: Int] = [:]
+        ordinalByID.reserveCapacity(orderedNodeIDs.count)
+
+        for (ordinal, nodeID) in orderedNodeIDs.enumerated() {
+            ordinalByID[nodeID] = ordinal
         }
-    }
 
-    func modelIdentity() throws -> FileIdentity {
-        switch kind {
-        case .resourceIdentifier:
-            guard let resourceIdentifier,
-                  let data = Data(base64Encoded: resourceIdentifier) else {
-                throw ScanArchiveError.nodes("file identity has invalid resource identifier")
-            }
-            return FileIdentity(resourceIdentifier: data)
-        case .fileSystem:
-            guard let device, let inode else {
-                throw ScanArchiveError.nodes("file identity has incomplete file system identity")
-            }
-            return FileIdentity(device: device, inode: inode)
+        guard let rootOrdinal = ordinalByID[treeStore.rootID] else {
+            throw ScanArchiveError.topology("root node is missing from node order")
         }
+
+        var childOrdinalsByOrdinal: [String: [Int]] = [:]
+        childOrdinalsByOrdinal.reserveCapacity(treeStore.childIDsByID.count)
+
+        for parentID in orderedNodeIDs {
+            guard let childIDs = treeStore.childIDsByID[parentID],
+                  !childIDs.isEmpty else {
+                continue
+            }
+            guard let parentOrdinal = ordinalByID[parentID] else {
+                throw ScanArchiveError.topology("parent \(parentID) is missing from node order")
+            }
+
+            var childOrdinals: [Int] = []
+            childOrdinals.reserveCapacity(childIDs.count)
+            for childID in childIDs {
+                guard let childOrdinal = ordinalByID[childID] else {
+                    throw ScanArchiveError.topology("child \(childID) is missing from node order")
+                }
+                childOrdinals.append(childOrdinal)
+            }
+            childOrdinalsByOrdinal[String(parentOrdinal)] = childOrdinals
+        }
+
+        self.rootOrdinal = rootOrdinal
+        self.childOrdinalsByOrdinal = childOrdinalsByOrdinal
     }
-}
 
-nonisolated struct ScanArchiveTopologyV1: Codable, Sendable {
-    let rootID: String
-    let childIDsByID: [String: [String]]
-    let parentIDByID: [String: String]?
+    fileprivate func resolvedTopology(orderedNodeIDs: [String]) throws -> ScanArchiveResolvedTopology {
+        guard orderedNodeIDs.indices.contains(rootOrdinal) else {
+            throw ScanArchiveError.topology("root ordinal \(rootOrdinal) is out of range")
+        }
 
-    init(
-        rootID: String,
-        childIDsByID: [String: [String]],
-        parentIDByID: [String: String]?
-    ) {
-        self.rootID = rootID
-        self.childIDsByID = childIDsByID
-        self.parentIDByID = parentIDByID
-    }
+        var childIDsByID: [String: [String]] = [:]
+        childIDsByID.reserveCapacity(childOrdinalsByOrdinal.count)
 
-    init(_ treeStore: FileTreeStore) {
-        self.rootID = treeStore.rootID
-        self.childIDsByID = treeStore.childIDsByID
-        self.parentIDByID = nil
+        for (parentOrdinalKey, childOrdinals) in childOrdinalsByOrdinal {
+            guard let parentOrdinal = Int(parentOrdinalKey),
+                  String(parentOrdinal) == parentOrdinalKey else {
+                throw ScanArchiveError.topology("parent ordinal \(parentOrdinalKey) is invalid")
+            }
+            guard orderedNodeIDs.indices.contains(parentOrdinal) else {
+                throw ScanArchiveError.topology("parent ordinal \(parentOrdinal) is out of range")
+            }
+
+            var childIDs: [String] = []
+            childIDs.reserveCapacity(childOrdinals.count)
+            for childOrdinal in childOrdinals {
+                guard orderedNodeIDs.indices.contains(childOrdinal) else {
+                    throw ScanArchiveError.topology("child ordinal \(childOrdinal) is out of range")
+                }
+                childIDs.append(orderedNodeIDs[childOrdinal])
+            }
+            childIDsByID[orderedNodeIDs[parentOrdinal]] = childIDs
+        }
+
+        return ScanArchiveResolvedTopology(
+            rootID: orderedNodeIDs[rootOrdinal],
+            childIDsByID: childIDsByID
+        )
     }
 }
 
