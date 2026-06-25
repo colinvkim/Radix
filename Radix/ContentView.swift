@@ -260,40 +260,69 @@ private struct ImportSnapshotPreviewSheet: View {
     let onCancel: () -> Void
     let onImport: () -> Void
 
+    @State private var showsDetails = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Import Snapshot")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    Text(preview.target.displayName)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+            Label("Import Snapshot", systemImage: "archivebox.fill")
+                .font(.title3.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.primary, .tint)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(preview.target.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(preview.target.path)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(preview.target.path)
+
+                Label(
+                    "Scanned \(RadixFormatters.date(preview.finishedAt ?? preview.startedAt))",
+                    systemImage: "clock"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                ImportSnapshotStatCard(
+                    title: "Size",
+                    value: RadixFormatters.size(preview.totalAllocatedSize)
+                )
+                ImportSnapshotStatCard(
+                    title: "Files",
+                    value: preview.fileCount.formatted()
+                )
+                ImportSnapshotStatCard(
+                    title: "Folders",
+                    value: preview.directoryCount.formatted()
+                )
+                ImportSnapshotStatCard(
+                    title: "Warnings",
+                    value: preview.warningCount.formatted(),
+                    isAccented: preview.warningCount > 0
+                )
+            }
+
+            DisclosureGroup("Details", isExpanded: $showsDetails) {
+                Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 8) {
+                    previewRow("Exported", RadixFormatters.date(preview.exportedAt))
+                    previewRow("Nodes", preview.nodeCount.formatted())
+                    previewRow("App Version", preview.appVersion)
                 }
-            } icon: {
-                Image(systemName: "archivebox.fill")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
+                .padding(.top, 10)
             }
+            .font(.subheadline)
 
-            Divider()
-
-            Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 10) {
-                previewRow("Target", preview.target.displayName)
-                previewRow("Archived Path", preview.target.path)
-                previewRow("Scanned", RadixFormatters.date(preview.finishedAt ?? preview.startedAt))
-                previewRow("Exported", RadixFormatters.date(preview.exportedAt))
-                previewRow("Total Size", RadixFormatters.size(preview.totalAllocatedSize))
-                previewRow("Nodes", preview.nodeCount.formatted())
-                previewRow("Files", preview.fileCount.formatted())
-                previewRow("Directories", preview.directoryCount.formatted())
-                previewRow("Warnings", preview.warningCount.formatted())
-                previewRow("Path Mode", pathModeTitle)
-                previewRow("App Version", preview.appVersion)
-                previewRow("Format", "v\(preview.formatVersion)")
-            }
+            Spacer(minLength: 0)
 
             Divider()
 
@@ -311,14 +340,7 @@ private struct ImportSnapshotPreviewSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 480)
-    }
-
-    private var pathModeTitle: String {
-        switch preview.pathMode {
-        case .absolute:
-            return "Absolute paths"
-        }
+        .frame(width: 480, height: 410, alignment: .topLeading)
     }
 
     private func previewRow(_ title: String, _ value: String) -> some View {
@@ -329,6 +351,37 @@ private struct ImportSnapshotPreviewSheet: View {
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+private struct ImportSnapshotStatCard: View {
+    let title: String
+    let value: String
+    var isAccented = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(isAccented ? Color.orange : Color.secondary)
+
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(isAccented ? Color.orange : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(
+                    isAccented
+                        ? Color.orange.opacity(0.14)
+                        : Color(nsColor: .controlBackgroundColor)
+                )
         }
     }
 }

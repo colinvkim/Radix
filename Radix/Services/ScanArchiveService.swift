@@ -120,14 +120,12 @@ nonisolated struct ScanArchivePreview: Identifiable, Sendable {
     let archiveURL: URL
     let exportedAt: Date
     let appVersion: String
-    let formatVersion: Int
     let target: ScanArchiveTargetV1
     let startedAt: Date
     let finishedAt: Date?
     let isComplete: Bool
     let nodeCount: Int
     let warningCount: Int
-    let pathMode: ScanArchivePathMode
     let totalAllocatedSize: Int64
     let totalLogicalSize: Int64
     let fileCount: Int
@@ -143,14 +141,12 @@ nonisolated struct ScanArchivePreview: Identifiable, Sendable {
         self.archiveURL = archiveURL
         self.exportedAt = manifest.exportedAt
         self.appVersion = manifest.createdBy.appVersion
-        self.formatVersion = manifest.formatVersion
         self.target = manifest.snapshot.target
         self.startedAt = manifest.snapshot.startedAt
         self.finishedAt = manifest.snapshot.finishedAt
         self.isComplete = manifest.snapshot.isComplete
         self.nodeCount = manifest.snapshot.nodeCount
         self.warningCount = manifest.snapshot.warningCount
-        self.pathMode = manifest.snapshot.pathMode
         self.totalAllocatedSize = stats.totalAllocatedSize
         self.totalLogicalSize = stats.totalLogicalSize
         self.fileCount = stats.fileCount
