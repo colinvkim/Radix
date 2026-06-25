@@ -132,7 +132,6 @@ enum SystemIntegration {
         panel.canChooseFiles = true
         panel.canCreateDirectories = false
         panel.prompt = "Import"
-        panel.message = "Choose a Radix scan snapshot."
 
         guard panel.runModal() == .OK else {
             return nil
