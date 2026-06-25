@@ -311,22 +311,18 @@ private struct ImportSnapshotPreviewSheet: View {
                 )
             }
 
-            DisclosureGroup("Details", isExpanded: $showsDetails) {
-                Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 8) {
-                    previewRow("Exported", RadixFormatters.date(preview.exportedAt))
-                    previewRow("Nodes", preview.nodeCount.formatted())
-                    previewRow("App Version", preview.appVersion)
-                }
-                .padding(.top, 10)
-            }
-            .font(.subheadline)
-
-            Spacer(minLength: 0)
-
             Divider()
 
             HStack {
+                Button("Details…", systemImage: "info.circle") {
+                    showsDetails.toggle()
+                }
+                .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
+                    ImportSnapshotDetailsPopover(preview: preview)
+                }
+
                 Spacer()
+
                 Button("Cancel", role: .cancel) {
                     onCancel()
                 }
@@ -339,10 +335,25 @@ private struct ImportSnapshotPreviewSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 480, height: 410, alignment: .topLeading)
+        .frame(width: 480, alignment: .topLeading)
+    }
+}
+
+private struct ImportSnapshotDetailsPopover: View {
+    let preview: ScanArchivePreview
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+            detailRow("Exported", RadixFormatters.date(preview.exportedAt))
+            detailRow("Nodes", preview.nodeCount.formatted())
+            detailRow("App Version", preview.appVersion)
+        }
+        .font(.subheadline)
+        .padding(16)
+        .frame(minWidth: 260)
     }
 
-    private func previewRow(_ title: String, _ value: String) -> some View {
+    private func detailRow(_ title: String, _ value: String) -> some View {
         GridRow {
             Text(title)
                 .foregroundStyle(.secondary)
