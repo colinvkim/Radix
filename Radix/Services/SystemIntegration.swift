@@ -98,29 +98,29 @@ enum SystemIntegration {
 
     @MainActor
     static func presentExportScanPanel(defaultFileName: String) async -> URL? {
+        guard !Task.isCancelled else { return nil }
+
         let panel = NSSavePanel()
         panel.allowedContentTypes = [radixScanArchiveContentType]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = defaultFileName
         panel.prompt = "Export"
 
-        guard let parentWindow = exportPanelParentWindow else {
-            guard panel.runModal() == .OK else {
-                return nil
-            }
-            return normalizedExportPanelURL(panel.url)
-        }
-
-        return await withCheckedContinuation { continuation in
-            panel.beginSheetModal(for: parentWindow) { response in
-                panel.orderOut(nil)
-                guard response == .OK else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                continuation.resume(returning: normalizedExportPanelURL(panel.url))
+        let cancellationState = ExportPanelCancellationState()
+        let presentation = ExportPanelPresentation(
+            panel: panel,
+            parentWindow: exportPanelParentWindow,
+            cancellationState: cancellationState
+        )
+        let selectedURL = await withTaskCancellationHandler {
+            await presentation.begin()
+        } onCancel: {
+            cancellationState.cancel()
+            Task { @MainActor in
+                presentation.cancel()
             }
         }
+        return normalizedExportPanelURL(selectedURL)
     }
 
     @MainActor
@@ -154,6 +154,87 @@ enum SystemIntegration {
             return url
         }
         return url.appendingPathExtension(ScanArchiveService.fileExtension)
+    }
+
+    private nonisolated final class ExportPanelCancellationState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+        }
+    }
+
+    @MainActor
+    private final class ExportPanelPresentation {
+        private let panel: NSSavePanel
+        private let parentWindow: NSWindow?
+        private let cancellationState: ExportPanelCancellationState
+        private var continuation: CheckedContinuation<URL?, Never>?
+        private var isFinished = false
+
+        init(
+            panel: NSSavePanel,
+            parentWindow: NSWindow?,
+            cancellationState: ExportPanelCancellationState
+        ) {
+            self.panel = panel
+            self.parentWindow = parentWindow
+            self.cancellationState = cancellationState
+        }
+
+        func begin() async -> URL? {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+                guard !cancellationState.isCancelled, !Task.isCancelled else {
+                    panel.orderOut(nil)
+                    finish(returning: nil)
+                    return
+                }
+
+                let completionHandler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                    Task { @MainActor in
+                        self?.complete(response: response)
+                    }
+                }
+                if let parentWindow {
+                    panel.beginSheetModal(for: parentWindow, completionHandler: completionHandler)
+                } else {
+                    panel.begin(completionHandler: completionHandler)
+                }
+            }
+        }
+
+        func cancel() {
+            guard !isFinished else { return }
+
+            panel.cancel(nil)
+            panel.orderOut(nil)
+            finish(returning: nil)
+        }
+
+        private func complete(response: NSApplication.ModalResponse) {
+            let selectedURL = response == .OK && !cancellationState.isCancelled ? panel.url : nil
+            panel.orderOut(nil)
+            finish(returning: selectedURL)
+        }
+
+        private func finish(returning url: URL?) {
+            guard !isFinished else { return }
+
+            isFinished = true
+            let continuation = continuation
+            self.continuation = nil
+            continuation?.resume(returning: url)
+        }
     }
 
     nonisolated static func defaultTargets() -> [ScanTarget] {
