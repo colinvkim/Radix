@@ -91,6 +91,10 @@ struct FileBrowserTableView: View {
         navigation.tableContentID
     }
 
+    private var contentRevision: Int {
+        navigation.tableContentRevision
+    }
+
     var body: some View {
         Group {
             if !showsTableChrome {
@@ -127,6 +131,9 @@ struct FileBrowserTableView: View {
             model.cleanup()
         }
         .onChange(of: contentID) { _, _ in
+            updateModelContent()
+        }
+        .onChange(of: contentRevision) { _, _ in
             updateModelContent()
         }
         .onChange(of: scanState.snapshot?.id) { _, _ in

@@ -296,6 +296,28 @@ final class WorkspaceNavigationModelTests: XCTestCase {
     }
 
     @MainActor
+    func testDeferredTableMaterializationAdvancesContentRevision() {
+        let fixture = makeNavigationFixture()
+        let model = WorkspaceNavigationModel()
+
+        model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
+
+        let deferredRevision = model.tableContentRevision
+        XCTAssertTrue(model.tableNodes.isEmpty)
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+
+        model.refreshTableNodesForCurrentContext()
+
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        XCTAssertEqual(model.tableContentRevision, deferredRevision + 1)
+
+        model.refreshTableNodesForCurrentContext()
+
+        XCTAssertEqual(model.tableContentRevision, deferredRevision + 1)
+    }
+
+    @MainActor
     func testReconcilingSnapshotReplacementClearsInvalidNavigationState() {
         let fixture = makeNavigationFixture()
         let replacement = makeNavigationFixture(rootID: "/replacement")

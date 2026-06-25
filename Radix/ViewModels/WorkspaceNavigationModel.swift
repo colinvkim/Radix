@@ -18,6 +18,7 @@ struct WorkspaceNavigationState: Equatable {
     var focusForwardStack: [FileNodeRecord.ID]
     var tableNodes: [FileNodeRecord]
     var tableContentID: String
+    var tableContentRevision: Int
     var selectedAncestorIDs: Set<FileNodeRecord.ID>
 
     static let empty = WorkspaceNavigationState(
@@ -30,6 +31,7 @@ struct WorkspaceNavigationState: Equatable {
         focusForwardStack: [],
         tableNodes: [],
         tableContentID: Self.emptyTableContentID,
+        tableContentRevision: 0,
         selectedAncestorIDs: []
     )
 
@@ -43,6 +45,7 @@ struct WorkspaceNavigationState: Equatable {
             lhs.focusBackStack == rhs.focusBackStack &&
             lhs.focusForwardStack == rhs.focusForwardStack &&
             lhs.tableContentID == rhs.tableContentID &&
+            lhs.tableContentRevision == rhs.tableContentRevision &&
             lhs.tableNodes.map(\.id) == rhs.tableNodes.map(\.id) &&
             lhs.selectedAncestorIDs == rhs.selectedAncestorIDs
     }
@@ -328,24 +331,30 @@ private extension WorkspaceNavigationState {
 
         guard let fileTreeStore,
               let focusNode else {
-            next.tableNodes = []
+            next.replaceTableNodes([])
             return next
         }
 
         guard loadNodes else {
-            next.tableNodes = []
+            next.replaceTableNodes([])
             return next
         }
 
         if focusNode.isDirectory {
-            next.tableNodes = fileTreeStore.children(of: focusNode.id)
+            next.replaceTableNodes(fileTreeStore.children(of: focusNode.id))
         } else if let parent = fileTreeStore.parent(of: focusNode.id) {
-            next.tableNodes = fileTreeStore.children(of: parent.id)
+            next.replaceTableNodes(fileTreeStore.children(of: parent.id))
         } else {
-            next.tableNodes = []
+            next.replaceTableNodes([])
         }
 
         return next
+    }
+
+    mutating func replaceTableNodes(_ nodes: [FileNodeRecord]) {
+        guard !tableNodes.haveSameIDs(as: nodes) else { return }
+        tableNodes = nodes
+        tableContentRevision &+= 1
     }
 
     func firstSelectedID(in nodeIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
@@ -379,6 +388,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     var tableContentID: String {
         state.tableContentID
+    }
+
+    var tableContentRevision: Int {
+        state.tableContentRevision
     }
 
     var selectedAncestorIDs: Set<String> {
@@ -519,5 +532,17 @@ final class WorkspaceNavigationModel: ObservableObject {
         if oldSelectionID != nextState.selectedNodeID || oldSelectionIDs != nextState.selectedNodeIDs {
             onSelectionChanged?()
         }
+    }
+}
+
+private extension [FileNodeRecord] {
+    func haveSameIDs(as other: [FileNodeRecord]) -> Bool {
+        guard count == other.count else { return false }
+
+        for index in indices where self[index].id != other[index].id {
+            return false
+        }
+
+        return true
     }
 }
