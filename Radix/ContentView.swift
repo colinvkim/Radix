@@ -96,6 +96,7 @@ struct ContentView: View {
                     appModel.confirmImportPreview()
                 }
             )
+            .interactiveDismissDisabled()
         }
         .alert(
             appModel.errorAlertTitle,
