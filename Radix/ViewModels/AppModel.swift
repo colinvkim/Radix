@@ -26,6 +26,11 @@ struct ArchiveOperationState: Identifiable, Equatable, Sendable {
     }
 }
 
+struct ExportConfirmationState: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let archiveURL: URL
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     private struct PostTrashRemovalRequest: Sendable {
@@ -131,6 +136,7 @@ final class AppModel: ObservableObject {
         }
     }
     @Published private(set) var archiveOperation: ArchiveOperationState?
+    @Published private(set) var exportConfirmation: ExportConfirmationState?
     @Published var pendingImportPreview: ScanArchivePreview?
     @Published var pendingTrashNode: FileNodeRecord?
     @Published var pendingTrashSelection: PendingTrashSelection?
@@ -160,6 +166,7 @@ final class AppModel: ObservableObject {
     private var exportPanelTask: Task<Void, Never>?
     private var snapshotArchiveTask: Task<Void, Never>?
     private var snapshotArchiveProgressTask: Task<Void, Never>?
+    private var exportConfirmationDismissTask: Task<Void, Never>?
     private var postTrashRemovalRequests: [PostTrashRemovalRequest] = []
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
@@ -232,6 +239,7 @@ final class AppModel: ObservableObject {
         exportPanelTask = nil
         isExportPanelPresented = false
         cancelArchiveOperation()
+        dismissExportConfirmation()
         pendingImportPreview = nil
         quickLookController.setWorkspaceWindowNumber(nil)
         scanCoordinator.stopScan()
@@ -474,15 +482,44 @@ final class AppModel: ObservableObject {
                         options: exportOptions
                     )
                 }
-                _ = try await Self.value(cancelling: exportTask)
+                let result = try await Self.value(cancelling: exportTask)
                 guard !Task.isCancelled,
                       self.isCurrentArchiveOperation(id: operationID) else { return }
                 self.lastErrorMessage = nil
+                self.presentExportConfirmation(for: result.archiveURL)
             } catch is CancellationError {
                 return
             } catch {
-                self.presentError(error)
+                self.presentError(error, title: "Export Failed")
             }
+        }
+    }
+
+    func revealExportedSnapshotInFinder() {
+        guard let exportConfirmation else { return }
+        dependencies.systemActions.reveal(exportConfirmation.archiveURL)
+        dismissExportConfirmation()
+    }
+
+    func dismissExportConfirmation() {
+        exportConfirmationDismissTask?.cancel()
+        exportConfirmationDismissTask = nil
+        exportConfirmation = nil
+    }
+
+    private func presentExportConfirmation(for archiveURL: URL) {
+        dismissExportConfirmation()
+        let confirmation = ExportConfirmationState(id: UUID(), archiveURL: archiveURL)
+        exportConfirmation = confirmation
+        exportConfirmationDismissTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(4))
+            } catch {
+                return
+            }
+            guard self?.exportConfirmation?.id == confirmation.id else { return }
+            self?.exportConfirmation = nil
+            self?.exportConfirmationDismissTask = nil
         }
     }
 
@@ -625,6 +662,7 @@ final class AppModel: ObservableObject {
         message: String,
         progressReporter: ScanArchiveProgressReporter?
     ) -> UUID {
+        dismissExportConfirmation()
         let operationID = UUID()
         archiveOperation = ArchiveOperationState(
             id: operationID,
@@ -1253,8 +1291,10 @@ final class AppModel: ObservableObject {
         dependencies.preferences.markOnboardingIncomplete()
     }
 
-    private func presentError(_ error: Error) {
-        if let fileActionError = error as? FileActionError {
+    private func presentError(_ error: Error, title: String? = nil) {
+        if let title {
+            lastActionErrorTitle = title
+        } else if let fileActionError = error as? FileActionError {
             lastActionErrorTitle = fileActionError.alertTitle
         } else {
             lastActionErrorTitle = nil

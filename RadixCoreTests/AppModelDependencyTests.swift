@@ -1071,12 +1071,14 @@ final class AppModelDependencyTests: XCTestCase {
     func testExportCurrentScanUsesInjectedPanelAndArchiveService() async throws {
         let archiveURL = URL(filePath: "/tmp/export.radixscan", directoryHint: .isDirectory)
         let archiveService = SpyScanArchiveService()
+        let recorder = AppModelActionRecorder()
         var requestedDefaultFileNames: [String] = []
         var actions = AppSystemActions.inert
         actions.presentExportScanPanel = { defaultFileName in
             requestedDefaultFileNames.append(defaultFileName)
             return archiveURL
         }
+        actions.reveal = { recorder.revealedURLs.append($0) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
         let file = makeTestFileNode(id: "/export/file.txt", name: "file.txt")
         let root = makeTestDirectoryNode(id: "/export", name: "Export", children: [file])
@@ -1106,6 +1108,44 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(requestedDefaultFileNames[0].hasPrefix("Export "))
         XCTAssertFalse(requestedDefaultFileNames[0].hasSuffix(".radixscan"))
         XCTAssertNil(model.lastErrorMessage)
+        try await waitForAppModelCondition("export confirmation presented") {
+            model.exportConfirmation?.archiveURL == archiveURL
+        }
+
+        model.revealExportedSnapshotInFinder()
+
+        XCTAssertEqual(recorder.revealedURLs, [archiveURL])
+        XCTAssertNil(model.exportConfirmation)
+    }
+
+    @MainActor
+    func testExportFailureUsesExportSpecificAlertTitle() async throws {
+        let archiveURL = URL(filePath: "/tmp/export.invalid", directoryHint: .isDirectory)
+        var actions = AppSystemActions.inert
+        actions.presentExportScanPanel = { _ in archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = makeTestFileNode(id: "/failed-export/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/failed-export", name: "Failed Export", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "Failed Export", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.restoreCompletedSnapshot(snapshot)
+
+        model.exportCurrentScan()
+
+        try await waitForAppModelCondition("export failure presented") {
+            model.lastErrorMessage != nil
+        }
+
+        XCTAssertEqual(model.errorAlertTitle, "Export Failed")
+        XCTAssertNil(model.exportConfirmation)
     }
 
     @MainActor

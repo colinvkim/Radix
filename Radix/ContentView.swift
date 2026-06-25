@@ -70,6 +70,17 @@ struct ContentView: View {
                 )
                 .padding(.top, 12)
                 .padding(.horizontal, 16)
+            } else if appModel.exportConfirmation != nil {
+                ExportConfirmationBanner(
+                    onReveal: {
+                        appModel.revealExportedSnapshotInFinder()
+                    },
+                    onDismiss: {
+                        appModel.dismissExportConfirmation()
+                    }
+                )
+                .padding(.top, 12)
+                .padding(.horizontal, 16)
             }
         }
         .sheet(isPresented: $appModel.showsOnboarding) {
@@ -208,6 +219,39 @@ private struct ArchiveOperationBanner: View {
             ProgressView()
                 .controlSize(.small)
         }
+    }
+}
+
+private struct ExportConfirmationBanner: View {
+    let onReveal: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+
+            Text("Snapshot Exported")
+                .font(.subheadline.weight(.semibold))
+
+            Button("Show in Finder") {
+                onReveal()
+            }
+            .buttonStyle(.borderless)
+
+            Button {
+                onDismiss()
+            } label: {
+                Label("Dismiss", systemImage: "xmark.circle.fill")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     }
 }
 
