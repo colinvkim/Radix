@@ -118,6 +118,7 @@ nonisolated final class ScanArchiveProgressReporter: @unchecked Sendable {
 
 nonisolated struct ScanArchivePreview: Identifiable, Sendable {
     let archiveURL: URL
+    let archiveSize: Int64
     let exportedAt: Date
     let appVersion: String
     let target: ScanArchiveTargetV1
@@ -137,8 +138,14 @@ nonisolated struct ScanArchivePreview: Identifiable, Sendable {
         archiveURL
     }
 
-    init(archiveURL: URL, manifest: ScanArchiveDocument, stats: ScanArchiveStatsV1) {
+    init(
+        archiveURL: URL,
+        archiveSize: Int64,
+        manifest: ScanArchiveDocument,
+        stats: ScanArchiveStatsV1
+    ) {
         self.archiveURL = archiveURL
+        self.archiveSize = archiveSize
         self.exportedAt = manifest.exportedAt
         self.appVersion = manifest.createdBy.appVersion
         self.target = manifest.snapshot.target
@@ -297,7 +304,13 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         let stats: ScanArchiveStatsV1 = try readJSON(ScanArchiveStatsV1.self, from: statsURL) { detail in
             ScanArchiveError.stats(detail)
         }
-        return ScanArchivePreview(archiveURL: sourceURL, manifest: manifest, stats: stats)
+        let archiveSize = try archiveLogicalSize(at: sourceURL)
+        return ScanArchivePreview(
+            archiveURL: sourceURL,
+            archiveSize: archiveSize,
+            manifest: manifest,
+            stats: stats
+        )
     }
 
     func importSnapshot(
@@ -435,6 +448,42 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         guard url.pathExtension.lowercased() == Self.fileExtension else {
             throw ScanArchiveError.invalidArchivePackage("expected a .\(Self.fileExtension) package")
         }
+    }
+
+    private func archiveLogicalSize(at archiveURL: URL) throws -> Int64 {
+        let relativePaths: [String]
+        do {
+            relativePaths = try fileManager.subpathsOfDirectory(atPath: archiveURL.path)
+        } catch {
+            throw ScanArchiveError.invalidArchivePackage(
+                "could not calculate snapshot size: \(error.localizedDescription)"
+            )
+        }
+
+        var totalSize: Int64 = 0
+        for relativePath in relativePaths {
+            try Task.checkCancellation()
+            let itemURL = archiveURL.appending(path: relativePath)
+            let values: URLResourceValues
+            do {
+                values = try itemURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            } catch {
+                throw ScanArchiveError.invalidArchivePackage(
+                    "could not calculate snapshot size: \(error.localizedDescription)"
+                )
+            }
+
+            guard values.isRegularFile == true else {
+                continue
+            }
+
+            let (newTotalSize, overflow) = totalSize.addingReportingOverflow(Int64(values.fileSize ?? 0))
+            guard !overflow else {
+                throw ScanArchiveError.invalidArchivePackage("snapshot size exceeds supported range")
+            }
+            totalSize = newTotalSize
+        }
+        return totalSize
     }
 
     private func validateManifest(_ manifest: ScanArchiveDocument) throws {

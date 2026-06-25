@@ -294,7 +294,7 @@ private struct ImportSnapshotPreviewSheet: View {
 
             HStack(spacing: 8) {
                 ImportSnapshotStatCard(
-                    title: "Size",
+                    title: "Scanned Data",
                     value: RadixFormatters.size(preview.totalAllocatedSize)
                 )
                 ImportSnapshotStatCard(
@@ -306,9 +306,8 @@ private struct ImportSnapshotPreviewSheet: View {
                     value: preview.directoryCount.formatted()
                 )
                 ImportSnapshotStatCard(
-                    title: "Warnings",
-                    value: preview.warningCount.formatted(),
-                    isAccented: preview.warningCount > 0
+                    title: "Snapshot Size",
+                    value: RadixFormatters.size(preview.archiveSize)
                 )
             }
 

@@ -68,10 +68,21 @@ final class ScanArchiveServiceTests: XCTestCase {
             to: archiveURL,
             options: ScanArchiveExportOptions(appVersion: "Tests")
         )
+        let expectedArchiveSize = try [
+            "manifest.json",
+            "nodes.jsonl",
+            "topology.json",
+            "warnings.json",
+            "stats.json"
+        ].reduce(into: Int64(0)) { totalSize, fileName in
+            let fileURL = archiveURL.appending(path: fileName, directoryHint: .notDirectory)
+            totalSize += Int64(try Data(contentsOf: fileURL).count)
+        }
 
         let preview = try await service.previewSnapshot(from: archiveURL)
 
         XCTAssertEqual(preview.archiveURL, archiveURL)
+        XCTAssertEqual(preview.archiveSize, expectedArchiveSize)
         XCTAssertEqual(preview.appVersion, "Tests")
         XCTAssertEqual(preview.target.path, snapshot.target.url.path)
         XCTAssertEqual(preview.target.displayName, snapshot.target.displayName)

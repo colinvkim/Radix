@@ -864,6 +864,7 @@ final class AppModelDependencyTests: XCTestCase {
         let archiveService = SpyScanArchiveService(
             previewResult: ScanArchivePreview(
                 archiveURL: archiveURL,
+                archiveSize: 1,
                 manifest: manifest,
                 stats: ScanArchiveStatsV1(store.aggregateStats)
             ),
@@ -945,6 +946,7 @@ final class AppModelDependencyTests: XCTestCase {
         let archiveService = SpyScanArchiveService(
             previewResult: ScanArchivePreview(
                 archiveURL: archiveURL,
+                archiveSize: 1,
                 manifest: manifest,
                 stats: ScanArchiveStatsV1(store.aggregateStats)
             )
@@ -1008,6 +1010,7 @@ final class AppModelDependencyTests: XCTestCase {
         let archiveService = SpyScanArchiveService(
             previewResult: ScanArchivePreview(
                 archiveURL: archiveURL,
+                archiveSize: 1,
                 manifest: manifest,
                 stats: ScanArchiveStatsV1(store.aggregateStats)
             ),
@@ -1289,6 +1292,7 @@ final class AppModelDependencyTests: XCTestCase {
         let archiveService = SpyScanArchiveService(
             previewResult: ScanArchivePreview(
                 archiveURL: archiveURL,
+                archiveSize: 1,
                 manifest: manifest,
                 stats: ScanArchiveStatsV1(store.aggregateStats)
             ),
@@ -1361,6 +1365,7 @@ final class AppModelDependencyTests: XCTestCase {
         let archiveService = SpyScanArchiveService(
             previewResult: ScanArchivePreview(
                 archiveURL: archiveURL,
+                archiveSize: 1,
                 manifest: manifest,
                 stats: ScanArchiveStatsV1(importedStore.aggregateStats)
             ),
