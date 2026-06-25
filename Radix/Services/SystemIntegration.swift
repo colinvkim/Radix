@@ -150,7 +150,7 @@ enum SystemIntegration {
 
     private static func normalizedExportPanelURL(_ url: URL?) -> URL? {
         guard let url else { return nil }
-        if url.pathExtension == ScanArchiveService.fileExtension {
+        if url.pathExtension.lowercased() == ScanArchiveService.fileExtension {
             return url
         }
         return url.appendingPathExtension(ScanArchiveService.fileExtension)

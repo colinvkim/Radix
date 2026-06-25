@@ -144,7 +144,7 @@ struct ContentView: View {
             appModel.suspendMainWindowActivity()
         }
         .onOpenURL { url in
-            guard url.pathExtension == ScanArchiveService.fileExtension else { return }
+            guard url.pathExtension.lowercased() == ScanArchiveService.fileExtension else { return }
             appModel.importScanSnapshot(from: url)
         }
         .onChange(of: scenePhase) { _, newPhase in
