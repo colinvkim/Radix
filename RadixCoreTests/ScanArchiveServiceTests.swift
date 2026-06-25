@@ -24,7 +24,9 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertEqual(importedSnapshot.treeStore.childIDsByID, snapshot.treeStore.childIDsByID)
         XCTAssertEqual(importedSnapshot.aggregateStats.totalAllocatedSize, snapshot.aggregateStats.totalAllocatedSize)
         XCTAssertEqual(importedSnapshot.scanWarnings.map(\.path), snapshot.scanWarnings.map(\.path))
+        XCTAssertEqual(importedSnapshot.scanOptions, snapshot.scanOptions)
         XCTAssertEqual(importResult.manifest.createdBy.swiftSchema, "ScanArchiveV3")
+        XCTAssertEqual(importResult.manifest.snapshot.scanOptions, snapshot.scanOptions)
         XCTAssertNotNil(importResult.manifest.snapshot.scanOptionsFingerprint)
 
         guard case .imported(let context) = importedSnapshot.source else {
@@ -56,6 +58,55 @@ final class ScanArchiveServiceTests: XCTestCase {
         XCTAssertTrue(availability.canOpen)
         XCTAssertTrue(availability.canCopyPath)
         XCTAssertFalse(availability.canMoveToTrash)
+    }
+
+    func testImportSupportsArchiveWithoutScanOptionsPayload() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(
+            snapshot: makeArchiveSnapshot(),
+            to: archiveURL,
+            options: ScanArchiveExportOptions(appVersion: "Tests")
+        )
+
+        let manifestURL = archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
+        try rewriteJSONObject(at: manifestURL) { object in
+            var snapshot = object["snapshot"] as? [String: Any] ?? [:]
+            snapshot.removeValue(forKey: "scanOptions")
+            object["snapshot"] = snapshot
+        }
+
+        let importResult = try await service.importSnapshot(from: archiveURL)
+
+        XCTAssertNil(importResult.manifest.snapshot.scanOptions)
+        XCTAssertNil(importResult.snapshot.scanOptions)
+        XCTAssertNotNil(importResult.manifest.snapshot.scanOptionsFingerprint)
+    }
+
+    func testImportRejectsScanOptionsFingerprintMismatch() async throws {
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(
+            snapshot: makeArchiveSnapshot(),
+            to: archiveURL,
+            options: ScanArchiveExportOptions(appVersion: "Tests")
+        )
+
+        let manifestURL = archiveURL.appending(path: "manifest.json", directoryHint: .notDirectory)
+        try rewriteJSONObject(at: manifestURL) { object in
+            var snapshot = object["snapshot"] as? [String: Any] ?? [:]
+            var scanOptions = snapshot["scanOptions"] as? [String: Any] ?? [:]
+            scanOptions["includeHiddenFiles"] = false
+            snapshot["scanOptions"] = scanOptions
+            object["snapshot"] = snapshot
+        }
+
+        do {
+            _ = try await service.importSnapshot(from: archiveURL)
+            XCTFail("Import should reject mismatched scan options.")
+        } catch ScanArchiveError.integrity(let detail) {
+            XCTAssertTrue(detail.contains("scan options"))
+        }
     }
 
     func testPreviewReadsManifestAndStatsMetadata() async throws {

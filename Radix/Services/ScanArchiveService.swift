@@ -406,7 +406,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             scanWarnings: importedWarnings,
             aggregateStats: computedStats,
             isComplete: manifest.snapshot.isComplete,
-            scanOptions: nil,
+            scanOptions: manifest.snapshot.scanOptions,
             source: .imported(ImportedSnapshotContext(
                 sourceURL: sourceURL,
                 pathMode: manifest.snapshot.pathMode,
@@ -497,6 +497,12 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         guard !manifest.snapshot.rootID.isEmpty,
               manifest.snapshot.rootID == manifest.snapshot.target.path else {
             throw ScanArchiveError.manifest("snapshot root does not match target path")
+        }
+        if let scanOptions = manifest.snapshot.scanOptions {
+            let fingerprint = try Self.scanOptionsFingerprint(scanOptions)
+            guard fingerprint == manifest.snapshot.scanOptionsFingerprint else {
+                throw ScanArchiveError.integrity("scan options fingerprint mismatch")
+            }
         }
         guard manifest.integrity.algorithm == "sha256" else {
             throw ScanArchiveError.integrity("unsupported integrity algorithm \(manifest.integrity.algorithm)")
@@ -1000,6 +1006,7 @@ nonisolated struct ScanArchiveSnapshotSummary: Codable, Sendable {
     let nodeCount: Int
     let warningCount: Int
     let pathMode: ScanArchivePathMode
+    let scanOptions: ScanOptions?
     let scanOptionsFingerprint: String?
 
     init(_ snapshot: ScanSnapshot, pathMode: ScanArchivePathMode) throws {
@@ -1012,6 +1019,7 @@ nonisolated struct ScanArchiveSnapshotSummary: Codable, Sendable {
         self.nodeCount = snapshot.treeStore.nodeCount
         self.warningCount = snapshot.scanWarnings.count
         self.pathMode = pathMode
+        self.scanOptions = snapshot.scanOptions
         self.scanOptionsFingerprint = try ScanArchiveService.scanOptionsFingerprint(snapshot.scanOptions)
     }
 }
