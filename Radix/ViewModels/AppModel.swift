@@ -140,6 +140,7 @@ final class AppModel: ObservableObject {
     @Published var pendingImportPreview: ScanArchivePreview?
     @Published var pendingTrashNode: FileNodeRecord?
     @Published var pendingTrashSelection: PendingTrashSelection?
+    @Published private(set) var usageStats = AppUsageStats.empty
 
     private let dependencies: AppDependencies
     private let scanCoordinator: ScanCoordinator
@@ -199,6 +200,7 @@ final class AppModel: ObservableObject {
         exclusionPatterns = preferences.scan.exclusionPatterns
         lastPersistedScanPreferences = preferences.scan
         showsOnboarding = !preferences.didCompleteOnboarding
+        usageStats = dependencies.usageStats.loadUsageStats()
         fullDiskAccessStatus = dependencies.systemActions.usesAsyncFullDiskAccessStatus
             ? .unknown
             : dependencies.systemActions.currentFullDiskAccessStatus()
@@ -356,6 +358,17 @@ final class AppModel: ObservableObject {
     func clearRecentTargets() {
         recentTargets.removeAll()
         dependencies.recentTargets.clear()
+    }
+
+    func clearUsageStats() {
+        usageStats = .empty
+        dependencies.usageStats.clearUsageStats()
+    }
+
+    func recordSunburstSegmentClick() {
+        updateUsageStats { stats in
+            stats.recordSunburstSegmentClick()
+        }
     }
 
     func removeRecentTarget(_ target: ScanTarget) {
@@ -1183,6 +1196,7 @@ final class AppModel: ObservableObject {
         }
 
         if !movedNodes.isEmpty {
+            recordTrashCleanup(movedNodes)
             sidebarScanCacheController.clearCache()
             handleMovedToTrash(movedNodes)
             refreshAvailableTargets()
@@ -1555,6 +1569,10 @@ final class AppModel: ObservableObject {
     }
 
     private func observeScanCoordinator() {
+        scanCoordinator.onScanFinished = { [weak self] snapshot in
+            self?.recordCompletedScan(snapshot)
+        }
+
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
                 guard let self else { return }
@@ -1581,6 +1599,26 @@ final class AppModel: ObservableObject {
                 self?.presentErrorMessage(message)
             }
             .store(in: &cancellables)
+    }
+
+    private func recordCompletedScan(_ snapshot: ScanSnapshot) {
+        updateUsageStats { stats in
+            stats.recordCompletedScan(snapshot)
+        }
+    }
+
+    private func recordTrashCleanup(_ nodes: [FileNodeRecord]) {
+        updateUsageStats { stats in
+            stats.recordTrashCleanup(nodes: nodes)
+        }
+    }
+
+    private func updateUsageStats(_ update: (inout AppUsageStats) -> Void) {
+        var updatedStats = usageStats
+        update(&updatedStats)
+        guard updatedStats != usageStats else { return }
+        usageStats = updatedStats
+        dependencies.usageStats.saveUsageStats(updatedStats)
     }
 
     private func applyCachedOrContainedSidebarTarget(_ target: ScanTarget) -> Bool {

@@ -17,6 +17,12 @@ struct SettingsView: View {
                     Label("Privacy", systemImage: "hand.raised")
                 }
                 .tag(SettingsTab.privacy.rawValue)
+
+            StatsSettingsPane()
+                .tabItem {
+                    Label("Stats", systemImage: "chart.bar")
+                }
+                .tag(SettingsTab.stats.rawValue)
         }
         .scenePadding()
         .frame(width: 560, height: 530)
@@ -26,6 +32,7 @@ struct SettingsView: View {
 private enum SettingsTab: String {
     case general
     case privacy
+    case stats
 }
 
 private struct GeneralSettingsPane: View {
@@ -412,5 +419,87 @@ private struct PrivacySettingsPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct StatsSettingsPane: View {
+    private static let emptyValueText = "—"
+
+    @EnvironmentObject private var appModel: AppModel
+
+    var body: some View {
+        Form {
+            Section("Scanning") {
+                StatValueRow("Scans run", value: countText(appModel.usageStats.totalScansRun))
+                StatValueRow("Total bytes scanned", value: sizeText(appModel.usageStats.totalBytesScanned))
+                StatValueRow("Largest scan", value: sizeText(appModel.usageStats.largestScanBytes))
+                StatValueRow("Average scan speed", value: rateText(appModel.usageStats.averageScanBytesPerSecond))
+                StatValueRow("Fastest scan speed", value: rateText(appModel.usageStats.fastestScanBytesPerSecond))
+            }
+
+            Section("Interaction") {
+                StatValueRow(
+                    "Sunburst segments clicked",
+                    value: countText(appModel.usageStats.sunburstSegmentsClicked)
+                )
+            }
+
+            Section("Cleanup") {
+                StatValueRow("Files deleted", value: countText(appModel.usageStats.filesDeleted))
+                StatValueRow("Bytes moved to Trash", value: sizeText(appModel.usageStats.bytesMovedToTrash))
+                StatValueRow(
+                    "Biggest single cleanup",
+                    value: sizeText(appModel.usageStats.biggestSingleCleanupBytes)
+                )
+            }
+
+            Section("Storage") {
+                Text("Stats are stored locally on this Mac. Radix records aggregate counts and sizes only.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Reset Stats", role: .destructive) {
+                    appModel.clearUsageStats()
+                }
+                .disabled(appModel.usageStats.isEmpty)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func countText(_ value: Int) -> String {
+        guard value > 0 else { return Self.emptyValueText }
+        return value.formatted()
+    }
+
+    private func sizeText(_ bytes: Int64) -> String {
+        guard bytes > 0 else { return Self.emptyValueText }
+        return RadixFormatters.size(bytes)
+    }
+
+    private func rateText(_ bytesPerSecond: Double) -> String {
+        guard bytesPerSecond.isFinite, bytesPerSecond > 0 else {
+            return Self.emptyValueText
+        }
+
+        return sizeText(Int64(bytesPerSecond.rounded())) + "/s"
+    }
+}
+
+private struct StatValueRow: View {
+    private let title: String
+    private let value: String
+
+    init(_ title: String, value: String) {
+        self.title = title
+        self.value = value
+    }
+
+    var body: some View {
+        LabeledContent(title) {
+            Text(value)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
     }
 }

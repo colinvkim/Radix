@@ -18,6 +18,7 @@ struct WorkspaceActions {
     let navigateToParent: () -> Void
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let zoomIntoSelection: () -> Void
+    let recordSunburstSegmentClick: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
     let openFullDiskAccessSettings: () -> Void

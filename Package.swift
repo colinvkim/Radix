@@ -44,6 +44,7 @@ let package = Package(
                 "Services/AppDependencies.swift",
                 "Services/AppPreferencesStore.swift",
                 "Services/AppSystemActions.swift",
+                "Services/AppUsageStatsStore.swift",
                 "Services/FileBrowserModel.swift",
                 "Services/FileSizeFormatter.swift",
                 "Services/HardLinkDeduplicator.swift",

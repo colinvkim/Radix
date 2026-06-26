@@ -186,6 +186,63 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageStatsLoadAndRecordSunburstSegmentClicksThroughInjectedStore() {
+        var storedStats = AppUsageStats.empty
+        storedStats.sunburstSegmentsClicked = 4
+        let usageStats = SpyAppUsageStatsStore(stats: storedStats)
+        let model = AppModel(dependencies: makeDependencies(usageStats: usageStats))
+
+        XCTAssertEqual(model.usageStats.sunburstSegmentsClicked, 4)
+
+        model.recordSunburstSegmentClick()
+
+        XCTAssertEqual(model.usageStats.sunburstSegmentsClicked, 5)
+        XCTAssertEqual(usageStats.savedStats.last?.sunburstSegmentsClicked, 5)
+    }
+
+    @MainActor
+    func testCompletedScansRecordUsageStats() async throws {
+        let scanService = ControlledAppModelScanService()
+        let usageStats = SpyAppUsageStatsStore()
+        let model = AppModel(dependencies: makeDependencies(
+            scanService: scanService,
+            usageStats: usageStats
+        ))
+        let target = makeTestTarget("/stats-scan")
+        let file = makeTestFileNode(id: "/stats-scan/file.bin", name: "file.bin", size: 120)
+        let root = makeTestDirectoryNode(id: "/stats-scan", name: "stats-scan", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = ScanSnapshot(
+            target: target,
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 20),
+            finishedAt: Date(timeIntervalSince1970: 23),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+
+        model.startScan(target)
+
+        try await waitUntil("deferred stats scan started") {
+            scanService.requests.count == 1
+        }
+
+        scanService.yield(.finished(snapshot), scanIndex: 0)
+        scanService.finish(scanIndex: 0)
+
+        try await waitUntil("usage stats recorded completed scan") {
+            model.usageStats.totalScansRun == 1
+        }
+
+        XCTAssertEqual(model.usageStats.totalBytesScanned, 120)
+        XCTAssertEqual(model.usageStats.largestScanBytes, 120)
+        XCTAssertEqual(model.usageStats.averageScanBytesPerSecond, 40)
+        XCTAssertEqual(model.usageStats.fastestScanBytesPerSecond, 40)
+        XCTAssertEqual(usageStats.savedStats.last?.totalScansRun, 1)
+    }
+
+    @MainActor
     func testFullDiskAccessFromOnboardingShowsWelcomeAfterRelaunch() {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(
@@ -544,6 +601,43 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertNil(model.pendingTrashNode)
         XCTAssertEqual(model.availableTargets, [refreshedTarget])
         XCTAssertEqual(recorder.defaultTargetsCallCount, 2)
+    }
+
+    @MainActor
+    func testConfirmPendingTrashRecordsCleanupUsageStats() {
+        let recorder = AppModelActionRecorder()
+        let usageStats = SpyAppUsageStatsStore()
+        let first = makeTestFileNode(id: "/selection/folder/first.bin", name: "first.bin", size: 40)
+        let second = makeTestFileNode(id: "/selection/folder/second.bin", name: "second.bin", size: 60)
+        let folder = makeTestDirectoryNode(
+            id: "/selection/folder",
+            name: "folder",
+            children: [first, second]
+        )
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [first, second]
+        ])
+        var actions = AppSystemActions.inert
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(
+            systemActions: actions,
+            usageStats: usageStats
+        ))
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [folder])
+        model.pendingTrashNode = folder
+        model.confirmMovePendingSelectionToTrash()
+
+        XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
+        XCTAssertEqual(model.usageStats.filesDeleted, 2)
+        XCTAssertEqual(model.usageStats.bytesMovedToTrash, 100)
+        XCTAssertEqual(model.usageStats.biggestSingleCleanupBytes, 100)
+        XCTAssertEqual(usageStats.savedStats.last?.filesDeleted, 2)
     }
 
     @MainActor
@@ -1478,6 +1572,44 @@ private final class NeverFinishingScanService: ScanEventStreaming, @unchecked Se
     }
 }
 
+private final class ControlledAppModelScanService: ScanEventStreaming, @unchecked Sendable {
+    private typealias Continuation = AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
+
+    private let lock = NSLock()
+    private var continuations: [Continuation] = []
+    private var storedRequests: [ScanTarget] = []
+
+    var requests: [ScanTarget] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedRequests
+    }
+
+    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        AsyncThrowingStream { continuation in
+            lock.lock()
+            continuations.append(continuation)
+            storedRequests.append(target)
+            lock.unlock()
+        }
+    }
+
+    func yield(_ event: ScanProgressEvent, scanIndex: Int) {
+        continuation(at: scanIndex)?.yield(event)
+    }
+
+    func finish(scanIndex: Int, throwing error: Error? = nil) {
+        continuation(at: scanIndex)?.finish(throwing: error)
+    }
+
+    private func continuation(at index: Int) -> Continuation? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard continuations.indices.contains(index) else { return nil }
+        return continuations[index]
+    }
+}
+
 @MainActor
 private func makeDependencies(
     preferences: SpyAppPreferencesStore = SpyAppPreferencesStore(preferences: .defaults),
@@ -1485,7 +1617,8 @@ private func makeDependencies(
     availableRecentIDs: Set<String> = [],
     systemActions: AppSystemActions = .inert,
     scanService: any ScanEventStreaming = ScanEngine(),
-    scanArchiveService: any ScanArchiveServicing = ScanArchiveService()
+    scanArchiveService: any ScanArchiveServicing = ScanArchiveService(),
+    usageStats: any AppUsageStatsPersisting = InMemoryAppUsageStatsStore()
 ) -> AppDependencies {
     AppDependencies(
         preferences: preferences,
@@ -1495,7 +1628,8 @@ private func makeDependencies(
         ),
         systemActions: systemActions,
         scanService: scanService,
-        scanArchiveService: scanArchiveService
+        scanArchiveService: scanArchiveService,
+        usageStats: usageStats
     )
 }
 
@@ -1596,6 +1730,30 @@ private final class SpyAppPreferencesStore: AppPreferencesPersisting {
     func markOnboardingIncomplete() {
         preferences.didCompleteOnboarding = false
         markOnboardingIncompleteCount += 1
+    }
+}
+
+private final class SpyAppUsageStatsStore: AppUsageStatsPersisting {
+    private var stats: AppUsageStats
+    var savedStats: [AppUsageStats] = []
+    var didClear = false
+
+    init(stats: AppUsageStats = .empty) {
+        self.stats = stats
+    }
+
+    func loadUsageStats() -> AppUsageStats {
+        stats
+    }
+
+    func saveUsageStats(_ stats: AppUsageStats) {
+        self.stats = stats
+        savedStats.append(stats)
+    }
+
+    func clearUsageStats() {
+        stats = .empty
+        didClear = true
     }
 }
 

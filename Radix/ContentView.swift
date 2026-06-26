@@ -518,6 +518,7 @@ private extension ContentView {
             navigateToParent: { appModel.navigateToParent() },
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
+            recordSunburstSegmentClick: { appModel.recordSunburstSegmentClick() },
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }

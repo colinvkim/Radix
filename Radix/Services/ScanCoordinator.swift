@@ -61,6 +61,7 @@ final class ScanCoordinator: ObservableObject {
     private var expansionCompletion: ((ScanExpansionResult) -> Void)?
     private var pendingProgressMetrics: ScanMetrics?
     private var lastProgressPublishTime: ContinuousClock.Instant?
+    var onScanFinished: ((ScanSnapshot) -> Void)?
 
     init(
         scanService: any ScanEventStreaming = ScanEngine(),
@@ -384,6 +385,7 @@ final class ScanCoordinator: ObservableObject {
         activeScanID = nil
         scanTask = nil
         phase = .displaying
+        onScanFinished?(snapshot)
     }
 
     private func apply(snapshot: ScanSnapshot) {

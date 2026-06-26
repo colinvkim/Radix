@@ -72,6 +72,7 @@ struct ActiveWorkspaceView: View {
             ].joined(separator: "|"),
             onSelect: actions.selectNode,
             onZoom: actions.selectAndFocusNode,
+            onSegmentClick: actions.recordSunburstSegmentClick,
             onNavigateToParent: actions.navigateToParent
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

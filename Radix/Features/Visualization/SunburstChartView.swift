@@ -14,6 +14,7 @@ struct SunburstChartView: View {
     let layoutID: String
     let onSelect: (String?) -> Void
     let onZoom: (String) -> Void
+    let onSegmentClick: () -> Void
     let onNavigateToParent: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -32,6 +33,7 @@ struct SunburstChartView: View {
         layoutID: String,
         onSelect: @escaping (String?) -> Void,
         onZoom: @escaping (String) -> Void,
+        onSegmentClick: @escaping () -> Void,
         onNavigateToParent: @escaping () -> Void,
         chartModel: @autoclosure @escaping () -> SunburstChartModel = SunburstChartModel()
     ) {
@@ -44,6 +46,7 @@ struct SunburstChartView: View {
         self.layoutID = layoutID
         self.onSelect = onSelect
         self.onZoom = onZoom
+        self.onSegmentClick = onSegmentClick
         self.onNavigateToParent = onNavigateToParent
         _chartModel = StateObject(wrappedValue: chartModel())
     }
@@ -309,8 +312,10 @@ struct SunburstChartView: View {
 
         if clickCount >= 2,
            treeStore.node(id: nodeID)?.isDirectory == true {
+            onSegmentClick()
             onZoom(nodeID)
         } else {
+            onSegmentClick()
             onSelect(nodeID)
         }
     }
