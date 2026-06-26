@@ -95,25 +95,27 @@ struct FileNodeActionAvailability: Equatable, Sendable {
     init(
         node: FileNodeRecord?,
         activeTarget: ScanTarget?,
-        trashSafetyPolicy: TrashSafetyPolicy = .live()
+        trashSafetyPolicy: TrashSafetyPolicy = .live(),
+        snapshotSource: ScanSnapshotSource = .live
     ) {
         let supportsFileActions = node?.supportsFileActions == true
         self.init(
-            canOpen: supportsFileActions,
-            canPreviewWithQuickLook: supportsFileActions,
-            canRevealInFinder: supportsFileActions,
-            canCopyPath: supportsFileActions,
+            canOpen: supportsFileActions && snapshotSource.allowsLivePathActions,
+            canPreviewWithQuickLook: supportsFileActions && snapshotSource.allowsLivePathActions,
+            canRevealInFinder: supportsFileActions && snapshotSource.allowsLivePathActions,
+            canCopyPath: supportsFileActions && snapshotSource.allowsArchivedPathCopy,
             canMoveToTrash: node?.supportsMoveToTrash(
                 activeTarget: activeTarget,
                 trashSafetyPolicy: trashSafetyPolicy
-            ) == true
+            ) == true && snapshotSource.allowsFileMutation
         )
     }
 
     init(
         nodes: [FileNodeRecord],
         activeTarget: ScanTarget?,
-        trashSafetyPolicy: TrashSafetyPolicy = .live()
+        trashSafetyPolicy: TrashSafetyPolicy = .live(),
+        snapshotSource: ScanSnapshotSource = .live
     ) {
         guard !nodes.isEmpty else {
             self.init(
@@ -130,7 +132,8 @@ struct FileNodeActionAvailability: Equatable, Sendable {
             self.init(
                 node: nodes.first,
                 activeTarget: activeTarget,
-                trashSafetyPolicy: trashSafetyPolicy
+                trashSafetyPolicy: trashSafetyPolicy,
+                snapshotSource: snapshotSource
             )
             return
         }
@@ -138,14 +141,14 @@ struct FileNodeActionAvailability: Equatable, Sendable {
         self.init(
             canOpen: false,
             canPreviewWithQuickLook: false,
-            canRevealInFinder: nodes.allSatisfy(\.supportsFileActions),
-            canCopyPath: nodes.allSatisfy(\.supportsFileActions),
+            canRevealInFinder: nodes.allSatisfy(\.supportsFileActions) && snapshotSource.allowsLivePathActions,
+            canCopyPath: nodes.allSatisfy(\.supportsFileActions) && snapshotSource.allowsArchivedPathCopy,
             canMoveToTrash: nodes.allSatisfy {
                 $0.supportsMoveToTrash(
                     activeTarget: activeTarget,
                     trashSafetyPolicy: trashSafetyPolicy
                 )
-            }
+            } && snapshotSource.allowsFileMutation
         )
     }
 }
@@ -181,12 +184,14 @@ extension FileNodeRecord {
 
     func actionAvailability(
         activeTarget: ScanTarget?,
-        trashSafetyPolicy: TrashSafetyPolicy = .live()
+        trashSafetyPolicy: TrashSafetyPolicy = .live(),
+        snapshotSource: ScanSnapshotSource = .live
     ) -> FileNodeActionAvailability {
         FileNodeActionAvailability(
             node: self,
             activeTarget: activeTarget,
-            trashSafetyPolicy: trashSafetyPolicy
+            trashSafetyPolicy: trashSafetyPolicy,
+            snapshotSource: snapshotSource
         )
     }
 }

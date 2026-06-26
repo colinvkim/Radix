@@ -61,7 +61,10 @@ struct WorkspaceHeaderView: View {
     }
 
     private var statusSubtitle: String {
-        snapshot.target.url.path
+        if snapshot.source.isImported {
+            return "Imported Snapshot - \(snapshot.target.url.path)"
+        }
+        return "Live Scan - \(snapshot.target.url.path)"
     }
 }
 

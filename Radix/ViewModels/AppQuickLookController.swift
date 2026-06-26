@@ -11,6 +11,7 @@ struct AppQuickLookSelectionContext {
     let selectedNode: FileNodeRecord?
     let activeTarget: ScanTarget?
     let trashSafetyPolicy: TrashSafetyPolicy
+    let snapshotSource: ScanSnapshotSource
 }
 
 @MainActor
@@ -138,7 +139,8 @@ final class AppQuickLookController {
     private func canPreview(_ node: FileNodeRecord, in context: AppQuickLookSelectionContext) -> Bool {
         node.actionAvailability(
             activeTarget: context.activeTarget,
-            trashSafetyPolicy: context.trashSafetyPolicy
+            trashSafetyPolicy: context.trashSafetyPolicy,
+            snapshotSource: context.snapshotSource
         ).canPreviewWithQuickLook
     }
 }

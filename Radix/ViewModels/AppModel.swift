@@ -8,6 +8,29 @@
 import Combine
 import Foundation
 
+enum ArchiveOperationKind: String, Equatable, Sendable {
+    case export
+    case importPreview
+    case `import`
+}
+
+struct ArchiveOperationState: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let kind: ArchiveOperationKind
+    let title: String
+    var message: String
+    var progressFraction: Double?
+
+    var isDeterminate: Bool {
+        progressFraction != nil
+    }
+}
+
+struct ExportConfirmationState: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let archiveURL: URL
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     private struct PostTrashRemovalRequest: Sendable {
@@ -42,6 +65,7 @@ final class AppModel: ObservableObject {
         case packageContentsHidden(settingEnabled: Bool)
         case folderRequiredForDrop
         case fullDiskAccessSettingsUnavailable
+        case readOnlySnapshot
 
         var alertTitle: String? {
             switch self {
@@ -77,6 +101,8 @@ final class AppModel: ObservableObject {
                 return "Drop a folder or mounted volume to start a scan."
             case .fullDiskAccessSettingsUnavailable:
                 return "Radix could not open Full Disk Access settings."
+            case .readOnlySnapshot:
+                return "Imported snapshots are read-only."
             }
         }
     }
@@ -101,6 +127,7 @@ final class AppModel: ObservableObject {
     }
     @Published var showsOnboarding: Bool
     @Published private(set) var fullDiskAccessStatus: FullDiskAccessStatus
+    @Published private(set) var isExportPanelPresented = false
     @Published var lastErrorMessage: String? {
         didSet {
             if lastErrorMessage == nil {
@@ -108,6 +135,9 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    @Published private(set) var archiveOperation: ArchiveOperationState?
+    @Published private(set) var exportConfirmation: ExportConfirmationState?
+    @Published var pendingImportPreview: ScanArchivePreview?
     @Published var pendingTrashNode: FileNodeRecord?
     @Published var pendingTrashSelection: PendingTrashSelection?
 
@@ -129,7 +159,14 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
+    private var deferredNavigationContextTask: Task<Void, Never>?
+    private var deferredNavigationContextID: UUID?
+    private var deferredNavigationContextSnapshotID: UUID?
     private var postTrashRemovalTask: Task<Void, Never>?
+    private var exportPanelTask: Task<Void, Never>?
+    private var snapshotArchiveTask: Task<Void, Never>?
+    private var snapshotArchiveProgressTask: Task<Void, Never>?
+    private var exportConfirmationDismissTask: Task<Void, Never>?
     private var postTrashRemovalRequests: [PostTrashRemovalRequest] = []
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
@@ -191,12 +228,19 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.resetTransientState()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
         targetCapacityDescriptionsRefreshTask?.cancel()
         targetCapacityDescriptionsRefreshTask = nil
+        exportPanelTask?.cancel()
+        exportPanelTask = nil
+        isExportPanelPresented = false
+        cancelArchiveOperation()
+        dismissExportConfirmation()
+        pendingImportPreview = nil
         quickLookController.setWorkspaceWindowNumber(nil)
         scanCoordinator.stopScan()
         quickLookController.removeKeyMonitor()
@@ -206,6 +250,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.clearActiveScanTracking()
         if scanCoordinator.canStopScan {
@@ -264,6 +309,10 @@ final class AppModel: ObservableObject {
 
     var canRescanFromErrorAlert: Bool {
         scanCoordinator.phase == .failed && scanCoordinator.canRescan
+    }
+
+    var isArchiveOperationInProgress: Bool {
+        archiveOperation != nil
     }
 
     func dismissOnboarding() {
@@ -349,11 +398,341 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var canExportCurrentScan: Bool {
+        scanCoordinator.snapshot?.isComplete == true &&
+            !scanCoordinator.isScanning &&
+            !isExportPanelPresented &&
+            !isArchiveOperationInProgress
+    }
+
+    var canImportScanSnapshot: Bool {
+        !scanCoordinator.isScanning &&
+            !isExportPanelPresented &&
+            !isArchiveOperationInProgress &&
+            pendingImportPreview == nil
+    }
+
+    private var canConfirmImportPreview: Bool {
+        !scanCoordinator.isScanning &&
+            !isExportPanelPresented &&
+            !isArchiveOperationInProgress
+    }
+
+    func exportCurrentScan() {
+        guard canExportCurrentScan,
+              let snapshot = scanCoordinator.snapshot else {
+            return
+        }
+
+        let defaultFileName = defaultExportFileName(for: snapshot)
+        let snapshotID = snapshot.id
+
+        exportPanelTask?.cancel()
+        isExportPanelPresented = true
+        exportPanelTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.isExportPanelPresented = false
+                self.exportPanelTask = nil
+            }
+
+            guard let destinationURL = await self.dependencies.systemActions.presentExportScanPanel(defaultFileName),
+                  !Task.isCancelled,
+                  self.scanCoordinator.snapshot?.id == snapshotID,
+                  self.canExportCurrentScanIgnoringPresentedPanel else {
+                return
+            }
+
+            self.startArchiveExport(snapshot: snapshot, destinationURL: destinationURL)
+        }
+    }
+
+    private var canExportCurrentScanIgnoringPresentedPanel: Bool {
+        scanCoordinator.snapshot?.isComplete == true &&
+            !scanCoordinator.isScanning &&
+            !isArchiveOperationInProgress
+    }
+
+    private func startArchiveExport(snapshot: ScanSnapshot, destinationURL: URL) {
+        cancelArchiveOperation()
+        let progressReporter = ScanArchiveProgressReporter()
+        let operationID = beginArchiveOperation(
+            kind: .export,
+            title: "Exporting Snapshot",
+            message: "Preparing archive",
+            progressReporter: progressReporter
+        )
+        snapshotArchiveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                progressReporter.finish()
+                self.finishArchiveOperation(id: operationID)
+            }
+
+            do {
+                let archiveService = self.dependencies.scanArchiveService
+                let exportOptions = ScanArchiveExportOptions(
+                    appVersion: Self.currentAppVersion(),
+                    progressReporter: progressReporter
+                )
+                let exportTask = Task.detached(priority: .utility) {
+                    try await archiveService.export(
+                        snapshot: snapshot,
+                        to: destinationURL,
+                        options: exportOptions
+                    )
+                }
+                let result = try await Self.value(cancelling: exportTask)
+                guard !Task.isCancelled,
+                      self.isCurrentArchiveOperation(id: operationID) else { return }
+                self.lastErrorMessage = nil
+                self.presentExportConfirmation(for: result.archiveURL)
+            } catch is CancellationError {
+                return
+            } catch {
+                self.presentError(error, title: "Export Failed")
+            }
+        }
+    }
+
+    func revealExportedSnapshotInFinder() {
+        guard let exportConfirmation else { return }
+        dependencies.systemActions.reveal(exportConfirmation.archiveURL)
+        dismissExportConfirmation()
+    }
+
+    func dismissExportConfirmation() {
+        exportConfirmationDismissTask?.cancel()
+        exportConfirmationDismissTask = nil
+        exportConfirmation = nil
+    }
+
+    private func presentExportConfirmation(for archiveURL: URL) {
+        dismissExportConfirmation()
+        let confirmation = ExportConfirmationState(id: UUID(), archiveURL: archiveURL)
+        exportConfirmation = confirmation
+        exportConfirmationDismissTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(4))
+            } catch {
+                return
+            }
+            guard self?.exportConfirmation?.id == confirmation.id else { return }
+            self?.exportConfirmation = nil
+            self?.exportConfirmationDismissTask = nil
+        }
+    }
+
+    func importScanSnapshot() {
+        guard canImportScanSnapshot else { return }
+        guard let sourceURL = dependencies.systemActions.presentImportScanPanel() else {
+            return
+        }
+
+        importScanSnapshot(from: sourceURL)
+    }
+
+    func importScanSnapshot(from sourceURL: URL) {
+        guard canImportScanSnapshot else {
+            presentErrorMessage(importUnavailableMessage)
+            return
+        }
+
+        previewImportScanSnapshot(from: sourceURL)
+    }
+
+    private var importUnavailableMessage: String {
+        if scanCoordinator.isScanning {
+            return "Stop the current scan before importing a snapshot."
+        }
+        if isExportPanelPresented {
+            return "Finish choosing an export location before importing a snapshot."
+        }
+        if isArchiveOperationInProgress {
+            return "Cancel the current archive operation before importing a snapshot."
+        }
+        if pendingImportPreview != nil {
+            return "Finish or cancel the current import preview before importing another snapshot."
+        }
+        return "Radix cannot import a snapshot right now."
+    }
+
+    func confirmImportPreview() {
+        guard canConfirmImportPreview,
+              let preview = pendingImportPreview else {
+            return
+        }
+
+        pendingImportPreview = nil
+        importApprovedScanSnapshot(from: preview.archiveURL)
+    }
+
+    func cancelImportPreview() {
+        cancelArchiveOperation()
+        pendingImportPreview = nil
+    }
+
+    func cancelArchiveOperation() {
+        snapshotArchiveTask?.cancel()
+        snapshotArchiveTask = nil
+        snapshotArchiveProgressTask?.cancel()
+        snapshotArchiveProgressTask = nil
+        archiveOperation = nil
+    }
+
+    private func previewImportScanSnapshot(from sourceURL: URL) {
+        pendingImportPreview = nil
+        cancelArchiveOperation()
+        let operationID = beginArchiveOperation(
+            kind: .importPreview,
+            title: "Reading Snapshot",
+            message: "Reading manifest",
+            progressReporter: nil
+        )
+        snapshotArchiveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.finishArchiveOperation(id: operationID)
+            }
+
+            do {
+                let archiveService = self.dependencies.scanArchiveService
+                let previewTask = Task.detached(priority: .utility) {
+                    try await archiveService.previewSnapshot(from: sourceURL)
+                }
+                let preview = try await Self.value(cancelling: previewTask)
+                guard !Task.isCancelled,
+                      self.isCurrentArchiveOperation(id: operationID) else { return }
+                self.pendingImportPreview = preview
+                self.lastErrorMessage = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                self.presentError(error)
+            }
+        }
+    }
+
+    private func importApprovedScanSnapshot(from sourceURL: URL) {
+        cancelArchiveOperation()
+        let progressReporter = ScanArchiveProgressReporter()
+        let operationID = beginArchiveOperation(
+            kind: .import,
+            title: "Importing Snapshot",
+            message: "Reading archive",
+            progressReporter: progressReporter
+        )
+        snapshotArchiveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                progressReporter.finish()
+                self.finishArchiveOperation(id: operationID)
+            }
+
+            do {
+                let archiveService = self.dependencies.scanArchiveService
+                let importTask = Task.detached(priority: .utility) {
+                    try await archiveService.importSnapshot(
+                        from: sourceURL,
+                        progressReporter: progressReporter
+                    )
+                }
+                let result = try await Self.value(cancelling: importTask)
+                guard !Task.isCancelled,
+                      self.isCurrentArchiveOperation(id: operationID) else { return }
+                progressReporter.report(ScanArchiveProgress(
+                    phase: .openingSnapshot,
+                    message: "Opening snapshot"
+                ))
+                self.updateArchiveOperation(id: operationID, message: "Opening snapshot", progressFraction: nil)
+                try await Task.sleep(for: .milliseconds(1))
+                self.restoreImportedSnapshot(result.snapshot)
+                self.lastErrorMessage = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                self.presentError(error)
+            }
+        }
+    }
+
+    private func beginArchiveOperation(
+        kind: ArchiveOperationKind,
+        title: String,
+        message: String,
+        progressReporter: ScanArchiveProgressReporter?
+    ) -> UUID {
+        dismissExportConfirmation()
+        let operationID = UUID()
+        archiveOperation = ArchiveOperationState(
+            id: operationID,
+            kind: kind,
+            title: title,
+            message: message,
+            progressFraction: nil
+        )
+
+        if let progressReporter {
+            snapshotArchiveProgressTask = Task { @MainActor [weak self] in
+                for await progress in progressReporter.updates {
+                    guard let self else { return }
+                    updateArchiveOperation(
+                        id: operationID,
+                        message: progress.message,
+                        progressFraction: progress.fractionCompleted
+                    )
+                }
+            }
+        }
+
+        return operationID
+    }
+
+    private func updateArchiveOperation(
+        id operationID: UUID,
+        message: String,
+        progressFraction: Double?
+    ) {
+        guard var operation = archiveOperation,
+              operation.id == operationID else {
+            return
+        }
+        operation.message = message
+        operation.progressFraction = progressFraction
+        archiveOperation = operation
+    }
+
+    private func finishArchiveOperation(id operationID: UUID) {
+        guard archiveOperation?.id == operationID || archiveOperation == nil else {
+            return
+        }
+        snapshotArchiveTask = nil
+        if archiveOperation?.id == operationID {
+            archiveOperation = nil
+        }
+        snapshotArchiveProgressTask?.cancel()
+        snapshotArchiveProgressTask = nil
+    }
+
+    private func isCurrentArchiveOperation(id operationID: UUID) -> Bool {
+        archiveOperation?.id == operationID
+    }
+
+    nonisolated private static func value<T: Sendable>(cancelling task: Task<T, Error>) async throws -> T {
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
     func startScan(_ target: ScanTarget) {
         // Defer state mutations to the next runloop to avoid
         // "Publishing changes from within view updates is not allowed."
+        cancelArchiveOperation()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
@@ -381,6 +760,31 @@ final class AppModel: ObservableObject {
         deferredNavigationActionID = nil
         deferredNavigationActionTask?.cancel()
         deferredNavigationActionTask = nil
+    }
+
+    private func cancelDeferredNavigationContextUpdate() {
+        deferredNavigationContextSnapshotID = nil
+        deferredNavigationContextID = nil
+        deferredNavigationContextTask?.cancel()
+        deferredNavigationContextTask = nil
+    }
+
+    private func scheduleDeferredNavigationContextUpdate(for snapshotID: UUID) {
+        scheduleDeferredViewUpdate(
+            id: \.deferredNavigationContextID,
+            task: \.deferredNavigationContextTask
+        ) { model in
+            guard model.deferredNavigationContextSnapshotID == snapshotID,
+                  model.scanCoordinator.snapshot?.id == snapshotID else {
+                if model.deferredNavigationContextSnapshotID == snapshotID {
+                    model.deferredNavigationContextSnapshotID = nil
+                }
+                return
+            }
+
+            model.deferredNavigationContextSnapshotID = nil
+            model.navigationModel.refreshTableNodesForCurrentContext()
+        }
     }
 
     private func cancelPostTrashSnapshotRemoval() {
@@ -411,6 +815,7 @@ final class AppModel: ObservableObject {
     }
 
     private func startScanNow(_ target: ScanTarget) {
+        cancelArchiveOperation()
         let options = scanOptions(for: target)
         sidebarScanCacheController.prepareForScanStart(target: target, options: options)
         scanCoordinator.startScan(target, options: options) {
@@ -437,6 +842,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
@@ -489,7 +895,7 @@ final class AppModel: ObservableObject {
 
     func zoomIntoSelection() {
         do {
-            let node = try validatedSelection(requiresDirectory: true)
+            let node = try validatedSelection(requiresDirectory: true, requiresLivePath: false)
             guard navigationModel.canZoomIntoSelection else {
                 if shouldPresentPackageContentsHint(for: node) {
                     throw FileActionError.packageContentsHidden(settingEnabled: treatPackagesAsDirectories)
@@ -600,7 +1006,7 @@ final class AppModel: ObservableObject {
 
     func revealSelectedInFinder() {
         do {
-            let nodes = try validatedSelectedNodes()
+            let nodes = try validatedSelectedNodes(requiresLivePath: true)
             if let node = nodes.first, nodes.count == 1 {
                 dependencies.systemActions.reveal(node.url)
             } else {
@@ -613,7 +1019,7 @@ final class AppModel: ObservableObject {
 
     func revealPrimarySelectionInFinder() {
         do {
-            let node = try validatedSelection()
+            let node = try validatedSelection(requiresLivePath: true)
             dependencies.systemActions.reveal(node.url)
         } catch {
             presentError(error)
@@ -622,7 +1028,7 @@ final class AppModel: ObservableObject {
 
     func revealNodesInFinder(_ nodes: [FileNodeRecord]) {
         do {
-            let nodes = try validatedNodes(nodes)
+            let nodes = try validatedNodes(nodes, requiresLivePath: true)
             if let node = nodes.first, nodes.count == 1 {
                 dependencies.systemActions.reveal(node.url)
             } else {
@@ -639,7 +1045,7 @@ final class AppModel: ObservableObject {
 
     func openSelected() {
         do {
-            let node = try validatedSelection()
+            let node = try validatedSelection(requiresLivePath: true)
             try dependencies.systemActions.open(node.url)
         } catch {
             presentError(error)
@@ -656,7 +1062,7 @@ final class AppModel: ObservableObject {
 
     func copySelectedPath() {
         do {
-            let nodes = try validatedSelectedNodes()
+            let nodes = try validatedSelectedNodesForPathCopy()
             if let node = nodes.first, nodes.count == 1 {
                 try dependencies.systemActions.copyPath(node.url)
             } else {
@@ -669,7 +1075,7 @@ final class AppModel: ObservableObject {
 
     func copyPrimarySelectionPath() {
         do {
-            let node = try validatedSelection()
+            let node = try validatedSelectionForPathCopy()
             try dependencies.systemActions.copyPath(node.url)
         } catch {
             presentError(error)
@@ -678,7 +1084,7 @@ final class AppModel: ObservableObject {
 
     func copyPaths(for nodes: [FileNodeRecord]) {
         do {
-            let nodes = try validatedNodes(nodes)
+            let nodes = try validatedNodesForPathCopy(nodes)
             if let node = nodes.first, nodes.count == 1 {
                 try dependencies.systemActions.copyPath(node.url)
             } else {
@@ -695,7 +1101,7 @@ final class AppModel: ObservableObject {
 
     func requestMovePrimarySelectionToTrash() {
         do {
-            let node = try validatedSelection()
+            let node = try validatedSelectionForMutation()
             guard node.supportsMoveToTrash(
                 activeTarget: scanCoordinator.selectedTarget,
                 trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
@@ -712,7 +1118,7 @@ final class AppModel: ObservableObject {
 
     func requestMoveNodesToTrash(_ nodes: [FileNodeRecord]) {
         do {
-            let nodes = try validatedNodes(nodes)
+            let nodes = try validatedNodesForMutation(nodes)
             guard nodes.allSatisfy({ node in
                 node.supportsMoveToTrash(
                     activeTarget: scanCoordinator.selectedTarget,
@@ -885,8 +1291,10 @@ final class AppModel: ObservableObject {
         dependencies.preferences.markOnboardingIncomplete()
     }
 
-    private func presentError(_ error: Error) {
-        if let fileActionError = error as? FileActionError {
+    private func presentError(_ error: Error, title: String? = nil) {
+        if let title {
+            lastActionErrorTitle = title
+        } else if let fileActionError = error as? FileActionError {
             lastActionErrorTitle = fileActionError.alertTitle
         } else {
             lastActionErrorTitle = nil
@@ -904,6 +1312,13 @@ final class AppModel: ObservableObject {
     }
 
     private func validatedSelection(requiresDirectory: Bool = false) throws -> FileNodeRecord {
+        try validatedSelection(requiresDirectory: requiresDirectory, requiresLivePath: true)
+    }
+
+    private func validatedSelection(
+        requiresDirectory: Bool = false,
+        requiresLivePath: Bool
+    ) throws -> FileNodeRecord {
         guard let selectedNode = navigationModel.selectedNode else {
             throw FileActionError.noSelection
         }
@@ -913,18 +1328,20 @@ final class AppModel: ObservableObject {
         if requiresDirectory, !selectedNode.isDirectory {
             throw FileActionError.directoryRequired
         }
-        guard dependencies.systemActions.fileExists(selectedNode.url) else {
-            clearSelection()
-            throw FileActionError.unavailable(path: selectedNode.url.path)
+        if requiresLivePath {
+            try validateLivePathAction(selectedNode)
         }
         return selectedNode
     }
 
-    private func validatedSelectedNodes() throws -> [FileNodeRecord] {
-        try validatedNodes(navigationModel.selectedNodes)
+    private func validatedSelectedNodes(requiresLivePath: Bool) throws -> [FileNodeRecord] {
+        try validatedNodes(navigationModel.selectedNodes, requiresLivePath: requiresLivePath)
     }
 
-    private func validatedNodes(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
+    private func validatedNodes(
+        _ nodes: [FileNodeRecord],
+        requiresLivePath: Bool
+    ) throws -> [FileNodeRecord] {
         guard !nodes.isEmpty else {
             throw FileActionError.noSelection
         }
@@ -933,13 +1350,79 @@ final class AppModel: ObservableObject {
             guard node.supportsFileActions else {
                 throw FileActionError.unsupported
             }
-            guard dependencies.systemActions.fileExists(node.url) else {
-                clearSelection()
-                throw FileActionError.unavailable(path: node.url.path)
+            if requiresLivePath {
+                try validateLivePathAction(node)
             }
         }
 
         return nodes
+    }
+
+    private func validatedSelectionForPathCopy() throws -> FileNodeRecord {
+        try validatePathCopyAllowed()
+        return try validatedSelection(requiresLivePath: false)
+    }
+
+    private func validatedSelectedNodesForPathCopy() throws -> [FileNodeRecord] {
+        try validatePathCopyAllowed()
+        return try validatedNodes(navigationModel.selectedNodes, requiresLivePath: false)
+    }
+
+    private func validatedNodesForPathCopy(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
+        try validatePathCopyAllowed()
+        return try validatedNodes(nodes, requiresLivePath: false)
+    }
+
+    private func validatedSelectionForMutation() throws -> FileNodeRecord {
+        try validateSnapshotAllowsMutation()
+        return try validatedSelection(requiresLivePath: true)
+    }
+
+    private func validatedNodesForMutation(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
+        try validateSnapshotAllowsMutation()
+        return try validatedNodes(nodes, requiresLivePath: true)
+    }
+
+    private func validateLivePathAction(_ node: FileNodeRecord) throws {
+        guard scanCoordinator.snapshotSource.allowsLivePathActions else {
+            throw FileActionError.unsupported
+        }
+        guard dependencies.systemActions.fileExists(node.url) else {
+            clearSelection()
+            throw FileActionError.unavailable(path: node.url.path)
+        }
+        try validateImportedIdentityIfAvailable(node)
+    }
+
+    private func validateImportedIdentityIfAvailable(_ node: FileNodeRecord) throws {
+        guard scanCoordinator.snapshotSource.isImported,
+              node.fileIdentity != nil else {
+            return
+        }
+
+        switch dependencies.systemActions.verifyTrashIdentity(node) {
+        case .matches, .missingScannedIdentity:
+            return
+        case .missingCurrentItem:
+            clearSelection()
+            throw FileActionError.unavailable(path: node.url.path)
+        case .mismatch:
+            throw FileActionError.changedSinceScan(path: node.url.path)
+        case .metadataUnavailable(let reason):
+            throw FileActionError.currentIdentityUnavailable(path: node.url.path, reason: reason)
+        }
+    }
+
+    private func validatePathCopyAllowed() throws {
+        guard scanCoordinator.snapshotSource.allowsArchivedPathCopy else {
+            throw FileActionError.unsupported
+        }
+    }
+
+    private func validateSnapshotAllowsMutation() throws {
+        guard scanCoordinator.snapshotSource.allowsFileMutation else {
+            throw FileActionError.readOnlySnapshot
+        }
     }
 
     private func topLevelTrashNodes(from nodes: [FileNodeRecord]) -> [FileNodeRecord] {
@@ -960,12 +1443,41 @@ final class AppModel: ObservableObject {
     private func prepareForScan(_ target: ScanTarget) {
         lastErrorMessage = nil
         navigationModel.reset()
+        pendingImportPreview = nil
         pendingTrashNode = nil
         pendingTrashSelection = nil
         sidebarModel.setActiveTargetID(target.id)
 
         registerRecentTarget(target)
         refreshAvailableTargets()
+    }
+
+    private func restoreImportedSnapshot(_ snapshot: ScanSnapshot) {
+        cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
+        cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
+        cancelPostTrashSnapshotRemoval()
+        sidebarScanCacheController.cancelPendingSidebarTargetRestore()
+        sidebarScanCacheController.clearActiveScanTracking()
+        sidebarScanCacheController.clearDisplayedSnapshot()
+
+        deferredNavigationContextSnapshotID = snapshot.id
+        scanCoordinator.restoreCompletedSnapshot(snapshot) {
+            prepareForImportedSnapshot()
+        }
+        navigationModel.updateScanContext(snapshot: snapshot, loadTableNodesImmediately: false)
+        scheduleDeferredNavigationContextUpdate(for: snapshot.id)
+    }
+
+    private func prepareForImportedSnapshot() {
+        lastErrorMessage = nil
+        navigationModel.reset()
+        pendingImportPreview = nil
+        pendingTrashNode = nil
+        pendingTrashSelection = nil
+        sidebarModel.setActiveTargetID(nil)
+        quickLookController.closePreview()
     }
 
     private func scanOptions(
@@ -1045,7 +1557,14 @@ final class AppModel: ObservableObject {
     private func observeScanCoordinator() {
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
-                self?.navigationModel.updateScanContext(snapshot: snapshot)
+                guard let self else { return }
+                if let snapshotID = snapshot?.id,
+                   snapshotID == deferredNavigationContextSnapshotID {
+                    return
+                }
+
+                cancelDeferredNavigationContextUpdate()
+                navigationModel.updateScanContext(snapshot: snapshot)
             }
             .store(in: &cancellables)
 
@@ -1167,6 +1686,27 @@ final class AppModel: ObservableObject {
             exclusionPatterns: scanFilters.3
         )
     }
+
+    private func defaultExportFileName(for snapshot: ScanSnapshot) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        let dateText = formatter.string(from: snapshot.finishedAt ?? Date())
+        let targetName = sanitizedFileName(snapshot.target.displayName)
+        return "\(targetName) \(dateText)"
+    }
+
+    private func sanitizedFileName(_ name: String) -> String {
+        let invalidCharacters = CharacterSet(charactersIn: "/:")
+            .union(.newlines)
+            .union(.controlCharacters)
+        let components = name.components(separatedBy: invalidCharacters)
+        let sanitizedName = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitizedName.isEmpty ? "Radix Scan" : sanitizedName
+    }
+
+    private static func currentAppVersion() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
 }
 
 extension AppModel: AppQuickLookControllerDelegate {
@@ -1174,7 +1714,8 @@ extension AppModel: AppQuickLookControllerDelegate {
         AppQuickLookSelectionContext(
             selectedNode: navigationModel.selectedNode,
             activeTarget: scanCoordinator.selectedTarget,
-            trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+            trashSafetyPolicy: scanCoordinator.trashSafetyPolicy,
+            snapshotSource: scanCoordinator.snapshotSource
         )
     }
 
@@ -1186,7 +1727,7 @@ extension AppModel: AppQuickLookControllerDelegate {
     }
 
     func validatedSelectionForQuickLook() throws -> FileNodeRecord {
-        try validatedSelection()
+        try validatedSelection(requiresLivePath: true)
     }
 
     func appQuickLookController(_ controller: AppQuickLookController, didFailWith error: Error) {

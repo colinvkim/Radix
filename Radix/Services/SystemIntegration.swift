@@ -8,6 +8,7 @@
 import AppKit
 import Darwin
 import Foundation
+import UniformTypeIdentifiers
 
 enum FullDiskAccessStatus: Equatable, Sendable {
     case granted
@@ -74,6 +75,10 @@ enum SystemIntegration {
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
+    private static var radixScanArchiveContentType: UTType {
+        UTType(exportedAs: ScanArchiveService.formatIdentifier, conformingTo: .package)
+    }
+
     @MainActor
     static func presentScanPanel() -> ScanTarget? {
         let panel = NSOpenPanel()
@@ -89,6 +94,147 @@ enum SystemIntegration {
         }
 
         return ScanTarget(url: url)
+    }
+
+    @MainActor
+    static func presentExportScanPanel(defaultFileName: String) async -> URL? {
+        guard !Task.isCancelled else { return nil }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [radixScanArchiveContentType]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = defaultFileName
+        panel.prompt = "Export"
+
+        let cancellationState = ExportPanelCancellationState()
+        let presentation = ExportPanelPresentation(
+            panel: panel,
+            parentWindow: exportPanelParentWindow,
+            cancellationState: cancellationState
+        )
+        let selectedURL = await withTaskCancellationHandler {
+            await presentation.begin()
+        } onCancel: {
+            cancellationState.cancel()
+            Task { @MainActor in
+                presentation.cancel()
+            }
+        }
+        return normalizedExportPanelURL(selectedURL)
+    }
+
+    @MainActor
+    static func presentImportScanPanel() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [radixScanArchiveContentType]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.canCreateDirectories = false
+        panel.prompt = "Import"
+
+        guard panel.runModal() == .OK else {
+            return nil
+        }
+        return panel.url
+    }
+
+    @MainActor
+    private static var exportPanelParentWindow: NSWindow? {
+        NSApp.mainWindow ??
+            NSApp.keyWindow ??
+            NSApp.windows.first { window in
+                window.isVisible && !window.isMiniaturized
+            }
+    }
+
+    private static func normalizedExportPanelURL(_ url: URL?) -> URL? {
+        guard let url else { return nil }
+        if url.pathExtension.lowercased() == ScanArchiveService.fileExtension {
+            return url
+        }
+        return url.appendingPathExtension(ScanArchiveService.fileExtension)
+    }
+
+    private nonisolated final class ExportPanelCancellationState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+        }
+    }
+
+    @MainActor
+    private final class ExportPanelPresentation {
+        private let panel: NSSavePanel
+        private let parentWindow: NSWindow?
+        private let cancellationState: ExportPanelCancellationState
+        private var continuation: CheckedContinuation<URL?, Never>?
+        private var isFinished = false
+
+        init(
+            panel: NSSavePanel,
+            parentWindow: NSWindow?,
+            cancellationState: ExportPanelCancellationState
+        ) {
+            self.panel = panel
+            self.parentWindow = parentWindow
+            self.cancellationState = cancellationState
+        }
+
+        func begin() async -> URL? {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+                guard !cancellationState.isCancelled, !Task.isCancelled else {
+                    panel.orderOut(nil)
+                    finish(returning: nil)
+                    return
+                }
+
+                let completionHandler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                    Task { @MainActor in
+                        self?.complete(response: response)
+                    }
+                }
+                if let parentWindow {
+                    panel.beginSheetModal(for: parentWindow, completionHandler: completionHandler)
+                } else {
+                    panel.begin(completionHandler: completionHandler)
+                }
+            }
+        }
+
+        func cancel() {
+            guard !isFinished else { return }
+
+            panel.cancel(nil)
+            panel.orderOut(nil)
+            finish(returning: nil)
+        }
+
+        private func complete(response: NSApplication.ModalResponse) {
+            let selectedURL = response == .OK && !cancellationState.isCancelled ? panel.url : nil
+            panel.orderOut(nil)
+            finish(returning: selectedURL)
+        }
+
+        private func finish(returning url: URL?) {
+            guard !isFinished else { return }
+
+            isFinished = true
+            let continuation = continuation
+            self.continuation = nil
+            continuation?.resume(returning: url)
+        }
     }
 
     nonisolated static func defaultTargets() -> [ScanTarget] {

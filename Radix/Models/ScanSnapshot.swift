@@ -28,8 +28,82 @@ struct ScanAggregateStats: Sendable {
     let inaccessibleItemCount: Int
 }
 
+nonisolated enum ScanArchivePathMode: String, Codable, Sendable {
+    case absolute
+
+    var allowsArchivedPathCopy: Bool {
+        switch self {
+        case .absolute:
+            return true
+        }
+    }
+}
+
+nonisolated enum ImportedSnapshotLiveActionCapability: String, Codable, Sendable {
+    case disabled
+    case pathValidation
+}
+
+nonisolated struct ImportedSnapshotContext: Sendable {
+    let sourceURL: URL
+    let importedAt: Date
+    let pathMode: ScanArchivePathMode
+    let liveActionCapability: ImportedSnapshotLiveActionCapability
+
+    nonisolated init(
+        sourceURL: URL,
+        importedAt: Date = Date(),
+        pathMode: ScanArchivePathMode,
+        liveActionCapability: ImportedSnapshotLiveActionCapability
+    ) {
+        self.sourceURL = sourceURL
+        self.importedAt = importedAt
+        self.pathMode = pathMode
+        self.liveActionCapability = liveActionCapability
+    }
+}
+
+nonisolated enum ScanSnapshotSource: Sendable {
+    case live
+    case imported(ImportedSnapshotContext)
+
+    nonisolated var isImported: Bool {
+        if case .imported = self {
+            return true
+        }
+        return false
+    }
+
+    nonisolated var allowsLivePathActions: Bool {
+        switch self {
+        case .live:
+            return true
+        case .imported(let context):
+            return context.liveActionCapability == .pathValidation
+        }
+    }
+
+    nonisolated var allowsArchivedPathCopy: Bool {
+        switch self {
+        case .live:
+            return true
+        case .imported(let context):
+            return context.pathMode.allowsArchivedPathCopy
+        }
+    }
+
+    nonisolated var allowsFileMutation: Bool {
+        switch self {
+        case .live:
+            return true
+        case .imported:
+            return false
+        }
+    }
+}
+
 struct ScanSnapshot: Identifiable, Sendable {
-    let id = UUID()
+    let id: UUID
     let target: ScanTarget
     let treeStore: FileTreeStore
     let startedAt: Date
@@ -37,6 +111,32 @@ struct ScanSnapshot: Identifiable, Sendable {
     let scanWarnings: [ScanWarning]
     let aggregateStats: ScanAggregateStats
     let isComplete: Bool
+    let scanOptions: ScanOptions?
+    let source: ScanSnapshotSource
+
+    nonisolated init(
+        id: UUID = UUID(),
+        target: ScanTarget,
+        treeStore: FileTreeStore,
+        startedAt: Date,
+        finishedAt: Date?,
+        scanWarnings: [ScanWarning],
+        aggregateStats: ScanAggregateStats,
+        isComplete: Bool,
+        scanOptions: ScanOptions? = nil,
+        source: ScanSnapshotSource = .live
+    ) {
+        self.id = id
+        self.target = target
+        self.treeStore = treeStore
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.scanWarnings = scanWarnings
+        self.aggregateStats = aggregateStats
+        self.isComplete = isComplete
+        self.scanOptions = scanOptions
+        self.source = source
+    }
 
     nonisolated var root: FileNodeRecord {
         treeStore.root
@@ -63,7 +163,9 @@ struct ScanSnapshot: Identifiable, Sendable {
             finishedAt: finishedAt,
             scanWarnings: scanWarnings,
             aggregateStats: updatedStore.aggregateStats,
-            isComplete: isComplete
+            isComplete: isComplete,
+            scanOptions: scanOptions,
+            source: source
         )
     }
 
@@ -100,7 +202,9 @@ struct ScanSnapshot: Identifiable, Sendable {
             finishedAt: finishedAt,
             scanWarnings: Self.mergedWarnings(existing: scanWarnings, additional: additionalWarnings),
             aggregateStats: updatedStore.aggregateStats,
-            isComplete: isComplete
+            isComplete: isComplete,
+            scanOptions: scanOptions,
+            source: source
         )
     }
 
@@ -134,7 +238,9 @@ struct ScanSnapshot: Identifiable, Sendable {
             finishedAt: finishedAt,
             scanWarnings: scopedWarnings,
             aggregateStats: scopedStore.aggregateStats,
-            isComplete: isComplete
+            isComplete: isComplete,
+            scanOptions: scanOptions,
+            source: source
         )
     }
 

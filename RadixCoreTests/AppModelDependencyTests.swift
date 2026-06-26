@@ -827,6 +827,594 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.availableTargets, [loadedTarget])
         XCTAssertTrue(model.targetCapacityDescriptions.isEmpty)
     }
+
+    @MainActor
+    func testImportScanSnapshotRestoresReadOnlyImportedSnapshot() async throws {
+        let archiveURL = URL(filePath: "/tmp/imported.radixscan", directoryHint: .isDirectory)
+        let file = makeTestFileNode(id: "/imported/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/imported", name: "imported", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "imported", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                archiveSize: 1,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(store.aggregateStats)
+            ),
+            importResult: ScanArchiveImportResult(
+                archiveURL: archiveURL,
+                snapshot: importedSnapshot,
+                manifest: manifest
+            )
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+
+        model.importScanSnapshot()
+
+        try await waitForAppModelCondition("import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+
+        let previewedURLs = await archiveService.previewedURLsSnapshot()
+        XCTAssertEqual(previewedURLs, [archiveURL])
+        let importedURLsBeforeConfirm = await archiveService.importedURLsSnapshot()
+        XCTAssertTrue(importedURLsBeforeConfirm.isEmpty)
+        XCTAssertNil(model.scanState.snapshot)
+
+        model.confirmImportPreview()
+
+        try await waitForAppModelCondition("imported snapshot restored") {
+            model.scanState.snapshot?.id == importedSnapshot.id
+        }
+
+        let importedURLs = await archiveService.importedURLsSnapshot()
+        XCTAssertEqual(importedURLs, [archiveURL])
+        XCTAssertNil(model.pendingImportPreview)
+        XCTAssertEqual(model.scanState.selectedTarget, importedSnapshot.target)
+        XCTAssertNil(model.scanState.completedScanSnapshot)
+        XCTAssertFalse(model.scanState.snapshotSource.allowsFileMutation)
+        XCTAssertEqual(model.navigation.focusedNodeID, importedSnapshot.root.id)
+
+        model.select(nodeID: file.id)
+        model.requestMoveSelectedToTrash()
+        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertEqual(model.lastErrorMessage, "Imported snapshots are read-only.")
+    }
+
+    @MainActor
+    func testImportPreviewDisablesStartingAnotherImport() async throws {
+        let archiveURL = URL(filePath: "/tmp/import-preview.radixscan", directoryHint: .isDirectory)
+        let file = makeTestFileNode(id: "/import-preview/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/import-preview", name: "import-preview", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "import-preview", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                archiveSize: 1,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(store.aggregateStats)
+            )
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+
+        XCTAssertFalse(model.canImportScanSnapshot)
+
+        model.cancelImportPreview()
+
+        XCTAssertTrue(model.canImportScanSnapshot)
+    }
+
+    @MainActor
+    func testImportScanSnapshotDefersWideRootTableMaterializationUntilAfterSnapshotPublish() async throws {
+        let archiveURL = URL(filePath: "/tmp/wide-imported.radixscan", directoryHint: .isDirectory)
+        let childCount = 20_000
+        let children = (0..<childCount).map { index in
+            makeTestFileNode(
+                id: "/wide-imported/file-\(String(format: "%05d", index)).txt",
+                name: "file-\(String(format: "%05d", index)).txt",
+                size: Int64(childCount - index)
+            )
+        }
+        let root = makeTestDirectoryNode(id: "/wide-imported", name: "wide-imported", children: children)
+        let store = FileTreeStore(root: root, childrenByID: [root.id: children])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "wide-imported", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                archiveSize: 1,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(store.aggregateStats)
+            ),
+            importResult: ScanArchiveImportResult(
+                archiveURL: archiveURL,
+                snapshot: importedSnapshot,
+                manifest: manifest
+            )
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+        var tableNodeCountAtSnapshotPublish: Int?
+        let snapshotCancellable = model.scanState.$snapshot.sink { snapshot in
+            guard snapshot?.id == importedSnapshot.id else { return }
+            tableNodeCountAtSnapshotPublish = model.navigation.tableNodes.count
+        }
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("wide import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+
+        model.confirmImportPreview()
+        try await waitForAppModelCondition("wide imported snapshot restored") {
+            model.scanState.snapshot?.id == importedSnapshot.id
+        }
+
+        XCTAssertEqual(tableNodeCountAtSnapshotPublish, 0)
+        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+
+        try await waitForAppModelCondition("wide imported table materialized") {
+            model.navigation.tableNodes.count == childCount
+        }
+
+        withExtendedLifetime(snapshotCancellable) {}
+    }
+
+    @MainActor
+    func testURLImportWhileScanningShowsError() async throws {
+        let scanService = NeverFinishingScanService()
+        let model = AppModel(dependencies: makeDependencies(scanService: scanService))
+        let scanTarget = ScanTarget(
+            id: "/active-scan",
+            url: URL(filePath: "/active-scan", directoryHint: .isDirectory),
+            displayName: "active-scan",
+            kind: .folder
+        )
+
+        model.startScan(scanTarget)
+        try await waitForAppModelCondition("scan started") {
+            model.scanState.isScanning
+        }
+
+        model.importScanSnapshot(from: URL(filePath: "/tmp/opened.radixscan", directoryHint: .isDirectory))
+
+        XCTAssertEqual(model.lastErrorMessage, "Stop the current scan before importing a snapshot.")
+    }
+
+    @MainActor
+    func testExportCurrentScanUsesInjectedPanelAndArchiveService() async throws {
+        let archiveURL = URL(filePath: "/tmp/export.radixscan", directoryHint: .isDirectory)
+        let archiveService = SpyScanArchiveService()
+        let recorder = AppModelActionRecorder()
+        var requestedDefaultFileNames: [String] = []
+        var actions = AppSystemActions.inert
+        actions.presentExportScanPanel = { defaultFileName in
+            requestedDefaultFileNames.append(defaultFileName)
+            return archiveURL
+        }
+        actions.reveal = { recorder.revealedURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+        let file = makeTestFileNode(id: "/export/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/export", name: "Export", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "Export", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.restoreCompletedSnapshot(snapshot)
+
+        model.exportCurrentScan()
+
+        try await waitForAsyncCondition("export requested") {
+            await !archiveService.exportRequestsSnapshot().isEmpty
+        }
+
+        let exportRequests = await archiveService.exportRequestsSnapshot()
+        XCTAssertEqual(exportRequests.map(\.snapshotID), [snapshot.id])
+        XCTAssertEqual(exportRequests.map(\.destinationURL), [archiveURL])
+        XCTAssertEqual(exportRequests.map(\.pathMode), [.absolute])
+        XCTAssertEqual(requestedDefaultFileNames.count, 1)
+        XCTAssertTrue(requestedDefaultFileNames[0].hasPrefix("Export "))
+        XCTAssertFalse(requestedDefaultFileNames[0].hasSuffix(".radixscan"))
+        XCTAssertNil(model.lastErrorMessage)
+        try await waitForAppModelCondition("export confirmation presented") {
+            model.exportConfirmation?.archiveURL == archiveURL
+        }
+
+        model.revealExportedSnapshotInFinder()
+
+        XCTAssertEqual(recorder.revealedURLs, [archiveURL])
+        XCTAssertNil(model.exportConfirmation)
+    }
+
+    @MainActor
+    func testExportFailureUsesExportSpecificAlertTitle() async throws {
+        let archiveURL = URL(filePath: "/tmp/export.invalid", directoryHint: .isDirectory)
+        var actions = AppSystemActions.inert
+        actions.presentExportScanPanel = { _ in archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = makeTestFileNode(id: "/failed-export/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/failed-export", name: "Failed Export", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "Failed Export", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.restoreCompletedSnapshot(snapshot)
+
+        model.exportCurrentScan()
+
+        try await waitForAppModelCondition("export failure presented") {
+            model.lastErrorMessage != nil
+        }
+
+        XCTAssertEqual(model.errorAlertTitle, "Export Failed")
+        XCTAssertNil(model.exportConfirmation)
+    }
+
+    @MainActor
+    func testExportShowsCancellableArchiveOperationWithoutClearingSnapshot() async throws {
+        let archiveURL = URL(filePath: "/tmp/export-blocked.radixscan", directoryHint: .isDirectory)
+        let exportProbe = AsyncValueProbe<Void>()
+        let archiveService = SpyScanArchiveService(exportWaitProbe: exportProbe)
+        var actions = AppSystemActions.inert
+        actions.presentExportScanPanel = { _ in archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+        let file = makeTestFileNode(id: "/export-blocked/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/export-blocked", name: "Export", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "Export", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.restoreCompletedSnapshot(snapshot)
+
+        model.exportCurrentScan()
+
+        try await waitForAppModelCondition("export operation visible") {
+            model.archiveOperation?.kind == .export
+        }
+
+        XCTAssertFalse(model.canExportCurrentScan)
+        XCTAssertFalse(model.canImportScanSnapshot)
+        XCTAssertEqual(model.scanState.snapshot?.id, snapshot.id)
+
+        try await waitForAsyncCondition("export request waiting") {
+            await exportProbe.isWaiting
+        }
+        await exportProbe.resume(returning: ())
+
+        try await waitForAppModelCondition("export operation cleared") {
+            model.archiveOperation == nil
+        }
+    }
+
+    @MainActor
+    func testCancelArchiveOperationCancelsExportWork() async throws {
+        let archiveURL = URL(filePath: "/tmp/export-cancelled.radixscan", directoryHint: .isDirectory)
+        let exportProbe = AsyncValueProbe<Void>()
+        let archiveService = SpyScanArchiveService(exportWaitProbe: exportProbe)
+        var actions = AppSystemActions.inert
+        actions.presentExportScanPanel = { _ in archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+        let file = makeTestFileNode(id: "/export-cancelled/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/export-cancelled", name: "Export", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "Export", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true
+        )
+        model.scanState.restoreCompletedSnapshot(snapshot)
+
+        model.exportCurrentScan()
+        try await waitForAsyncCondition("export request waiting") {
+            await exportProbe.isWaiting
+        }
+
+        model.cancelArchiveOperation()
+        await exportProbe.resume(returning: ())
+
+        try await waitForAsyncCondition("export cancellation recorded") {
+            await archiveService.exportCancellationStatesSnapshot().count == 1
+        }
+        let states = await archiveService.exportCancellationStatesSnapshot()
+        XCTAssertEqual(states, [true])
+    }
+
+    @MainActor
+    func testCancelArchiveOperationCancelsImportPreviewWork() async throws {
+        let archiveURL = URL(filePath: "/tmp/preview-cancelled.radixscan", directoryHint: .isDirectory)
+        let previewProbe = AsyncValueProbe<Void>()
+        let archiveService = SpyScanArchiveService(previewWaitProbe: previewProbe)
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+
+        model.importScanSnapshot()
+        try await waitForAsyncCondition("preview request waiting") {
+            await previewProbe.isWaiting
+        }
+
+        model.cancelArchiveOperation()
+        await previewProbe.resume(returning: ())
+
+        try await waitForAsyncCondition("preview cancellation recorded") {
+            await archiveService.previewCancellationStatesSnapshot().count == 1
+        }
+        let states = await archiveService.previewCancellationStatesSnapshot()
+        XCTAssertEqual(states, [true])
+        XCTAssertNil(model.pendingImportPreview)
+    }
+
+    @MainActor
+    func testCancelArchiveOperationCancelsImportWork() async throws {
+        let archiveURL = URL(filePath: "/tmp/import-cancelled.radixscan", directoryHint: .isDirectory)
+        let file = makeTestFileNode(id: "/import-cancelled/file.txt", name: "file.txt")
+        let root = makeTestDirectoryNode(id: "/import-cancelled", name: "import-cancelled", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: root.id, url: root.url, displayName: "import-cancelled", kind: .folder),
+            treeStore: store,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: store.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let importProbe = AsyncValueProbe<Void>()
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                archiveSize: 1,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(store.aggregateStats)
+            ),
+            importResult: ScanArchiveImportResult(
+                archiveURL: archiveURL,
+                snapshot: importedSnapshot,
+                manifest: manifest
+            ),
+            importWaitProbe: importProbe
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+
+        model.confirmImportPreview()
+        try await waitForAsyncCondition("import request waiting") {
+            await importProbe.isWaiting
+        }
+
+        model.cancelArchiveOperation()
+        await importProbe.resume(returning: ())
+
+        try await waitForAsyncCondition("import cancellation recorded") {
+            await archiveService.importCancellationStatesSnapshot().count == 1
+        }
+        let states = await archiveService.importCancellationStatesSnapshot()
+        XCTAssertEqual(states, [true])
+        XCTAssertNil(model.scanState.snapshot)
+    }
+
+    @MainActor
+    func testStartingScanCancelsPendingImportBeforeItRestoresSnapshot() async throws {
+        let archiveURL = URL(filePath: "/tmp/import-race.radixscan", directoryHint: .isDirectory)
+        let importedFile = makeTestFileNode(id: "/import-race/file.txt", name: "file.txt")
+        let importedRoot = makeTestDirectoryNode(id: "/import-race", name: "import-race", children: [importedFile])
+        let importedStore = FileTreeStore(root: importedRoot, childrenByID: [importedRoot.id: [importedFile]])
+        let importedSnapshot = ScanSnapshot(
+            target: ScanTarget(id: importedRoot.id, url: importedRoot.url, displayName: "import-race", kind: .folder),
+            treeStore: importedStore,
+            startedAt: Date(timeIntervalSince1970: 1),
+            finishedAt: Date(timeIntervalSince1970: 2),
+            scanWarnings: [],
+            aggregateStats: importedStore.aggregateStats,
+            isComplete: true,
+            source: .imported(ImportedSnapshotContext(
+                sourceURL: archiveURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
+        )
+        let manifest = try ScanArchiveDocument(
+            exportedAt: Date(timeIntervalSince1970: 3),
+            appVersion: "Tests",
+            snapshot: importedSnapshot,
+            pathMode: .absolute,
+            sections: ScanArchiveSections(
+                nodes: "nodes.jsonl",
+                topology: "topology.json",
+                warnings: "warnings.json",
+                stats: "stats.json"
+            ),
+            nodeChecksum: "checksum"
+        )
+        let importProbe = AsyncValueProbe<Void>()
+        let archiveService = SpyScanArchiveService(
+            previewResult: ScanArchivePreview(
+                archiveURL: archiveURL,
+                archiveSize: 1,
+                manifest: manifest,
+                stats: ScanArchiveStatsV1(importedStore.aggregateStats)
+            ),
+            importResult: ScanArchiveImportResult(
+                archiveURL: archiveURL,
+                snapshot: importedSnapshot,
+                manifest: manifest
+            ),
+            importWaitProbe: importProbe
+        )
+        var actions = AppSystemActions.inert
+        actions.presentImportScanPanel = { archiveURL }
+        let scanService = NeverFinishingScanService()
+        let model = AppModel(dependencies: makeDependencies(
+            systemActions: actions,
+            scanService: scanService,
+            scanArchiveService: archiveService
+        ))
+
+        model.importScanSnapshot()
+        try await waitForAppModelCondition("import preview presented") {
+            model.pendingImportPreview?.archiveURL == archiveURL
+        }
+        model.confirmImportPreview()
+        try await waitForAsyncCondition("import request waiting") {
+            await importProbe.isWaiting
+        }
+
+        let liveTarget = ScanTarget(
+            id: "/live-scan",
+            url: URL(filePath: "/live-scan", directoryHint: .isDirectory),
+            displayName: "live-scan",
+            kind: .folder
+        )
+        model.startScan(liveTarget)
+        try await waitForAppModelCondition("live scan started") {
+            model.scanState.selectedTarget == liveTarget && model.scanState.isScanning
+        }
+
+        await importProbe.resume(returning: ())
+        try await waitForAsyncCondition("import cancellation recorded") {
+            await archiveService.importCancellationStatesSnapshot().count == 1
+        }
+
+        let states = await archiveService.importCancellationStatesSnapshot()
+        XCTAssertEqual(states, [true])
+        XCTAssertEqual(model.scanState.selectedTarget, liveTarget)
+        XCTAssertNotEqual(model.scanState.snapshot?.id, importedSnapshot.id)
+    }
 }
 
 @MainActor
@@ -880,12 +1468,24 @@ private actor AsyncValueProbe<Value: Sendable> {
     }
 }
 
+private final class NeverFinishingScanService: ScanEventStreaming, @unchecked Sendable {
+    private var continuations: [AsyncThrowingStream<ScanProgressEvent, Error>.Continuation] = []
+
+    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuations.append(continuation)
+        }
+    }
+}
+
 @MainActor
 private func makeDependencies(
     preferences: SpyAppPreferencesStore = SpyAppPreferencesStore(preferences: .defaults),
     recentPersistence: SpyRecentTargetPersistence = SpyRecentTargetPersistence(),
     availableRecentIDs: Set<String> = [],
-    systemActions: AppSystemActions = .inert
+    systemActions: AppSystemActions = .inert,
+    scanService: any ScanEventStreaming = ScanEngine(),
+    scanArchiveService: any ScanArchiveServicing = ScanArchiveService()
 ) -> AppDependencies {
     AppDependencies(
         preferences: preferences,
@@ -893,7 +1493,9 @@ private func makeDependencies(
             persistence: recentPersistence,
             isAvailable: { availableRecentIDs.contains($0.id) }
         ),
-        systemActions: systemActions
+        systemActions: systemActions,
+        scanService: scanService,
+        scanArchiveService: scanArchiveService
     )
 }
 
@@ -1038,4 +1640,106 @@ private final class AppModelActionRecorder {
     var quickLookMonitorRemovalCount = 0
     var defaultTargets: [ScanTarget] = []
     var defaultTargetsCallCount = 0
+}
+
+private actor SpyScanArchiveService: ScanArchiveServicing {
+    struct ExportRequest: Sendable {
+        let snapshotID: UUID
+        let destinationURL: URL
+        let pathMode: ScanArchivePathMode
+    }
+
+    private(set) var exportRequests: [ExportRequest] = []
+    private(set) var previewedURLs: [URL] = []
+    private(set) var importedURLs: [URL] = []
+    private let previewResult: ScanArchivePreview?
+    private let importResult: ScanArchiveImportResult?
+    private let exportWaitProbe: AsyncValueProbe<Void>?
+    private let previewWaitProbe: AsyncValueProbe<Void>?
+    private let importWaitProbe: AsyncValueProbe<Void>?
+    private(set) var exportCancellationStates: [Bool] = []
+    private(set) var previewCancellationStates: [Bool] = []
+    private(set) var importCancellationStates: [Bool] = []
+
+    init(
+        previewResult: ScanArchivePreview? = nil,
+        importResult: ScanArchiveImportResult? = nil,
+        exportWaitProbe: AsyncValueProbe<Void>? = nil,
+        previewWaitProbe: AsyncValueProbe<Void>? = nil,
+        importWaitProbe: AsyncValueProbe<Void>? = nil
+    ) {
+        self.previewResult = previewResult
+        self.importResult = importResult
+        self.exportWaitProbe = exportWaitProbe
+        self.previewWaitProbe = previewWaitProbe
+        self.importWaitProbe = importWaitProbe
+    }
+
+    func export(
+        snapshot: ScanSnapshot,
+        to destinationURL: URL,
+        options: ScanArchiveExportOptions
+    ) async throws -> ScanArchiveExportResult {
+        exportRequests.append(ExportRequest(
+            snapshotID: snapshot.id,
+            destinationURL: destinationURL,
+            pathMode: options.pathMode
+        ))
+        if let exportWaitProbe {
+            await exportWaitProbe.wait()
+        }
+        exportCancellationStates.append(Task.isCancelled)
+        return ScanArchiveExportResult(archiveURL: destinationURL, nodeChecksum: "checksum")
+    }
+
+    func previewSnapshot(from sourceURL: URL) async throws -> ScanArchivePreview {
+        previewedURLs.append(sourceURL)
+        if let previewWaitProbe {
+            await previewWaitProbe.wait()
+        }
+        previewCancellationStates.append(Task.isCancelled)
+        guard let previewResult else {
+            throw ScanArchiveError.invalidArchivePackage("missing spy preview result")
+        }
+        return previewResult
+    }
+
+    func importSnapshot(
+        from sourceURL: URL,
+        progressReporter: ScanArchiveProgressReporter?
+    ) async throws -> ScanArchiveImportResult {
+        importedURLs.append(sourceURL)
+        if let importWaitProbe {
+            await importWaitProbe.wait()
+        }
+        importCancellationStates.append(Task.isCancelled)
+        guard let importResult else {
+            throw ScanArchiveError.invalidArchivePackage("missing spy import result")
+        }
+        return importResult
+    }
+
+    func exportRequestsSnapshot() -> [ExportRequest] {
+        exportRequests
+    }
+
+    func previewedURLsSnapshot() -> [URL] {
+        previewedURLs
+    }
+
+    func importedURLsSnapshot() -> [URL] {
+        importedURLs
+    }
+
+    func exportCancellationStatesSnapshot() -> [Bool] {
+        exportCancellationStates
+    }
+
+    func previewCancellationStatesSnapshot() -> [Bool] {
+        previewCancellationStates
+    }
+
+    func importCancellationStatesSnapshot() -> [Bool] {
+        importCancellationStates
+    }
 }

@@ -49,6 +49,7 @@ let package = Package(
                 "Services/HardLinkDeduplicator.swift",
                 "Services/QuickLookIntegration.swift",
                 "Services/RecentTargetStore.swift",
+                "Services/ScanArchiveService.swift",
                 "Services/ScanDiagnostics.swift",
                 "Services/ScanCoordinator.swift",
                 "Services/ScanEngine.swift",

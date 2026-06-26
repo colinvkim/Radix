@@ -60,8 +60,43 @@ struct ContentView: View {
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
         }
         .focusedSceneValue(\.inspectorVisibility, $showsInspector)
+        .overlay(alignment: .top) {
+            if let archiveOperation = appModel.archiveOperation {
+                ArchiveOperationBanner(
+                    operation: archiveOperation,
+                    onCancel: {
+                        appModel.cancelArchiveOperation()
+                    }
+                )
+                .padding(.top, 12)
+                .padding(.horizontal, 16)
+            } else if appModel.exportConfirmation != nil {
+                ExportConfirmationBanner(
+                    onReveal: {
+                        appModel.revealExportedSnapshotInFinder()
+                    },
+                    onDismiss: {
+                        appModel.dismissExportConfirmation()
+                    }
+                )
+                .padding(.top, 12)
+                .padding(.horizontal, 16)
+            }
+        }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
+        }
+        .sheet(item: $appModel.pendingImportPreview) { preview in
+            ImportSnapshotPreviewSheet(
+                preview: preview,
+                onCancel: {
+                    appModel.cancelImportPreview()
+                },
+                onImport: {
+                    appModel.confirmImportPreview()
+                }
+            )
+            .interactiveDismissDisabled()
         }
         .alert(
             appModel.errorAlertTitle,
@@ -109,6 +144,10 @@ struct ContentView: View {
             appModel.setWorkspaceWindowNumber(nil)
             appModel.suspendMainWindowActivity()
         }
+        .onOpenURL { url in
+            guard url.pathExtension.lowercased() == ScanArchiveService.fileExtension else { return }
+            appModel.importScanSnapshot(from: url)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
@@ -118,6 +157,242 @@ struct ContentView: View {
             default:
                 break
             }
+        }
+    }
+}
+
+private struct ArchiveOperationBanner: View {
+    let operation: ArchiveOperationState
+    let onCancel: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 12) {
+            progressView
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(operation.title)
+                    .font(.subheadline.weight(.semibold))
+                messageText
+            }
+            .lineLimit(1)
+
+            Button {
+                onCancel()
+            } label: {
+                Label("Cancel", systemImage: "xmark.circle.fill")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Cancel")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+
+    private var messageText: some View {
+        Text(operation.message)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .overlay {
+                if shouldShimmerMessage {
+                    ShimmeringTextHighlight(
+                        text: operation.message,
+                        font: .caption
+                    )
+                }
+            }
+    }
+
+    private var shouldShimmerMessage: Bool {
+        (operation.kind == .import || operation.kind == .export) && !reduceMotion
+    }
+
+    @ViewBuilder
+    private var progressView: some View {
+        if let progressFraction = operation.progressFraction {
+            ProgressView(value: progressFraction, total: 1)
+                .frame(width: 96)
+        } else {
+            ProgressView()
+                .controlSize(.small)
+        }
+    }
+}
+
+private struct ExportConfirmationBanner: View {
+    let onReveal: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+
+            Text("Snapshot Exported")
+                .font(.subheadline.weight(.semibold))
+
+            Button("Show in Finder") {
+                onReveal()
+            }
+            .buttonStyle(.borderless)
+
+            Button {
+                onDismiss()
+            } label: {
+                Label("Dismiss", systemImage: "xmark.circle.fill")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+}
+
+private struct ImportSnapshotPreviewSheet: View {
+    let preview: ScanArchivePreview
+    let onCancel: () -> Void
+    let onImport: () -> Void
+
+    @State private var showsDetails = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label("Import Snapshot", systemImage: "archivebox.fill")
+                .font(.title3.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.primary, .tint)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(preview.target.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(preview.target.path)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(preview.target.path)
+
+                Label(
+                    "Scanned \(RadixFormatters.date(preview.finishedAt ?? preview.startedAt))",
+                    systemImage: "clock"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                ImportSnapshotStatCard(
+                    title: "Scanned Data",
+                    value: RadixFormatters.size(preview.totalAllocatedSize)
+                )
+                ImportSnapshotStatCard(
+                    title: "Files",
+                    value: preview.fileCount.formatted()
+                )
+                ImportSnapshotStatCard(
+                    title: "Folders",
+                    value: preview.directoryCount.formatted()
+                )
+                ImportSnapshotStatCard(
+                    title: "Snapshot Size",
+                    value: RadixFormatters.size(preview.archiveSize)
+                )
+            }
+
+            Divider()
+
+            HStack {
+                Button("Details…", systemImage: "info.circle") {
+                    showsDetails.toggle()
+                }
+                .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
+                    ImportSnapshotDetailsPopover(preview: preview)
+                }
+
+                Spacer()
+
+                Button("Cancel", role: .cancel) {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Import") {
+                    onImport()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 480, alignment: .topLeading)
+    }
+}
+
+private struct ImportSnapshotDetailsPopover: View {
+    let preview: ScanArchivePreview
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+            detailRow("Exported", RadixFormatters.date(preview.exportedAt))
+            detailRow("Nodes", preview.nodeCount.formatted())
+            detailRow("App Version", preview.appVersion)
+        }
+        .font(.subheadline)
+        .padding(16)
+        .frame(minWidth: 260)
+    }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private struct ImportSnapshotStatCard: View {
+    let title: String
+    let value: String
+    var isAccented = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(isAccented ? Color.orange : Color.secondary)
+
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(isAccented ? Color.orange : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(
+                    isAccented
+                        ? Color.orange.opacity(0.14)
+                        : Color(nsColor: .controlBackgroundColor)
+                )
         }
     }
 }
