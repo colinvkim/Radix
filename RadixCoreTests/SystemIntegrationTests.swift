@@ -112,6 +112,16 @@ final class SystemIntegrationTests: XCTestCase {
         ])
     }
 
+    func testCapacityDescriptionPrefersGeneralAvailableCapacityWhenImportantUsageIsZero() {
+        let description = SystemIntegration.capacityDescription(
+            totalCapacity: 2_000_000_000_000,
+            availableCapacity: 512_000_000_000,
+            availableCapacityForImportantUsage: 0
+        )
+
+        XCTAssertEqual(description, "512 GB free of 2 TB")
+    }
+
     func testFullDiskAccessStatusUsesInjectedProbes() {
         XCTAssertEqual(
             SystemIntegration.fullDiskAccessStatus(

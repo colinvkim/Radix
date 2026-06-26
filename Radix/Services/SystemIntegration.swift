@@ -271,6 +271,7 @@ enum SystemIntegration {
         let mountedVolumes = fileManager.mountedVolumeURLs(
             includingResourceValuesForKeys: [
                 .volumeTotalCapacityKey,
+                .volumeAvailableCapacityKey,
                 .volumeAvailableCapacityForImportantUsageKey
             ],
             options: [.skipHiddenVolumes]
@@ -630,20 +631,46 @@ enum SystemIntegration {
         do {
             values = try url.resourceValues(forKeys: [
                 .volumeTotalCapacityKey,
+                .volumeAvailableCapacityKey,
                 .volumeAvailableCapacityForImportantUsageKey
             ])
         } catch {
             return nil
         }
 
-        guard let totalCapacity = values.volumeTotalCapacity,
-              let availableCapacity = values.volumeAvailableCapacityForImportantUsage else {
+        return capacityDescription(
+            totalCapacity: values.volumeTotalCapacity,
+            availableCapacity: values.volumeAvailableCapacity,
+            availableCapacityForImportantUsage: values.volumeAvailableCapacityForImportantUsage
+        )
+    }
+
+    nonisolated static func capacityDescription(
+        totalCapacity: Int?,
+        availableCapacity: Int?,
+        availableCapacityForImportantUsage: Int64?
+    ) -> String? {
+        guard let totalCapacity,
+              let resolvedAvailableCapacity = resolvedAvailableCapacity(
+                  availableCapacity: availableCapacity,
+                  availableCapacityForImportantUsage: availableCapacityForImportantUsage
+              ) else {
             return nil
         }
 
         let totalText = capacityText(Int64(totalCapacity))
-        let availableText = capacityText(Int64(availableCapacity))
+        let availableText = capacityText(resolvedAvailableCapacity)
         return "\(availableText) free of \(totalText)"
+    }
+
+    private nonisolated static func resolvedAvailableCapacity(
+        availableCapacity: Int?,
+        availableCapacityForImportantUsage: Int64?
+    ) -> Int64? {
+        if let availableCapacity {
+            return Int64(availableCapacity)
+        }
+        return availableCapacityForImportantUsage
     }
 
     private nonisolated static func capacityText(_ bytes: Int64) -> String {
