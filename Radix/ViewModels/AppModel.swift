@@ -1608,8 +1608,9 @@ final class AppModel: ObservableObject {
     }
 
     private func recordTrashCleanup(_ nodes: [FileNodeRecord]) {
+        let fileTreeStore = scanCoordinator.fileTreeStore
         updateUsageStats { stats in
-            stats.recordTrashCleanup(nodes: nodes)
+            stats.recordTrashCleanup(nodes: nodes, fileTreeStore: fileTreeStore)
         }
     }
 

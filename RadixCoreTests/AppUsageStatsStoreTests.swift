@@ -5,8 +5,14 @@ final class AppUsageStatsStoreTests: XCTestCase {
     func testRecordsScanInteractionAndCleanupStats() {
         let first = makeTestFileNode(id: "/stats/first.bin", name: "first.bin", size: 100)
         let second = makeTestFileNode(id: "/stats/second.bin", name: "second.bin", size: 200)
-        let root = makeTestDirectoryNode(id: "/stats", name: "stats", children: [first, second])
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let nested = makeTestDirectoryNode(id: "/stats/folder/nested", name: "nested", children: [first])
+        let folder = makeTestDirectoryNode(id: "/stats/folder", name: "folder", children: [nested, second])
+        let root = makeTestDirectoryNode(id: "/stats", name: "stats", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [nested, second],
+            nested.id: [first]
+        ])
         let snapshot = ScanSnapshot(
             target: ScanTarget(url: root.url),
             treeStore: store,
@@ -21,7 +27,7 @@ final class AppUsageStatsStoreTests: XCTestCase {
         stats.recordCompletedScan(snapshot)
         stats.recordSunburstSegmentClick()
         stats.recordSunburstSegmentClick()
-        stats.recordTrashCleanup(nodes: [root])
+        stats.recordTrashCleanup(nodes: [folder], fileTreeStore: store)
 
         XCTAssertEqual(stats.totalScansRun, 1)
         XCTAssertEqual(stats.totalBytesScanned, 300)
@@ -31,6 +37,8 @@ final class AppUsageStatsStoreTests: XCTestCase {
         XCTAssertEqual(stats.fastestScanBytesPerSecond, 75)
         XCTAssertEqual(stats.sunburstSegmentsClicked, 2)
         XCTAssertEqual(stats.filesDeleted, 2)
+        XCTAssertEqual(stats.foldersDeleted, 2)
+        XCTAssertEqual(stats.itemsDeleted, 4)
         XCTAssertEqual(stats.bytesMovedToTrash, 300)
         XCTAssertEqual(stats.biggestSingleCleanupBytes, 300)
         XCTAssertNotNil(stats.lastUpdatedAt)
@@ -51,6 +59,22 @@ final class AppUsageStatsStoreTests: XCTestCase {
         store.clearUsageStats()
 
         XCTAssertEqual(store.loadUsageStats(), .empty)
+    }
+
+    func testUserDefaultsStoreDefaultsMissingCleanupCounts() {
+        let defaults = makeIsolatedUsageStatsDefaults()
+        defaults.set(
+            Data(#"{"totalScansRun":1,"filesDeleted":2,"bytesMovedToTrash":300}"#.utf8),
+            forKey: "usageStats"
+        )
+
+        let stats = UserDefaultsAppUsageStatsStore(defaults: defaults).loadUsageStats()
+
+        XCTAssertEqual(stats.totalScansRun, 1)
+        XCTAssertEqual(stats.filesDeleted, 2)
+        XCTAssertEqual(stats.foldersDeleted, 0)
+        XCTAssertEqual(stats.itemsDeleted, 0)
+        XCTAssertEqual(stats.bytesMovedToTrash, 300)
     }
 
     func testUserDefaultsStoreFallsBackToEmptyForInvalidData() {

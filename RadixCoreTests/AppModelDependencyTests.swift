@@ -635,9 +635,13 @@ final class AppModelDependencyTests: XCTestCase {
 
         XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
         XCTAssertEqual(model.usageStats.filesDeleted, 2)
+        XCTAssertEqual(model.usageStats.foldersDeleted, 1)
+        XCTAssertEqual(model.usageStats.itemsDeleted, 3)
         XCTAssertEqual(model.usageStats.bytesMovedToTrash, 100)
         XCTAssertEqual(model.usageStats.biggestSingleCleanupBytes, 100)
         XCTAssertEqual(usageStats.savedStats.last?.filesDeleted, 2)
+        XCTAssertEqual(usageStats.savedStats.last?.foldersDeleted, 1)
+        XCTAssertEqual(usageStats.savedStats.last?.itemsDeleted, 3)
     }
 
     @MainActor
