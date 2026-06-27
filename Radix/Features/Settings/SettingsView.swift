@@ -454,34 +454,40 @@ private struct StatsSettingsPane: View {
 
     var body: some View {
         Form {
-            Section {
-                SpaceExploredHero(
-                    bytes: appModel.usageStats.totalBytesScanned,
-                    emptyValueText: Self.emptyValueText
-                )
-            }
+            if appModel.usageStats.totalScansRun == 0 {
+                StatsEmptyState {
+                    appModel.presentOpenPanelAndScan()
+                }
+            } else {
+                Section {
+                    SpaceExploredHero(
+                        bytes: appModel.usageStats.totalBytesScanned,
+                        emptyValueText: Self.emptyValueText
+                    )
+                }
 
-            Section("Scanning") {
-                StatValueRow("Scans run", value: countText(appModel.usageStats.totalScansRun))
-                StatValueRow("Largest scan", value: sizeText(appModel.usageStats.largestScanBytes))
-                StatValueRow("Average scan speed", value: rateText(appModel.usageStats.averageScanBytesPerSecond))
-                StatValueRow("Fastest scan speed", value: rateText(appModel.usageStats.fastestScanBytesPerSecond))
-            }
+                Section("Scanning") {
+                    StatValueRow("Scans run", value: countText(appModel.usageStats.totalScansRun))
+                    StatValueRow("Largest scan", value: sizeText(appModel.usageStats.largestScanBytes))
+                    StatValueRow("Average scan speed", value: rateText(appModel.usageStats.averageScanBytesPerSecond))
+                    StatValueRow("Fastest scan speed", value: rateText(appModel.usageStats.fastestScanBytesPerSecond))
+                }
 
-            Section("Interaction") {
-                StatValueRow(
-                    "Sunburst segments clicked",
-                    value: countText(appModel.usageStats.sunburstSegmentsClicked)
-                )
-            }
+                Section("Interaction") {
+                    StatValueRow(
+                        "Sunburst segments clicked",
+                        value: countText(appModel.usageStats.sunburstSegmentsClicked)
+                    )
+                }
 
-            Section("Cleanup") {
-                StatValueRow("Files deleted", value: countText(appModel.usageStats.filesDeleted))
-                StatValueRow("Bytes moved to Trash", value: sizeText(appModel.usageStats.bytesMovedToTrash))
-                StatValueRow(
-                    "Biggest single cleanup",
-                    value: sizeText(appModel.usageStats.biggestSingleCleanupBytes)
-                )
+                Section("Cleanup") {
+                    StatValueRow("Files deleted", value: countText(appModel.usageStats.filesDeleted))
+                    StatValueRow("Bytes moved to Trash", value: sizeText(appModel.usageStats.bytesMovedToTrash))
+                    StatValueRow(
+                        "Biggest single cleanup",
+                        value: sizeText(appModel.usageStats.biggestSingleCleanupBytes)
+                    )
+                }
             }
         }
         .formStyle(.grouped)
@@ -503,6 +509,37 @@ private struct StatsSettingsPane: View {
         }
 
         return sizeText(Int64(bytesPerSecond.rounded())) + "/s"
+    }
+}
+
+private struct StatsEmptyState: View {
+    let startScan: () -> Void
+
+    var body: some View {
+        Section {
+            VStack(spacing: 12) {
+                Image(systemName: "chart.bar.doc.horizontal")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+
+                VStack(spacing: 4) {
+                    Text("No Stats Yet")
+                        .font(.headline)
+
+                    Text("Run your first scan to start building local usage stats.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button("Start First Scan") {
+                    startScan()
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+        }
     }
 }
 
