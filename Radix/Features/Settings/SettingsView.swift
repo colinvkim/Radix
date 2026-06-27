@@ -362,6 +362,7 @@ private extension [ExclusionPatternRow] {
 private struct PrivacySettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
     @ObservedObject var scanState: ScanCoordinator
+    @State private var isConfirmingStatsReset = false
 
     var body: some View {
         Form {
@@ -417,8 +418,32 @@ private struct PrivacySettingsPane: View {
                 }
                 .disabled(appModel.recentTargets.isEmpty)
             }
+
+            Section("Usage Stats") {
+                Text("Stats are stored locally on this Mac. Radix records aggregate counts and sizes only.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Reset Stats", role: .destructive) {
+                    isConfirmingStatsReset = true
+                }
+                .disabled(appModel.usageStats.isEmpty)
+            }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Reset Stats?",
+            isPresented: $isConfirmingStatsReset,
+            titleVisibility: .visible
+        ) {
+            Button("Reset Stats", role: .destructive) {
+                appModel.clearUsageStats()
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears locally stored aggregate usage stats on this Mac.")
+        }
     }
 }
 
@@ -457,17 +482,6 @@ private struct StatsSettingsPane: View {
                     "Biggest single cleanup",
                     value: sizeText(appModel.usageStats.biggestSingleCleanupBytes)
                 )
-            }
-
-            Section("Storage") {
-                Text("Stats are stored locally on this Mac. Radix records aggregate counts and sizes only.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button("Reset Stats", role: .destructive) {
-                    appModel.clearUsageStats()
-                }
-                .disabled(appModel.usageStats.isEmpty)
             }
         }
         .formStyle(.grouped)
