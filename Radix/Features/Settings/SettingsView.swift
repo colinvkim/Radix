@@ -429,9 +429,15 @@ private struct StatsSettingsPane: View {
 
     var body: some View {
         Form {
+            Section {
+                SpaceExploredHero(
+                    bytes: appModel.usageStats.totalBytesScanned,
+                    emptyValueText: Self.emptyValueText
+                )
+            }
+
             Section("Scanning") {
                 StatValueRow("Scans run", value: countText(appModel.usageStats.totalScansRun))
-                StatValueRow("Total bytes scanned", value: sizeText(appModel.usageStats.totalBytesScanned))
                 StatValueRow("Largest scan", value: sizeText(appModel.usageStats.largestScanBytes))
                 StatValueRow("Average scan speed", value: rateText(appModel.usageStats.averageScanBytesPerSecond))
                 StatValueRow("Fastest scan speed", value: rateText(appModel.usageStats.fastestScanBytesPerSecond))
@@ -483,6 +489,87 @@ private struct StatsSettingsPane: View {
         }
 
         return sizeText(Int64(bytesPerSecond.rounded())) + "/s"
+    }
+}
+
+private struct SpaceExploredHero: View {
+    let bytes: Int64
+    let emptyValueText: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var displayedBytes: Int64 = 0
+
+    private var valueText: String {
+        guard displayedBytes > 0 else { return emptyValueText }
+        return RadixFormatters.size(displayedBytes)
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: "sparkles")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.tint)
+                .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Space explored")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(valueText)
+                    .font(.largeTitle.weight(.semibold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(displayedBytes)))
+                    .animation(.easeOut(duration: 0.18), value: displayedBytes)
+                    .accessibilityLabel("Space explored")
+                    .accessibilityValue(valueText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 8)
+        .task(id: bytes) {
+            await animateDisplayedBytes(to: bytes)
+        }
+    }
+
+    @MainActor
+    private func animateDisplayedBytes(to targetBytes: Int64) async {
+        let targetBytes = max(0, targetBytes)
+        guard !reduceMotion else {
+            displayedBytes = targetBytes
+            return
+        }
+
+        let startBytes = displayedBytes
+        guard startBytes != targetBytes else { return }
+        guard targetBytes > 0 else {
+            withAnimation(.easeOut(duration: 0.18)) {
+                displayedBytes = 0
+            }
+            return
+        }
+
+        let frameCount = 36
+        let frameDelay = Duration.milliseconds(18)
+        for frame in 1...frameCount {
+            do {
+                try await Task.sleep(for: frameDelay)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+            let progress = Double(frame) / Double(frameCount)
+            let easedProgress = 1 - pow(1 - progress, 3)
+            let interpolatedBytes = Double(startBytes) + (Double(targetBytes - startBytes) * easedProgress)
+            withAnimation(.easeOut(duration: 0.18)) {
+                displayedBytes = max(0, Int64(interpolatedBytes.rounded()))
+            }
+        }
+
+        withAnimation(.easeOut(duration: 0.18)) {
+            displayedBytes = targetBytes
+        }
     }
 }
 
