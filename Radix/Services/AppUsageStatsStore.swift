@@ -14,7 +14,6 @@ struct AppUsageStats: Codable, Equatable, Sendable {
     var sunburstSegmentsClicked = 0
     var filesDeleted = 0
     var foldersDeleted = 0
-    var itemsDeleted = 0
     var bytesMovedToTrash: Int64 = 0
     var biggestSingleCleanupBytes: Int64 = 0
     var lastUpdatedAt: Date?
@@ -30,7 +29,6 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         case sunburstSegmentsClicked
         case filesDeleted
         case foldersDeleted
-        case itemsDeleted
         case bytesMovedToTrash
         case biggestSingleCleanupBytes
         case lastUpdatedAt
@@ -52,7 +50,6 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         sunburstSegmentsClicked = try container.decodeIfPresent(Int.self, forKey: .sunburstSegmentsClicked) ?? 0
         filesDeleted = try container.decodeIfPresent(Int.self, forKey: .filesDeleted) ?? 0
         foldersDeleted = try container.decodeIfPresent(Int.self, forKey: .foldersDeleted) ?? 0
-        itemsDeleted = try container.decodeIfPresent(Int.self, forKey: .itemsDeleted) ?? 0
         bytesMovedToTrash = try container.decodeIfPresent(Int64.self, forKey: .bytesMovedToTrash) ?? 0
         biggestSingleCleanupBytes = try container.decodeIfPresent(Int64.self, forKey: .biggestSingleCleanupBytes) ?? 0
         lastUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .lastUpdatedAt)
@@ -106,12 +103,10 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         let deletedFolders = nodes.reduce(into: 0) { result, node in
             result = result.addingClamped(deletedFolderCount(for: node, in: fileTreeStore))
         }
-        let deletedItems = deletedFiles.addingClamped(deletedFolders)
 
         bytesMovedToTrash = bytesMovedToTrash.addingClamped(cleanupBytes)
         filesDeleted = filesDeleted.addingClamped(deletedFiles)
         foldersDeleted = foldersDeleted.addingClamped(deletedFolders)
-        itemsDeleted = itemsDeleted.addingClamped(deletedItems)
         biggestSingleCleanupBytes = max(biggestSingleCleanupBytes, cleanupBytes)
         lastUpdatedAt = Date()
     }

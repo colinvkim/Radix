@@ -38,7 +38,6 @@ final class AppUsageStatsStoreTests: XCTestCase {
         XCTAssertEqual(stats.sunburstSegmentsClicked, 2)
         XCTAssertEqual(stats.filesDeleted, 2)
         XCTAssertEqual(stats.foldersDeleted, 2)
-        XCTAssertEqual(stats.itemsDeleted, 4)
         XCTAssertEqual(stats.bytesMovedToTrash, 300)
         XCTAssertEqual(stats.biggestSingleCleanupBytes, 300)
         XCTAssertNotNil(stats.lastUpdatedAt)
@@ -73,7 +72,6 @@ final class AppUsageStatsStoreTests: XCTestCase {
         XCTAssertEqual(stats.totalScansRun, 1)
         XCTAssertEqual(stats.filesDeleted, 2)
         XCTAssertEqual(stats.foldersDeleted, 0)
-        XCTAssertEqual(stats.itemsDeleted, 0)
         XCTAssertEqual(stats.bytesMovedToTrash, 300)
     }
 
