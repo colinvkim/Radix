@@ -60,6 +60,7 @@ struct ActiveWorkspaceView: View {
             rootNode: visualizationInput.rootNode,
             parentNode: navigation.currentFocusNodeParent,
             treeStore: visualizationInput.treeStore,
+            snapshotID: snapshot.id,
             selectedNodeID: navigation.selectedNodeID,
             selectedAncestorIDs: navigation.selectedAncestorIDs,
             depthLimit: maxRenderedDepth,

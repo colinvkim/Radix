@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SunburstInteractionOverlay: NSViewRepresentable {
     let onHover: (CGPoint?) -> Void
     let onClick: (CGPoint, Int) -> Void
     let onPan: (CGSize) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
+    let dragPayload: (CGPoint) -> CleanupListDragPayload?
     let help: (CGPoint) -> String?
     let isPanEnabled: Bool
 
@@ -15,6 +17,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onClick = onClick
         view.onPan = onPan
         view.onMagnify = onMagnify
+        view.dragPayload = dragPayload
         view.help = help
         view.isPanEnabled = isPanEnabled
         return view
@@ -25,15 +28,17 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         nsView.onClick = onClick
         nsView.onPan = onPan
         nsView.onMagnify = onMagnify
+        nsView.dragPayload = dragPayload
         nsView.help = help
         nsView.isPanEnabled = isPanEnabled
     }
 
-    final class InteractionView: NSView {
+    final class InteractionView: NSView, NSDraggingSource {
         var onHover: (CGPoint?) -> Void = { _ in }
         var onClick: (CGPoint, Int) -> Void = { _, _ in }
         var onPan: (CGSize) -> Void = { _ in }
         var onMagnify: (CGPoint, CGFloat) -> Void = { _, _ in }
+        var dragPayload: (CGPoint) -> CleanupListDragPayload? = { _ in nil }
         var help: (CGPoint) -> String? = { _ in nil }
         var isPanEnabled = false
 
@@ -44,6 +49,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         private var mouseDownLocation: CGPoint?
         private var lastDragLocation: CGPoint?
         private var didPan = false
+        private var didStartCleanupDrag = false
 
         override var isFlipped: Bool {
             true
@@ -84,6 +90,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             mouseDownLocation = location
             lastDragLocation = location
             didPan = false
+            didStartCleanupDrag = false
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -96,6 +103,18 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                     return
                 }
                 didPan = true
+            }
+
+            if !isPanEnabled,
+               !didStartCleanupDrag,
+               let cleanupDragPayload = dragPayload(mouseDownLocation),
+               let draggingItem = cleanupListDraggingItem(
+                   for: cleanupDragPayload,
+                   at: mouseDownLocation
+               ) {
+                didStartCleanupDrag = true
+                beginDraggingSession(with: [draggingItem], event: event, source: self)
+                return
             }
 
             defer { self.lastDragLocation = location }
@@ -116,6 +135,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             mouseDownLocation = nil
             lastDragLocation = nil
             didPan = false
+            didStartCleanupDrag = false
         }
 
         override func magnify(with event: NSEvent) {
@@ -188,6 +208,55 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                 width: delta.width.clampedScrollPanDelta,
                 height: delta.height.clampedScrollPanDelta
             )
+        }
+
+        func draggingSession(
+            _ session: NSDraggingSession,
+            sourceOperationMaskFor context: NSDraggingContext
+        ) -> NSDragOperation {
+            .copy
+        }
+
+        func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+            true
+        }
+
+        private func cleanupListDraggingItem(
+            for payload: CleanupListDragPayload,
+            at location: CGPoint
+        ) -> NSDraggingItem? {
+            guard let data = try? JSONEncoder().encode(payload) else { return nil }
+
+            let pasteboardItem = NSPasteboardItem()
+            pasteboardItem.setData(
+                data,
+                forType: NSPasteboard.PasteboardType(UTType.json.identifier)
+            )
+
+            let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+            let size = NSSize(width: 28, height: 28)
+            draggingItem.setDraggingFrame(
+                NSRect(
+                    x: location.x - (size.width / 2),
+                    y: location.y - (size.height / 2),
+                    width: size.width,
+                    height: size.height
+                ),
+                contents: cleanupListDragImage()
+            )
+            return draggingItem
+        }
+
+        private func cleanupListDragImage() -> NSImage {
+            if let image = NSImage(
+                systemSymbolName: "checklist",
+                accessibilityDescription: "Cleanup List Item"
+            ) {
+                image.size = NSSize(width: 28, height: 28)
+                return image
+            }
+
+            return NSImage(size: NSSize(width: 28, height: 28))
         }
     }
 }

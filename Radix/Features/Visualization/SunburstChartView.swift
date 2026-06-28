@@ -8,6 +8,7 @@ struct SunburstChartView: View {
     let rootNode: FileNodeRecord
     let parentNode: FileNodeRecord?
     let treeStore: FileTreeStore
+    let snapshotID: UUID?
     let selectedNodeID: String?
     let selectedAncestorIDs: Set<String>
     let depthLimit: Int
@@ -27,6 +28,7 @@ struct SunburstChartView: View {
         rootNode: FileNodeRecord,
         parentNode: FileNodeRecord?,
         treeStore: FileTreeStore,
+        snapshotID: UUID?,
         selectedNodeID: String?,
         selectedAncestorIDs: Set<String>,
         depthLimit: Int,
@@ -40,6 +42,7 @@ struct SunburstChartView: View {
         self.rootNode = rootNode
         self.parentNode = parentNode
         self.treeStore = treeStore
+        self.snapshotID = snapshotID
         self.selectedNodeID = selectedNodeID
         self.selectedAncestorIDs = selectedAncestorIDs
         self.depthLimit = depthLimit
@@ -164,6 +167,9 @@ struct SunburstChartView: View {
                     },
                     onMagnify: { location, factor in
                         zoomViewport(by: factor, anchor: location, in: baseChartFrame, animated: false)
+                    },
+                    dragPayload: { location in
+                        cleanupListDragPayload(at: location, in: baseChartFrame)
                     },
                     help: { location in
                         guard !chartModel.isLayoutPending else { return nil }
@@ -357,6 +363,20 @@ struct SunburstChartView: View {
         }
 
         return chartModel.segment(at: chartPoint.point, in: chartPoint.size)
+    }
+
+    private func cleanupListDragPayload(at location: CGPoint, in frame: CGRect) -> CleanupListDragPayload? {
+        guard let segment = hitTest(at: location, in: frame),
+              let nodeID = segment.nodeID,
+              !SunburstFreeSpaceVisualization.isFreeSpaceNodeID(nodeID),
+              treeStore.node(id: nodeID) != nil else {
+            return nil
+        }
+
+        return CleanupListDragPayload(
+            snapshotID: snapshotID,
+            nodeIDs: [nodeID]
+        )
     }
 
     private func isCenterHit(at location: CGPoint, in frame: CGRect) -> Bool {
