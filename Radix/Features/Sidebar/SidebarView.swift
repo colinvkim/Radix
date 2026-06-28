@@ -4,11 +4,13 @@ struct SidebarActions {
     let selectTargetAfterViewUpdate: (String?) -> Void
     let revealInFinder: (ScanTarget) -> Void
     let removeRecentTarget: (ScanTarget) -> Void
+    let reviewCleanupList: () -> Void
 }
 
 struct SidebarView: View {
     @ObservedObject var model: SidebarModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
+    let cleanupListSummary: CleanupListSummary
     let actions: SidebarActions
 
     private var selection: Binding<String?> {
@@ -23,37 +25,82 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        List(selection: selection) {
-            if !model.smartTargetRows.isEmpty {
-                Section("Smart Locations") {
-                    ForEach(model.smartTargetRows) { row in
-                        SidebarTargetRow(
-                            target: row.target,
-                            subtitle: row.subtitle,
-                            revealInFinder: { actions.revealInFinder(row.target) }
-                        )
-                            .tag(row.id)
+        VStack(spacing: 0) {
+            List(selection: selection) {
+                if !model.smartTargetRows.isEmpty {
+                    Section("Smart Locations") {
+                        ForEach(model.smartTargetRows) { row in
+                            SidebarTargetRow(
+                                target: row.target,
+                                subtitle: row.subtitle,
+                                revealInFinder: { actions.revealInFinder(row.target) }
+                            )
+                                .tag(row.id)
+                        }
+                    }
+                }
+
+                if !model.recentScanTargetRows.isEmpty {
+                    Section("Recent Scans") {
+                        ForEach(model.recentScanTargetRows) { row in
+                            SidebarTargetRow(
+                                target: row.target,
+                                subtitle: row.subtitle,
+                                revealInFinder: { actions.revealInFinder(row.target) },
+                                removeFromRecentScans: { actions.removeRecentTarget(row.target) }
+                            )
+                                .tag(row.id)
+                        }
                     }
                 }
             }
+            .listStyle(.sidebar)
 
-            if !model.recentScanTargetRows.isEmpty {
-                Section("Recent Scans") {
-                    ForEach(model.recentScanTargetRows) { row in
-                        SidebarTargetRow(
-                            target: row.target,
-                            subtitle: row.subtitle,
-                            revealInFinder: { actions.revealInFinder(row.target) },
-                            removeFromRecentScans: { actions.removeRecentTarget(row.target) }
-                        )
-                            .tag(row.id)
-                    }
-                }
+            Divider()
+
+            CleanupListSidebarButton(summary: cleanupListSummary) {
+                actions.reviewCleanupList()
             }
         }
         .navigationTitle("Locations")
-        .listStyle(.sidebar)
         .focused($focusedWorkspaceTarget, equals: .sidebar)
+    }
+}
+
+private struct CleanupListSidebarButton: View {
+    let summary: CleanupListSummary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cleanup List")
+                        .font(.subheadline.weight(.semibold))
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } icon: {
+                Image(systemName: "checklist")
+                    .foregroundStyle(summary.isEmpty ? Color.secondary : Color.accentColor)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .help("Review Cleanup List")
+    }
+
+    private var subtitle: String {
+        guard !summary.isEmpty else {
+            return "No items marked"
+        }
+
+        return "\(summary.itemCount.formatted()) \(summary.itemCount == 1 ? "item" : "items") • \(RadixFormatters.size(summary.totalAllocatedSize))"
     }
 }
 

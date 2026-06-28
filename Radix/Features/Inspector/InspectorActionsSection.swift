@@ -5,6 +5,7 @@ struct InspectorActionsSection: View {
     let canExpandSummarizedSelection: Bool
     let canZoomIntoSelection: Bool
     let fileActions: SelectedFileActions
+    let addToCleanupList: () -> Void
     let expandAction: () -> Void
     let zoomAction: () -> Void
 
@@ -58,6 +59,15 @@ struct InspectorActionsSection: View {
                         copyPathButton
                     }
                 }
+
+                Button {
+                    addToCleanupList()
+                } label: {
+                    Label("Add to Cleanup List", systemImage: "checklist")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!availability.canMoveToTrash)
 
                 Button(role: .destructive) {
                     fileActions.perform(.moveToTrash)

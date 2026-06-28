@@ -837,6 +837,189 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanupListAddsValidNode() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didAdd = model.addNodesToCleanupList([file])
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.cleanupList.nodeIDs, [file.id])
+        XCTAssertEqual(model.cleanupListNodes.map(\.id), [file.id])
+        XCTAssertEqual(model.cleanupListSummary.itemCount, 1)
+        XCTAssertEqual(model.cleanupListSummary.totalAllocatedSize, file.allocatedSize)
+    }
+
+    @MainActor
+    func testCleanupListRejectsUnsupportedNode() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let syntheticNode = FileNodeRecord(
+            id: "/selection/system-data",
+            url: URL(filePath: "/selection/system-data"),
+            name: "System Data",
+            isDirectory: false,
+            isSymbolicLink: false,
+            allocatedSize: 10,
+            logicalSize: 10,
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true,
+            isSelfAccessible: true,
+            isSynthetic: true,
+            isAutoSummarized: false
+        )
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [syntheticNode])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [syntheticNode]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        let didAdd = model.addNodesToCleanupList([syntheticNode])
+
+        XCTAssertFalse(didAdd)
+        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
+    func testCleanupListParentDedupRemovesQueuedChildren() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.addNodesToCleanupList([child])
+        model.addNodesToCleanupList([folder])
+
+        XCTAssertEqual(model.cleanupList.nodeIDs, [folder.id])
+    }
+
+    @MainActor
+    func testCleanupListChildAddNoOpsWhenAncestorQueued() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.addNodesToCleanupList([folder])
+        model.addNodesToCleanupList([child])
+
+        XCTAssertEqual(model.cleanupList.nodeIDs, [folder.id])
+    }
+
+    @MainActor
+    func testCleanupListClearsWhenActiveSnapshotIsReplaced() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let firstFile = makeTestFileNode(id: "/first/file.txt", name: "file.txt")
+        let firstRoot = makeTestDirectoryNode(id: "/first", name: "first", children: [firstFile])
+        let firstStore = FileTreeStore(root: firstRoot, childrenByID: [firstRoot.id: [firstFile]])
+        let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
+        model.scanState.replaceCurrentSnapshot(firstSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(firstSnapshot)
+        model.addNodesToCleanupList([firstFile])
+
+        let secondFile = makeTestFileNode(id: "/second/file.txt", name: "file.txt")
+        let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [secondFile])
+        let secondStore = FileTreeStore(root: secondRoot, childrenByID: [secondRoot.id: [secondFile]])
+        let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
+        model.scanState.replaceCurrentSnapshot(secondSnapshot)
+
+        XCTAssertTrue(model.cleanupList.isEmpty)
+    }
+
+    @MainActor
+    func testCleanupListReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.addNodesToCleanupList([child])
+        model.addNodesToCleanupList([folder])
+
+        let didRequestTrash = model.requestMoveCleanupListToTrash()
+
+        XCTAssertTrue(didRequestTrash)
+        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
+        XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
+        XCTAssertEqual(model.cleanupList.nodeIDs, [folder.id])
+
+        model.confirmMovePendingSelectionToTrash()
+
+        XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
+        XCTAssertTrue(model.cleanupList.isEmpty)
+    }
+
+    @MainActor
+    func testCleanupListReconcilesUnavailableQueuedIDsOut() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.addNodesToCleanupList([first, second])
+        XCTAssertEqual(model.cleanupList.nodeIDs, [first.id, second.id])
+
+        let updatedRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first])
+        let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [updatedRoot.id: [first]])
+        let updatedSnapshot = ScanSnapshot(
+            id: snapshot.id,
+            target: snapshot.target,
+            treeStore: updatedStore,
+            startedAt: snapshot.startedAt,
+            finishedAt: snapshot.finishedAt,
+            scanWarnings: snapshot.scanWarnings,
+            aggregateStats: updatedStore.aggregateStats,
+            isComplete: snapshot.isComplete,
+            scanOptions: snapshot.scanOptions,
+            source: snapshot.source
+        )
+        model.scanState.replaceCurrentSnapshot(updatedSnapshot)
+
+        XCTAssertEqual(model.cleanupList.nodeIDs, [first.id])
+    }
+
+    @MainActor
     func testFullDiskAccessFailureUsesInjectedActionResult() {
         var actions = AppSystemActions.inert
         actions.prepareAndOpenFullDiskAccessSettings = { false }

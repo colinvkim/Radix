@@ -14,6 +14,7 @@ struct ContentView: View {
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = true
+    @State private var showsCleanupReview = false
     @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     var body: some View {
@@ -21,6 +22,7 @@ struct ContentView: View {
             SidebarView(
                 model: appModel.sidebar,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
+                cleanupListSummary: appModel.cleanupListSummary,
                 actions: sidebarActions
             )
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
@@ -32,6 +34,7 @@ struct ContentView: View {
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 showFreeSpaceInSunburst: appModel.showFreeSpaceInSunburst,
+                cleanupListSummary: appModel.cleanupListSummary,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 freeSpaceAvailableCapacity: { snapshot, focusNode in
@@ -85,6 +88,26 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
+        }
+        .sheet(isPresented: $showsCleanupReview) {
+            CleanupListReviewSheet(
+                nodes: appModel.cleanupListNodes,
+                summary: appModel.cleanupListSummary,
+                onRemove: { node in
+                    appModel.removeCleanupListNode(id: node.id)
+                },
+                onClear: {
+                    appModel.clearCleanupList()
+                },
+                onCancel: {
+                    showsCleanupReview = false
+                },
+                onMoveToTrash: {
+                    if appModel.requestMoveCleanupListToTrash() {
+                        showsCleanupReview = false
+                    }
+                }
+            )
         }
         .sheet(item: $appModel.pendingImportPreview) { preview in
             ImportSnapshotPreviewSheet(
@@ -397,12 +420,122 @@ private struct ImportSnapshotStatCard: View {
     }
 }
 
+private struct CleanupListReviewSheet: View {
+    let nodes: [FileNodeRecord]
+    let summary: CleanupListSummary
+    let onRemove: (FileNodeRecord) -> Void
+    let onClear: () -> Void
+    let onCancel: () -> Void
+    let onMoveToTrash: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Cleanup List")
+                    .font(.title3.weight(.semibold))
+
+                Text(summaryText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+
+            if nodes.isEmpty {
+                ContentUnavailableView(
+                    "No Items Marked",
+                    systemImage: "checklist"
+                )
+                .frame(minHeight: 220)
+            } else {
+                Table(nodes) {
+                    TableColumn("Name") { node in
+                        Label(node.name, systemImage: node.systemImageName)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .width(min: 160, ideal: 220)
+
+                    TableColumn("Path") { node in
+                        Text(node.url.path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(node.url.path)
+                    }
+                    .width(min: 240, ideal: 360)
+
+                    TableColumn("Size") { node in
+                        Text(RadixFormatters.size(node.allocatedSize))
+                            .monospacedDigit()
+                    }
+                    .width(min: 90, ideal: 110)
+
+                    TableColumn("Kind") { node in
+                        Text(node.itemKind)
+                    }
+                    .width(min: 90, ideal: 110)
+
+                    TableColumn("") { node in
+                        Button {
+                            onRemove(node)
+                        } label: {
+                            Label("Remove", systemImage: "minus.circle")
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Remove")
+                    }
+                    .width(36)
+                }
+                .frame(minHeight: 260)
+            }
+
+            Divider()
+
+            HStack {
+                Button("Clear All", role: .destructive) {
+                    onClear()
+                }
+                .disabled(nodes.isEmpty)
+
+                Spacer()
+
+                Button("Cancel", role: .cancel) {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button(moveButtonTitle, role: .destructive) {
+                    onMoveToTrash()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(nodes.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 720, minHeight: 420)
+    }
+
+    private var summaryText: String {
+        guard !summary.isEmpty else {
+            return "No items marked"
+        }
+
+        return "\(summary.itemCount.formatted()) \(summary.itemCount == 1 ? "item" : "items") • \(RadixFormatters.size(summary.totalAllocatedSize))"
+    }
+
+    private var moveButtonTitle: String {
+        "Move \(summary.itemCount.formatted()) \(summary.itemCount == 1 ? "Item" : "Items") to Trash"
+    }
+}
+
 private extension ContentView {
     var sidebarActions: SidebarActions {
         SidebarActions(
             selectTargetAfterViewUpdate: { appModel.selectSidebarTargetAfterViewUpdate(id: $0) },
             revealInFinder: { appModel.revealTargetInFinder($0) },
-            removeRecentTarget: { appModel.removeRecentTarget($0) }
+            removeRecentTarget: { appModel.removeRecentTarget($0) },
+            reviewCleanupList: { showsCleanupReview = true }
         )
     }
 }
@@ -459,6 +592,7 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
+    let cleanupListSummary: CleanupListSummary
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -472,6 +606,7 @@ private struct WorkspaceDetailView: View {
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
             showFreeSpaceInSunburst: showFreeSpaceInSunburst,
+            cleanupListSummary: cleanupListSummary,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,
             freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
@@ -521,6 +656,7 @@ private extension ContentView {
             recordSunburstSegmentClick: { appModel.recordSunburstSegmentClick() },
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
+            cleanupListActions: cleanupListActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
@@ -532,6 +668,7 @@ private extension ContentView {
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: primarySelectedFileActions,
+            addPrimarySelectionToCleanupList: { appModel.addPrimarySelectionToCleanupList() },
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
@@ -561,6 +698,13 @@ private extension ContentView {
             revealInFinder: { appModel.revealNodesInFinder($0) },
             copyPaths: { appModel.copyPaths(for: $0) },
             moveToTrash: { appModel.requestMoveNodesToTrash($0) }
+        )
+    }
+
+    var cleanupListActions: CleanupListActions {
+        CleanupListActions(
+            addNodes: { appModel.addNodesToCleanupList($0) },
+            review: { showsCleanupReview = true }
         )
     }
 

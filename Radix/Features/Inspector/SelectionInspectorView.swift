@@ -6,6 +6,7 @@ struct SelectionInspectorActions {
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
+    let addPrimarySelectionToCleanupList: () -> Void
     let openFullDiskAccessSettings: () -> Void
 }
 
@@ -35,6 +36,7 @@ struct SelectionInspectorView: View {
                         canExpandSummarizedSelection: canExpandSummarizedSelection,
                         canZoomIntoSelection: canZoomIntoSelection,
                         fileActions: actions.selectedFileActions,
+                        addToCleanupList: actions.addPrimarySelectionToCleanupList,
                         expandAction: { expandSummarizedSelection() },
                         zoomAction: actions.zoomIntoSelection
                     )

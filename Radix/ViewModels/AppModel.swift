@@ -31,6 +31,32 @@ struct ExportConfirmationState: Identifiable, Equatable, Sendable {
     let archiveURL: URL
 }
 
+struct CleanupListState: Equatable, Sendable {
+    let nodeIDs: [FileNodeRecord.ID]
+    let snapshotID: UUID?
+
+    init(
+        nodeIDs: [FileNodeRecord.ID] = [],
+        snapshotID: UUID? = nil
+    ) {
+        self.nodeIDs = nodeIDs
+        self.snapshotID = nodeIDs.isEmpty ? nil : snapshotID
+    }
+
+    var isEmpty: Bool {
+        nodeIDs.isEmpty
+    }
+}
+
+struct CleanupListSummary: Equatable, Sendable {
+    let itemCount: Int
+    let totalAllocatedSize: Int64
+
+    var isEmpty: Bool {
+        itemCount == 0
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     private struct PostTrashRemovalRequest: Sendable {
@@ -140,6 +166,7 @@ final class AppModel: ObservableObject {
     @Published var pendingImportPreview: ScanArchivePreview?
     @Published var pendingTrashNode: FileNodeRecord?
     @Published var pendingTrashSelection: PendingTrashSelection?
+    @Published private(set) var cleanupList = CleanupListState()
     @Published private(set) var usageStats = AppUsageStats.empty
 
     private let dependencies: AppDependencies
@@ -277,6 +304,20 @@ final class AppModel: ObservableObject {
 
     var sidebar: SidebarModel {
         sidebarModel
+    }
+
+    var cleanupListNodes: [FileNodeRecord] {
+        resolvedCleanupListNodes()
+    }
+
+    var cleanupListSummary: CleanupListSummary {
+        let nodes = resolvedCleanupListNodes()
+        return CleanupListSummary(
+            itemCount: nodes.count,
+            totalAllocatedSize: nodes.reduce(into: Int64(0)) { total, node in
+                total += node.allocatedSize
+            }
+        )
     }
 
     var startupDiskTarget: ScanTarget? {
@@ -1129,7 +1170,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func requestMoveNodesToTrash(_ nodes: [FileNodeRecord]) {
+    @discardableResult
+    func requestMoveNodesToTrash(_ nodes: [FileNodeRecord]) -> Bool {
         do {
             let nodes = try validatedNodesForMutation(nodes)
             guard nodes.allSatisfy({ node in
@@ -1144,9 +1186,80 @@ final class AppModel: ObservableObject {
             let trashNodes = topLevelTrashNodes(from: nodes)
             pendingTrashNode = trashNodes.first
             pendingTrashSelection = PendingTrashSelection(nodes: trashNodes)
+            return true
         } catch {
             presentError(error)
+            return false
         }
+    }
+
+    @discardableResult
+    func addSelectedNodesToCleanupList() -> Bool {
+        addNodesToCleanupList(navigationModel.selectedNodes)
+    }
+
+    @discardableResult
+    func addPrimarySelectionToCleanupList() -> Bool {
+        guard let node = navigationModel.selectedNode else {
+            presentError(FileActionError.noSelection)
+            return false
+        }
+
+        return addNodesToCleanupList([node])
+    }
+
+    @discardableResult
+    func addNodeToCleanupList(_ node: FileNodeRecord) -> Bool {
+        addNodesToCleanupList([node])
+    }
+
+    @discardableResult
+    func addNodesToCleanupList(_ nodes: [FileNodeRecord]) -> Bool {
+        do {
+            let nodes = try validatedNodesForMutation(nodes)
+            guard nodes.allSatisfy({ node in
+                node.supportsMoveToTrash(
+                    activeTarget: scanCoordinator.selectedTarget,
+                    trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+                )
+            }) else {
+                throw FileActionError.unsupported
+            }
+            guard let snapshot = scanCoordinator.snapshot,
+                  let fileTreeStore = scanCoordinator.fileTreeStore else {
+                throw FileActionError.unsupported
+            }
+
+            addCleanupListNodes(
+                topLevelTrashNodes(from: nodes),
+                snapshot: snapshot,
+                fileTreeStore: fileTreeStore
+            )
+            return true
+        } catch {
+            presentError(error)
+            return false
+        }
+    }
+
+    func removeCleanupListNode(id nodeID: FileNodeRecord.ID) {
+        guard cleanupList.nodeIDs.contains(nodeID) else { return }
+        let remainingIDs = cleanupList.nodeIDs.filter { $0 != nodeID }
+        cleanupList = CleanupListState(
+            nodeIDs: remainingIDs,
+            snapshotID: cleanupList.snapshotID
+        )
+    }
+
+    func clearCleanupList() {
+        guard !cleanupList.isEmpty else { return }
+        cleanupList = CleanupListState()
+    }
+
+    @discardableResult
+    func requestMoveCleanupListToTrash() -> Bool {
+        reconcileCleanupList()
+        return requestMoveNodesToTrash(topLevelTrashNodes(from: resolvedCleanupListNodes()))
     }
 
     func confirmMovePendingNodeToTrash() {
@@ -1307,6 +1420,7 @@ final class AppModel: ObservableObject {
         statsFileTreeStore: FileTreeStore?
     ) {
         if !movedNodes.isEmpty {
+            removeMovedNodesFromCleanupList(movedNodes, fileTreeStore: statsFileTreeStore)
             recordTrashCleanup(movedNodes, fileTreeStore: statsFileTreeStore)
             sidebarScanCacheController.clearCache()
             if shouldApplyPostTrashSnapshotUpdate(originalSnapshotID: originalSnapshotID) {
@@ -1354,6 +1468,21 @@ final class AppModel: ObservableObject {
     func cancelPendingTrash() {
         pendingTrashNode = nil
         pendingTrashSelection = nil
+    }
+
+    func reconcileCleanupList() {
+        guard !cleanupList.isEmpty else { return }
+        guard let snapshot = scanCoordinator.snapshot,
+              let fileTreeStore = scanCoordinator.fileTreeStore else {
+            cleanupList = CleanupListState()
+            return
+        }
+        guard cleanupList.snapshotID == snapshot.id else {
+            cleanupList = CleanupListState()
+            return
+        }
+
+        reconcileCleanupList(snapshotID: snapshot.id, fileTreeStore: fileTreeStore)
     }
 
     private func postTrashFocusFallbackID(for node: FileNodeRecord) -> FileNodeRecord.ID? {
@@ -1568,6 +1697,106 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func addCleanupListNodes(
+        _ nodes: [FileNodeRecord],
+        snapshot: ScanSnapshot,
+        fileTreeStore: FileTreeStore
+    ) {
+        guard !nodes.isEmpty else { return }
+
+        var queuedIDs = cleanupList.snapshotID == snapshot.id ? cleanupList.nodeIDs : []
+        for node in nodes {
+            let hasQueuedAncestor = queuedIDs.contains { queuedID in
+                fileTreeStore.isAncestor(queuedID, of: node.id)
+            }
+            guard !hasQueuedAncestor else { continue }
+
+            queuedIDs.removeAll { queuedID in
+                fileTreeStore.isAncestor(node.id, of: queuedID)
+            }
+            queuedIDs.append(node.id)
+        }
+
+        let deduplicatedIDs = deduplicatedCleanupListIDs(queuedIDs, fileTreeStore: fileTreeStore)
+        cleanupList = CleanupListState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
+    }
+
+    private func deduplicatedCleanupListIDs(
+        _ nodeIDs: [FileNodeRecord.ID],
+        fileTreeStore: FileTreeStore
+    ) -> [FileNodeRecord.ID] {
+        var result: [FileNodeRecord.ID] = []
+        result.reserveCapacity(nodeIDs.count)
+
+        for nodeID in nodeIDs where fileTreeStore.node(id: nodeID) != nil {
+            let hasQueuedAncestor = result.contains { queuedID in
+                fileTreeStore.isAncestor(queuedID, of: nodeID)
+            }
+            guard !hasQueuedAncestor else { continue }
+
+            result.removeAll { queuedID in
+                fileTreeStore.isAncestor(nodeID, of: queuedID)
+            }
+            result.append(nodeID)
+        }
+
+        return result
+    }
+
+    private func resolvedCleanupListNodes() -> [FileNodeRecord] {
+        guard let fileTreeStore = scanCoordinator.fileTreeStore else { return [] }
+        return cleanupList.nodeIDs.compactMap { fileTreeStore.node(id: $0) }
+    }
+
+    private func removeMovedNodesFromCleanupList(
+        _ movedNodes: [FileNodeRecord],
+        fileTreeStore: FileTreeStore?
+    ) {
+        guard !cleanupList.isEmpty, !movedNodes.isEmpty else { return }
+
+        let movedIDs = Set(movedNodes.map(\.id))
+        let remainingIDs = cleanupList.nodeIDs.filter { queuedID in
+            guard !movedIDs.contains(queuedID) else { return false }
+            guard let fileTreeStore else { return true }
+            return !movedIDs.contains { movedID in
+                fileTreeStore.isAncestor(movedID, of: queuedID)
+            }
+        }
+        guard remainingIDs != cleanupList.nodeIDs else { return }
+        cleanupList = CleanupListState(
+            nodeIDs: remainingIDs,
+            snapshotID: cleanupList.snapshotID
+        )
+    }
+
+    private func syncCleanupList(with snapshot: ScanSnapshot?) {
+        guard !cleanupList.isEmpty else { return }
+        guard let snapshot else {
+            cleanupList = CleanupListState()
+            return
+        }
+        guard cleanupList.snapshotID == snapshot.id else {
+            cleanupList = CleanupListState()
+            return
+        }
+        reconcileCleanupList(snapshotID: snapshot.id, fileTreeStore: snapshot.treeStore)
+    }
+
+    private func reconcileCleanupList(
+        snapshotID: UUID,
+        fileTreeStore: FileTreeStore
+    ) {
+        let reconciledIDs = deduplicatedCleanupListIDs(
+            cleanupList.nodeIDs.filter { fileTreeStore.node(id: $0) != nil },
+            fileTreeStore: fileTreeStore
+        )
+        guard reconciledIDs != cleanupList.nodeIDs else { return }
+        cleanupList = CleanupListState(
+            nodeIDs: reconciledIDs,
+            snapshotID: snapshotID
+        )
+    }
+
     private func isDirectoryURL(_ url: URL) -> Bool {
         dependencies.systemActions.isExistingDirectory(url)
     }
@@ -1578,6 +1807,7 @@ final class AppModel: ObservableObject {
         pendingImportPreview = nil
         pendingTrashNode = nil
         pendingTrashSelection = nil
+        cleanupList = CleanupListState()
         sidebarModel.setActiveTargetID(target.id)
 
         registerRecentTarget(target)
@@ -1608,6 +1838,7 @@ final class AppModel: ObservableObject {
         pendingImportPreview = nil
         pendingTrashNode = nil
         pendingTrashSelection = nil
+        cleanupList = CleanupListState()
         sidebarModel.setActiveTargetID(nil)
         quickLookController.closePreview()
     }
@@ -1694,6 +1925,7 @@ final class AppModel: ObservableObject {
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
                 guard let self else { return }
+                syncCleanupList(with: snapshot)
                 if let snapshotID = snapshot?.id,
                    snapshotID == deferredNavigationContextSnapshotID {
                     return
