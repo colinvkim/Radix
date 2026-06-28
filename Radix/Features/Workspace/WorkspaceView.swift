@@ -1,5 +1,15 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+struct CleanupListDragPayload: Codable, Hashable, Transferable {
+    let snapshotID: UUID?
+    let nodeIDs: [FileNodeRecord.ID]
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .json)
+    }
+}
 
 struct WorkspaceActions {
     let chooseFolder: () -> Void

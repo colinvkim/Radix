@@ -174,7 +174,7 @@ struct FileBrowserTableView: View {
     }
 
     private var contentsTable: some View {
-        Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
+        Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                 FileBrowserNameCell(
                     node: node,
@@ -210,6 +210,15 @@ struct FileBrowserTableView: View {
                 Text(model.displayValues(for: node).modifiedDate)
             }
             .width(min: 150, ideal: 180)
+        } rows: {
+            ForEach(model.displayedNodes) { node in
+                if tableSelection.wrappedValue.contains(node.id) {
+                    TableRow(node)
+                        .draggable(cleanupListDragPayload(for: node))
+                } else {
+                    TableRow(node)
+                }
+            }
         }
         .accessibilityLabel("Contents table")
         .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
@@ -411,6 +420,20 @@ struct FileBrowserTableView: View {
 
     private func selectedNodes(for selectedIDs: Set<FileNodeRecord.ID>) -> [FileNodeRecord] {
         model.displayedNodes.filter { selectedIDs.contains($0.id) }
+    }
+
+    private func cleanupListDragPayload(for node: FileNodeRecord) -> CleanupListDragPayload {
+        guard tableSelection.wrappedValue.contains(node.id) else {
+            return CleanupListDragPayload(
+                snapshotID: scanState.snapshot?.id,
+                nodeIDs: [node.id]
+            )
+        }
+
+        return CleanupListDragPayload(
+            snapshotID: scanState.snapshot?.id,
+            nodeIDs: selectedNodes(for: tableSelection.wrappedValue).map(\.id)
+        )
     }
 
     private func primarySelectionID(in selectedIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {

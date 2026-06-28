@@ -5,6 +5,7 @@ struct SidebarActions {
     let revealInFinder: (ScanTarget) -> Void
     let removeRecentTarget: (ScanTarget) -> Void
     let reviewCleanupList: () -> Void
+    let addDroppedNodesToCleanupList: ([FileNodeRecord.ID], UUID?) -> Bool
 }
 
 struct SidebarView: View {
@@ -13,6 +14,8 @@ struct SidebarView: View {
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let cleanupListSummary: CleanupListSummary
     let actions: SidebarActions
+
+    @State private var cleanupListDropIsTargeted = false
 
     private var selection: Binding<String?> {
         Binding(
@@ -60,8 +63,21 @@ struct SidebarView: View {
             if scanState.snapshot != nil {
                 Divider()
 
-                CleanupListSidebarButton(summary: cleanupListSummary) {
+                CleanupListSidebarButton(
+                    summary: cleanupListSummary,
+                    isDropTargeted: cleanupListDropIsTargeted
+                ) {
                     actions.reviewCleanupList()
+                }
+                .dropDestination(for: CleanupListDragPayload.self) { payloads, _ in
+                    let snapshotIDs = Set(payloads.compactMap(\.snapshotID))
+                    guard snapshotIDs.count <= 1 else { return false }
+                    return actions.addDroppedNodesToCleanupList(
+                        payloads.flatMap(\.nodeIDs),
+                        snapshotIDs.first
+                    )
+                } isTargeted: { isTargeted in
+                    cleanupListDropIsTargeted = isTargeted
                 }
             }
         }
@@ -72,6 +88,7 @@ struct SidebarView: View {
 
 private struct CleanupListSidebarButton: View {
     let summary: CleanupListSummary
+    let isDropTargeted: Bool
     let action: () -> Void
 
     var body: some View {
@@ -95,6 +112,12 @@ private struct CleanupListSidebarButton: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isDropTargeted ? Color.accentColor.opacity(0.16) : Color.clear)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
         .help("Review Cleanup List")
     }
 

@@ -547,7 +547,8 @@ private extension ContentView {
             selectTargetAfterViewUpdate: { appModel.selectSidebarTargetAfterViewUpdate(id: $0) },
             revealInFinder: { appModel.revealTargetInFinder($0) },
             removeRecentTarget: { appModel.removeRecentTarget($0) },
-            reviewCleanupList: { showsCleanupReview = true }
+            reviewCleanupList: { showsCleanupReview = true },
+            addDroppedNodesToCleanupList: { appModel.addNodeIDsToCleanupList($0, snapshotID: $1) }
         )
     }
 }

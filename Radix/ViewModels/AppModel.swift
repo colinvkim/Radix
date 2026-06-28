@@ -1214,6 +1214,29 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
+    func addNodeIDsToCleanupList(
+        _ nodeIDs: [FileNodeRecord.ID],
+        snapshotID: UUID? = nil
+    ) -> Bool {
+        if let snapshotID, scanCoordinator.snapshot?.id != snapshotID {
+            presentError(FileActionError.unsupported)
+            return false
+        }
+        guard let fileTreeStore = scanCoordinator.fileTreeStore else {
+            presentError(FileActionError.unsupported)
+            return false
+        }
+
+        let nodes = nodeIDs.compactMap { fileTreeStore.node(id: $0) }
+        guard !nodes.isEmpty else {
+            presentError(FileActionError.unsupported)
+            return false
+        }
+
+        return addNodesToCleanupList(nodes)
+    }
+
+    @discardableResult
     func addNodesToCleanupList(_ nodes: [FileNodeRecord]) -> Bool {
         do {
             let nodes = try validatedNodesForMutation(nodes)

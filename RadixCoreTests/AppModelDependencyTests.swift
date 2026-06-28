@@ -853,6 +853,39 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanupListAddsResolvedNodeIDs() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        let didAdd = model.addNodeIDsToCleanupList([first.id, second.id])
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.cleanupList.nodeIDs, [first.id, second.id])
+    }
+
+    @MainActor
+    func testCleanupListRejectsNodeIDsFromDifferentSnapshot() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didAdd = model.addNodeIDsToCleanupList([file.id], snapshotID: UUID())
+
+        XCTAssertFalse(didAdd)
+        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
     func testCleanupListRejectsUnsupportedNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
