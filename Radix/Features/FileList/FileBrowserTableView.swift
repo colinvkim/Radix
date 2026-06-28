@@ -9,14 +9,12 @@ struct FileBrowserActions {
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
-    let cleanupListActions: CleanupListActions
 }
 
 struct FileBrowserTableView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
-    let cleanupListSummary: CleanupListSummary
     let actions: FileBrowserActions
 
     @StateObject private var model: FileBrowserModel
@@ -26,14 +24,12 @@ struct FileBrowserTableView: View {
         scanState: ScanCoordinator,
         navigation: WorkspaceNavigationModel,
         focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
-        cleanupListSummary: CleanupListSummary,
         actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
     ) {
         self.scanState = scanState
         self.navigation = navigation
         self._focusedWorkspaceTarget = focusedWorkspaceTarget
-        self.cleanupListSummary = cleanupListSummary
         self.actions = actions
         _model = StateObject(wrappedValue: model())
     }
@@ -178,24 +174,6 @@ struct FileBrowserTableView: View {
     }
 
     private var contentsTable: some View {
-        VStack(spacing: 0) {
-            fileTable
-
-            if let selection = displayedSelectionContext {
-                Divider()
-                FileBrowserCleanupSelectionBar(
-                    selection: selection,
-                    cleanupListSummary: cleanupListSummary,
-                    addAction: {
-                        actions.cleanupListActions.addNodes(selection.nodes)
-                    },
-                    reviewAction: actions.cleanupListActions.review
-                )
-            }
-        }
-    }
-
-    private var fileTable: some View {
         Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                 FileBrowserNameCell(
@@ -241,10 +219,6 @@ struct FileBrowserTableView: View {
             performPrimaryAction(for: selectedIDs)
         }
         .focused($focusedWorkspaceTarget, equals: .contents)
-    }
-
-    private var displayedSelectionContext: FileBrowserSelectionContext? {
-        selectionContext(for: tableSelection.wrappedValue)
     }
 
     private func loadingContent(_ title: String) -> some View {
@@ -484,48 +458,5 @@ private struct FileBrowserSelectionContext {
 
     var id: FileNodeRecord.ID {
         primaryID ?? ids.sorted().first ?? ""
-    }
-}
-
-private struct FileBrowserCleanupSelectionBar: View {
-    let selection: FileBrowserSelectionContext
-    let cleanupListSummary: CleanupListSummary
-    let addAction: () -> Void
-    let reviewAction: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(selectionSummary)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 12)
-
-            Button("Add to Cleanup List", systemImage: "checklist") {
-                addAction()
-            }
-            .disabled(!selection.actionAvailability.canMoveToTrash)
-
-            if !cleanupListSummary.isEmpty {
-                Button("Review Cleanup", systemImage: "list.bullet.rectangle") {
-                    reviewAction()
-                }
-            }
-        }
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    private var selectionSummary: String {
-        "\(selection.nodes.count.formatted()) selected • \(RadixFormatters.size(totalAllocatedSize))"
-    }
-
-    private var totalAllocatedSize: Int64 {
-        selection.nodes.reduce(into: Int64(0)) { total, node in
-            total += node.allocatedSize
-        }
     }
 }

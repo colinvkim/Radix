@@ -34,7 +34,6 @@ struct ContentView: View {
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 showFreeSpaceInSunburst: appModel.showFreeSpaceInSunburst,
-                cleanupListSummary: appModel.cleanupListSummary,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 freeSpaceAvailableCapacity: { snapshot, focusNode in
@@ -442,11 +441,7 @@ private struct CleanupListReviewSheet: View {
             }
 
             if nodes.isEmpty {
-                ContentUnavailableView(
-                    "No Items Marked",
-                    systemImage: "checklist"
-                )
-                .frame(minHeight: 220)
+                emptyState
             } else {
                 Table(nodes) {
                     TableColumn("Name") { node in
@@ -487,7 +482,6 @@ private struct CleanupListReviewSheet: View {
                     }
                     .width(36)
                 }
-                .frame(minHeight: 260)
             }
 
             Divider()
@@ -513,7 +507,24 @@ private struct CleanupListReviewSheet: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 720, minHeight: 420)
+        .frame(width: 720, height: sheetHeight)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "checklist")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+
+            Text("No Items Marked")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var sheetHeight: CGFloat {
+        nodes.isEmpty ? 240 : 420
     }
 
     private var summaryText: String {
@@ -592,7 +603,6 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
-    let cleanupListSummary: CleanupListSummary
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -606,7 +616,6 @@ private struct WorkspaceDetailView: View {
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
             showFreeSpaceInSunburst: showFreeSpaceInSunburst,
-            cleanupListSummary: cleanupListSummary,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,
             freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
@@ -656,7 +665,6 @@ private extension ContentView {
             recordSunburstSegmentClick: { appModel.recordSunburstSegmentClick() },
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
-            cleanupListActions: cleanupListActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
@@ -698,13 +706,6 @@ private extension ContentView {
             revealInFinder: { appModel.revealNodesInFinder($0) },
             copyPaths: { appModel.copyPaths(for: $0) },
             moveToTrash: { appModel.requestMoveNodesToTrash($0) }
-        )
-    }
-
-    var cleanupListActions: CleanupListActions {
-        CleanupListActions(
-            addNodes: { appModel.addNodesToCleanupList($0) },
-            review: { showsCleanupReview = true }
         )
     }
 

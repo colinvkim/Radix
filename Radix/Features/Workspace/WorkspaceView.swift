@@ -21,7 +21,6 @@ struct WorkspaceActions {
     let recordSunburstSegmentClick: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
-    let cleanupListActions: CleanupListActions
     let openFullDiskAccessSettings: () -> Void
 }
 
@@ -54,11 +53,6 @@ struct BulkFileActions {
     let moveToTrash: ([FileNodeRecord]) -> Void
 }
 
-struct CleanupListActions {
-    let addNodes: ([FileNodeRecord]) -> Void
-    let review: () -> Void
-}
-
 struct WorkspaceView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
@@ -67,7 +61,6 @@ struct WorkspaceView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
-    let cleanupListSummary: CleanupListSummary
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -85,7 +78,6 @@ struct WorkspaceView: View {
                     focusedWorkspaceTarget: $focusedWorkspaceTarget,
                     maxRenderedDepth: maxRenderedDepth,
                     showFreeSpaceInSunburst: showFreeSpaceInSunburst,
-                    cleanupListSummary: cleanupListSummary,
                     fullDiskAccessStatus: fullDiskAccessStatus,
                     freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
                     actions: actions

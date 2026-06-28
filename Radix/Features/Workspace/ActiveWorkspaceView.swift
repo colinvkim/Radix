@@ -9,7 +9,6 @@ struct ActiveWorkspaceView: View {
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
-    let cleanupListSummary: CleanupListSummary
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
@@ -88,7 +87,6 @@ struct ActiveWorkspaceView: View {
                 scanState: scanState,
                 navigation: navigation,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
-                cleanupListSummary: cleanupListSummary,
                 actions: fileBrowserActions
             )
 
@@ -131,8 +129,7 @@ struct ActiveWorkspaceView: View {
             expandSummarizedNode: actions.expandSummarizedNode,
             zoomIntoSelection: actions.zoomIntoSelection,
             selectedFileActions: actions.selectedFileActions,
-            bulkFileActions: actions.bulkFileActions,
-            cleanupListActions: actions.cleanupListActions
+            bulkFileActions: actions.bulkFileActions
         )
     }
 }
