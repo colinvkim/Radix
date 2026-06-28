@@ -9,6 +9,7 @@ struct SidebarActions {
 
 struct SidebarView: View {
     @ObservedObject var model: SidebarModel
+    @ObservedObject var scanState: ScanCoordinator
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let cleanupListSummary: CleanupListSummary
     let actions: SidebarActions
@@ -56,10 +57,12 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
 
-            Divider()
+            if scanState.snapshot != nil {
+                Divider()
 
-            CleanupListSidebarButton(summary: cleanupListSummary) {
-                actions.reviewCleanupList()
+                CleanupListSidebarButton(summary: cleanupListSummary) {
+                    actions.reviewCleanupList()
+                }
             }
         }
         .navigationTitle("Locations")

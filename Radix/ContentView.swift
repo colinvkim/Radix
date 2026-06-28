@@ -21,6 +21,7 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
             SidebarView(
                 model: appModel.sidebar,
+                scanState: appModel.scanState,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 cleanupListSummary: appModel.cleanupListSummary,
                 actions: sidebarActions
