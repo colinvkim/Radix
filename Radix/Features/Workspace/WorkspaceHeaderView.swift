@@ -11,8 +11,14 @@ struct WorkspaceHeaderView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(focusNode.name)
-                        .font(.title2.weight(.semibold))
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(focusNode.name)
+                            .font(.title2.weight(.semibold))
+
+                        if snapshot.source.isImported {
+                            ReadOnlySnapshotBadge()
+                        }
+                    }
 
                     Text(statusSubtitle)
                         .font(.subheadline)
@@ -61,10 +67,25 @@ struct WorkspaceHeaderView: View {
     }
 
     private var statusSubtitle: String {
-        if snapshot.source.isImported {
-            return "Imported Snapshot - \(snapshot.target.url.path)"
+        snapshot.target.url.path
+    }
+}
+
+private struct ReadOnlySnapshotBadge: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 5) {
+            Image(systemName: "lock")
+                .font(.caption.weight(.semibold))
+                .imageScale(.small)
+
+            Text("Imported Snapshot")
+                .font(.caption.weight(.medium))
         }
-        return "Live Scan - \(snapshot.target.url.path)"
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(.quaternary, in: Capsule())
+        .help("Imported snapshots are read-only.")
     }
 }
 
