@@ -72,6 +72,7 @@ struct AppSystemActions {
     var copyPath: (URL) throws -> Void
     var copyPaths: ([URL]) throws -> Void
     var moveToTrash: (URL) throws -> Void
+    var asyncMoveToTrash: (@Sendable (URL) async throws -> Void)?
     var quickLook: AppQuickLookActions
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
     var fullDiskAccessStatus: () -> FullDiskAccessStatus
@@ -86,6 +87,7 @@ struct AppSystemActions {
     var presentImportScanPanel: () -> URL?
     var fileExists: (URL) -> Bool
     var verifyTrashIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
+    var asyncVerifyTrashIdentity: (@Sendable (FileNodeRecord) async -> TrashIdentityVerificationResult)?
     var isExistingDirectory: (URL) -> Bool
     var preferredSmartTargetIDs: () -> [String]
     var mountedVolumeEvents: () -> AnyPublisher<Void, Never>
@@ -98,6 +100,11 @@ struct AppSystemActions {
         copyPath: { try SystemIntegration.copyPath($0) },
         copyPaths: { try SystemIntegration.copyPaths($0) },
         moveToTrash: { try SystemIntegration.moveToTrash($0) },
+        asyncMoveToTrash: { url in
+            try await Task.detached(priority: .userInitiated) {
+                try SystemIntegration.moveToTrash(url)
+            }.value
+        },
         quickLook: .live,
         prepareAndOpenFullDiskAccessSettings: {
             SystemIntegration.prepareAndOpenFullDiskAccessSettings()
@@ -142,6 +149,11 @@ struct AppSystemActions {
         verifyTrashIdentity: { node in
             SystemIntegration.verifyTrashIdentity(node)
         },
+        asyncVerifyTrashIdentity: { node in
+            await Task.detached(priority: .userInitiated) {
+                SystemIntegration.verifyTrashIdentity(node)
+            }.value
+        },
         isExistingDirectory: { url in
             Self.isExistingDirectoryURL(url)
         },
@@ -175,6 +187,7 @@ struct AppSystemActions {
         copyPath: { _ in },
         copyPaths: { _ in },
         moveToTrash: { _ in },
+        asyncMoveToTrash: nil,
         quickLook: .disabled,
         prepareAndOpenFullDiskAccessSettings: { true },
         fullDiskAccessStatus: { .unknown },
@@ -191,6 +204,7 @@ struct AppSystemActions {
         presentImportScanPanel: { nil },
         fileExists: { _ in false },
         verifyTrashIdentity: { _ in .matches },
+        asyncVerifyTrashIdentity: nil,
         isExistingDirectory: { _ in false },
         preferredSmartTargetIDs: { [] },
         mountedVolumeEvents: { Empty().eraseToAnyPublisher() },

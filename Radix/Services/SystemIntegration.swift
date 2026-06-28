@@ -348,13 +348,13 @@ enum SystemIntegration {
         }
     }
 
-    static func moveToTrash(_ url: URL) throws {
+    nonisolated static func moveToTrash(_ url: URL) throws {
         try validateCanMoveToTrash(url)
         var resultingItemURL: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingItemURL)
     }
 
-    static func verifyTrashIdentity(_ node: FileNodeRecord) -> TrashIdentityVerificationResult {
+    nonisolated static func verifyTrashIdentity(_ node: FileNodeRecord) -> TrashIdentityVerificationResult {
         guard !node.isSynthetic else { return .matches }
         guard let scannedIdentity = node.fileIdentity else {
             return .missingScannedIdentity
@@ -377,13 +377,13 @@ enum SystemIntegration {
         }
     }
 
-    static func validateCanMoveToTrash(_ url: URL) throws {
+    nonisolated static func validateCanMoveToTrash(_ url: URL) throws {
         if let reason = TrashSafetyPolicy.blockReason(for: url) {
             throw SystemIntegrationError.protectedTrashLocation(path: reason.path)
         }
     }
 
-    private static func currentFileSystemIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
+    private nonisolated static func currentFileSystemIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
         var fileStat = stat()
         errno = 0
         let result = url.withUnsafeFileSystemRepresentation { path in
@@ -398,7 +398,7 @@ enum SystemIntegration {
         return .success(FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)))
     }
 
-    private static func currentResourceIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
+    private nonisolated static func currentResourceIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
         do {
             let values = try url.resourceValues(forKeys: [.fileResourceIdentifierKey])
             guard let identifierData = values.fileResourceIdentifier as? Data else {
@@ -414,7 +414,7 @@ enum SystemIntegration {
         }
     }
 
-    private static func currentIdentityError(errnoCode: Int32) -> CurrentIdentityError {
+    private nonisolated static func currentIdentityError(errnoCode: Int32) -> CurrentIdentityError {
         if errnoCode == ENOENT || errnoCode == ENOTDIR {
             return .missingCurrentItem
         }

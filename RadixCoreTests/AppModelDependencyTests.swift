@@ -604,6 +604,43 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testConfirmPendingTrashUsesAsyncTrashActionWithoutBlockingDismissal() async throws {
+        let probe = AsyncTrashActionProbe()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.asyncVerifyTrashIdentity = { _ in .matches }
+        actions.asyncMoveToTrash = { url in
+            await probe.move(url)
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        model.scanState.selectedTarget = ScanTarget(url: URL(filePath: "/selection", directoryHint: .isDirectory))
+
+        model.pendingTrashNode = file
+        model.confirmMovePendingNodeToTrash()
+
+        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertNil(model.pendingTrashSelection)
+
+        try await probe.waitUntilStarted()
+        let movedURLs = await probe.movedURLs()
+        XCTAssertEqual(movedURLs, [file.url])
+        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: file.id))
+
+        await probe.finish()
+
+        try await waitUntil("async trash completed", timeout: 2) {
+            model.scanState.snapshot?.treeStore.node(id: file.id) == nil ||
+                model.lastErrorMessage != nil
+        }
+        XCTAssertNil(model.lastErrorMessage)
+        XCTAssertNil(
+            model.scanState.snapshot?.treeStore.node(id: file.id),
+            "selected target: \(model.scanState.selectedTarget?.id ?? "nil")"
+        )
+    }
+
+    @MainActor
     func testConfirmPendingTrashRecordsCleanupUsageStats() {
         let recorder = AppModelActionRecorder()
         let usageStats = SpyAppUsageStatsStore()
@@ -1800,6 +1837,63 @@ private final class AppModelActionRecorder {
     var quickLookMonitorRemovalCount = 0
     var defaultTargets: [ScanTarget] = []
     var defaultTargetsCallCount = 0
+}
+
+private actor AsyncTrashActionProbe {
+    private enum ProbeError: Error {
+        case timeout
+    }
+
+    private var movedURLValues: [URL] = []
+    private var startContinuations: [CheckedContinuation<Void, Never>] = []
+    private var finishContinuations: [CheckedContinuation<Void, Never>] = []
+    private var isFinished = false
+
+    func move(_ url: URL) async {
+        movedURLValues.append(url)
+        let continuations = startContinuations
+        startContinuations.removeAll()
+        continuations.forEach { $0.resume() }
+        guard !isFinished else { return }
+
+        await withCheckedContinuation { continuation in
+            finishContinuations.append(continuation)
+        }
+    }
+
+    func waitUntilStarted(timeout: Duration = .seconds(1)) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await self.waitUntilStarted()
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw ProbeError.timeout
+            }
+
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
+    func finish() {
+        isFinished = true
+        let continuations = finishContinuations
+        finishContinuations.removeAll()
+        continuations.forEach { $0.resume() }
+    }
+
+    func movedURLs() -> [URL] {
+        movedURLValues
+    }
+
+    private func waitUntilStarted() async {
+        guard movedURLValues.isEmpty else { return }
+
+        await withCheckedContinuation { continuation in
+            startContinuations.append(continuation)
+        }
+    }
 }
 
 private actor SpyScanArchiveService: ScanArchiveServicing {

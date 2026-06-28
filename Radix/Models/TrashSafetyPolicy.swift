@@ -10,7 +10,7 @@ import Foundation
 enum TrashSafetyBlockReason: Equatable, Sendable {
     case protectedRoot(path: String)
 
-    var path: String {
+    nonisolated var path: String {
         switch self {
         case .protectedRoot(let path):
             return path
@@ -23,13 +23,13 @@ struct TrashSafetyPolicy: Sendable {
         let visiblePath: String
         let dataRelativePath: String
 
-        init(visiblePath: String, dataRelativePath: String) {
+        nonisolated init(visiblePath: String, dataRelativePath: String) {
             self.visiblePath = visiblePath
             self.dataRelativePath = dataRelativePath
         }
     }
 
-    private static let staticProtectedRootPaths = [
+    private nonisolated static let staticProtectedRootPaths = [
         "/",
         "/Applications",
         "/Library",
@@ -48,7 +48,7 @@ struct TrashSafetyPolicy: Sendable {
         "/var"
     ]
 
-    private static let fallbackFirmlinkEntries = [
+    private nonisolated static let fallbackFirmlinkEntries = [
         FirmlinkEntry(visiblePath: "/AppleInternal", dataRelativePath: "AppleInternal"),
         FirmlinkEntry(visiblePath: "/Applications", dataRelativePath: "Applications"),
         FirmlinkEntry(visiblePath: "/Library", dataRelativePath: "Library"),
@@ -70,14 +70,14 @@ struct TrashSafetyPolicy: Sendable {
         FirmlinkEntry(visiblePath: "/usr/share/snmp", dataRelativePath: "usr/share/snmp")
     ]
 
-    private static let defaultFirmlinkEntries: [FirmlinkEntry] = {
+    private nonisolated static let defaultFirmlinkEntries: [FirmlinkEntry] = {
         entriesFromFirmlinkFile(at: URL(fileURLWithPath: "/usr/share/firmlinks"))
             ?? fallbackFirmlinkEntries
     }()
 
     private let protectedRootPaths: Set<String>
 
-    init(
+    nonisolated init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         mountedVolumeURLs: [URL]? = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: nil,
@@ -107,21 +107,21 @@ struct TrashSafetyPolicy: Sendable {
         self.protectedRootPaths = paths
     }
 
-    static func live() -> TrashSafetyPolicy {
+    nonisolated static func live() -> TrashSafetyPolicy {
         TrashSafetyPolicy()
     }
 
-    static func blockReason(for url: URL) -> TrashSafetyBlockReason? {
+    nonisolated static func blockReason(for url: URL) -> TrashSafetyBlockReason? {
         live().blockReason(for: url)
     }
 
-    func blockReason(for url: URL) -> TrashSafetyBlockReason? {
+    nonisolated func blockReason(for url: URL) -> TrashSafetyBlockReason? {
         let path = Self.standardizedPath(for: url)
         guard protectedRootPaths.contains(path) else { return nil }
         return .protectedRoot(path: path)
     }
 
-    static func parseFirmlinkEntries(_ contents: String) -> [FirmlinkEntry] {
+    nonisolated static func parseFirmlinkEntries(_ contents: String) -> [FirmlinkEntry] {
         contents
             .split(whereSeparator: \.isNewline)
             .compactMap { line -> FirmlinkEntry? in
@@ -143,7 +143,7 @@ struct TrashSafetyPolicy: Sendable {
             }
     }
 
-    private static func entriesFromFirmlinkFile(at url: URL) -> [FirmlinkEntry]? {
+    private nonisolated static func entriesFromFirmlinkFile(at url: URL) -> [FirmlinkEntry]? {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
             return nil
         }
@@ -152,21 +152,21 @@ struct TrashSafetyPolicy: Sendable {
         return entries.isEmpty ? nil : entries
     }
 
-    private static func dataVolumePath(forAbsolutePath path: String) -> String? {
+    private nonisolated static func dataVolumePath(forAbsolutePath path: String) -> String? {
         dataVolumePath(forRelativePath: String(path.drop { $0 == "/" }))
     }
 
-    private static func dataVolumePath(forRelativePath path: String) -> String? {
+    private nonisolated static func dataVolumePath(forRelativePath path: String) -> String? {
         let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmedPath.isEmpty else { return nil }
         return standardizedPath(forPath: "/System/Volumes/Data/" + trimmedPath)
     }
 
-    private static func standardizedPath(for url: URL) -> String {
+    private nonisolated static func standardizedPath(for url: URL) -> String {
         url.standardizedFileURL.path
     }
 
-    private static func standardizedPath(forPath path: String) -> String {
+    private nonisolated static func standardizedPath(forPath path: String) -> String {
         URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
     }
 }

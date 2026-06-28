@@ -1159,32 +1159,44 @@ final class AppModel: ObservableObject {
         pendingTrashNode = nil
         self.pendingTrashSelection = nil
 
-        var movedNodes: [FileNodeRecord] = []
-        var actionError: Error?
+        let originalSnapshotID = scanCoordinator.snapshot?.id
+        let statsFileTreeStore = scanCoordinator.fileTreeStore
 
-        for node in nodes {
-            switch dependencies.systemActions.verifyTrashIdentity(node) {
-            case .matches:
-                continue
-            case .missingCurrentItem:
-                actionError = FileActionError.unavailable(path: node.url.path)
-            case .missingScannedIdentity:
-                actionError = FileActionError.missingScannedIdentity(path: node.url.path)
-            case .mismatch:
-                actionError = FileActionError.changedSinceScan(path: node.url.path)
-            case .metadataUnavailable(let reason):
-                actionError = FileActionError.currentIdentityUnavailable(path: node.url.path, reason: reason)
+        if usesAsyncTrashActions {
+            Task { @MainActor [weak self] in
+                await self?.performConfirmedTrashMove(
+                    nodes,
+                    originalSnapshotID: originalSnapshotID,
+                    statsFileTreeStore: statsFileTreeStore
+                )
             }
-            break
+        } else {
+            performConfirmedTrashMoveSynchronously(
+                nodes,
+                originalSnapshotID: originalSnapshotID,
+                statsFileTreeStore: statsFileTreeStore
+            )
         }
+    }
 
-        guard actionError == nil else {
-            if let actionError {
-                presentError(actionError)
-            }
+    private var usesAsyncTrashActions: Bool {
+        dependencies.systemActions.asyncMoveToTrash != nil ||
+            dependencies.systemActions.asyncVerifyTrashIdentity != nil
+    }
+
+    private func performConfirmedTrashMoveSynchronously(
+        _ nodes: [FileNodeRecord],
+        originalSnapshotID: UUID?,
+        statsFileTreeStore: FileTreeStore?
+    ) {
+        var movedNodes: [FileNodeRecord] = []
+
+        if let actionError = trashIdentityError(for: nodes) {
+            presentError(actionError)
             return
         }
 
+        var actionError: Error?
         for node in nodes {
             do {
                 try dependencies.systemActions.moveToTrash(node.url)
@@ -1195,16 +1207,122 @@ final class AppModel: ObservableObject {
             }
         }
 
+        finishConfirmedTrashMove(
+            movedNodes,
+            actionError: actionError,
+            originalSnapshotID: originalSnapshotID,
+            statsFileTreeStore: statsFileTreeStore
+        )
+    }
+
+    private func performConfirmedTrashMove(
+        _ nodes: [FileNodeRecord],
+        originalSnapshotID: UUID?,
+        statsFileTreeStore: FileTreeStore?
+    ) async {
+        var movedNodes: [FileNodeRecord] = []
+
+        if let actionError = await asyncTrashIdentityError(for: nodes) {
+            presentError(actionError)
+            return
+        }
+
+        var actionError: Error?
+        for node in nodes {
+            do {
+                try await moveToTrash(node.url)
+                movedNodes.append(node)
+            } catch {
+                actionError = error
+                break
+            }
+        }
+
+        finishConfirmedTrashMove(
+            movedNodes,
+            actionError: actionError,
+            originalSnapshotID: originalSnapshotID,
+            statsFileTreeStore: statsFileTreeStore
+        )
+    }
+
+    private func trashIdentityError(for nodes: [FileNodeRecord]) -> Error? {
+        for node in nodes {
+            if let error = fileActionError(
+                for: dependencies.systemActions.verifyTrashIdentity(node),
+                node: node
+            ) {
+                return error
+            }
+        }
+        return nil
+    }
+
+    private func asyncTrashIdentityError(for nodes: [FileNodeRecord]) async -> Error? {
+        for node in nodes {
+            let result: TrashIdentityVerificationResult
+            if let asyncVerifyTrashIdentity = dependencies.systemActions.asyncVerifyTrashIdentity {
+                result = await asyncVerifyTrashIdentity(node)
+            } else {
+                result = dependencies.systemActions.verifyTrashIdentity(node)
+            }
+
+            if let error = fileActionError(for: result, node: node) {
+                return error
+            }
+        }
+        return nil
+    }
+
+    private func fileActionError(
+        for result: TrashIdentityVerificationResult,
+        node: FileNodeRecord
+    ) -> Error? {
+        switch result {
+        case .matches:
+            return nil
+        case .missingCurrentItem:
+            return FileActionError.unavailable(path: node.url.path)
+        case .missingScannedIdentity:
+            return FileActionError.missingScannedIdentity(path: node.url.path)
+        case .mismatch:
+            return FileActionError.changedSinceScan(path: node.url.path)
+        case .metadataUnavailable(let reason):
+            return FileActionError.currentIdentityUnavailable(path: node.url.path, reason: reason)
+        }
+    }
+
+    private func moveToTrash(_ url: URL) async throws {
+        if let asyncMoveToTrash = dependencies.systemActions.asyncMoveToTrash {
+            try await asyncMoveToTrash(url)
+        } else {
+            try dependencies.systemActions.moveToTrash(url)
+        }
+    }
+
+    private func finishConfirmedTrashMove(
+        _ movedNodes: [FileNodeRecord],
+        actionError: Error?,
+        originalSnapshotID: UUID?,
+        statsFileTreeStore: FileTreeStore?
+    ) {
         if !movedNodes.isEmpty {
-            recordTrashCleanup(movedNodes)
+            recordTrashCleanup(movedNodes, fileTreeStore: statsFileTreeStore)
             sidebarScanCacheController.clearCache()
-            handleMovedToTrash(movedNodes)
+            if shouldApplyPostTrashSnapshotUpdate(originalSnapshotID: originalSnapshotID) {
+                handleMovedToTrash(movedNodes)
+            }
             refreshAvailableTargets()
         }
 
         if let actionError {
             presentError(actionError)
         }
+    }
+
+    private func shouldApplyPostTrashSnapshotUpdate(originalSnapshotID: UUID?) -> Bool {
+        guard let originalSnapshotID else { return true }
+        return scanCoordinator.snapshot?.id == originalSnapshotID
     }
 
     private func handleMovedToTrash(_ nodes: [FileNodeRecord]) {
@@ -1608,7 +1726,10 @@ final class AppModel: ObservableObject {
     }
 
     private func recordTrashCleanup(_ nodes: [FileNodeRecord]) {
-        let fileTreeStore = scanCoordinator.fileTreeStore
+        recordTrashCleanup(nodes, fileTreeStore: scanCoordinator.fileTreeStore)
+    }
+
+    private func recordTrashCleanup(_ nodes: [FileNodeRecord], fileTreeStore: FileTreeStore?) {
         updateUsageStats { stats in
             stats.recordTrashCleanup(nodes: nodes, fileTreeStore: fileTreeStore)
         }
