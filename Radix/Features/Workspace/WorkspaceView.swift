@@ -65,6 +65,7 @@ struct SelectedFileActions {
 struct BulkFileActions {
     let revealInFinder: ([FileNodeRecord]) -> Void
     let copyPaths: ([FileNodeRecord]) -> Void
+    let addToCleanupList: ([FileNodeRecord]) -> Void
     let moveToTrash: ([FileNodeRecord]) -> Void
 }
 

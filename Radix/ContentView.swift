@@ -746,6 +746,7 @@ private extension ContentView {
         BulkFileActions(
             revealInFinder: { appModel.revealNodesInFinder($0) },
             copyPaths: { appModel.copyPaths(for: $0) },
+            addToCleanupList: { appModel.addNodesToCleanupList($0) },
             moveToTrash: { appModel.requestMoveNodesToTrash($0) }
         )
     }

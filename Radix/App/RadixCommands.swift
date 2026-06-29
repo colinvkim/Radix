@@ -163,6 +163,12 @@ struct RadixCommands: Commands {
 
             Divider()
 
+            Button(addSelectionToCleanupListTitle, systemImage: "checklist") {
+                appModel.addSelectedNodesToCleanupList()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(!selectedActionAvailability.canMoveToTrash)
+
             selectedFileActionCommand(.moveToTrash, shortcut: .delete, modifiers: [])
         }
     }
@@ -181,6 +187,12 @@ struct RadixCommands: Commands {
             return "Hide Inspector"
         }
         return "Show Inspector"
+    }
+
+    private var addSelectionToCleanupListTitle: String {
+        let count = navigation.selectedNodeIDs.count
+        guard count > 1 else { return "Add to Cleanup List" }
+        return "Add \(count) Items to Cleanup List"
     }
 
     private var commandSelectedFileActions: SelectedFileActions {

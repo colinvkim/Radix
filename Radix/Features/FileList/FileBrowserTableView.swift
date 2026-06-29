@@ -345,6 +345,12 @@ struct FileBrowserTableView: View {
 
             Divider()
 
+            Button("Add to Cleanup List", systemImage: "checklist") {
+                actions.selectNode(id)
+                actions.bulkFileActions.addToCleanupList([node])
+            }
+            .disabled(!selection.actionAvailability.canMoveToTrash)
+
             fileActionButton(.moveToTrash, availability: selection.actionAvailability, selectedID: selection.id)
 
             fileActionButton(.copyPath, availability: selection.actionAvailability, selectedID: selection.id)
@@ -366,6 +372,12 @@ struct FileBrowserTableView: View {
         .disabled(!selection.actionAvailability.canCopyPath)
 
         Divider()
+
+        Button("Add \(selection.nodes.count) Items to Cleanup List", systemImage: "checklist") {
+            actions.selectNodes(selection.ids, selection.primaryID)
+            actions.bulkFileActions.addToCleanupList(selection.nodes)
+        }
+        .disabled(!selection.actionAvailability.canMoveToTrash)
 
         Button("Move \(selection.nodes.count) Items to Trash", systemImage: FileNodeAction.moveToTrash.systemImageName, role: .destructive) {
             actions.selectNodes(selection.ids, selection.primaryID)
