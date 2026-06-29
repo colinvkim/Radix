@@ -212,12 +212,8 @@ struct FileBrowserTableView: View {
             .width(min: 150, ideal: 180)
         } rows: {
             ForEach(model.displayedNodes) { node in
-                if tableSelection.wrappedValue.contains(node.id) {
-                    TableRow(node)
-                        .draggable(cleanupListDragPayload(for: node))
-                } else {
-                    TableRow(node)
-                }
+                TableRow(node)
+                    .draggable(cleanupListDragPayload(for: node))
             }
         }
         .accessibilityLabel("Contents table")
