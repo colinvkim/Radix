@@ -248,7 +248,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             let pasteboardItem = NSPasteboardItem()
             pasteboardItem.setData(
                 data,
-                forType: NSPasteboard.PasteboardType(UTType.json.identifier)
+                forType: NSPasteboard.PasteboardType(CleanupListDragPayload.contentType.identifier)
             )
 
             let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)

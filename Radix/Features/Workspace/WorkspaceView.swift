@@ -3,11 +3,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct CleanupListDragPayload: Codable, Hashable, Transferable {
+    static let contentType = UTType(exportedAs: "dev.colinkim.radix.cleanup-list-drag-payload")
+
     let snapshotID: UUID
     let nodeIDs: [FileNodeRecord.ID]
 
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: UTType(exportedAs: "dev.colinkim.radix.cleanup-list-drag-payload"))
+        CodableRepresentation(contentType: contentType)
     }
 }
 
