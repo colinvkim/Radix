@@ -115,8 +115,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                 didPan = true
             }
 
-            if !isPanEnabled,
-               !didStartCleanupDrag,
+            if !didStartCleanupDrag,
                let cleanupDragItem = cleanupDragItem(mouseDownLocation),
                let draggingItem = cleanupListDraggingItem(
                    for: cleanupDragItem,
