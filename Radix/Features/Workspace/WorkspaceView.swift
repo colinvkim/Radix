@@ -33,6 +33,7 @@ struct WorkspaceActions {
     let bulkFileActions: BulkFileActions
     let openFullDiskAccessSettings: () -> Void
     let setCleanupListDragActive: (Bool) -> Void
+    let setCleanupListDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct SelectedFileActions {

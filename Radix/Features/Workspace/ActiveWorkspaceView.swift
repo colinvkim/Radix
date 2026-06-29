@@ -132,7 +132,7 @@ struct ActiveWorkspaceView: View {
             zoomIntoSelection: actions.zoomIntoSelection,
             selectedFileActions: actions.selectedFileActions,
             bulkFileActions: actions.bulkFileActions,
-            setCleanupListDragActive: actions.setCleanupListDragActive
+            setCleanupListDragActiveAfterThreshold: actions.setCleanupListDragActiveAfterThreshold
         )
     }
 }

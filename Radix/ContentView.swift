@@ -9,6 +9,8 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    private static let cleanupListDragActivationDistance: CGFloat = 10
+
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
@@ -577,17 +579,58 @@ private extension ContentView {
         cleanupListDragIsActive = true
         cleanupListDragMonitorTask?.cancel()
         cleanupListDragMonitorTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(120))
+            await monitorCleanupListDragUntilMouseUp()
+        }
+    }
 
+    private func setCleanupListDragIsActiveAfterThreshold(_ isActive: Bool) {
+        guard isActive else {
+            cleanupListDragDidEnd()
+            return
+        }
+
+        guard cleanupListDragMonitorTask == nil else { return }
+
+        let initialMouseLocation = NSEvent.mouseLocation
+        cleanupListDragMonitorTask = Task { @MainActor in
             while !Task.isCancelled {
                 guard NSEvent.pressedMouseButtons & 1 != 0 else {
                     cleanupListDragDidEnd()
                     return
                 }
 
-                try? await Task.sleep(for: .milliseconds(80))
+                if Self.mouseLocation(
+                    NSEvent.mouseLocation,
+                    isAtLeast: Self.cleanupListDragActivationDistance,
+                    from: initialMouseLocation
+                ) {
+                    cleanupListDragIsActive = true
+                    await monitorCleanupListDragUntilMouseUp()
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
+    }
+
+    private func monitorCleanupListDragUntilMouseUp() async {
+        try? await Task.sleep(for: .milliseconds(120))
+
+        while !Task.isCancelled {
+            guard NSEvent.pressedMouseButtons & 1 != 0 else {
+                cleanupListDragDidEnd()
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+    }
+
+    private static func mouseLocation(_ location: NSPoint, isAtLeast distance: CGFloat, from origin: NSPoint) -> Bool {
+        let dx = location.x - origin.x
+        let dy = location.y - origin.y
+        return ((dx * dx) + (dy * dy)) >= (distance * distance)
     }
 }
 
@@ -706,7 +749,8 @@ private extension ContentView {
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() },
-            setCleanupListDragActive: setCleanupListDragIsActive
+            setCleanupListDragActive: setCleanupListDragIsActive,
+            setCleanupListDragActiveAfterThreshold: setCleanupListDragIsActiveAfterThreshold
         )
     }
 

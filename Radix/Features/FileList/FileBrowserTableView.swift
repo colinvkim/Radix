@@ -9,7 +9,7 @@ struct FileBrowserActions {
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
-    let setCleanupListDragActive: (Bool) -> Void
+    let setCleanupListDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct FileBrowserTableView: View {
@@ -436,7 +436,7 @@ struct FileBrowserTableView: View {
             preconditionFailure("Cleanup list drag requires an active scan snapshot.")
         }
 
-        actions.setCleanupListDragActive(true)
+        actions.setCleanupListDragActiveAfterThreshold(true)
 
         guard tableSelection.wrappedValue.contains(node.id) else {
             return CleanupListDragPayload(
