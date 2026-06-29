@@ -74,7 +74,8 @@ struct ActiveWorkspaceView: View {
             onSelect: actions.selectNode,
             onZoom: actions.selectAndFocusNode,
             onSegmentClick: actions.recordSunburstSegmentClick,
-            onNavigateToParent: actions.navigateToParent
+            onNavigateToParent: actions.navigateToParent,
+            onCleanupListDragActiveChange: actions.setCleanupListDragActive
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .focusable()
@@ -130,7 +131,8 @@ struct ActiveWorkspaceView: View {
             expandSummarizedNode: actions.expandSummarizedNode,
             zoomIntoSelection: actions.zoomIntoSelection,
             selectedFileActions: actions.selectedFileActions,
-            bulkFileActions: actions.bulkFileActions
+            bulkFileActions: actions.bulkFileActions,
+            setCleanupListDragActive: actions.setCleanupListDragActive
         )
     }
 }

@@ -15,6 +15,8 @@ struct ContentView: View {
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = true
     @State private var showsCleanupReview = false
+    @State private var cleanupListDragIsActive = false
+    @State private var cleanupListDragMonitorTask: Task<Void, Never>?
     @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     var body: some View {
@@ -24,6 +26,7 @@ struct ContentView: View {
                 scanState: appModel.scanState,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 cleanupListSummary: appModel.cleanupListSummary,
+                cleanupListDragIsActive: cleanupListDragIsActive,
                 actions: sidebarActions
             )
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
@@ -164,6 +167,7 @@ struct ContentView: View {
             Text(pendingTrashMessage)
         }
         .onDisappear {
+            cleanupListDragDidEnd()
             appModel.setWorkspaceWindowNumber(nil)
             appModel.suspendMainWindowActivity()
         }
@@ -176,7 +180,10 @@ struct ContentView: View {
             case .active:
                 appModel.refreshFullDiskAccessStatus()
             case .background:
+                cleanupListDragDidEnd()
                 appModel.suspendBackgroundActivity()
+            case .inactive:
+                cleanupListDragDidEnd()
             default:
                 break
             }
@@ -548,8 +555,39 @@ private extension ContentView {
             revealInFinder: { appModel.revealTargetInFinder($0) },
             removeRecentTarget: { appModel.removeRecentTarget($0) },
             reviewCleanupList: { showsCleanupReview = true },
-            addDroppedNodesToCleanupList: { appModel.addNodeIDsToCleanupList($0, snapshotID: $1) }
+            addDroppedNodesToCleanupList: { nodeIDs, snapshotID in
+                defer { cleanupListDragDidEnd() }
+                return appModel.addNodeIDsToCleanupList(nodeIDs, snapshotID: snapshotID)
+            }
         )
+    }
+
+    private func cleanupListDragDidEnd() {
+        cleanupListDragMonitorTask?.cancel()
+        cleanupListDragMonitorTask = nil
+        cleanupListDragIsActive = false
+    }
+
+    private func setCleanupListDragIsActive(_ isActive: Bool) {
+        guard isActive else {
+            cleanupListDragDidEnd()
+            return
+        }
+
+        cleanupListDragIsActive = true
+        cleanupListDragMonitorTask?.cancel()
+        cleanupListDragMonitorTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+
+            while !Task.isCancelled {
+                guard NSEvent.pressedMouseButtons & 1 != 0 else {
+                    cleanupListDragDidEnd()
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(80))
+            }
+        }
     }
 }
 
@@ -667,7 +705,8 @@ private extension ContentView {
             recordSunburstSegmentClick: { appModel.recordSunburstSegmentClick() },
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
-            openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
+            openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() },
+            setCleanupListDragActive: setCleanupListDragIsActive
         )
     }
 

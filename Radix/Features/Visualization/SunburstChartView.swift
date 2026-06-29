@@ -17,6 +17,7 @@ struct SunburstChartView: View {
     let onZoom: (String) -> Void
     let onSegmentClick: () -> Void
     let onNavigateToParent: () -> Void
+    let onCleanupListDragActiveChange: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var chartModel: SunburstChartModel
@@ -37,6 +38,7 @@ struct SunburstChartView: View {
         onZoom: @escaping (String) -> Void,
         onSegmentClick: @escaping () -> Void,
         onNavigateToParent: @escaping () -> Void,
+        onCleanupListDragActiveChange: @escaping (Bool) -> Void,
         chartModel: @autoclosure @escaping () -> SunburstChartModel = SunburstChartModel()
     ) {
         self.rootNode = rootNode
@@ -51,6 +53,7 @@ struct SunburstChartView: View {
         self.onZoom = onZoom
         self.onSegmentClick = onSegmentClick
         self.onNavigateToParent = onNavigateToParent
+        self.onCleanupListDragActiveChange = onCleanupListDragActiveChange
         _chartModel = StateObject(wrappedValue: chartModel())
     }
 
@@ -171,6 +174,7 @@ struct SunburstChartView: View {
                     cleanupDragItem: { location in
                         cleanupListDragItem(at: location, in: baseChartFrame)
                     },
+                    onCleanupDragActiveChange: onCleanupListDragActiveChange,
                     help: { location in
                         guard !chartModel.isLayoutPending else { return nil }
                         return help(at: location, in: baseChartFrame)

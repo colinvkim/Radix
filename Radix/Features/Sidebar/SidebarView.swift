@@ -13,6 +13,7 @@ struct SidebarView: View {
     @ObservedObject var scanState: ScanCoordinator
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let cleanupListSummary: CleanupListSummary
+    let cleanupListDragIsActive: Bool
     let actions: SidebarActions
 
     @State private var cleanupListDropIsTargeted = false
@@ -65,6 +66,7 @@ struct SidebarView: View {
 
                 CleanupListSidebarButton(
                     summary: cleanupListSummary,
+                    isDropHintActive: cleanupListDragIsActive,
                     isDropTargeted: cleanupListDropIsTargeted
                 ) {
                     actions.reviewCleanupList()
@@ -88,8 +90,11 @@ struct SidebarView: View {
 
 private struct CleanupListSidebarButton: View {
     let summary: CleanupListSummary
+    let isDropHintActive: Bool
     let isDropTargeted: Bool
     let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -97,10 +102,7 @@ private struct CleanupListSidebarButton: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Cleanup List")
                         .font(.subheadline.weight(.semibold))
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    subtitleText
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } icon: {
@@ -121,7 +123,30 @@ private struct CleanupListSidebarButton: View {
         .help("Review Cleanup List")
     }
 
+    private var subtitleText: some View {
+        Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .overlay {
+                if shouldShimmerSubtitle {
+                    ShimmeringTextHighlight(
+                        text: subtitle,
+                        font: .caption
+                    )
+                }
+            }
+    }
+
+    private var shouldShimmerSubtitle: Bool {
+        isDropHintActive && !reduceMotion
+    }
+
     private var subtitle: String {
+        if isDropHintActive {
+            return "Drop here to add"
+        }
+
         guard !summary.isEmpty else {
             return "No items marked"
         }

@@ -9,6 +9,7 @@ struct FileBrowserActions {
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
+    let setCleanupListDragActive: (Bool) -> Void
 }
 
 struct FileBrowserTableView: View {
@@ -419,6 +420,8 @@ struct FileBrowserTableView: View {
     }
 
     private func cleanupListDragPayload(for node: FileNodeRecord) -> CleanupListDragPayload {
+        actions.setCleanupListDragActive(true)
+
         guard tableSelection.wrappedValue.contains(node.id) else {
             return CleanupListDragPayload(
                 snapshotID: scanState.snapshot?.id,

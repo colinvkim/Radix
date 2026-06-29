@@ -13,6 +13,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
     let onPan: (CGSize) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
     let cleanupDragItem: (CGPoint) -> SunburstCleanupDragItem?
+    let onCleanupDragActiveChange: (Bool) -> Void
     let help: (CGPoint) -> String?
     let isPanEnabled: Bool
 
@@ -23,6 +24,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onPan = onPan
         view.onMagnify = onMagnify
         view.cleanupDragItem = cleanupDragItem
+        view.onCleanupDragActiveChange = onCleanupDragActiveChange
         view.help = help
         view.isPanEnabled = isPanEnabled
         return view
@@ -34,6 +36,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         nsView.onPan = onPan
         nsView.onMagnify = onMagnify
         nsView.cleanupDragItem = cleanupDragItem
+        nsView.onCleanupDragActiveChange = onCleanupDragActiveChange
         nsView.help = help
         nsView.isPanEnabled = isPanEnabled
     }
@@ -44,6 +47,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         var onPan: (CGSize) -> Void = { _ in }
         var onMagnify: (CGPoint, CGFloat) -> Void = { _, _ in }
         var cleanupDragItem: (CGPoint) -> SunburstCleanupDragItem? = { _ in nil }
+        var onCleanupDragActiveChange: (Bool) -> Void = { _ in }
         var help: (CGPoint) -> String? = { _ in nil }
         var isPanEnabled = false
 
@@ -119,6 +123,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                    at: mouseDownLocation
                ) {
                 didStartCleanupDrag = true
+                onCleanupDragActiveChange(true)
                 beginDraggingSession(with: [draggingItem], event: event, source: self)
                 return
             }
@@ -225,6 +230,14 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
 
         func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
             true
+        }
+
+        func draggingSession(
+            _ session: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            onCleanupDragActiveChange(false)
         }
 
         private func cleanupListDraggingItem(
