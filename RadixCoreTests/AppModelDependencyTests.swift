@@ -893,6 +893,30 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanupListAddDefersLivePathValidationUntilTrashRequest() {
+        var fileExistsCallCount = 0
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in
+            fileExistsCallCount += 1
+            return false
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didAdd = model.addNodesToCleanupList([file])
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.cleanupList.nodeIDs, [file.id])
+        XCTAssertEqual(fileExistsCallCount, 0)
+
+        let didRequestTrash = model.requestMoveCleanupListToTrash()
+
+        XCTAssertFalse(didRequestTrash)
+        XCTAssertEqual(fileExistsCallCount, 1)
+        XCTAssertEqual(model.cleanupList.nodeIDs, [file.id])
+    }
+
+    @MainActor
     func testCleanupListAddsResolvedNodeIDs() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -909,6 +933,31 @@ final class AppModelDependencyTests: XCTestCase {
 
         XCTAssertTrue(didAdd)
         XCTAssertEqual(model.cleanupList.nodeIDs, [first.id, second.id])
+    }
+
+    @MainActor
+    func testCleanupListAddsLargeSiblingBatch() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let files = (0..<1_000).map { index in
+            makeTestFileNode(
+                id: "/selection/file-\(index).bin",
+                name: "file-\(index).bin",
+                size: Int64(index + 1)
+            )
+        }
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: files)
+        let store = FileTreeStore(root: root, childrenByID: [root.id: files])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        let didAdd = model.addNodeIDsToCleanupList(files.map(\.id), snapshotID: snapshot.id)
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.cleanupList.nodeIDs.count, files.count)
+        XCTAssertEqual(Set(model.cleanupList.nodeIDs), Set(files.map(\.id)))
     }
 
     @MainActor

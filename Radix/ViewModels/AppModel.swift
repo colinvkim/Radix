@@ -1248,7 +1248,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addNodesToCleanupList(_ nodes: [FileNodeRecord]) -> Bool {
         do {
-            let nodes = try validatedNodesForMutation(nodes)
+            let nodes = try validatedNodesForCleanupList(nodes)
             guard nodes.allSatisfy({ node in
                 node.supportsMoveToTrash(
                     activeTarget: scanCoordinator.selectedTarget,
@@ -1678,6 +1678,11 @@ final class AppModel: ObservableObject {
         return try validatedNodes(nodes, requiresLivePath: true)
     }
 
+    private func validatedNodesForCleanupList(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
+        try validateSnapshotAllowsMutation()
+        return try validatedNodes(nodes, requiresLivePath: false)
+    }
+
     private func validateLivePathAction(_ node: FileNodeRecord) throws {
         guard scanCoordinator.snapshotSource.allowsLivePathActions else {
             throw FileActionError.unsupported
@@ -1722,13 +1727,55 @@ final class AppModel: ObservableObject {
 
     private func topLevelTrashNodes(from nodes: [FileNodeRecord]) -> [FileNodeRecord] {
         guard let fileTreeStore = scanCoordinator.fileTreeStore else { return nodes }
-        let selectedIDs = Set(nodes.map(\.id))
+        let nodesByID = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return topLevelNodeIDs(
+            from: nodes.map(\.id),
+            fileTreeStore: fileTreeStore
+        ).compactMap { nodesByID[$0] }
+    }
 
-        return nodes.filter { node in
-            !selectedIDs.contains { selectedID in
-                selectedID != node.id && fileTreeStore.isAncestor(selectedID, of: node.id)
+    private func topLevelNodeIDs(
+        from nodeIDs: [FileNodeRecord.ID],
+        fileTreeStore: FileTreeStore
+    ) -> [FileNodeRecord.ID] {
+        let candidateIDs = Set(nodeIDs)
+        var emittedIDs = Set<FileNodeRecord.ID>()
+        var result: [FileNodeRecord.ID] = []
+        result.reserveCapacity(nodeIDs.count)
+
+        for nodeID in nodeIDs where candidateIDs.contains(nodeID) && !emittedIDs.contains(nodeID) {
+            guard !hasAncestor(in: candidateIDs, of: nodeID, fileTreeStore: fileTreeStore) else {
+                continue
             }
+            emittedIDs.insert(nodeID)
+            result.append(nodeID)
         }
+
+        return result
+    }
+
+    private func hasAncestor(
+        in ancestorIDs: Set<FileNodeRecord.ID>,
+        of nodeID: FileNodeRecord.ID,
+        fileTreeStore: FileTreeStore
+    ) -> Bool {
+        var parentID = fileTreeStore.parent(of: nodeID)?.id
+        while let currentParentID = parentID {
+            if ancestorIDs.contains(currentParentID) {
+                return true
+            }
+            parentID = fileTreeStore.parent(of: currentParentID)?.id
+        }
+        return false
+    }
+
+    private func isNodeOrDescendant(
+        _ nodeID: FileNodeRecord.ID,
+        of ancestorIDs: Set<FileNodeRecord.ID>,
+        fileTreeStore: FileTreeStore
+    ) -> Bool {
+        ancestorIDs.contains(nodeID) ||
+            hasAncestor(in: ancestorIDs, of: nodeID, fileTreeStore: fileTreeStore)
     }
 
     private func addCleanupListNodes(
@@ -1738,19 +1785,7 @@ final class AppModel: ObservableObject {
     ) {
         guard !nodes.isEmpty else { return }
 
-        var queuedIDs = cleanupList.snapshotID == snapshot.id ? cleanupList.nodeIDs : []
-        for node in nodes {
-            let hasQueuedAncestor = queuedIDs.contains { queuedID in
-                fileTreeStore.isAncestor(queuedID, of: node.id)
-            }
-            guard !hasQueuedAncestor else { continue }
-
-            queuedIDs.removeAll { queuedID in
-                fileTreeStore.isAncestor(node.id, of: queuedID)
-            }
-            queuedIDs.append(node.id)
-        }
-
+        let queuedIDs = (cleanupList.snapshotID == snapshot.id ? cleanupList.nodeIDs : []) + nodes.map(\.id)
         let deduplicatedIDs = deduplicatedCleanupListIDs(queuedIDs, fileTreeStore: fileTreeStore)
         cleanupList = CleanupListState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
     }
@@ -1759,22 +1794,10 @@ final class AppModel: ObservableObject {
         _ nodeIDs: [FileNodeRecord.ID],
         fileTreeStore: FileTreeStore
     ) -> [FileNodeRecord.ID] {
-        var result: [FileNodeRecord.ID] = []
-        result.reserveCapacity(nodeIDs.count)
-
-        for nodeID in nodeIDs where fileTreeStore.node(id: nodeID) != nil {
-            let hasQueuedAncestor = result.contains { queuedID in
-                fileTreeStore.isAncestor(queuedID, of: nodeID)
-            }
-            guard !hasQueuedAncestor else { continue }
-
-            result.removeAll { queuedID in
-                fileTreeStore.isAncestor(nodeID, of: queuedID)
-            }
-            result.append(nodeID)
-        }
-
-        return result
+        topLevelNodeIDs(
+            from: nodeIDs.filter { fileTreeStore.node(id: $0) != nil },
+            fileTreeStore: fileTreeStore
+        )
     }
 
     private func resolvedCleanupListNodes() -> [FileNodeRecord] {
@@ -1792,9 +1815,7 @@ final class AppModel: ObservableObject {
         let remainingIDs = cleanupList.nodeIDs.filter { queuedID in
             guard !movedIDs.contains(queuedID) else { return false }
             guard let fileTreeStore else { return true }
-            return !movedIDs.contains { movedID in
-                fileTreeStore.isAncestor(movedID, of: queuedID)
-            }
+            return !isNodeOrDescendant(queuedID, of: movedIDs, fileTreeStore: fileTreeStore)
         }
         guard remainingIDs != cleanupList.nodeIDs else { return }
         cleanupList = CleanupListState(
