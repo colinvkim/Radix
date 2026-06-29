@@ -1452,7 +1452,9 @@ final class AppModel: ObservableObject {
         statsFileTreeStore: FileTreeStore?
     ) {
         if !movedNodes.isEmpty {
-            removeMovedNodesFromCleanupList(movedNodes, fileTreeStore: statsFileTreeStore)
+            if cleanupList.snapshotID == originalSnapshotID {
+                removeMovedNodesFromCleanupList(movedNodes, fileTreeStore: statsFileTreeStore)
+            }
             recordTrashCleanup(movedNodes, fileTreeStore: statsFileTreeStore)
             sidebarScanCacheController.clearCache()
             if shouldApplyPostTrashSnapshotUpdate(originalSnapshotID: originalSnapshotID) {

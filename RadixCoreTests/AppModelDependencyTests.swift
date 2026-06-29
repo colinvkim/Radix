@@ -641,6 +641,46 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testAsyncCleanupListTrashDoesNotRemoveNewSnapshotListEntry() async throws {
+        let probe = AsyncTrashActionProbe()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.asyncVerifyTrashIdentity = { _ in .matches }
+        actions.asyncMoveToTrash = { url in
+            await probe.move(url)
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        let oldFile = makeTestFileNode(id: "/selection/file.txt", name: "file.txt", size: 40)
+        let oldRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [oldFile])
+        let oldStore = FileTreeStore(root: oldRoot, childrenByID: [oldRoot.id: [oldFile]])
+        let oldSnapshot = makeTestSnapshot(root: oldRoot, store: oldStore)
+        model.scanState.replaceCurrentSnapshot(oldSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
+        model.addNodesToCleanupList([oldFile])
+        XCTAssertTrue(model.requestMoveCleanupListToTrash())
+        model.confirmMovePendingSelectionToTrash()
+        try await probe.waitUntilStarted()
+
+        let newFile = makeTestFileNode(id: oldFile.id, name: oldFile.name, size: 80)
+        let newRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [newFile])
+        let newStore = FileTreeStore(root: newRoot, childrenByID: [newRoot.id: [newFile]])
+        let newSnapshot = makeTestSnapshot(root: newRoot, store: newStore)
+        model.scanState.replaceCurrentSnapshot(newSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(newSnapshot)
+        model.addNodesToCleanupList([newFile])
+
+        await probe.finish()
+
+        try await waitUntil("old async trash completion recorded", timeout: 2) {
+            model.usageStats.bytesMovedToTrash == oldFile.allocatedSize
+        }
+        XCTAssertEqual(model.cleanupList.snapshotID, newSnapshot.id)
+        XCTAssertEqual(model.cleanupList.nodeIDs, [newFile.id])
+        XCTAssertEqual(model.cleanupListSummary.totalAllocatedSize, newFile.allocatedSize)
+    }
+
+    @MainActor
     func testConfirmPendingTrashRecordsCleanupUsageStats() {
         let recorder = AppModelActionRecorder()
         let usageStats = SpyAppUsageStatsStore()
