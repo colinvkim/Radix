@@ -502,7 +502,7 @@ private struct CleanupListReviewSheet: View {
 
                 Spacer()
 
-                Button("Cancel", role: .cancel) {
+                Button("Done", role: .cancel) {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
