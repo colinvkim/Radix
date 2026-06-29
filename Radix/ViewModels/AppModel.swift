@@ -320,6 +320,11 @@ final class AppModel: ObservableObject {
         )
     }
 
+    var cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID> {
+        guard cleanupList.snapshotID == scanCoordinator.snapshot?.id else { return [] }
+        return Set(cleanupList.nodeIDs)
+    }
+
     var startupDiskTarget: ScanTarget? {
         availableTargets.first(where: { $0.kind == .volume && $0.url.path == "/" })
     }
@@ -1788,6 +1793,10 @@ final class AppModel: ObservableObject {
         let queuedIDs = (cleanupList.snapshotID == snapshot.id ? cleanupList.nodeIDs : []) + nodes.map(\.id)
         let deduplicatedIDs = deduplicatedCleanupListIDs(queuedIDs, fileTreeStore: fileTreeStore)
         cleanupList = CleanupListState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
+        reconcileNavigationForCleanupListHiddenNodes(
+            hiddenNodeIDs: Set(deduplicatedIDs),
+            fileTreeStore: fileTreeStore
+        )
     }
 
     private func deduplicatedCleanupListIDs(
@@ -1803,6 +1812,45 @@ final class AppModel: ObservableObject {
     private func resolvedCleanupListNodes() -> [FileNodeRecord] {
         guard let fileTreeStore = scanCoordinator.fileTreeStore else { return [] }
         return cleanupList.nodeIDs.compactMap { fileTreeStore.node(id: $0) }
+    }
+
+    private func reconcileNavigationForCleanupListHiddenNodes(
+        hiddenNodeIDs: Set<FileNodeRecord.ID>,
+        fileTreeStore: FileTreeStore
+    ) {
+        guard !hiddenNodeIDs.isEmpty else { return }
+
+        if let focusedNodeID = navigationModel.focusedNodeID,
+           fileTreeStore.isNodeOrDescendant(focusedNodeID, of: hiddenNodeIDs) {
+            navigationModel.setFocusedNodeID(
+                cleanupListFocusFallbackID(
+                    for: focusedNodeID,
+                    hiddenNodeIDs: hiddenNodeIDs,
+                    fileTreeStore: fileTreeStore
+                )
+            )
+        }
+
+        if navigationModel.selectedNodeIDs.contains(where: { selectedNodeID in
+            fileTreeStore.isNodeOrDescendant(selectedNodeID, of: hiddenNodeIDs)
+        }) {
+            navigationModel.clearSelection()
+        }
+    }
+
+    private func cleanupListFocusFallbackID(
+        for nodeID: FileNodeRecord.ID,
+        hiddenNodeIDs: Set<FileNodeRecord.ID>,
+        fileTreeStore: FileTreeStore
+    ) -> FileNodeRecord.ID? {
+        var parentID = fileTreeStore.parent(of: nodeID)?.id
+        while let candidateID = parentID {
+            if !fileTreeStore.isNodeOrDescendant(candidateID, of: hiddenNodeIDs) {
+                return candidateID
+            }
+            parentID = fileTreeStore.parent(of: candidateID)?.id
+        }
+        return fileTreeStore.rootID
     }
 
     private func removeMovedNodesFromCleanupList(

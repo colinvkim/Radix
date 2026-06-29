@@ -16,6 +16,7 @@ struct FileBrowserTableView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
+    let hiddenNodeIDs: Set<FileNodeRecord.ID>
     let actions: FileBrowserActions
 
     @StateObject private var model: FileBrowserModel
@@ -25,12 +26,14 @@ struct FileBrowserTableView: View {
         scanState: ScanCoordinator,
         navigation: WorkspaceNavigationModel,
         focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
+        hiddenNodeIDs: Set<FileNodeRecord.ID>,
         actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
     ) {
         self.scanState = scanState
         self.navigation = navigation
         self._focusedWorkspaceTarget = focusedWorkspaceTarget
+        self.hiddenNodeIDs = hiddenNodeIDs
         self.actions = actions
         _model = StateObject(wrappedValue: model())
     }
@@ -140,6 +143,9 @@ struct FileBrowserTableView: View {
         .onChange(of: scanState.snapshot?.id) { _, _ in
             updateModelContent()
         }
+        .onChange(of: hiddenNodeIDs) { _, _ in
+            updateModelContent()
+        }
         .onChange(of: focusedWorkspaceTarget) { _, target in
             if target != nil {
                 isSearchFieldFocused = false
@@ -246,7 +252,8 @@ struct FileBrowserTableView: View {
             nodes: nodes,
             contentID: contentID,
             snapshot: scanState.snapshot,
-            fileTreeStore: scanState.fileTreeStore
+            fileTreeStore: scanState.fileTreeStore,
+            hiddenNodeIDs: hiddenNodeIDs
         )
     }
 

@@ -1071,6 +1071,64 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanupListHiddenNodeIDsTrackCurrentSnapshot() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        model.addNodesToCleanupList([file])
+
+        XCTAssertEqual(model.cleanupListHiddenNodeIDs, [file.id])
+
+        let nextFile = makeTestFileNode(id: "/next/file.txt", name: "file.txt")
+        let nextRoot = makeTestDirectoryNode(id: "/next", name: "next", children: [nextFile])
+        let nextStore = FileTreeStore(root: nextRoot, childrenByID: [nextRoot.id: [nextFile]])
+        model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: nextRoot, store: nextStore))
+
+        XCTAssertTrue(model.cleanupListHiddenNodeIDs.isEmpty)
+    }
+
+    @MainActor
+    func testCleanupListAddClearsSelectionHiddenByQueuedNode() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+
+        model.addNodesToCleanupList([file])
+
+        XCTAssertNil(model.navigation.selectedNodeID)
+        XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
+    }
+
+    @MainActor
+    func testCleanupListAddMovesHiddenFocusToVisibleAncestor() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(folder.id)
+        model.select(nodeID: child.id)
+
+        model.addNodesToCleanupList([folder])
+
+        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+        XCTAssertNil(model.navigation.selectedNodeID)
+        XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
+    }
+
+    @MainActor
     func testCleanupListClearsWhenActiveSnapshotIsReplaced() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }

@@ -9,6 +9,7 @@ struct ActiveWorkspaceView: View {
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
+    let cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID>
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
@@ -54,11 +55,11 @@ struct ActiveWorkspaceView: View {
     }
 
     private var chartContent: some View {
-        let visualizationInput = sunburstVisualizationInput
+        let visualizationInput = cleanupFilteredVisualizationInput(from: sunburstVisualizationInput)
 
         return SunburstChartView(
             rootNode: visualizationInput.rootNode,
-            parentNode: navigation.currentFocusNodeParent,
+            parentNode: visualizationParentNode(for: visualizationInput),
             treeStore: visualizationInput.treeStore,
             snapshotID: snapshot.id,
             activeTarget: scanState.selectedTarget,
@@ -92,6 +93,7 @@ struct ActiveWorkspaceView: View {
                 scanState: scanState,
                 navigation: navigation,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
+                hiddenNodeIDs: cleanupListHiddenNodeIDs,
                 actions: fileBrowserActions
             )
 
@@ -123,6 +125,37 @@ struct ActiveWorkspaceView: View {
             showFreeSpace: showFreeSpaceInSunburst,
             availableCapacity: freeSpaceAvailableCapacity(snapshot, focusNode)
         )
+    }
+
+    private func cleanupFilteredVisualizationInput(
+        from input: SunburstVisualizationInput
+    ) -> SunburstVisualizationInput {
+        guard !cleanupListHiddenNodeIDs.isEmpty else { return input }
+
+        let filteredStore = input.treeStore.removingSubtrees(
+            rootedAt: Array(cleanupListHiddenNodeIDs)
+        )
+        return SunburstVisualizationInput(
+            rootNode: filteredStore.node(id: input.rootNode.id) ?? filteredStore.root,
+            treeStore: filteredStore,
+            layoutIDComponent: [
+                input.layoutIDComponent,
+                cleanupHiddenLayoutComponent
+            ].joined(separator: "|")
+        )
+    }
+
+    private func visualizationParentNode(for input: SunburstVisualizationInput) -> FileNodeRecord? {
+        guard input.rootNode.id == focusNode.id else { return nil }
+        return input.treeStore.parent(of: input.rootNode.id)
+    }
+
+    private var cleanupHiddenLayoutComponent: String {
+        let sortedIDs = cleanupListHiddenNodeIDs.sorted()
+        guard !sortedIDs.isEmpty else { return "cleanup-list:0" }
+        return sortedIDs.reduce("cleanup-list:\(sortedIDs.count)") { component, id in
+            component + ":\(id.count):\(id)"
+        }
     }
 
     private var fileBrowserActions: FileBrowserActions {

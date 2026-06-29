@@ -40,6 +40,7 @@ struct ContentView: View {
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 showFreeSpaceInSunburst: appModel.showFreeSpaceInSunburst,
+                cleanupListHiddenNodeIDs: appModel.cleanupListHiddenNodeIDs,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 freeSpaceAvailableCapacity: { snapshot, focusNode in
@@ -686,6 +687,7 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
+    let cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -699,6 +701,7 @@ private struct WorkspaceDetailView: View {
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
             showFreeSpaceInSunburst: showFreeSpaceInSunburst,
+            cleanupListHiddenNodeIDs: cleanupListHiddenNodeIDs,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,
             freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,

@@ -43,6 +43,63 @@ final class FileBrowserModelTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [largeMatch.id, smallMatch.id])
     }
 
+    @MainActor
+    func testCurrentContentsHideCleanupQueuedNodes() {
+        let hiddenFile = makeTestFileNode(id: "/root/hidden.txt", name: "hidden.txt", size: 40)
+        let visibleFile = makeTestFileNode(id: "/root/visible.txt", name: "visible.txt", size: 10)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [hiddenFile, visibleFile])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [hiddenFile, visibleFile]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let model = FileBrowserModel()
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: "\(snapshot.id.uuidString)|\(root.id)",
+            snapshot: snapshot,
+            fileTreeStore: store,
+            hiddenNodeIDs: [hiddenFile.id]
+        )
+
+        XCTAssertEqual(model.displayedNodes.map(\.id), [visibleFile.id])
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: "\(snapshot.id.uuidString)|\(root.id)",
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+
+        XCTAssertEqual(model.displayedNodes.map(\.id), [hiddenFile.id, visibleFile.id])
+    }
+
+    @MainActor
+    func testEntireScanSearchHidesCleanupQueuedDescendants() async throws {
+        let hiddenTarget = makeTestFileNode(id: "/root/folder/target-hidden.txt", name: "target-hidden.txt", size: 40)
+        let hiddenFolder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [hiddenTarget])
+        let visibleTarget = makeTestFileNode(id: "/root/target-visible.txt", name: "target-visible.txt", size: 10)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [hiddenFolder, visibleTarget])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [hiddenFolder, visibleTarget],
+            hiddenFolder.id: [hiddenTarget],
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let model = FileBrowserModel(searchDebounceDuration: .zero)
+
+        model.updateContent(
+            nodes: store.children(of: root.id),
+            contentID: "\(snapshot.id.uuidString)|\(root.id)",
+            snapshot: snapshot,
+            fileTreeStore: store,
+            hiddenNodeIDs: [hiddenFolder.id]
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+
+        try await waitForSearchToFinish(model)
+
+        XCTAssertEqual(model.displayedNodes.map(\.id), [visibleTarget.id])
+    }
+
     func testEqualSortValuesFallBackToNameAndID() async throws {
         let beta = makeTestFileNode(id: "/root/beta.txt", name: "Beta.txt", size: 10)
         let alphaB = makeTestFileNode(id: "/root/b-alpha.txt", name: "Alpha.txt", size: 10)

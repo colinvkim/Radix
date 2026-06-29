@@ -302,6 +302,94 @@ struct FileTreeStore: Sendable {
         return false
     }
 
+    nonisolated func hasAncestor(in ancestorIDs: Set<String>, of nodeID: String) -> Bool {
+        var cursor = nodeID
+        while let parentID = parentIDByID[cursor] {
+            if ancestorIDs.contains(parentID) {
+                return true
+            }
+            cursor = parentID
+        }
+        return false
+    }
+
+    nonisolated func isNodeOrDescendant(_ nodeID: String, of ancestorIDs: Set<String>) -> Bool {
+        ancestorIDs.contains(nodeID) || hasAncestor(in: ancestorIDs, of: nodeID)
+    }
+
+    nonisolated func topLevelNodeIDs(from nodeIDs: [String]) -> [String] {
+        let candidateIDs = Set(nodeIDs.filter { nodesByID[$0] != nil })
+        var emittedIDs = Set<String>()
+        var result: [String] = []
+        result.reserveCapacity(nodeIDs.count)
+
+        for nodeID in nodeIDs where candidateIDs.contains(nodeID) && !emittedIDs.contains(nodeID) {
+            guard !hasAncestor(in: candidateIDs, of: nodeID) else {
+                continue
+            }
+            emittedIDs.insert(nodeID)
+            result.append(nodeID)
+        }
+
+        return result
+    }
+
+    nonisolated func removingSubtrees(rootedAt nodeIDs: [String]) -> FileTreeStore {
+        (try? removingSubtrees(rootedAt: nodeIDs, cancellationCheck: {})) ?? self
+    }
+
+    nonisolated func removingSubtrees(
+        rootedAt nodeIDs: [String],
+        cancellationCheck: () throws -> Void
+    ) throws -> FileTreeStore {
+        try cancellationCheck()
+        let removalIDs = topLevelNodeIDs(from: nodeIDs)
+        guard !removalIDs.isEmpty else { return self }
+        if removalIDs.contains(rootID) {
+            return FileTreeStore(root: emptyRootNode())
+        }
+
+        var removedIDs = Set<String>()
+        for removalID in removalIDs {
+            try cancellationCheck()
+            guard nodesByID[removalID] != nil else { continue }
+            removedIDs.formUnion(try subtreeNodeIDs(
+                rootedAt: removalID,
+                cancellationCheck: cancellationCheck
+            ))
+        }
+        guard !removedIDs.isEmpty else { return self }
+
+        var updatedNodes = nodesByID
+        var updatedChildIDs = childIDsByID
+        var updatedParentIDs = parentIDByID
+
+        for (offset, removedID) in removedIDs.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            updatedNodes.removeValue(forKey: removedID)
+            updatedChildIDs.removeValue(forKey: removedID)
+            updatedParentIDs.removeValue(forKey: removedID)
+        }
+
+        for (offset, entry) in childIDsByID.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            guard !removedIDs.contains(entry.key) else { continue }
+            updatedChildIDs[entry.key] = entry.value.filter { !removedIDs.contains($0) }
+        }
+
+        let updatedStore = FileTreeStore(
+            rootID: rootID,
+            nodesByID: updatedNodes,
+            childIDsByID: updatedChildIDs,
+            parentIDByID: updatedParentIDs
+        )
+        return try HardLinkDeduplicator.rebalancedStore(updatedStore, cancellationCheck: cancellationCheck)
+    }
+
     nonisolated func removingSubtree(id targetID: String) -> FileTreeStore? {
         try? removingSubtree(id: targetID, cancellationCheck: {})
     }
@@ -373,6 +461,29 @@ struct FileTreeStore: Sendable {
             parentIDByID: updatedParentIDs
         )
         return try HardLinkDeduplicator.rebalancedStore(updatedStore, cancellationCheck: cancellationCheck)
+    }
+
+    private nonisolated func emptyRootNode() -> FileNodeRecord {
+        let root = root
+        return FileNodeRecord(
+            id: root.id,
+            url: root.url,
+            name: root.name,
+            isDirectory: root.isDirectory,
+            isSymbolicLink: root.isSymbolicLink,
+            allocatedSize: 0,
+            unduplicatedAllocatedSize: 0,
+            logicalSize: 0,
+            descendantFileCount: 0,
+            lastModified: root.lastModified,
+            fileIdentity: root.fileIdentity,
+            linkCount: root.linkCount,
+            isPackage: root.isPackage,
+            isAccessible: root.isSelfAccessible,
+            isSelfAccessible: root.isSelfAccessible,
+            isSynthetic: root.isSynthetic,
+            isAutoSummarized: root.isAutoSummarized
+        )
     }
 
     nonisolated func replacingSubtree(id targetID: String, with replacement: FileTreeStore) -> FileTreeStore? {
