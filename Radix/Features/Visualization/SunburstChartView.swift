@@ -9,6 +9,9 @@ struct SunburstChartView: View {
     let parentNode: FileNodeRecord?
     let treeStore: FileTreeStore
     let snapshotID: UUID
+    let activeTarget: ScanTarget?
+    let trashSafetyPolicy: TrashSafetyPolicy
+    let snapshotSource: ScanSnapshotSource
     let selectedNodeID: String?
     let selectedAncestorIDs: Set<String>
     let depthLimit: Int
@@ -30,6 +33,9 @@ struct SunburstChartView: View {
         parentNode: FileNodeRecord?,
         treeStore: FileTreeStore,
         snapshotID: UUID,
+        activeTarget: ScanTarget?,
+        trashSafetyPolicy: TrashSafetyPolicy,
+        snapshotSource: ScanSnapshotSource,
         selectedNodeID: String?,
         selectedAncestorIDs: Set<String>,
         depthLimit: Int,
@@ -45,6 +51,9 @@ struct SunburstChartView: View {
         self.parentNode = parentNode
         self.treeStore = treeStore
         self.snapshotID = snapshotID
+        self.activeTarget = activeTarget
+        self.trashSafetyPolicy = trashSafetyPolicy
+        self.snapshotSource = snapshotSource
         self.selectedNodeID = selectedNodeID
         self.selectedAncestorIDs = selectedAncestorIDs
         self.depthLimit = depthLimit
@@ -373,7 +382,8 @@ struct SunburstChartView: View {
         guard let segment = hitTest(at: location, in: frame),
               let nodeID = segment.nodeID,
               !SunburstFreeSpaceVisualization.isFreeSpaceNodeID(nodeID),
-              treeStore.node(id: nodeID) != nil else {
+              let node = treeStore.node(id: nodeID),
+              canDragToCleanupList(node) else {
             return nil
         }
 
@@ -384,6 +394,15 @@ struct SunburstChartView: View {
             ),
             segment: segment
         )
+    }
+
+    private func canDragToCleanupList(_ node: FileNodeRecord) -> Bool {
+        FileNodeActionAvailability(
+            node: node,
+            activeTarget: activeTarget,
+            trashSafetyPolicy: trashSafetyPolicy,
+            snapshotSource: snapshotSource
+        ).canMoveToTrash
     }
 
     private func isCenterHit(at location: CGPoint, in frame: CGRect) -> Bool {

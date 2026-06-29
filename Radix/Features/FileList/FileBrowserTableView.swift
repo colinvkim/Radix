@@ -213,8 +213,12 @@ struct FileBrowserTableView: View {
             .width(min: 150, ideal: 180)
         } rows: {
             ForEach(model.displayedNodes) { node in
-                TableRow(node)
-                    .draggable(cleanupListDragPayload(for: node))
+                if canDragToCleanupList(startingFrom: node) {
+                    TableRow(node)
+                        .draggable(cleanupListDragPayload(for: node))
+                } else {
+                    TableRow(node)
+                }
             }
         }
         .accessibilityLabel("Contents table")
@@ -431,23 +435,46 @@ struct FileBrowserTableView: View {
         model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
+    private func canDragToCleanupList(startingFrom node: FileNodeRecord) -> Bool {
+        guard scanState.snapshot != nil else { return false }
+        return canAddToCleanupList(cleanupListDragNodes(startingFrom: node))
+    }
+
+    private func cleanupListDragNodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
+        guard tableSelection.wrappedValue.contains(node.id) else {
+            return [node]
+        }
+
+        return selectedNodes(for: tableSelection.wrappedValue)
+    }
+
+    private func canAddToCleanupList(_ nodes: [FileNodeRecord]) -> Bool {
+        FileNodeActionAvailability(
+            nodes: nodes,
+            activeTarget: scanState.selectedTarget,
+            trashSafetyPolicy: scanState.trashSafetyPolicy,
+            snapshotSource: scanState.snapshotSource
+        ).canMoveToTrash
+    }
+
     private func cleanupListDragPayload(for node: FileNodeRecord) -> CleanupListDragPayload {
         guard let snapshotID = scanState.snapshot?.id else {
             preconditionFailure("Cleanup list drag requires an active scan snapshot.")
         }
 
-        actions.setCleanupListDragActiveAfterThreshold(true)
-
-        guard tableSelection.wrappedValue.contains(node.id) else {
+        let dragNodes = cleanupListDragNodes(startingFrom: node)
+        guard canAddToCleanupList(dragNodes) else {
             return CleanupListDragPayload(
                 snapshotID: snapshotID,
-                nodeIDs: [node.id]
+                nodeIDs: []
             )
         }
 
+        actions.setCleanupListDragActiveAfterThreshold(true)
+
         return CleanupListDragPayload(
             snapshotID: snapshotID,
-            nodeIDs: selectedNodes(for: tableSelection.wrappedValue).map(\.id)
+            nodeIDs: dragNodes.map(\.id)
         )
     }
 
