@@ -7,12 +7,8 @@ struct CleanupListDragPayload: Codable, Hashable, Transferable {
     let nodeIDs: [FileNodeRecord.ID]
 
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .radixCleanupListDragPayload)
+        CodableRepresentation(contentType: UTType(exportedAs: "dev.colinkim.radix.cleanup-list-drag-payload"))
     }
-}
-
-private extension UTType {
-    static let radixCleanupListDragPayload = UTType(exportedAs: "dev.colinkim.radix.cleanup-list-drag-payload")
 }
 
 struct WorkspaceActions {
