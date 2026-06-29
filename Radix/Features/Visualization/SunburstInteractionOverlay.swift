@@ -2,12 +2,17 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct SunburstCleanupDragItem {
+    let payload: CleanupListDragPayload
+    let segment: SunburstSegment
+}
+
 struct SunburstInteractionOverlay: NSViewRepresentable {
     let onHover: (CGPoint?) -> Void
     let onClick: (CGPoint, Int) -> Void
     let onPan: (CGSize) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
-    let dragPayload: (CGPoint) -> CleanupListDragPayload?
+    let cleanupDragItem: (CGPoint) -> SunburstCleanupDragItem?
     let help: (CGPoint) -> String?
     let isPanEnabled: Bool
 
@@ -17,7 +22,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onClick = onClick
         view.onPan = onPan
         view.onMagnify = onMagnify
-        view.dragPayload = dragPayload
+        view.cleanupDragItem = cleanupDragItem
         view.help = help
         view.isPanEnabled = isPanEnabled
         return view
@@ -28,7 +33,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         nsView.onClick = onClick
         nsView.onPan = onPan
         nsView.onMagnify = onMagnify
-        nsView.dragPayload = dragPayload
+        nsView.cleanupDragItem = cleanupDragItem
         nsView.help = help
         nsView.isPanEnabled = isPanEnabled
     }
@@ -38,11 +43,12 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         var onClick: (CGPoint, Int) -> Void = { _, _ in }
         var onPan: (CGSize) -> Void = { _ in }
         var onMagnify: (CGPoint, CGFloat) -> Void = { _, _ in }
-        var dragPayload: (CGPoint) -> CleanupListDragPayload? = { _ in nil }
+        var cleanupDragItem: (CGPoint) -> SunburstCleanupDragItem? = { _ in nil }
         var help: (CGPoint) -> String? = { _ in nil }
         var isPanEnabled = false
 
         private static let dragThreshold: CGFloat = 3
+        private static let cleanupDragImageSize = NSSize(width: 42, height: 42)
         private static let lineScrollScale: CGFloat = 10
         fileprivate static let maximumScrollPanDelta: CGFloat = 80
         private var trackingArea: NSTrackingArea?
@@ -107,9 +113,9 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
 
             if !isPanEnabled,
                !didStartCleanupDrag,
-               let cleanupDragPayload = dragPayload(mouseDownLocation),
+               let cleanupDragItem = cleanupDragItem(mouseDownLocation),
                let draggingItem = cleanupListDraggingItem(
-                   for: cleanupDragPayload,
+                   for: cleanupDragItem,
                    at: mouseDownLocation
                ) {
                 didStartCleanupDrag = true
@@ -222,10 +228,10 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         }
 
         private func cleanupListDraggingItem(
-            for payload: CleanupListDragPayload,
+            for item: SunburstCleanupDragItem,
             at location: CGPoint
         ) -> NSDraggingItem? {
-            guard let data = try? JSONEncoder().encode(payload) else { return nil }
+            guard let data = try? JSONEncoder().encode(item.payload) else { return nil }
 
             let pasteboardItem = NSPasteboardItem()
             pasteboardItem.setData(
@@ -234,7 +240,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             )
 
             let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-            let size = NSSize(width: 28, height: 28)
+            let size = Self.cleanupDragImageSize
             draggingItem.setDraggingFrame(
                 NSRect(
                     x: location.x - (size.width / 2),
@@ -242,21 +248,98 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                     width: size.width,
                     height: size.height
                 ),
-                contents: cleanupListDragImage()
+                contents: cleanupListDragImage(for: item.segment)
             )
             return draggingItem
         }
 
-        private func cleanupListDragImage() -> NSImage {
-            if let image = NSImage(
-                systemSymbolName: "checklist",
-                accessibilityDescription: "Cleanup List Item"
-            ) {
-                image.size = NSSize(width: 28, height: 28)
-                return image
-            }
+        private func cleanupListDragImage(for segment: SunburstSegment) -> NSImage {
+            let image = NSImage(size: Self.cleanupDragImageSize)
+            image.lockFocus()
+            defer { image.unlockFocus() }
 
-            return NSImage(size: NSSize(width: 28, height: 28))
+            let bounds = NSRect(origin: .zero, size: Self.cleanupDragImageSize)
+            let segmentPath = segmentGhostPath(
+                for: segment,
+                in: bounds.insetBy(dx: 4, dy: 4)
+            )
+
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
+            shadow.shadowBlurRadius = 5
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            shadow.set()
+            dragColor(for: segment).withAlphaComponent(0.9).setFill()
+            segmentPath.fill()
+            NSGraphicsContext.restoreGraphicsState()
+
+            NSColor.white.withAlphaComponent(0.62).setStroke()
+            segmentPath.lineWidth = 1.5
+            segmentPath.stroke()
+
+            return image
+        }
+
+        private func segmentGhostPath(for segment: SunburstSegment, in rect: NSRect) -> NSBezierPath {
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let outerRadius = min(rect.width, rect.height) / 2
+            let innerRadius = max(outerRadius - 10, outerRadius * 0.42)
+            let span = positiveAngleSpan(from: segment.startAngle.radians, to: segment.endAngle.radians)
+            let displaySpan = min(max(span, .pi / 3), .pi * 1.35)
+            let midpoint = segment.startAngle.radians + (span / 2) - (.pi / 2)
+            let startAngle = midpoint - (displaySpan / 2)
+            let endAngle = midpoint + (displaySpan / 2)
+
+            let path = NSBezierPath()
+            path.move(to: point(on: center, radius: outerRadius, angle: startAngle))
+            path.appendArc(
+                withCenter: center,
+                radius: outerRadius,
+                startAngle: degrees(-startAngle),
+                endAngle: degrees(-endAngle),
+                clockwise: true
+            )
+            path.line(to: point(on: center, radius: innerRadius, angle: endAngle))
+            path.appendArc(
+                withCenter: center,
+                radius: innerRadius,
+                startAngle: degrees(-endAngle),
+                endAngle: degrees(-startAngle),
+                clockwise: false
+            )
+            path.close()
+            return path
+        }
+
+        private func dragColor(for segment: SunburstSegment) -> NSColor {
+            let components = SunburstColorResolver.components(for: segment.colorToken)
+            return NSColor(
+                calibratedHue: CGFloat(components.hue),
+                saturation: CGFloat(components.saturation),
+                brightness: CGFloat(components.brightness),
+                alpha: 1
+            )
+        }
+
+        private func positiveAngleSpan(from start: Double, to end: Double) -> Double {
+            let fullCircle = Double.pi * 2
+            let rawSpan = end - start
+            guard rawSpan > 0 else { return fullCircle }
+
+            let remainder = rawSpan.truncatingRemainder(dividingBy: fullCircle)
+            return remainder == 0 ? fullCircle : remainder
+        }
+
+        private func point(on center: CGPoint, radius: CGFloat, angle: Double) -> CGPoint {
+            CGPoint(
+                x: center.x + (cos(angle) * radius),
+                y: center.y - (sin(angle) * radius)
+            )
+        }
+
+        private func degrees(_ radians: Double) -> CGFloat {
+            CGFloat(radians * 180 / .pi)
         }
     }
 }

@@ -168,8 +168,8 @@ struct SunburstChartView: View {
                     onMagnify: { location, factor in
                         zoomViewport(by: factor, anchor: location, in: baseChartFrame, animated: false)
                     },
-                    dragPayload: { location in
-                        cleanupListDragPayload(at: location, in: baseChartFrame)
+                    cleanupDragItem: { location in
+                        cleanupListDragItem(at: location, in: baseChartFrame)
                     },
                     help: { location in
                         guard !chartModel.isLayoutPending else { return nil }
@@ -365,7 +365,7 @@ struct SunburstChartView: View {
         return chartModel.segment(at: chartPoint.point, in: chartPoint.size)
     }
 
-    private func cleanupListDragPayload(at location: CGPoint, in frame: CGRect) -> CleanupListDragPayload? {
+    private func cleanupListDragItem(at location: CGPoint, in frame: CGRect) -> SunburstCleanupDragItem? {
         guard let segment = hitTest(at: location, in: frame),
               let nodeID = segment.nodeID,
               !SunburstFreeSpaceVisualization.isFreeSpaceNodeID(nodeID),
@@ -373,9 +373,12 @@ struct SunburstChartView: View {
             return nil
         }
 
-        return CleanupListDragPayload(
-            snapshotID: snapshotID,
-            nodeIDs: [nodeID]
+        return SunburstCleanupDragItem(
+            payload: CleanupListDragPayload(
+                snapshotID: snapshotID,
+                nodeIDs: [nodeID]
+            ),
+            segment: segment
         )
     }
 
