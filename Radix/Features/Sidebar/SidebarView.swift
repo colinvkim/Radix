@@ -5,7 +5,7 @@ struct SidebarActions {
     let revealInFinder: (ScanTarget) -> Void
     let removeRecentTarget: (ScanTarget) -> Void
     let reviewCleanupList: () -> Void
-    let addDroppedNodesToCleanupList: ([FileNodeRecord.ID], UUID?) -> Bool
+    let addDroppedNodesToCleanupList: ([FileNodeRecord.ID], UUID) -> Bool
 }
 
 struct SidebarView: View {
@@ -72,11 +72,13 @@ struct SidebarView: View {
                     actions.reviewCleanupList()
                 }
                 .dropDestination(for: CleanupListDragPayload.self) { payloads, _ in
-                    let snapshotIDs = Set(payloads.compactMap(\.snapshotID))
-                    guard snapshotIDs.count <= 1 else { return false }
+                    let snapshotIDs = Set(payloads.map(\.snapshotID))
+                    guard payloads.isEmpty == false,
+                          snapshotIDs.count == 1,
+                          let snapshotID = snapshotIDs.first else { return false }
                     return actions.addDroppedNodesToCleanupList(
                         payloads.flatMap(\.nodeIDs),
-                        snapshotIDs.first
+                        snapshotID
                     )
                 } isTargeted: { isTargeted in
                     cleanupListDropIsTargeted = isTargeted

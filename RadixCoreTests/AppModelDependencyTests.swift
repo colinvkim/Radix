@@ -865,10 +865,28 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        let didAdd = model.addNodeIDsToCleanupList([first.id, second.id])
+        let didAdd = model.addNodeIDsToCleanupList([first.id, second.id], snapshotID: snapshot.id)
 
         XCTAssertTrue(didAdd)
         XCTAssertEqual(model.cleanupList.nodeIDs, [first.id, second.id])
+    }
+
+    @MainActor
+    func testCleanupListRejectsUnresolvedDroppedNodeIDBatch() throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        let snapshotID = model.scanState.snapshot?.id
+
+        let didAdd = model.addNodeIDsToCleanupList(
+            [file.id, "/selection/missing.txt"],
+            snapshotID: try XCTUnwrap(snapshotID)
+        )
+
+        XCTAssertFalse(didAdd)
+        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
     }
 
     @MainActor

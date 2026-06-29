@@ -8,7 +8,7 @@ struct SunburstChartView: View {
     let rootNode: FileNodeRecord
     let parentNode: FileNodeRecord?
     let treeStore: FileTreeStore
-    let snapshotID: UUID?
+    let snapshotID: UUID
     let selectedNodeID: String?
     let selectedAncestorIDs: Set<String>
     let depthLimit: Int
@@ -29,7 +29,7 @@ struct SunburstChartView: View {
         rootNode: FileNodeRecord,
         parentNode: FileNodeRecord?,
         treeStore: FileTreeStore,
-        snapshotID: UUID?,
+        snapshotID: UUID,
         selectedNodeID: String?,
         selectedAncestorIDs: Set<String>,
         depthLimit: Int,

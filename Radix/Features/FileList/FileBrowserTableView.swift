@@ -420,17 +420,21 @@ struct FileBrowserTableView: View {
     }
 
     private func cleanupListDragPayload(for node: FileNodeRecord) -> CleanupListDragPayload {
+        guard let snapshotID = scanState.snapshot?.id else {
+            preconditionFailure("Cleanup list drag requires an active scan snapshot.")
+        }
+
         actions.setCleanupListDragActive(true)
 
         guard tableSelection.wrappedValue.contains(node.id) else {
             return CleanupListDragPayload(
-                snapshotID: scanState.snapshot?.id,
+                snapshotID: snapshotID,
                 nodeIDs: [node.id]
             )
         }
 
         return CleanupListDragPayload(
-            snapshotID: scanState.snapshot?.id,
+            snapshotID: snapshotID,
             nodeIDs: selectedNodes(for: tableSelection.wrappedValue).map(\.id)
         )
     }
