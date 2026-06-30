@@ -12,6 +12,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
     let onClick: (CGPoint, Int) -> Void
     let onPan: (CGSize) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
+    let canStartPan: (CGPoint) -> Bool
     let discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem?
     let onDiscardPileDragActiveChange: (Bool) -> Void
     let help: (CGPoint) -> String?
@@ -23,6 +24,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onClick = onClick
         view.onPan = onPan
         view.onMagnify = onMagnify
+        view.canStartPan = canStartPan
         view.discardPileDragItem = discardPileDragItem
         view.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         view.help = help
@@ -35,6 +37,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         nsView.onClick = onClick
         nsView.onPan = onPan
         nsView.onMagnify = onMagnify
+        nsView.canStartPan = canStartPan
         nsView.discardPileDragItem = discardPileDragItem
         nsView.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         nsView.help = help
@@ -46,6 +49,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         var onClick: (CGPoint, Int) -> Void = { _, _ in }
         var onPan: (CGSize) -> Void = { _ in }
         var onMagnify: (CGPoint, CGFloat) -> Void = { _, _ in }
+        var canStartPan: (CGPoint) -> Bool = { _ in false }
         var discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem? = { _ in nil }
         var onDiscardPileDragActiveChange: (Bool) -> Void = { _ in }
         var help: (CGPoint) -> String? = { _ in nil }
@@ -58,6 +62,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         private var trackingArea: NSTrackingArea?
         private var mouseDownLocation: CGPoint?
         private var lastDragLocation: CGPoint?
+        private var shouldPanFromMouseDownLocation = false
         private var didPan = false
         private var didStartDiscardPileDrag = false
 
@@ -99,6 +104,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             let location = eventLocation(event)
             mouseDownLocation = location
             lastDragLocation = location
+            shouldPanFromMouseDownLocation = isPanEnabled && canStartPan(location)
             didPan = false
             didStartDiscardPileDrag = false
         }
@@ -113,6 +119,18 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                     return
                 }
                 didPan = true
+            }
+
+            if shouldPanFromMouseDownLocation {
+                defer { self.lastDragLocation = location }
+                guard isPanEnabled else { return }
+
+                onPan(CGSize(
+                    width: location.x - lastDragLocation.x,
+                    height: location.y - lastDragLocation.y
+                ))
+                updatePointerFeedback(at: location)
+                return
             }
 
             if !didStartDiscardPileDrag,
@@ -144,6 +162,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             }
             mouseDownLocation = nil
             lastDragLocation = nil
+            shouldPanFromMouseDownLocation = false
             didPan = false
             didStartDiscardPileDrag = false
         }

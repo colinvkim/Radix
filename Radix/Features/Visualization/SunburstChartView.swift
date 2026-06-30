@@ -180,6 +180,9 @@ struct SunburstChartView: View {
                     onMagnify: { location, factor in
                         zoomViewport(by: factor, anchor: location, in: baseChartFrame, animated: false)
                     },
+                    canStartPan: { location in
+                        canStartPan(at: location, in: baseChartFrame)
+                    },
                     discardPileDragItem: { location in
                         discardPileDragItem(at: location, in: baseChartFrame)
                     },
@@ -376,6 +379,10 @@ struct SunburstChartView: View {
         }
 
         return chartModel.segment(at: chartPoint.point, in: chartPoint.size)
+    }
+
+    private func canStartPan(at location: CGPoint, in frame: CGRect) -> Bool {
+        !isCenterHit(at: location, in: frame) && hitTest(at: location, in: frame) == nil
     }
 
     private func discardPileDragItem(at location: CGPoint, in frame: CGRect) -> SunburstDiscardPileDragItem? {
