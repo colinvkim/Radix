@@ -1147,6 +1147,63 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscardPilePublishesAfterHiddenFocusReconciles() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(folder.id)
+        model.select(nodeID: folder.id)
+
+        var observedFocusID: FileNodeRecord.ID?
+        let cancellable = model.$discardPile.dropFirst().sink { _ in
+            observedFocusID = model.navigation.focusedNodeID
+        }
+        defer { cancellable.cancel() }
+
+        model.addNodesToDiscardPile([folder])
+
+        XCTAssertEqual(observedFocusID, root.id)
+    }
+
+    @MainActor
+    func testDeferredDiscardPileAddMovesFocusedSelectionToVisibleAncestor() async throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let sibling = makeTestFileNode(id: "/selection/sibling.txt", name: "sibling.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder, sibling],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(folder.id)
+        model.select(nodeID: folder.id)
+
+        model.addPrimarySelectionToDiscardPileAfterViewUpdate()
+
+        try await waitUntil("deferred focused discard pile add") {
+            model.discardPile.nodeIDs == [folder.id] &&
+                model.navigation.focusedNodeID == root.id &&
+                model.navigation.selectedNodeID == nil
+        }
+    }
+
+    @MainActor
     func testDiscardPileClearsWhenActiveSnapshotIsReplaced() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }

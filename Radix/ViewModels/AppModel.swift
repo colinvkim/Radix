@@ -1824,11 +1824,11 @@ final class AppModel: ObservableObject {
 
         let queuedIDs = (discardPile.snapshotID == snapshot.id ? discardPile.nodeIDs : []) + nodes.map(\.id)
         let deduplicatedIDs = deduplicatedDiscardPileIDs(queuedIDs, fileTreeStore: fileTreeStore)
-        discardPile = DiscardPileState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
         reconcileNavigationForDiscardPileHiddenNodes(
             hiddenNodeIDs: Set(deduplicatedIDs),
             fileTreeStore: fileTreeStore
         )
+        discardPile = DiscardPileState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
     }
 
     private func deduplicatedDiscardPileIDs(
