@@ -67,68 +67,157 @@ struct SidebarView: View {
                 DiscardPileSidebarButton(
                     summary: discardPileSummary,
                     isDropHintActive: discardPileDragIsActive,
-                    isDropTargeted: discardPileDropIsTargeted
+                    isDropTargeted: $discardPileDropIsTargeted,
+                    addDroppedPayloads: addDroppedPayloadsToDiscardPile
                 ) {
                     actions.reviewDiscardPile()
-                }
-                .dropDestination(for: DiscardPileDragPayload.self) { payloads, _ in
-                    let snapshotIDs = Set(payloads.map(\.snapshotID))
-                    guard payloads.isEmpty == false,
-                          snapshotIDs.count == 1,
-                          let snapshotID = snapshotIDs.first else { return false }
-                    return actions.addDroppedNodesToDiscardPile(
-                        payloads.flatMap(\.nodeIDs),
-                        snapshotID
-                    )
-                } isTargeted: { isTargeted in
-                    discardPileDropIsTargeted = isTargeted
                 }
             }
         }
         .navigationTitle("Locations")
         .focused($focusedWorkspaceTarget, equals: .sidebar)
     }
+
+    private func addDroppedPayloadsToDiscardPile(_ payloads: [DiscardPileDragPayload]) -> Bool {
+        let snapshotIDs = Set(payloads.map(\.snapshotID))
+        guard payloads.isEmpty == false,
+              snapshotIDs.count == 1,
+              let snapshotID = snapshotIDs.first else { return false }
+        return actions.addDroppedNodesToDiscardPile(
+            payloads.flatMap(\.nodeIDs),
+            snapshotID
+        )
+    }
 }
 
 private struct DiscardPileSidebarButton: View {
     let summary: DiscardPileSummary
     let isDropHintActive: Bool
-    let isDropTargeted: Bool
+    @Binding var isDropTargeted: Bool
+    let addDroppedPayloads: ([DiscardPileDragPayload]) -> Bool
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
-            Label {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(iconBackgroundColor)
+                    Image(systemName: iconSystemName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(iconForegroundColor)
+                }
+                .frame(width: 30, height: 30)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Discard Pile")
                         .font(.subheadline.weight(.semibold))
                     subtitleText
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } icon: {
-                Image(systemName: "checklist")
-                    .foregroundStyle(summary.isEmpty ? Color.secondary : Color.accentColor)
+
+                if isDropHintActive || isDropTargeted {
+                    Image(systemName: isDropTargeted ? "plus.circle.fill" : "arrow.down.circle")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityHidden(true)
+                        .transition(.opacity.combined(with: .scale(scale: 0.86)))
+                }
             }
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
         .background {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isDropTargeted ? Color.accentColor.opacity(0.16) : Color.clear)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(dropBackgroundColor)
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(dropBorderColor, style: dropBorderStyle)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .shadow(
+            color: isDropTargeted ? Color.accentColor.opacity(0.22) : Color.clear,
+            radius: isDropTargeted ? 8 : 0,
+            x: 0,
+            y: 2
+        )
         .padding(.horizontal, 8)
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
+        .dropDestination(for: DiscardPileDragPayload.self) { payloads, _ in
+            addDroppedPayloads(payloads)
+        } isTargeted: { isTargeted in
+            isDropTargeted = isTargeted
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isDropHintActive)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isDropTargeted)
         .help("Review Discard Pile")
+    }
+
+    private var iconSystemName: String {
+        isDropTargeted ? "tray.and.arrow.down.fill" : "checklist"
+    }
+
+    private var iconForegroundColor: Color {
+        if isDropHintActive || isDropTargeted || !summary.isEmpty {
+            return .accentColor
+        }
+
+        return .secondary
+    }
+
+    private var iconBackgroundColor: Color {
+        if isDropTargeted {
+            return Color.accentColor.opacity(0.2)
+        }
+
+        if isDropHintActive {
+            return Color.accentColor.opacity(0.11)
+        }
+
+        return .clear
+    }
+
+    private var dropBackgroundColor: Color {
+        if isDropTargeted {
+            return Color.accentColor.opacity(0.18)
+        }
+
+        if isDropHintActive {
+            return Color.accentColor.opacity(0.07)
+        }
+
+        return .clear
+    }
+
+    private var dropBorderColor: Color {
+        if isDropTargeted {
+            return Color.accentColor.opacity(0.72)
+        }
+
+        if isDropHintActive {
+            return Color.accentColor.opacity(0.42)
+        }
+
+        return .clear
+    }
+
+    private var dropBorderStyle: StrokeStyle {
+        StrokeStyle(
+            lineWidth: isDropTargeted ? 1.5 : 1,
+            lineCap: .round,
+            dash: isDropTargeted ? [] : [5, 4]
+        )
     }
 
     private var subtitleText: some View {
         Text(subtitle)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(subtitleForegroundColor)
             .lineLimit(1)
             .overlay {
                 if shouldShimmerSubtitle {
@@ -140,11 +229,27 @@ private struct DiscardPileSidebarButton: View {
             }
     }
 
+    private var subtitleForegroundColor: Color {
+        if isDropTargeted {
+            return .primary
+        }
+
+        if isDropHintActive {
+            return .accentColor
+        }
+
+        return .secondary
+    }
+
     private var shouldShimmerSubtitle: Bool {
-        isDropHintActive && !reduceMotion
+        isDropHintActive && !isDropTargeted && !reduceMotion
     }
 
     private var subtitle: String {
+        if isDropTargeted {
+            return "Release to add"
+        }
+
         if isDropHintActive {
             return "Drop here to add"
         }
