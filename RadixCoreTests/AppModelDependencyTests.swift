@@ -893,6 +893,24 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testPrimaryCleanupListAddAfterViewUpdateDefersMutation() async throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        model.addPrimarySelectionToCleanupListAfterViewUpdate()
+
+        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+
+        try await waitUntil("deferred cleanup list add") {
+            model.cleanupList.nodeIDs == [file.id] &&
+                model.navigation.selectedNodeID == nil
+        }
+    }
+
+    @MainActor
     func testCleanupListAddDefersLivePathValidationUntilTrashRequest() {
         var fileExistsCallCount = 0
         var actions = AppSystemActions.inert

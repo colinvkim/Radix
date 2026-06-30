@@ -187,6 +187,8 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
+    private var deferredCleanupListAddTask: Task<Void, Never>?
+    private var deferredCleanupListAddID: UUID?
     private var deferredNavigationContextTask: Task<Void, Never>?
     private var deferredNavigationContextID: UUID?
     private var deferredNavigationContextSnapshotID: UUID?
@@ -257,6 +259,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredCleanupListAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.resetTransientState()
@@ -279,6 +282,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredCleanupListAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.clearActiveScanTracking()
@@ -792,6 +796,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationContextUpdate()
+        cancelDeferredCleanupListAdd()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
@@ -819,6 +824,12 @@ final class AppModel: ObservableObject {
         deferredNavigationActionID = nil
         deferredNavigationActionTask?.cancel()
         deferredNavigationActionTask = nil
+    }
+
+    private func cancelDeferredCleanupListAdd() {
+        deferredCleanupListAddID = nil
+        deferredCleanupListAddTask?.cancel()
+        deferredCleanupListAddTask = nil
     }
 
     private func cancelDeferredNavigationContextUpdate() {
@@ -901,6 +912,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
+        cancelDeferredCleanupListAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
@@ -1213,6 +1225,15 @@ final class AppModel: ObservableObject {
         return addNodesToCleanupList([node])
     }
 
+    func addPrimarySelectionToCleanupListAfterViewUpdate() {
+        guard let node = navigationModel.selectedNode else {
+            presentError(FileActionError.noSelection)
+            return
+        }
+
+        scheduleDeferredCleanupListAdd([node])
+    }
+
     @discardableResult
     func addNodeToCleanupList(_ node: FileNodeRecord) -> Bool {
         addNodesToCleanupList([node])
@@ -1276,6 +1297,17 @@ final class AppModel: ObservableObject {
         } catch {
             presentError(error)
             return false
+        }
+    }
+
+    private func scheduleDeferredCleanupListAdd(_ nodes: [FileNodeRecord]) {
+        cancelDeferredCleanupListAdd()
+
+        scheduleDeferredViewUpdate(
+            id: \.deferredCleanupListAddID,
+            task: \.deferredCleanupListAddTask
+        ) { model in
+            model.addNodesToCleanupList(nodes)
         }
     }
 

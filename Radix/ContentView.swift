@@ -764,7 +764,7 @@ private extension ContentView {
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: primarySelectedFileActions,
-            addPrimarySelectionToCleanupList: { appModel.addPrimarySelectionToCleanupList() },
+            addPrimarySelectionToCleanupList: { appModel.addPrimarySelectionToCleanupListAfterViewUpdate() },
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
