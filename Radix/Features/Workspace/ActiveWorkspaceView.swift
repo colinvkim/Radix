@@ -9,7 +9,7 @@ struct ActiveWorkspaceView: View {
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
-    let cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID>
+    let discardPileHiddenNodeIDs: Set<FileNodeRecord.ID>
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
@@ -55,7 +55,7 @@ struct ActiveWorkspaceView: View {
     }
 
     private var chartContent: some View {
-        let visualizationInput = cleanupFilteredVisualizationInput(from: sunburstVisualizationInput)
+        let visualizationInput = discardPileFilteredVisualizationInput(from: sunburstVisualizationInput)
 
         return SunburstChartView(
             rootNode: visualizationInput.rootNode,
@@ -79,7 +79,7 @@ struct ActiveWorkspaceView: View {
             onZoom: actions.selectAndFocusNode,
             onSegmentClick: actions.recordSunburstSegmentClick,
             onNavigateToParent: actions.navigateToParent,
-            onCleanupListDragActiveChange: actions.setCleanupListDragActive
+            onDiscardPileDragActiveChange: actions.setDiscardPileDragActive
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .focusable()
@@ -93,7 +93,7 @@ struct ActiveWorkspaceView: View {
                 scanState: scanState,
                 navigation: navigation,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
-                hiddenNodeIDs: cleanupListHiddenNodeIDs,
+                hiddenNodeIDs: discardPileHiddenNodeIDs,
                 actions: fileBrowserActions
             )
 
@@ -127,20 +127,20 @@ struct ActiveWorkspaceView: View {
         )
     }
 
-    private func cleanupFilteredVisualizationInput(
+    private func discardPileFilteredVisualizationInput(
         from input: SunburstVisualizationInput
     ) -> SunburstVisualizationInput {
-        guard !cleanupListHiddenNodeIDs.isEmpty else { return input }
+        guard !discardPileHiddenNodeIDs.isEmpty else { return input }
 
         let filteredStore = input.treeStore.removingSubtrees(
-            rootedAt: Array(cleanupListHiddenNodeIDs)
+            rootedAt: Array(discardPileHiddenNodeIDs)
         )
         return SunburstVisualizationInput(
             rootNode: filteredStore.node(id: input.rootNode.id) ?? filteredStore.root,
             treeStore: filteredStore,
             layoutIDComponent: [
                 input.layoutIDComponent,
-                cleanupHiddenLayoutComponent
+                discardPileHiddenLayoutComponent
             ].joined(separator: "|")
         )
     }
@@ -150,10 +150,10 @@ struct ActiveWorkspaceView: View {
         return input.treeStore.parent(of: input.rootNode.id)
     }
 
-    private var cleanupHiddenLayoutComponent: String {
-        let sortedIDs = cleanupListHiddenNodeIDs.sorted()
-        guard !sortedIDs.isEmpty else { return "cleanup-list:0" }
-        return sortedIDs.reduce("cleanup-list:\(sortedIDs.count)") { component, id in
+    private var discardPileHiddenLayoutComponent: String {
+        let sortedIDs = discardPileHiddenNodeIDs.sorted()
+        guard !sortedIDs.isEmpty else { return "discard-pile:0" }
+        return sortedIDs.reduce("discard-pile:\(sortedIDs.count)") { component, id in
             component + ":\(id.count):\(id)"
         }
     }
@@ -168,7 +168,7 @@ struct ActiveWorkspaceView: View {
             zoomIntoSelection: actions.zoomIntoSelection,
             selectedFileActions: actions.selectedFileActions,
             bulkFileActions: actions.bulkFileActions,
-            setCleanupListDragActiveAfterThreshold: actions.setCleanupListDragActiveAfterThreshold
+            setDiscardPileDragActiveAfterThreshold: actions.setDiscardPileDragActiveAfterThreshold
         )
     }
 }

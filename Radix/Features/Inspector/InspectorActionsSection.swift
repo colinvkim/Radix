@@ -5,7 +5,7 @@ struct InspectorActionsSection: View {
     let canExpandSummarizedSelection: Bool
     let canZoomIntoSelection: Bool
     let fileActions: SelectedFileActions
-    let addToCleanupList: () -> Void
+    let addToDiscardPile: () -> Void
     let expandAction: () -> Void
     let zoomAction: () -> Void
 
@@ -61,9 +61,9 @@ struct InspectorActionsSection: View {
                 }
 
                 Button {
-                    addToCleanupList()
+                    addToDiscardPile()
                 } label: {
-                    Label("Add to Cleanup List", systemImage: "checklist")
+                    Label("Add to Discard Pile", systemImage: "checklist")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)

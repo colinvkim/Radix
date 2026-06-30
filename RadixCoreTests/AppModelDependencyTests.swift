@@ -641,7 +641,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testAsyncCleanupListTrashDoesNotRemoveNewSnapshotListEntry() async throws {
+    func testAsyncDiscardPileTrashDoesNotRemoveNewSnapshotListEntry() async throws {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -657,8 +657,8 @@ final class AppModelDependencyTests: XCTestCase {
         let oldSnapshot = makeTestSnapshot(root: oldRoot, store: oldStore)
         model.scanState.replaceCurrentSnapshot(oldSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
-        model.addNodesToCleanupList([oldFile])
-        XCTAssertTrue(model.requestMoveCleanupListToTrash())
+        model.addNodesToDiscardPile([oldFile])
+        XCTAssertTrue(model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
         try await probe.waitUntilStarted()
 
@@ -668,20 +668,20 @@ final class AppModelDependencyTests: XCTestCase {
         let newSnapshot = makeTestSnapshot(root: newRoot, store: newStore)
         model.scanState.replaceCurrentSnapshot(newSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(newSnapshot)
-        model.addNodesToCleanupList([newFile])
+        model.addNodesToDiscardPile([newFile])
 
         await probe.finish()
 
         try await waitUntil("old async trash completion recorded", timeout: 2) {
             model.usageStats.bytesMovedToTrash == oldFile.allocatedSize
         }
-        XCTAssertEqual(model.cleanupList.snapshotID, newSnapshot.id)
-        XCTAssertEqual(model.cleanupList.nodeIDs, [newFile.id])
-        XCTAssertEqual(model.cleanupListSummary.totalAllocatedSize, newFile.allocatedSize)
+        XCTAssertEqual(model.discardPile.snapshotID, newSnapshot.id)
+        XCTAssertEqual(model.discardPile.nodeIDs, [newFile.id])
+        XCTAssertEqual(model.discardPileSummary.totalAllocatedSize, newFile.allocatedSize)
     }
 
     @MainActor
-    func testConfirmPendingTrashRecordsCleanupUsageStats() {
+    func testConfirmPendingTrashRecordsTrashUsageStats() {
         let recorder = AppModelActionRecorder()
         let usageStats = SpyAppUsageStatsStore()
         let first = makeTestFileNode(id: "/selection/folder/first.bin", name: "first.bin", size: 40)
@@ -714,7 +714,7 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.usageStats.filesDeleted, 2)
         XCTAssertEqual(model.usageStats.foldersDeleted, 1)
         XCTAssertEqual(model.usageStats.bytesMovedToTrash, 100)
-        XCTAssertEqual(model.usageStats.biggestSingleCleanupBytes, 100)
+        XCTAssertEqual(model.usageStats.largestTrashMoveBytes, 100)
         XCTAssertEqual(usageStats.savedStats.last?.filesDeleted, 2)
         XCTAssertEqual(usageStats.savedStats.last?.foldersDeleted, 1)
     }
@@ -877,41 +877,41 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testCleanupListAddsValidNode() {
+    func testDiscardPileAddsValidNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
 
-        let didAdd = model.addNodesToCleanupList([file])
+        let didAdd = model.addNodesToDiscardPile([file])
 
         XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.cleanupList.nodeIDs, [file.id])
-        XCTAssertEqual(model.cleanupListNodes.map(\.id), [file.id])
-        XCTAssertEqual(model.cleanupListSummary.itemCount, 1)
-        XCTAssertEqual(model.cleanupListSummary.totalAllocatedSize, file.allocatedSize)
+        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
+        XCTAssertEqual(model.discardPileNodes.map(\.id), [file.id])
+        XCTAssertEqual(model.discardPileSummary.itemCount, 1)
+        XCTAssertEqual(model.discardPileSummary.totalAllocatedSize, file.allocatedSize)
     }
 
     @MainActor
-    func testPrimaryCleanupListAddAfterViewUpdateDefersMutation() async throws {
+    func testPrimaryDiscardPileAddAfterViewUpdateDefersMutation() async throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
 
-        model.addPrimarySelectionToCleanupListAfterViewUpdate()
+        model.addPrimarySelectionToDiscardPileAfterViewUpdate()
 
-        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertTrue(model.discardPile.isEmpty)
         XCTAssertEqual(model.navigation.selectedNodeID, file.id)
 
-        try await waitUntil("deferred cleanup list add") {
-            model.cleanupList.nodeIDs == [file.id] &&
+        try await waitUntil("deferred discard pile add") {
+            model.discardPile.nodeIDs == [file.id] &&
                 model.navigation.selectedNodeID == nil
         }
     }
 
     @MainActor
-    func testCleanupListAddDefersLivePathValidationUntilTrashRequest() {
+    func testDiscardPileAddDefersLivePathValidationUntilTrashRequest() {
         var fileExistsCallCount = 0
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in
@@ -921,21 +921,21 @@ final class AppModelDependencyTests: XCTestCase {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
 
-        let didAdd = model.addNodesToCleanupList([file])
+        let didAdd = model.addNodesToDiscardPile([file])
 
         XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.cleanupList.nodeIDs, [file.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
         XCTAssertEqual(fileExistsCallCount, 0)
 
-        let didRequestTrash = model.requestMoveCleanupListToTrash()
+        let didRequestTrash = model.requestMoveDiscardPileToTrash()
 
         XCTAssertFalse(didRequestTrash)
         XCTAssertEqual(fileExistsCallCount, 1)
-        XCTAssertEqual(model.cleanupList.nodeIDs, [file.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
     }
 
     @MainActor
-    func testCleanupListAddsResolvedNodeIDs() {
+    func testDiscardPileAddsResolvedNodeIDs() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -947,14 +947,14 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        let didAdd = model.addNodeIDsToCleanupList([first.id, second.id], snapshotID: snapshot.id)
+        let didAdd = model.addNodeIDsToDiscardPile([first.id, second.id], snapshotID: snapshot.id)
 
         XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.cleanupList.nodeIDs, [first.id, second.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [first.id, second.id])
     }
 
     @MainActor
-    func testCleanupListAddsLargeSiblingBatch() {
+    func testDiscardPileAddsLargeSiblingBatch() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -971,47 +971,47 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        let didAdd = model.addNodeIDsToCleanupList(files.map(\.id), snapshotID: snapshot.id)
+        let didAdd = model.addNodeIDsToDiscardPile(files.map(\.id), snapshotID: snapshot.id)
 
         XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.cleanupList.nodeIDs.count, files.count)
-        XCTAssertEqual(Set(model.cleanupList.nodeIDs), Set(files.map(\.id)))
+        XCTAssertEqual(model.discardPile.nodeIDs.count, files.count)
+        XCTAssertEqual(Set(model.discardPile.nodeIDs), Set(files.map(\.id)))
     }
 
     @MainActor
-    func testCleanupListRejectsUnresolvedDroppedNodeIDBatch() throws {
+    func testDiscardPileRejectsUnresolvedDroppedNodeIDBatch() throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
         let snapshotID = model.scanState.snapshot?.id
 
-        let didAdd = model.addNodeIDsToCleanupList(
+        let didAdd = model.addNodeIDsToDiscardPile(
             [file.id, "/selection/missing.txt"],
             snapshotID: try XCTUnwrap(snapshotID)
         )
 
         XCTAssertFalse(didAdd)
-        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertTrue(model.discardPile.isEmpty)
         XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
     }
 
     @MainActor
-    func testCleanupListRejectsNodeIDsFromDifferentSnapshot() {
+    func testDiscardPileRejectsNodeIDsFromDifferentSnapshot() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
 
-        let didAdd = model.addNodeIDsToCleanupList([file.id], snapshotID: UUID())
+        let didAdd = model.addNodeIDsToDiscardPile([file.id], snapshotID: UUID())
 
         XCTAssertFalse(didAdd)
-        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertTrue(model.discardPile.isEmpty)
         XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
     }
 
     @MainActor
-    func testCleanupListRejectsUnsupportedNode() {
+    func testDiscardPileRejectsUnsupportedNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1037,15 +1037,15 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        let didAdd = model.addNodesToCleanupList([syntheticNode])
+        let didAdd = model.addNodesToDiscardPile([syntheticNode])
 
         XCTAssertFalse(didAdd)
-        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertTrue(model.discardPile.isEmpty)
         XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
     }
 
     @MainActor
-    func testCleanupListParentDedupRemovesQueuedChildren() {
+    func testDiscardPileParentDedupRemovesQueuedChildren() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1060,14 +1060,14 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        model.addNodesToCleanupList([child])
-        model.addNodesToCleanupList([folder])
+        model.addNodesToDiscardPile([child])
+        model.addNodesToDiscardPile([folder])
 
-        XCTAssertEqual(model.cleanupList.nodeIDs, [folder.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
     }
 
     @MainActor
-    func testCleanupListChildAddNoOpsWhenAncestorQueued() {
+    func testDiscardPileChildAddNoOpsWhenAncestorQueued() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1082,47 +1082,47 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        model.addNodesToCleanupList([folder])
-        model.addNodesToCleanupList([child])
+        model.addNodesToDiscardPile([folder])
+        model.addNodesToDiscardPile([child])
 
-        XCTAssertEqual(model.cleanupList.nodeIDs, [folder.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
     }
 
     @MainActor
-    func testCleanupListHiddenNodeIDsTrackCurrentSnapshot() {
+    func testDiscardPileHiddenNodeIDsTrackCurrentSnapshot() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
 
-        model.addNodesToCleanupList([file])
+        model.addNodesToDiscardPile([file])
 
-        XCTAssertEqual(model.cleanupListHiddenNodeIDs, [file.id])
+        XCTAssertEqual(model.discardPileHiddenNodeIDs, [file.id])
 
         let nextFile = makeTestFileNode(id: "/next/file.txt", name: "file.txt")
         let nextRoot = makeTestDirectoryNode(id: "/next", name: "next", children: [nextFile])
         let nextStore = FileTreeStore(root: nextRoot, childrenByID: [nextRoot.id: [nextFile]])
         model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: nextRoot, store: nextStore))
 
-        XCTAssertTrue(model.cleanupListHiddenNodeIDs.isEmpty)
+        XCTAssertTrue(model.discardPileHiddenNodeIDs.isEmpty)
     }
 
     @MainActor
-    func testCleanupListAddClearsSelectionHiddenByQueuedNode() {
+    func testDiscardPileAddClearsSelectionHiddenByQueuedNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
         XCTAssertEqual(model.navigation.selectedNodeID, file.id)
 
-        model.addNodesToCleanupList([file])
+        model.addNodesToDiscardPile([file])
 
         XCTAssertNil(model.navigation.selectedNodeID)
         XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
     }
 
     @MainActor
-    func testCleanupListAddMovesHiddenFocusToVisibleAncestor() {
+    func testDiscardPileAddMovesHiddenFocusToVisibleAncestor() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1139,7 +1139,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.navigation.setFocusedNodeID(folder.id)
         model.select(nodeID: child.id)
 
-        model.addNodesToCleanupList([folder])
+        model.addNodesToDiscardPile([folder])
 
         XCTAssertEqual(model.navigation.focusedNodeID, root.id)
         XCTAssertNil(model.navigation.selectedNodeID)
@@ -1147,7 +1147,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testCleanupListClearsWhenActiveSnapshotIsReplaced() {
+    func testDiscardPileClearsWhenActiveSnapshotIsReplaced() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1157,7 +1157,7 @@ final class AppModelDependencyTests: XCTestCase {
         let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
         model.scanState.replaceCurrentSnapshot(firstSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(firstSnapshot)
-        model.addNodesToCleanupList([firstFile])
+        model.addNodesToDiscardPile([firstFile])
 
         let secondFile = makeTestFileNode(id: "/second/file.txt", name: "file.txt")
         let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [secondFile])
@@ -1165,11 +1165,11 @@ final class AppModelDependencyTests: XCTestCase {
         let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
         model.scanState.replaceCurrentSnapshot(secondSnapshot)
 
-        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertTrue(model.discardPile.isEmpty)
     }
 
     @MainActor
-    func testCleanupListReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() {
+    func testDiscardPileReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1185,24 +1185,24 @@ final class AppModelDependencyTests: XCTestCase {
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.addNodesToCleanupList([child])
-        model.addNodesToCleanupList([folder])
+        model.addNodesToDiscardPile([child])
+        model.addNodesToDiscardPile([folder])
 
-        let didRequestTrash = model.requestMoveCleanupListToTrash()
+        let didRequestTrash = model.requestMoveDiscardPileToTrash()
 
         XCTAssertTrue(didRequestTrash)
         XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
         XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
-        XCTAssertEqual(model.cleanupList.nodeIDs, [folder.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
 
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
-        XCTAssertTrue(model.cleanupList.isEmpty)
+        XCTAssertTrue(model.discardPile.isEmpty)
     }
 
     @MainActor
-    func testCleanupListReconcilesUnavailableQueuedIDsOut() {
+    func testDiscardPileReconcilesUnavailableQueuedIDsOut() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1213,8 +1213,8 @@ final class AppModelDependencyTests: XCTestCase {
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.addNodesToCleanupList([first, second])
-        XCTAssertEqual(model.cleanupList.nodeIDs, [first.id, second.id])
+        model.addNodesToDiscardPile([first, second])
+        XCTAssertEqual(model.discardPile.nodeIDs, [first.id, second.id])
 
         let updatedRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first])
         let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [updatedRoot.id: [first]])
@@ -1232,7 +1232,7 @@ final class AppModelDependencyTests: XCTestCase {
         )
         model.scanState.replaceCurrentSnapshot(updatedSnapshot)
 
-        XCTAssertEqual(model.cleanupList.nodeIDs, [first.id])
+        XCTAssertEqual(model.discardPile.nodeIDs, [first.id])
     }
 
     @MainActor

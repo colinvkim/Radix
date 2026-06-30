@@ -9,16 +9,16 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    private static let cleanupListDragActivationDistance: CGFloat = 10
+    private static let discardPileDragActivationDistance: CGFloat = 10
 
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = true
-    @State private var showsCleanupReview = false
-    @State private var cleanupListDragIsActive = false
-    @State private var cleanupListDragMonitorTask: Task<Void, Never>?
+    @State private var showsDiscardPileReview = false
+    @State private var discardPileDragIsActive = false
+    @State private var discardPileDragMonitorTask: Task<Void, Never>?
     @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     var body: some View {
@@ -27,8 +27,8 @@ struct ContentView: View {
                 model: appModel.sidebar,
                 scanState: appModel.scanState,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
-                cleanupListSummary: appModel.cleanupListSummary,
-                cleanupListDragIsActive: cleanupListDragIsActive,
+                discardPileSummary: appModel.discardPileSummary,
+                discardPileDragIsActive: discardPileDragIsActive,
                 actions: sidebarActions
             )
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
@@ -40,7 +40,7 @@ struct ContentView: View {
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 showFreeSpaceInSunburst: appModel.showFreeSpaceInSunburst,
-                cleanupListHiddenNodeIDs: appModel.cleanupListHiddenNodeIDs,
+                discardPileHiddenNodeIDs: appModel.discardPileHiddenNodeIDs,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 freeSpaceAvailableCapacity: { snapshot, focusNode in
@@ -95,22 +95,22 @@ struct ContentView: View {
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
         }
-        .sheet(isPresented: $showsCleanupReview) {
-            CleanupListReviewSheet(
-                nodes: appModel.cleanupListNodes,
-                summary: appModel.cleanupListSummary,
+        .sheet(isPresented: $showsDiscardPileReview) {
+            DiscardPileReviewSheet(
+                nodes: appModel.discardPileNodes,
+                summary: appModel.discardPileSummary,
                 onRemove: { node in
-                    appModel.removeCleanupListNode(id: node.id)
+                    appModel.removeDiscardPileNode(id: node.id)
                 },
                 onClear: {
-                    appModel.clearCleanupList()
+                    appModel.clearDiscardPile()
                 },
                 onCancel: {
-                    showsCleanupReview = false
+                    showsDiscardPileReview = false
                 },
                 onMoveToTrash: {
-                    if appModel.requestMoveCleanupListToTrash() {
-                        showsCleanupReview = false
+                    if appModel.requestMoveDiscardPileToTrash() {
+                        showsDiscardPileReview = false
                     }
                 }
             )
@@ -170,7 +170,7 @@ struct ContentView: View {
             Text(pendingTrashMessage)
         }
         .onDisappear {
-            cleanupListDragDidEnd()
+            discardPileDragDidEnd()
             appModel.setWorkspaceWindowNumber(nil)
             appModel.suspendMainWindowActivity()
         }
@@ -183,10 +183,10 @@ struct ContentView: View {
             case .active:
                 appModel.refreshFullDiskAccessStatus()
             case .background:
-                cleanupListDragDidEnd()
+                discardPileDragDidEnd()
                 appModel.suspendBackgroundActivity()
             case .inactive:
-                cleanupListDragDidEnd()
+                discardPileDragDidEnd()
             default:
                 break
             }
@@ -430,9 +430,9 @@ private struct ImportSnapshotStatCard: View {
     }
 }
 
-private struct CleanupListReviewSheet: View {
+private struct DiscardPileReviewSheet: View {
     let nodes: [FileNodeRecord]
-    let summary: CleanupListSummary
+    let summary: DiscardPileSummary
     let onRemove: (FileNodeRecord) -> Void
     let onClear: () -> Void
     let onCancel: () -> Void
@@ -441,7 +441,7 @@ private struct CleanupListReviewSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Cleanup List")
+                Text("Discard Pile")
                     .font(.title3.weight(.semibold))
 
                 Text(summaryText)
@@ -557,56 +557,56 @@ private extension ContentView {
             selectTargetAfterViewUpdate: { appModel.selectSidebarTargetAfterViewUpdate(id: $0) },
             revealInFinder: { appModel.revealTargetInFinder($0) },
             removeRecentTarget: { appModel.removeRecentTarget($0) },
-            reviewCleanupList: { showsCleanupReview = true },
-            addDroppedNodesToCleanupList: { nodeIDs, snapshotID in
-                defer { cleanupListDragDidEnd() }
-                return appModel.addNodeIDsToCleanupList(nodeIDs, snapshotID: snapshotID)
+            reviewDiscardPile: { showsDiscardPileReview = true },
+            addDroppedNodesToDiscardPile: { nodeIDs, snapshotID in
+                defer { discardPileDragDidEnd() }
+                return appModel.addNodeIDsToDiscardPile(nodeIDs, snapshotID: snapshotID)
             }
         )
     }
 
-    private func cleanupListDragDidEnd() {
-        cleanupListDragMonitorTask?.cancel()
-        cleanupListDragMonitorTask = nil
-        cleanupListDragIsActive = false
+    private func discardPileDragDidEnd() {
+        discardPileDragMonitorTask?.cancel()
+        discardPileDragMonitorTask = nil
+        discardPileDragIsActive = false
     }
 
-    private func setCleanupListDragIsActive(_ isActive: Bool) {
+    private func setDiscardPileDragIsActive(_ isActive: Bool) {
         guard isActive else {
-            cleanupListDragDidEnd()
+            discardPileDragDidEnd()
             return
         }
 
-        cleanupListDragIsActive = true
-        cleanupListDragMonitorTask?.cancel()
-        cleanupListDragMonitorTask = Task { @MainActor in
-            await monitorCleanupListDragUntilMouseUp()
+        discardPileDragIsActive = true
+        discardPileDragMonitorTask?.cancel()
+        discardPileDragMonitorTask = Task { @MainActor in
+            await monitorDiscardPileDragUntilMouseUp()
         }
     }
 
-    private func setCleanupListDragIsActiveAfterThreshold(_ isActive: Bool) {
+    private func setDiscardPileDragIsActiveAfterThreshold(_ isActive: Bool) {
         guard isActive else {
-            cleanupListDragDidEnd()
+            discardPileDragDidEnd()
             return
         }
 
-        guard cleanupListDragMonitorTask == nil else { return }
+        guard discardPileDragMonitorTask == nil else { return }
 
         let initialMouseLocation = NSEvent.mouseLocation
-        cleanupListDragMonitorTask = Task { @MainActor in
+        discardPileDragMonitorTask = Task { @MainActor in
             while !Task.isCancelled {
                 guard NSEvent.pressedMouseButtons & 1 != 0 else {
-                    cleanupListDragDidEnd()
+                    discardPileDragDidEnd()
                     return
                 }
 
                 if Self.mouseLocation(
                     NSEvent.mouseLocation,
-                    isAtLeast: Self.cleanupListDragActivationDistance,
+                    isAtLeast: Self.discardPileDragActivationDistance,
                     from: initialMouseLocation
                 ) {
-                    cleanupListDragIsActive = true
-                    await monitorCleanupListDragUntilMouseUp()
+                    discardPileDragIsActive = true
+                    await monitorDiscardPileDragUntilMouseUp()
                     return
                 }
 
@@ -615,12 +615,12 @@ private extension ContentView {
         }
     }
 
-    private func monitorCleanupListDragUntilMouseUp() async {
+    private func monitorDiscardPileDragUntilMouseUp() async {
         try? await Task.sleep(for: .milliseconds(120))
 
         while !Task.isCancelled {
             guard NSEvent.pressedMouseButtons & 1 != 0 else {
-                cleanupListDragDidEnd()
+                discardPileDragDidEnd()
                 return
             }
 
@@ -687,7 +687,7 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
-    let cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID>
+    let discardPileHiddenNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -701,7 +701,7 @@ private struct WorkspaceDetailView: View {
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
             showFreeSpaceInSunburst: showFreeSpaceInSunburst,
-            cleanupListHiddenNodeIDs: cleanupListHiddenNodeIDs,
+            discardPileHiddenNodeIDs: discardPileHiddenNodeIDs,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,
             freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
@@ -752,8 +752,8 @@ private extension ContentView {
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() },
-            setCleanupListDragActive: setCleanupListDragIsActive,
-            setCleanupListDragActiveAfterThreshold: setCleanupListDragIsActiveAfterThreshold
+            setDiscardPileDragActive: setDiscardPileDragIsActive,
+            setDiscardPileDragActiveAfterThreshold: setDiscardPileDragIsActiveAfterThreshold
         )
     }
 
@@ -764,7 +764,7 @@ private extension ContentView {
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: primarySelectedFileActions,
-            addPrimarySelectionToCleanupList: { appModel.addPrimarySelectionToCleanupListAfterViewUpdate() },
+            addPrimarySelectionToDiscardPile: { appModel.addPrimarySelectionToDiscardPileAfterViewUpdate() },
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
@@ -793,7 +793,7 @@ private extension ContentView {
         BulkFileActions(
             revealInFinder: { appModel.revealNodesInFinder($0) },
             copyPaths: { appModel.copyPaths(for: $0) },
-            addToCleanupList: { appModel.addNodesToCleanupList($0) },
+            addToDiscardPile: { appModel.addNodesToDiscardPile($0) },
             moveToTrash: { appModel.requestMoveNodesToTrash($0) }
         )
     }

@@ -480,13 +480,13 @@ private struct StatsSettingsPane: View {
                     )
                 }
 
-                Section("Cleanup") {
+                Section("Trash") {
                     StatValueRow("Files deleted", value: countText(appModel.usageStats.filesDeleted))
                     StatValueRow("Folders deleted", value: countText(appModel.usageStats.foldersDeleted))
                     StatValueRow("Bytes moved to Trash", value: sizeText(appModel.usageStats.bytesMovedToTrash))
                     StatValueRow(
-                        "Biggest single cleanup",
-                        value: sizeText(appModel.usageStats.biggestSingleCleanupBytes)
+                        "Largest trash move",
+                        value: sizeText(appModel.usageStats.largestTrashMoveBytes)
                     )
                 }
             }

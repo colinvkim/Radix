@@ -31,7 +31,7 @@ struct ExportConfirmationState: Identifiable, Equatable, Sendable {
     let archiveURL: URL
 }
 
-struct CleanupListState: Equatable, Sendable {
+struct DiscardPileState: Equatable, Sendable {
     let nodeIDs: [FileNodeRecord.ID]
     let snapshotID: UUID?
 
@@ -48,7 +48,7 @@ struct CleanupListState: Equatable, Sendable {
     }
 }
 
-struct CleanupListSummary: Equatable, Sendable {
+struct DiscardPileSummary: Equatable, Sendable {
     let itemCount: Int
     let totalAllocatedSize: Int64
 
@@ -166,7 +166,7 @@ final class AppModel: ObservableObject {
     @Published var pendingImportPreview: ScanArchivePreview?
     @Published var pendingTrashNode: FileNodeRecord?
     @Published var pendingTrashSelection: PendingTrashSelection?
-    @Published private(set) var cleanupList = CleanupListState()
+    @Published private(set) var discardPile = DiscardPileState()
     @Published private(set) var usageStats = AppUsageStats.empty
 
     private let dependencies: AppDependencies
@@ -187,8 +187,8 @@ final class AppModel: ObservableObject {
     private var deferredSidebarSelectionID: UUID?
     private var deferredNavigationActionTask: Task<Void, Never>?
     private var deferredNavigationActionID: UUID?
-    private var deferredCleanupListAddTask: Task<Void, Never>?
-    private var deferredCleanupListAddID: UUID?
+    private var deferredDiscardPileAddTask: Task<Void, Never>?
+    private var deferredDiscardPileAddID: UUID?
     private var deferredNavigationContextTask: Task<Void, Never>?
     private var deferredNavigationContextID: UUID?
     private var deferredNavigationContextSnapshotID: UUID?
@@ -259,7 +259,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        cancelDeferredCleanupListAdd()
+        cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.resetTransientState()
@@ -282,7 +282,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        cancelDeferredCleanupListAdd()
+        cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.clearActiveScanTracking()
@@ -310,13 +310,13 @@ final class AppModel: ObservableObject {
         sidebarModel
     }
 
-    var cleanupListNodes: [FileNodeRecord] {
-        resolvedCleanupListNodes()
+    var discardPileNodes: [FileNodeRecord] {
+        resolvedDiscardPileNodes()
     }
 
-    var cleanupListSummary: CleanupListSummary {
-        let nodes = resolvedCleanupListNodes()
-        return CleanupListSummary(
+    var discardPileSummary: DiscardPileSummary {
+        let nodes = resolvedDiscardPileNodes()
+        return DiscardPileSummary(
             itemCount: nodes.count,
             totalAllocatedSize: nodes.reduce(into: Int64(0)) { total, node in
                 total += node.allocatedSize
@@ -324,9 +324,9 @@ final class AppModel: ObservableObject {
         )
     }
 
-    var cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID> {
-        guard cleanupList.snapshotID == scanCoordinator.snapshot?.id else { return [] }
-        return Set(cleanupList.nodeIDs)
+    var discardPileHiddenNodeIDs: Set<FileNodeRecord.ID> {
+        guard discardPile.snapshotID == scanCoordinator.snapshot?.id else { return [] }
+        return Set(discardPile.nodeIDs)
     }
 
     var startupDiskTarget: ScanTarget? {
@@ -796,7 +796,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationContextUpdate()
-        cancelDeferredCleanupListAdd()
+        cancelDeferredDiscardPileAdd()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
@@ -826,10 +826,10 @@ final class AppModel: ObservableObject {
         deferredNavigationActionTask = nil
     }
 
-    private func cancelDeferredCleanupListAdd() {
-        deferredCleanupListAddID = nil
-        deferredCleanupListAddTask?.cancel()
-        deferredCleanupListAddTask = nil
+    private func cancelDeferredDiscardPileAdd() {
+        deferredDiscardPileAddID = nil
+        deferredDiscardPileAddTask?.cancel()
+        deferredDiscardPileAddTask = nil
     }
 
     private func cancelDeferredNavigationContextUpdate() {
@@ -912,7 +912,7 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        cancelDeferredCleanupListAdd()
+        cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
@@ -1211,36 +1211,36 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    func addSelectedNodesToCleanupList() -> Bool {
-        addNodesToCleanupList(navigationModel.selectedNodes)
+    func addSelectedNodesToDiscardPile() -> Bool {
+        addNodesToDiscardPile(navigationModel.selectedNodes)
     }
 
     @discardableResult
-    func addPrimarySelectionToCleanupList() -> Bool {
+    func addPrimarySelectionToDiscardPile() -> Bool {
         guard let node = navigationModel.selectedNode else {
             presentError(FileActionError.noSelection)
             return false
         }
 
-        return addNodesToCleanupList([node])
+        return addNodesToDiscardPile([node])
     }
 
-    func addPrimarySelectionToCleanupListAfterViewUpdate() {
+    func addPrimarySelectionToDiscardPileAfterViewUpdate() {
         guard let node = navigationModel.selectedNode else {
             presentError(FileActionError.noSelection)
             return
         }
 
-        scheduleDeferredCleanupListAdd([node])
+        scheduleDeferredDiscardPileAdd([node])
     }
 
     @discardableResult
-    func addNodeToCleanupList(_ node: FileNodeRecord) -> Bool {
-        addNodesToCleanupList([node])
+    func addNodeToDiscardPile(_ node: FileNodeRecord) -> Bool {
+        addNodesToDiscardPile([node])
     }
 
     @discardableResult
-    func addNodeIDsToCleanupList(
+    func addNodeIDsToDiscardPile(
         _ nodeIDs: [FileNodeRecord.ID],
         snapshotID: UUID
     ) -> Bool {
@@ -1268,13 +1268,13 @@ final class AppModel: ObservableObject {
             nodes.append(node)
         }
 
-        return addNodesToCleanupList(nodes)
+        return addNodesToDiscardPile(nodes)
     }
 
     @discardableResult
-    func addNodesToCleanupList(_ nodes: [FileNodeRecord]) -> Bool {
+    func addNodesToDiscardPile(_ nodes: [FileNodeRecord]) -> Bool {
         do {
-            let nodes = try validatedNodesForCleanupList(nodes)
+            let nodes = try validatedNodesForDiscardPile(nodes)
             guard nodes.allSatisfy({ node in
                 node.supportsMoveToTrash(
                     activeTarget: scanCoordinator.selectedTarget,
@@ -1288,7 +1288,7 @@ final class AppModel: ObservableObject {
                 throw FileActionError.unsupported
             }
 
-            addCleanupListNodes(
+            addDiscardPileNodes(
                 topLevelTrashNodes(from: nodes),
                 snapshot: snapshot,
                 fileTreeStore: fileTreeStore
@@ -1300,35 +1300,35 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func scheduleDeferredCleanupListAdd(_ nodes: [FileNodeRecord]) {
-        cancelDeferredCleanupListAdd()
+    private func scheduleDeferredDiscardPileAdd(_ nodes: [FileNodeRecord]) {
+        cancelDeferredDiscardPileAdd()
 
         scheduleDeferredViewUpdate(
-            id: \.deferredCleanupListAddID,
-            task: \.deferredCleanupListAddTask
+            id: \.deferredDiscardPileAddID,
+            task: \.deferredDiscardPileAddTask
         ) { model in
-            model.addNodesToCleanupList(nodes)
+            model.addNodesToDiscardPile(nodes)
         }
     }
 
-    func removeCleanupListNode(id nodeID: FileNodeRecord.ID) {
-        guard cleanupList.nodeIDs.contains(nodeID) else { return }
-        let remainingIDs = cleanupList.nodeIDs.filter { $0 != nodeID }
-        cleanupList = CleanupListState(
+    func removeDiscardPileNode(id nodeID: FileNodeRecord.ID) {
+        guard discardPile.nodeIDs.contains(nodeID) else { return }
+        let remainingIDs = discardPile.nodeIDs.filter { $0 != nodeID }
+        discardPile = DiscardPileState(
             nodeIDs: remainingIDs,
-            snapshotID: cleanupList.snapshotID
+            snapshotID: discardPile.snapshotID
         )
     }
 
-    func clearCleanupList() {
-        guard !cleanupList.isEmpty else { return }
-        cleanupList = CleanupListState()
+    func clearDiscardPile() {
+        guard !discardPile.isEmpty else { return }
+        discardPile = DiscardPileState()
     }
 
     @discardableResult
-    func requestMoveCleanupListToTrash() -> Bool {
-        reconcileCleanupList()
-        return requestMoveNodesToTrash(topLevelTrashNodes(from: resolvedCleanupListNodes()))
+    func requestMoveDiscardPileToTrash() -> Bool {
+        reconcileDiscardPile()
+        return requestMoveNodesToTrash(topLevelTrashNodes(from: resolvedDiscardPileNodes()))
     }
 
     func confirmMovePendingNodeToTrash() {
@@ -1489,10 +1489,10 @@ final class AppModel: ObservableObject {
         statsFileTreeStore: FileTreeStore?
     ) {
         if !movedNodes.isEmpty {
-            if cleanupList.snapshotID == originalSnapshotID {
-                removeMovedNodesFromCleanupList(movedNodes, fileTreeStore: statsFileTreeStore)
+            if discardPile.snapshotID == originalSnapshotID {
+                removeMovedNodesFromDiscardPile(movedNodes, fileTreeStore: statsFileTreeStore)
             }
-            recordTrashCleanup(movedNodes, fileTreeStore: statsFileTreeStore)
+            recordTrashMove(movedNodes, fileTreeStore: statsFileTreeStore)
             sidebarScanCacheController.clearCache()
             if shouldApplyPostTrashSnapshotUpdate(originalSnapshotID: originalSnapshotID) {
                 handleMovedToTrash(movedNodes)
@@ -1541,19 +1541,19 @@ final class AppModel: ObservableObject {
         pendingTrashSelection = nil
     }
 
-    func reconcileCleanupList() {
-        guard !cleanupList.isEmpty else { return }
+    func reconcileDiscardPile() {
+        guard !discardPile.isEmpty else { return }
         guard let snapshot = scanCoordinator.snapshot,
               let fileTreeStore = scanCoordinator.fileTreeStore else {
-            cleanupList = CleanupListState()
+            discardPile = DiscardPileState()
             return
         }
-        guard cleanupList.snapshotID == snapshot.id else {
-            cleanupList = CleanupListState()
+        guard discardPile.snapshotID == snapshot.id else {
+            discardPile = DiscardPileState()
             return
         }
 
-        reconcileCleanupList(snapshotID: snapshot.id, fileTreeStore: fileTreeStore)
+        reconcileDiscardPile(snapshotID: snapshot.id, fileTreeStore: fileTreeStore)
     }
 
     private func postTrashFocusFallbackID(for node: FileNodeRecord) -> FileNodeRecord.ID? {
@@ -1715,7 +1715,7 @@ final class AppModel: ObservableObject {
         return try validatedNodes(nodes, requiresLivePath: true)
     }
 
-    private func validatedNodesForCleanupList(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
+    private func validatedNodesForDiscardPile(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
         try validateSnapshotAllowsMutation()
         return try validatedNodes(nodes, requiresLivePath: false)
     }
@@ -1815,23 +1815,23 @@ final class AppModel: ObservableObject {
             hasAncestor(in: ancestorIDs, of: nodeID, fileTreeStore: fileTreeStore)
     }
 
-    private func addCleanupListNodes(
+    private func addDiscardPileNodes(
         _ nodes: [FileNodeRecord],
         snapshot: ScanSnapshot,
         fileTreeStore: FileTreeStore
     ) {
         guard !nodes.isEmpty else { return }
 
-        let queuedIDs = (cleanupList.snapshotID == snapshot.id ? cleanupList.nodeIDs : []) + nodes.map(\.id)
-        let deduplicatedIDs = deduplicatedCleanupListIDs(queuedIDs, fileTreeStore: fileTreeStore)
-        cleanupList = CleanupListState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
-        reconcileNavigationForCleanupListHiddenNodes(
+        let queuedIDs = (discardPile.snapshotID == snapshot.id ? discardPile.nodeIDs : []) + nodes.map(\.id)
+        let deduplicatedIDs = deduplicatedDiscardPileIDs(queuedIDs, fileTreeStore: fileTreeStore)
+        discardPile = DiscardPileState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
+        reconcileNavigationForDiscardPileHiddenNodes(
             hiddenNodeIDs: Set(deduplicatedIDs),
             fileTreeStore: fileTreeStore
         )
     }
 
-    private func deduplicatedCleanupListIDs(
+    private func deduplicatedDiscardPileIDs(
         _ nodeIDs: [FileNodeRecord.ID],
         fileTreeStore: FileTreeStore
     ) -> [FileNodeRecord.ID] {
@@ -1841,12 +1841,12 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func resolvedCleanupListNodes() -> [FileNodeRecord] {
+    private func resolvedDiscardPileNodes() -> [FileNodeRecord] {
         guard let fileTreeStore = scanCoordinator.fileTreeStore else { return [] }
-        return cleanupList.nodeIDs.compactMap { fileTreeStore.node(id: $0) }
+        return discardPile.nodeIDs.compactMap { fileTreeStore.node(id: $0) }
     }
 
-    private func reconcileNavigationForCleanupListHiddenNodes(
+    private func reconcileNavigationForDiscardPileHiddenNodes(
         hiddenNodeIDs: Set<FileNodeRecord.ID>,
         fileTreeStore: FileTreeStore
     ) {
@@ -1855,7 +1855,7 @@ final class AppModel: ObservableObject {
         if let focusedNodeID = navigationModel.focusedNodeID,
            fileTreeStore.isNodeOrDescendant(focusedNodeID, of: hiddenNodeIDs) {
             navigationModel.setFocusedNodeID(
-                cleanupListFocusFallbackID(
+                discardPileFocusFallbackID(
                     for: focusedNodeID,
                     hiddenNodeIDs: hiddenNodeIDs,
                     fileTreeStore: fileTreeStore
@@ -1870,7 +1870,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func cleanupListFocusFallbackID(
+    private func discardPileFocusFallbackID(
         for nodeID: FileNodeRecord.ID,
         hiddenNodeIDs: Set<FileNodeRecord.ID>,
         fileTreeStore: FileTreeStore
@@ -1885,48 +1885,48 @@ final class AppModel: ObservableObject {
         return fileTreeStore.rootID
     }
 
-    private func removeMovedNodesFromCleanupList(
+    private func removeMovedNodesFromDiscardPile(
         _ movedNodes: [FileNodeRecord],
         fileTreeStore: FileTreeStore?
     ) {
-        guard !cleanupList.isEmpty, !movedNodes.isEmpty else { return }
+        guard !discardPile.isEmpty, !movedNodes.isEmpty else { return }
 
         let movedIDs = Set(movedNodes.map(\.id))
-        let remainingIDs = cleanupList.nodeIDs.filter { queuedID in
+        let remainingIDs = discardPile.nodeIDs.filter { queuedID in
             guard !movedIDs.contains(queuedID) else { return false }
             guard let fileTreeStore else { return true }
             return !isNodeOrDescendant(queuedID, of: movedIDs, fileTreeStore: fileTreeStore)
         }
-        guard remainingIDs != cleanupList.nodeIDs else { return }
-        cleanupList = CleanupListState(
+        guard remainingIDs != discardPile.nodeIDs else { return }
+        discardPile = DiscardPileState(
             nodeIDs: remainingIDs,
-            snapshotID: cleanupList.snapshotID
+            snapshotID: discardPile.snapshotID
         )
     }
 
-    private func syncCleanupList(with snapshot: ScanSnapshot?) {
-        guard !cleanupList.isEmpty else { return }
+    private func syncDiscardPile(with snapshot: ScanSnapshot?) {
+        guard !discardPile.isEmpty else { return }
         guard let snapshot else {
-            cleanupList = CleanupListState()
+            discardPile = DiscardPileState()
             return
         }
-        guard cleanupList.snapshotID == snapshot.id else {
-            cleanupList = CleanupListState()
+        guard discardPile.snapshotID == snapshot.id else {
+            discardPile = DiscardPileState()
             return
         }
-        reconcileCleanupList(snapshotID: snapshot.id, fileTreeStore: snapshot.treeStore)
+        reconcileDiscardPile(snapshotID: snapshot.id, fileTreeStore: snapshot.treeStore)
     }
 
-    private func reconcileCleanupList(
+    private func reconcileDiscardPile(
         snapshotID: UUID,
         fileTreeStore: FileTreeStore
     ) {
-        let reconciledIDs = deduplicatedCleanupListIDs(
-            cleanupList.nodeIDs.filter { fileTreeStore.node(id: $0) != nil },
+        let reconciledIDs = deduplicatedDiscardPileIDs(
+            discardPile.nodeIDs.filter { fileTreeStore.node(id: $0) != nil },
             fileTreeStore: fileTreeStore
         )
-        guard reconciledIDs != cleanupList.nodeIDs else { return }
-        cleanupList = CleanupListState(
+        guard reconciledIDs != discardPile.nodeIDs else { return }
+        discardPile = DiscardPileState(
             nodeIDs: reconciledIDs,
             snapshotID: snapshotID
         )
@@ -1942,7 +1942,7 @@ final class AppModel: ObservableObject {
         pendingImportPreview = nil
         pendingTrashNode = nil
         pendingTrashSelection = nil
-        cleanupList = CleanupListState()
+        discardPile = DiscardPileState()
         sidebarModel.setActiveTargetID(target.id)
 
         registerRecentTarget(target)
@@ -1973,7 +1973,7 @@ final class AppModel: ObservableObject {
         pendingImportPreview = nil
         pendingTrashNode = nil
         pendingTrashSelection = nil
-        cleanupList = CleanupListState()
+        discardPile = DiscardPileState()
         sidebarModel.setActiveTargetID(nil)
         quickLookController.closePreview()
     }
@@ -2060,7 +2060,7 @@ final class AppModel: ObservableObject {
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
                 guard let self else { return }
-                syncCleanupList(with: snapshot)
+                syncDiscardPile(with: snapshot)
                 if let snapshotID = snapshot?.id,
                    snapshotID == deferredNavigationContextSnapshotID {
                     return
@@ -2092,13 +2092,13 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func recordTrashCleanup(_ nodes: [FileNodeRecord]) {
-        recordTrashCleanup(nodes, fileTreeStore: scanCoordinator.fileTreeStore)
+    private func recordTrashMove(_ nodes: [FileNodeRecord]) {
+        recordTrashMove(nodes, fileTreeStore: scanCoordinator.fileTreeStore)
     }
 
-    private func recordTrashCleanup(_ nodes: [FileNodeRecord], fileTreeStore: FileTreeStore?) {
+    private func recordTrashMove(_ nodes: [FileNodeRecord], fileTreeStore: FileTreeStore?) {
         updateUsageStats { stats in
-            stats.recordTrashCleanup(nodes: nodes, fileTreeStore: fileTreeStore)
+            stats.recordTrashMove(nodes: nodes, fileTreeStore: fileTreeStore)
         }
     }
 

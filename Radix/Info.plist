@@ -37,9 +37,9 @@
 				<string>public.json</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Radix Cleanup List Drag Payload</string>
+			<string>Radix Discard Pile Drag Payload</string>
 			<key>UTTypeIdentifier</key>
-			<string>dev.colinkim.radix.cleanup-list-drag-payload</string>
+			<string>dev.colinkim.radix.discard-pile-drag-payload</string>
 		</dict>
 		<dict>
 			<key>UTTypeConformsTo</key>

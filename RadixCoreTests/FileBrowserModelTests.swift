@@ -44,7 +44,7 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
-    func testCurrentContentsHideCleanupQueuedNodes() {
+    func testCurrentContentsHideDiscardPileQueuedNodes() {
         let hiddenFile = makeTestFileNode(id: "/root/hidden.txt", name: "hidden.txt", size: 40)
         let visibleFile = makeTestFileNode(id: "/root/visible.txt", name: "visible.txt", size: 10)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [hiddenFile, visibleFile])
@@ -73,7 +73,7 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     @MainActor
-    func testEntireScanSearchHidesCleanupQueuedDescendants() async throws {
+    func testEntireScanSearchHidesDiscardPileQueuedDescendants() async throws {
         let hiddenTarget = makeTestFileNode(id: "/root/folder/target-hidden.txt", name: "target-hidden.txt", size: 40)
         let hiddenFolder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [hiddenTarget])
         let visibleTarget = makeTestFileNode(id: "/root/target-visible.txt", name: "target-visible.txt", size: 10)

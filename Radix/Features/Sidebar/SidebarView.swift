@@ -4,19 +4,19 @@ struct SidebarActions {
     let selectTargetAfterViewUpdate: (String?) -> Void
     let revealInFinder: (ScanTarget) -> Void
     let removeRecentTarget: (ScanTarget) -> Void
-    let reviewCleanupList: () -> Void
-    let addDroppedNodesToCleanupList: ([FileNodeRecord.ID], UUID) -> Bool
+    let reviewDiscardPile: () -> Void
+    let addDroppedNodesToDiscardPile: ([FileNodeRecord.ID], UUID) -> Bool
 }
 
 struct SidebarView: View {
     @ObservedObject var model: SidebarModel
     @ObservedObject var scanState: ScanCoordinator
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
-    let cleanupListSummary: CleanupListSummary
-    let cleanupListDragIsActive: Bool
+    let discardPileSummary: DiscardPileSummary
+    let discardPileDragIsActive: Bool
     let actions: SidebarActions
 
-    @State private var cleanupListDropIsTargeted = false
+    @State private var discardPileDropIsTargeted = false
 
     private var selection: Binding<String?> {
         Binding(
@@ -64,24 +64,24 @@ struct SidebarView: View {
             if scanState.snapshot != nil {
                 Divider()
 
-                CleanupListSidebarButton(
-                    summary: cleanupListSummary,
-                    isDropHintActive: cleanupListDragIsActive,
-                    isDropTargeted: cleanupListDropIsTargeted
+                DiscardPileSidebarButton(
+                    summary: discardPileSummary,
+                    isDropHintActive: discardPileDragIsActive,
+                    isDropTargeted: discardPileDropIsTargeted
                 ) {
-                    actions.reviewCleanupList()
+                    actions.reviewDiscardPile()
                 }
-                .dropDestination(for: CleanupListDragPayload.self) { payloads, _ in
+                .dropDestination(for: DiscardPileDragPayload.self) { payloads, _ in
                     let snapshotIDs = Set(payloads.map(\.snapshotID))
                     guard payloads.isEmpty == false,
                           snapshotIDs.count == 1,
                           let snapshotID = snapshotIDs.first else { return false }
-                    return actions.addDroppedNodesToCleanupList(
+                    return actions.addDroppedNodesToDiscardPile(
                         payloads.flatMap(\.nodeIDs),
                         snapshotID
                     )
                 } isTargeted: { isTargeted in
-                    cleanupListDropIsTargeted = isTargeted
+                    discardPileDropIsTargeted = isTargeted
                 }
             }
         }
@@ -90,8 +90,8 @@ struct SidebarView: View {
     }
 }
 
-private struct CleanupListSidebarButton: View {
-    let summary: CleanupListSummary
+private struct DiscardPileSidebarButton: View {
+    let summary: DiscardPileSummary
     let isDropHintActive: Bool
     let isDropTargeted: Bool
     let action: () -> Void
@@ -102,7 +102,7 @@ private struct CleanupListSidebarButton: View {
         Button(action: action) {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Cleanup List")
+                    Text("Discard Pile")
                         .font(.subheadline.weight(.semibold))
                     subtitleText
                 }
@@ -122,7 +122,7 @@ private struct CleanupListSidebarButton: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
-        .help("Review Cleanup List")
+        .help("Review Discard Pile")
     }
 
     private var subtitleText: some View {

@@ -9,7 +9,7 @@ struct FileBrowserActions {
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
-    let setCleanupListDragActiveAfterThreshold: (Bool) -> Void
+    let setDiscardPileDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct FileBrowserTableView: View {
@@ -219,9 +219,9 @@ struct FileBrowserTableView: View {
             .width(min: 150, ideal: 180)
         } rows: {
             ForEach(model.displayedNodes) { node in
-                if canDragToCleanupList(startingFrom: node) {
+                if canDragToDiscardPile(startingFrom: node) {
                     TableRow(node)
-                        .draggable(cleanupListDragPayload(for: node))
+                        .draggable(discardPileDragPayload(for: node))
                 } else {
                     TableRow(node)
                 }
@@ -356,9 +356,9 @@ struct FileBrowserTableView: View {
 
             Divider()
 
-            Button("Add to Cleanup List", systemImage: "checklist") {
+            Button("Add to Discard Pile", systemImage: "checklist") {
                 actions.selectNode(id)
-                actions.bulkFileActions.addToCleanupList([node])
+                actions.bulkFileActions.addToDiscardPile([node])
             }
             .disabled(!selection.actionAvailability.canMoveToTrash)
 
@@ -384,9 +384,9 @@ struct FileBrowserTableView: View {
 
         Divider()
 
-        Button("Add \(selection.nodes.count) Items to Cleanup List", systemImage: "checklist") {
+        Button("Add \(selection.nodes.count) Items to Discard Pile", systemImage: "checklist") {
             actions.selectNodes(selection.ids, selection.primaryID)
-            actions.bulkFileActions.addToCleanupList(selection.nodes)
+            actions.bulkFileActions.addToDiscardPile(selection.nodes)
         }
         .disabled(!selection.actionAvailability.canMoveToTrash)
 
@@ -442,12 +442,12 @@ struct FileBrowserTableView: View {
         model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
-    private func canDragToCleanupList(startingFrom node: FileNodeRecord) -> Bool {
+    private func canDragToDiscardPile(startingFrom node: FileNodeRecord) -> Bool {
         guard scanState.snapshot != nil else { return false }
-        return canAddToCleanupList(cleanupListDragNodes(startingFrom: node))
+        return canAddToDiscardPile(discardPileDragNodes(startingFrom: node))
     }
 
-    private func cleanupListDragNodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
+    private func discardPileDragNodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
         guard tableSelection.wrappedValue.contains(node.id) else {
             return [node]
         }
@@ -455,7 +455,7 @@ struct FileBrowserTableView: View {
         return selectedNodes(for: tableSelection.wrappedValue)
     }
 
-    private func canAddToCleanupList(_ nodes: [FileNodeRecord]) -> Bool {
+    private func canAddToDiscardPile(_ nodes: [FileNodeRecord]) -> Bool {
         FileNodeActionAvailability(
             nodes: nodes,
             activeTarget: scanState.selectedTarget,
@@ -464,22 +464,22 @@ struct FileBrowserTableView: View {
         ).canMoveToTrash
     }
 
-    private func cleanupListDragPayload(for node: FileNodeRecord) -> CleanupListDragPayload {
+    private func discardPileDragPayload(for node: FileNodeRecord) -> DiscardPileDragPayload {
         guard let snapshotID = scanState.snapshot?.id else {
-            preconditionFailure("Cleanup list drag requires an active scan snapshot.")
+            preconditionFailure("Discard pile drag requires an active scan snapshot.")
         }
 
-        let dragNodes = cleanupListDragNodes(startingFrom: node)
-        guard canAddToCleanupList(dragNodes) else {
-            return CleanupListDragPayload(
+        let dragNodes = discardPileDragNodes(startingFrom: node)
+        guard canAddToDiscardPile(dragNodes) else {
+            return DiscardPileDragPayload(
                 snapshotID: snapshotID,
                 nodeIDs: []
             )
         }
 
-        actions.setCleanupListDragActiveAfterThreshold(true)
+        actions.setDiscardPileDragActiveAfterThreshold(true)
 
-        return CleanupListDragPayload(
+        return DiscardPileDragPayload(
             snapshotID: snapshotID,
             nodeIDs: dragNodes.map(\.id)
         )

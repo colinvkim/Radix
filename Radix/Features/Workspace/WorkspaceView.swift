@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct CleanupListDragPayload: Codable, Hashable, Transferable {
-    static let contentType = UTType(exportedAs: "dev.colinkim.radix.cleanup-list-drag-payload")
+struct DiscardPileDragPayload: Codable, Hashable, Transferable {
+    static let contentType = UTType(exportedAs: "dev.colinkim.radix.discard-pile-drag-payload")
 
     let snapshotID: UUID
     let nodeIDs: [FileNodeRecord.ID]
@@ -34,8 +34,8 @@ struct WorkspaceActions {
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
     let openFullDiskAccessSettings: () -> Void
-    let setCleanupListDragActive: (Bool) -> Void
-    let setCleanupListDragActiveAfterThreshold: (Bool) -> Void
+    let setDiscardPileDragActive: (Bool) -> Void
+    let setDiscardPileDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct SelectedFileActions {
@@ -64,7 +64,7 @@ struct SelectedFileActions {
 struct BulkFileActions {
     let revealInFinder: ([FileNodeRecord]) -> Void
     let copyPaths: ([FileNodeRecord]) -> Void
-    let addToCleanupList: ([FileNodeRecord]) -> Void
+    let addToDiscardPile: ([FileNodeRecord]) -> Void
     let moveToTrash: ([FileNodeRecord]) -> Void
 }
 
@@ -76,7 +76,7 @@ struct WorkspaceView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
-    let cleanupListHiddenNodeIDs: Set<FileNodeRecord.ID>
+    let discardPileHiddenNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -94,7 +94,7 @@ struct WorkspaceView: View {
                     focusedWorkspaceTarget: $focusedWorkspaceTarget,
                     maxRenderedDepth: maxRenderedDepth,
                     showFreeSpaceInSunburst: showFreeSpaceInSunburst,
-                    cleanupListHiddenNodeIDs: cleanupListHiddenNodeIDs,
+                    discardPileHiddenNodeIDs: discardPileHiddenNodeIDs,
                     fullDiskAccessStatus: fullDiskAccessStatus,
                     freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
                     actions: actions

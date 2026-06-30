@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct SunburstCleanupDragItem {
-    let payload: CleanupListDragPayload
+struct SunburstDiscardPileDragItem {
+    let payload: DiscardPileDragPayload
     let segment: SunburstSegment
 }
 
@@ -12,8 +12,8 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
     let onClick: (CGPoint, Int) -> Void
     let onPan: (CGSize) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
-    let cleanupDragItem: (CGPoint) -> SunburstCleanupDragItem?
-    let onCleanupDragActiveChange: (Bool) -> Void
+    let discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem?
+    let onDiscardPileDragActiveChange: (Bool) -> Void
     let help: (CGPoint) -> String?
     let isPanEnabled: Bool
 
@@ -23,8 +23,8 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onClick = onClick
         view.onPan = onPan
         view.onMagnify = onMagnify
-        view.cleanupDragItem = cleanupDragItem
-        view.onCleanupDragActiveChange = onCleanupDragActiveChange
+        view.discardPileDragItem = discardPileDragItem
+        view.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         view.help = help
         view.isPanEnabled = isPanEnabled
         return view
@@ -35,8 +35,8 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         nsView.onClick = onClick
         nsView.onPan = onPan
         nsView.onMagnify = onMagnify
-        nsView.cleanupDragItem = cleanupDragItem
-        nsView.onCleanupDragActiveChange = onCleanupDragActiveChange
+        nsView.discardPileDragItem = discardPileDragItem
+        nsView.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         nsView.help = help
         nsView.isPanEnabled = isPanEnabled
     }
@@ -46,20 +46,20 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         var onClick: (CGPoint, Int) -> Void = { _, _ in }
         var onPan: (CGSize) -> Void = { _ in }
         var onMagnify: (CGPoint, CGFloat) -> Void = { _, _ in }
-        var cleanupDragItem: (CGPoint) -> SunburstCleanupDragItem? = { _ in nil }
-        var onCleanupDragActiveChange: (Bool) -> Void = { _ in }
+        var discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem? = { _ in nil }
+        var onDiscardPileDragActiveChange: (Bool) -> Void = { _ in }
         var help: (CGPoint) -> String? = { _ in nil }
         var isPanEnabled = false
 
         private static let dragThreshold: CGFloat = 3
-        private static let cleanupDragImageSize = NSSize(width: 42, height: 42)
+        private static let discardPileDragImageSize = NSSize(width: 42, height: 42)
         private static let lineScrollScale: CGFloat = 10
         fileprivate static let maximumScrollPanDelta: CGFloat = 80
         private var trackingArea: NSTrackingArea?
         private var mouseDownLocation: CGPoint?
         private var lastDragLocation: CGPoint?
         private var didPan = false
-        private var didStartCleanupDrag = false
+        private var didStartDiscardPileDrag = false
 
         override var isFlipped: Bool {
             true
@@ -100,7 +100,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             mouseDownLocation = location
             lastDragLocation = location
             didPan = false
-            didStartCleanupDrag = false
+            didStartDiscardPileDrag = false
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -115,14 +115,14 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                 didPan = true
             }
 
-            if !didStartCleanupDrag,
-               let cleanupDragItem = cleanupDragItem(mouseDownLocation),
-               let draggingItem = cleanupListDraggingItem(
-                   for: cleanupDragItem,
+            if !didStartDiscardPileDrag,
+               let discardPileDragItem = discardPileDragItem(mouseDownLocation),
+               let draggingItem = discardPileDraggingItem(
+                   for: discardPileDragItem,
                    at: mouseDownLocation
                ) {
-                didStartCleanupDrag = true
-                onCleanupDragActiveChange(true)
+                didStartDiscardPileDrag = true
+                onDiscardPileDragActiveChange(true)
                 beginDraggingSession(with: [draggingItem], event: event, source: self)
                 return
             }
@@ -145,7 +145,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             mouseDownLocation = nil
             lastDragLocation = nil
             didPan = false
-            didStartCleanupDrag = false
+            didStartDiscardPileDrag = false
         }
 
         override func magnify(with event: NSEvent) {
@@ -236,11 +236,11 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
-            onCleanupDragActiveChange(false)
+            onDiscardPileDragActiveChange(false)
         }
 
-        private func cleanupListDraggingItem(
-            for item: SunburstCleanupDragItem,
+        private func discardPileDraggingItem(
+            for item: SunburstDiscardPileDragItem,
             at location: CGPoint
         ) -> NSDraggingItem? {
             guard let data = try? JSONEncoder().encode(item.payload) else { return nil }
@@ -248,11 +248,11 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             let pasteboardItem = NSPasteboardItem()
             pasteboardItem.setData(
                 data,
-                forType: NSPasteboard.PasteboardType(CleanupListDragPayload.contentType.identifier)
+                forType: NSPasteboard.PasteboardType(DiscardPileDragPayload.contentType.identifier)
             )
 
             let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-            let size = Self.cleanupDragImageSize
+            let size = Self.discardPileDragImageSize
             draggingItem.setDraggingFrame(
                 NSRect(
                     x: location.x - (size.width / 2),
@@ -260,17 +260,17 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                     width: size.width,
                     height: size.height
                 ),
-                contents: cleanupListDragImage(for: item.segment)
+                contents: discardPileDragImage(for: item.segment)
             )
             return draggingItem
         }
 
-        private func cleanupListDragImage(for segment: SunburstSegment) -> NSImage {
-            let image = NSImage(size: Self.cleanupDragImageSize)
+        private func discardPileDragImage(for segment: SunburstSegment) -> NSImage {
+            let image = NSImage(size: Self.discardPileDragImageSize)
             image.lockFocus()
             defer { image.unlockFocus() }
 
-            let bounds = NSRect(origin: .zero, size: Self.cleanupDragImageSize)
+            let bounds = NSRect(origin: .zero, size: Self.discardPileDragImageSize)
             let segmentPath = segmentGhostPath(
                 for: segment,
                 in: bounds.insetBy(dx: 4, dy: 4)
