@@ -98,21 +98,22 @@ struct ContentView: View {
         .sheet(isPresented: $showsDiscardPileReview) {
             DiscardPileReviewSheet(
                 nodes: appModel.discardPileNodes,
-                summary: appModel.discardPileSummary,
-                onRemove: { node in
-                    appModel.removeDiscardPileNode(id: node.id)
-                },
-                onClear: {
-                    appModel.clearDiscardPile()
-                },
-                onCancel: {
-                    showsDiscardPileReview = false
-                },
-                onMoveToTrash: {
-                    if appModel.requestMoveDiscardPileToTrash() {
+                actions: DiscardPileReviewActions(
+                    removeNode: { nodeID in
+                        appModel.removeDiscardPileNode(id: nodeID)
+                    },
+                    clear: {
+                        appModel.clearDiscardPile()
+                    },
+                    cancel: {
                         showsDiscardPileReview = false
+                    },
+                    moveToTrash: {
+                        if appModel.requestMoveDiscardPileToTrash() {
+                            showsDiscardPileReview = false
+                        }
                     }
-                }
+                )
             )
         }
         .sheet(item: $appModel.pendingImportPreview) { preview in
@@ -427,142 +428,6 @@ private struct ImportSnapshotStatCard: View {
                         : Color(nsColor: .controlBackgroundColor)
                 )
         }
-    }
-}
-
-private struct DiscardPileReviewSheet: View {
-    let nodes: [FileNodeRecord]
-    let summary: DiscardPileSummary
-    let onRemove: (FileNodeRecord) -> Void
-    let onClear: () -> Void
-    let onCancel: () -> Void
-    let onMoveToTrash: () -> Void
-
-    @State private var isConfirmingClear = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Discard Pile")
-                    .font(.title3.weight(.semibold))
-
-                Text(summaryText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-            }
-
-            if nodes.isEmpty {
-                emptyState
-            } else {
-                Table(nodes) {
-                    TableColumn("Name") { node in
-                        Label(node.name, systemImage: node.systemImageName)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .width(min: 160, ideal: 220)
-
-                    TableColumn("Path") { node in
-                        Text(node.url.path)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(node.url.path)
-                    }
-                    .width(min: 240, ideal: 360)
-
-                    TableColumn("Size") { node in
-                        Text(RadixFormatters.size(node.allocatedSize))
-                            .monospacedDigit()
-                    }
-                    .width(min: 90, ideal: 110)
-
-                    TableColumn("Kind") { node in
-                        Text(node.itemKind)
-                    }
-                    .width(min: 90, ideal: 110)
-
-                    TableColumn("") { node in
-                        Button {
-                            onRemove(node)
-                        } label: {
-                            Label("Remove", systemImage: "minus.circle")
-                        }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .help("Remove")
-                    }
-                    .width(36)
-                }
-            }
-
-            Divider()
-
-            HStack {
-                Button("Clear All", role: .destructive) {
-                    isConfirmingClear = true
-                }
-                .disabled(nodes.isEmpty)
-
-                Spacer()
-
-                Button("Done", role: .cancel) {
-                    onCancel()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button(moveButtonTitle, role: .destructive) {
-                    onMoveToTrash()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(nodes.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 720, height: sheetHeight)
-        .confirmationDialog(
-            "Clear Discard Pile?",
-            isPresented: $isConfirmingClear,
-            titleVisibility: .visible
-        ) {
-            Button("Clear All", role: .destructive) {
-                onClear()
-            }
-
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes all marked items from the Discard Pile. Files on disk are unchanged.")
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "checklist")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-
-            Text("No Items Marked")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var sheetHeight: CGFloat {
-        nodes.isEmpty ? 240 : 420
-    }
-
-    private var summaryText: String {
-        guard !summary.isEmpty else {
-            return "No items marked"
-        }
-
-        return "\(summary.itemCount.formatted()) \(summary.itemCount == 1 ? "item" : "items") • \(RadixFormatters.size(summary.totalAllocatedSize))"
-    }
-
-    private var moveButtonTitle: String {
-        "Move \(summary.itemCount.formatted()) \(summary.itemCount == 1 ? "Item" : "Items") to Trash"
     }
 }
 
