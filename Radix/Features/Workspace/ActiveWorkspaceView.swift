@@ -16,6 +16,7 @@ struct ActiveWorkspaceView: View {
 
     // Dismissal is scoped to a single target scan: transformed snapshots keep it hidden.
     @State private var dismissedWarningsScanScope: WarningDismissalScope?
+    @StateObject private var visualizationFilter = SunburstVisualizationFilterModel()
 
     private var shouldSuggestFullDiskAccess: Bool {
         PermissionAdvisor.shouldSuggestFullDiskAccess(
@@ -55,7 +56,12 @@ struct ActiveWorkspaceView: View {
     }
 
     private var chartContent: some View {
-        let visualizationInput = discardPileFilteredVisualizationInput(from: sunburstVisualizationInput)
+        let visualizationInput = visualizationFilter.input(
+            baseInput: sunburstVisualizationInput,
+            snapshotID: snapshot.id,
+            focusNodeID: focusNode.id,
+            hiddenNodeIDs: discardPileHiddenNodeIDs
+        )
 
         return SunburstChartView(
             rootNode: visualizationInput.rootNode,
@@ -127,35 +133,9 @@ struct ActiveWorkspaceView: View {
         )
     }
 
-    private func discardPileFilteredVisualizationInput(
-        from input: SunburstVisualizationInput
-    ) -> SunburstVisualizationInput {
-        guard !discardPileHiddenNodeIDs.isEmpty else { return input }
-
-        let filteredStore = input.treeStore.removingSubtrees(
-            rootedAt: Array(discardPileHiddenNodeIDs)
-        )
-        return SunburstVisualizationInput(
-            rootNode: filteredStore.node(id: input.rootNode.id) ?? filteredStore.root,
-            treeStore: filteredStore,
-            layoutIDComponent: [
-                input.layoutIDComponent,
-                discardPileHiddenLayoutComponent
-            ].joined(separator: "|")
-        )
-    }
-
     private func visualizationParentNode(for input: SunburstVisualizationInput) -> FileNodeRecord? {
         guard input.rootNode.id == focusNode.id else { return nil }
         return input.treeStore.parent(of: input.rootNode.id)
-    }
-
-    private var discardPileHiddenLayoutComponent: String {
-        let sortedIDs = discardPileHiddenNodeIDs.sorted()
-        guard !sortedIDs.isEmpty else { return "discard-pile:0" }
-        return sortedIDs.reduce("discard-pile:\(sortedIDs.count)") { component, id in
-            component + ":\(id.count):\(id)"
-        }
     }
 
     private var fileBrowserActions: FileBrowserActions {
