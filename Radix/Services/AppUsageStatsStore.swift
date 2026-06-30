@@ -98,7 +98,7 @@ struct AppUsageStats: Codable, Equatable, Sendable {
             result = result.addingClamped(max(0, node.allocatedSize))
         }
         let deletedFiles = nodes.reduce(into: 0) { result, node in
-            result = result.addingClamped(max(0, node.descendantFileCount))
+            result = result.addingClamped(deletedFileCount(for: node))
         }
         let deletedFolders = nodes.reduce(into: 0) { result, node in
             result = result.addingClamped(deletedFolderCount(for: node, in: fileTreeStore))
@@ -109,6 +109,11 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         foldersDeleted = foldersDeleted.addingClamped(deletedFolders)
         largestTrashMoveBytes = max(largestTrashMoveBytes, trashMoveBytes)
         lastUpdatedAt = Date()
+    }
+
+    private func deletedFileCount(for node: FileNodeRecord) -> Int {
+        guard node.isDirectory else { return 1 }
+        return max(0, node.descendantFileCount)
     }
 
     private func deletedFolderCount(for node: FileNodeRecord, in fileTreeStore: FileTreeStore?) -> Int {

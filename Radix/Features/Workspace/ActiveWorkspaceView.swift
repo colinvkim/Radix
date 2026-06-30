@@ -56,8 +56,15 @@ struct ActiveWorkspaceView: View {
     }
 
     private var chartContent: some View {
+        let baseVisualizationInput = sunburstVisualizationInput
         let visualizationInput = visualizationFilter.input(
-            baseInput: sunburstVisualizationInput,
+            baseInput: baseVisualizationInput,
+            snapshotID: snapshot.id,
+            focusNodeID: focusNode.id,
+            hiddenNodeIDs: discardPileHiddenNodeIDs
+        )
+        let filterUpdateToken = VisualizationFilterUpdateToken(
+            baseInput: baseVisualizationInput,
             snapshotID: snapshot.id,
             focusNodeID: focusNode.id,
             hiddenNodeIDs: discardPileHiddenNodeIDs
@@ -91,6 +98,14 @@ struct ActiveWorkspaceView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focusedWorkspaceTarget, equals: .chart)
+        .onChange(of: filterUpdateToken, initial: true) { _, _ in
+            visualizationFilter.update(
+                baseInput: baseVisualizationInput,
+                snapshotID: snapshot.id,
+                focusNodeID: focusNode.id,
+                hiddenNodeIDs: discardPileHiddenNodeIDs
+            )
+        }
     }
 
     private var contentsPane: some View {
@@ -156,4 +171,25 @@ struct ActiveWorkspaceView: View {
 private struct WarningDismissalScope: Equatable {
     let targetID: String
     let startedAt: Date
+}
+
+private struct VisualizationFilterUpdateToken: Equatable {
+    let snapshotID: UUID
+    let focusNodeID: FileNodeRecord.ID
+    let rootNodeID: FileNodeRecord.ID
+    let baseLayoutIDComponent: String
+    let hiddenNodeIDs: [FileNodeRecord.ID]
+
+    init(
+        baseInput: SunburstVisualizationInput,
+        snapshotID: UUID,
+        focusNodeID: FileNodeRecord.ID,
+        hiddenNodeIDs: Set<FileNodeRecord.ID>
+    ) {
+        self.snapshotID = snapshotID
+        self.focusNodeID = focusNodeID
+        rootNodeID = baseInput.rootNode.id
+        baseLayoutIDComponent = baseInput.layoutIDComponent
+        self.hiddenNodeIDs = hiddenNodeIDs.sorted()
+    }
 }

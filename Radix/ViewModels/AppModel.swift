@@ -1765,54 +1765,7 @@ final class AppModel: ObservableObject {
     private func topLevelTrashNodes(from nodes: [FileNodeRecord]) -> [FileNodeRecord] {
         guard let fileTreeStore = scanCoordinator.fileTreeStore else { return nodes }
         let nodesByID = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return topLevelNodeIDs(
-            from: nodes.map(\.id),
-            fileTreeStore: fileTreeStore
-        ).compactMap { nodesByID[$0] }
-    }
-
-    private func topLevelNodeIDs(
-        from nodeIDs: [FileNodeRecord.ID],
-        fileTreeStore: FileTreeStore
-    ) -> [FileNodeRecord.ID] {
-        let candidateIDs = Set(nodeIDs)
-        var emittedIDs = Set<FileNodeRecord.ID>()
-        var result: [FileNodeRecord.ID] = []
-        result.reserveCapacity(nodeIDs.count)
-
-        for nodeID in nodeIDs where candidateIDs.contains(nodeID) && !emittedIDs.contains(nodeID) {
-            guard !hasAncestor(in: candidateIDs, of: nodeID, fileTreeStore: fileTreeStore) else {
-                continue
-            }
-            emittedIDs.insert(nodeID)
-            result.append(nodeID)
-        }
-
-        return result
-    }
-
-    private func hasAncestor(
-        in ancestorIDs: Set<FileNodeRecord.ID>,
-        of nodeID: FileNodeRecord.ID,
-        fileTreeStore: FileTreeStore
-    ) -> Bool {
-        var parentID = fileTreeStore.parent(of: nodeID)?.id
-        while let currentParentID = parentID {
-            if ancestorIDs.contains(currentParentID) {
-                return true
-            }
-            parentID = fileTreeStore.parent(of: currentParentID)?.id
-        }
-        return false
-    }
-
-    private func isNodeOrDescendant(
-        _ nodeID: FileNodeRecord.ID,
-        of ancestorIDs: Set<FileNodeRecord.ID>,
-        fileTreeStore: FileTreeStore
-    ) -> Bool {
-        ancestorIDs.contains(nodeID) ||
-            hasAncestor(in: ancestorIDs, of: nodeID, fileTreeStore: fileTreeStore)
+        return fileTreeStore.topLevelNodeIDs(from: nodes.map(\.id)).compactMap { nodesByID[$0] }
     }
 
     private func addDiscardPileNodes(
@@ -1835,10 +1788,7 @@ final class AppModel: ObservableObject {
         _ nodeIDs: [FileNodeRecord.ID],
         fileTreeStore: FileTreeStore
     ) -> [FileNodeRecord.ID] {
-        topLevelNodeIDs(
-            from: nodeIDs.filter { fileTreeStore.node(id: $0) != nil },
-            fileTreeStore: fileTreeStore
-        )
+        fileTreeStore.topLevelNodeIDs(from: nodeIDs)
     }
 
     private func resolvedDiscardPileNodes() -> [FileNodeRecord] {
@@ -1895,7 +1845,7 @@ final class AppModel: ObservableObject {
         let remainingIDs = discardPile.nodeIDs.filter { queuedID in
             guard !movedIDs.contains(queuedID) else { return false }
             guard let fileTreeStore else { return true }
-            return !isNodeOrDescendant(queuedID, of: movedIDs, fileTreeStore: fileTreeStore)
+            return !fileTreeStore.isNodeOrDescendant(queuedID, of: movedIDs)
         }
         guard remainingIDs != discardPile.nodeIDs else { return }
         discardPile = DiscardPileState(

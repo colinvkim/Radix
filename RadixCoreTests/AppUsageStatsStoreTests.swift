@@ -43,6 +43,18 @@ final class AppUsageStatsStoreTests: XCTestCase {
         XCTAssertNotNil(stats.lastUpdatedAt)
     }
 
+    func testRecordsDirectFileTrashMoveAsDeletedFile() {
+        let file = makeTestFileNode(id: "/stats/file.bin", name: "file.bin", size: 128)
+
+        var stats = AppUsageStats.empty
+        stats.recordTrashMove(nodes: [file])
+
+        XCTAssertEqual(stats.filesDeleted, 1)
+        XCTAssertEqual(stats.foldersDeleted, 0)
+        XCTAssertEqual(stats.bytesMovedToTrash, 128)
+        XCTAssertEqual(stats.largestTrashMoveBytes, 128)
+    }
+
     func testUserDefaultsStoreRoundTripsAndClearsStats() {
         let defaults = makeIsolatedUsageStatsDefaults()
         let store = UserDefaultsAppUsageStatsStore(defaults: defaults)

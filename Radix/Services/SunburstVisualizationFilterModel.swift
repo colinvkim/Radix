@@ -23,28 +23,62 @@ final class SunburstVisualizationFilterModel: ObservableObject {
         focusNodeID: FileNodeRecord.ID,
         hiddenNodeIDs: Set<FileNodeRecord.ID>
     ) -> SunburstVisualizationInput {
-        guard !hiddenNodeIDs.isEmpty else {
-            clearFilter()
+        guard let key = filterKey(
+            baseInput: baseInput,
+            snapshotID: snapshotID,
+            focusNodeID: focusNodeID,
+            hiddenNodeIDs: hiddenNodeIDs
+        ) else {
             return baseInput
         }
 
-        let key = SunburstVisualizationFilterKey(
+        if cachedResult?.key == key {
+            return cachedResult?.input ?? baseInput
+        }
+
+        return baseInput
+    }
+
+    func update(
+        baseInput: SunburstVisualizationInput,
+        snapshotID: UUID,
+        focusNodeID: FileNodeRecord.ID,
+        hiddenNodeIDs: Set<FileNodeRecord.ID>
+    ) {
+        guard let key = filterKey(
+            baseInput: baseInput,
+            snapshotID: snapshotID,
+            focusNodeID: focusNodeID,
+            hiddenNodeIDs: hiddenNodeIDs
+        ) else {
+            clearFilter()
+            return
+        }
+
+        if cachedResult?.key == key {
+            return
+        }
+
+        if pendingKey != key {
+            startFiltering(baseInput: baseInput, key: key)
+        }
+    }
+
+    private func filterKey(
+        baseInput: SunburstVisualizationInput,
+        snapshotID: UUID,
+        focusNodeID: FileNodeRecord.ID,
+        hiddenNodeIDs: Set<FileNodeRecord.ID>
+    ) -> SunburstVisualizationFilterKey? {
+        guard !hiddenNodeIDs.isEmpty else { return nil }
+
+        return SunburstVisualizationFilterKey(
             snapshotID: snapshotID,
             focusNodeID: focusNodeID,
             rootNodeID: baseInput.rootNode.id,
             baseLayoutIDComponent: baseInput.layoutIDComponent,
             hiddenNodeIDs: hiddenNodeIDs.sorted()
         )
-
-        if cachedResult?.key == key {
-            return cachedResult?.input ?? baseInput
-        }
-
-        if pendingKey != key {
-            startFiltering(baseInput: baseInput, key: key)
-        }
-
-        return baseInput
     }
 
     private func startFiltering(

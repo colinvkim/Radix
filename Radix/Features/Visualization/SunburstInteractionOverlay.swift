@@ -285,31 +285,28 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         }
 
         private func discardPileDragImage(for segment: SunburstSegment) -> NSImage {
-            let image = NSImage(size: Self.discardPileDragImageSize)
-            image.lockFocus()
-            defer { image.unlockFocus() }
+            NSImage(size: Self.discardPileDragImageSize, flipped: false) { bounds in
+                let segmentPath = self.segmentGhostPath(
+                    for: segment,
+                    in: bounds.insetBy(dx: 4, dy: 4)
+                )
 
-            let bounds = NSRect(origin: .zero, size: Self.discardPileDragImageSize)
-            let segmentPath = segmentGhostPath(
-                for: segment,
-                in: bounds.insetBy(dx: 4, dy: 4)
-            )
+                NSGraphicsContext.saveGraphicsState()
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
+                shadow.shadowBlurRadius = 5
+                shadow.shadowOffset = NSSize(width: 0, height: -1)
+                shadow.set()
+                self.dragColor(for: segment).withAlphaComponent(0.9).setFill()
+                segmentPath.fill()
+                NSGraphicsContext.restoreGraphicsState()
 
-            NSGraphicsContext.saveGraphicsState()
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
-            shadow.shadowBlurRadius = 5
-            shadow.shadowOffset = NSSize(width: 0, height: -1)
-            shadow.set()
-            dragColor(for: segment).withAlphaComponent(0.9).setFill()
-            segmentPath.fill()
-            NSGraphicsContext.restoreGraphicsState()
+                NSColor.white.withAlphaComponent(0.62).setStroke()
+                segmentPath.lineWidth = 1.5
+                segmentPath.stroke()
 
-            NSColor.white.withAlphaComponent(0.62).setStroke()
-            segmentPath.lineWidth = 1.5
-            segmentPath.stroke()
-
-            return image
+                return true
+            }
         }
 
         private func segmentGhostPath(for segment: SunburstSegment, in rect: NSRect) -> NSBezierPath {
