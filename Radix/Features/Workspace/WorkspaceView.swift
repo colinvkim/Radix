@@ -1,5 +1,17 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+struct DiscardPileDragPayload: Codable, Hashable, Transferable {
+    static let contentType = UTType(exportedAs: "dev.colinkim.radix.discard-pile-drag-payload")
+
+    let snapshotID: UUID
+    let nodeIDs: [FileNodeRecord.ID]
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: contentType)
+    }
+}
 
 struct WorkspaceActions {
     let chooseFolder: () -> Void
@@ -22,6 +34,8 @@ struct WorkspaceActions {
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
     let openFullDiskAccessSettings: () -> Void
+    let setDiscardPileDragActive: (Bool) -> Void
+    let setDiscardPileDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct SelectedFileActions {
@@ -50,6 +64,7 @@ struct SelectedFileActions {
 struct BulkFileActions {
     let revealInFinder: ([FileNodeRecord]) -> Void
     let copyPaths: ([FileNodeRecord]) -> Void
+    let addToDiscardPile: ([FileNodeRecord]) -> Void
     let moveToTrash: ([FileNodeRecord]) -> Void
 }
 
@@ -61,6 +76,7 @@ struct WorkspaceView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
+    let discardPileHiddenNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -78,6 +94,7 @@ struct WorkspaceView: View {
                     focusedWorkspaceTarget: $focusedWorkspaceTarget,
                     maxRenderedDepth: maxRenderedDepth,
                     showFreeSpaceInSunburst: showFreeSpaceInSunburst,
+                    discardPileHiddenNodeIDs: discardPileHiddenNodeIDs,
                     fullDiskAccessStatus: fullDiskAccessStatus,
                     freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
                     actions: actions

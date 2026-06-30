@@ -8,6 +8,10 @@ struct SunburstChartView: View {
     let rootNode: FileNodeRecord
     let parentNode: FileNodeRecord?
     let treeStore: FileTreeStore
+    let snapshotID: UUID
+    let activeTarget: ScanTarget?
+    let trashSafetyPolicy: TrashSafetyPolicy
+    let snapshotSource: ScanSnapshotSource
     let selectedNodeID: String?
     let selectedAncestorIDs: Set<String>
     let depthLimit: Int
@@ -16,6 +20,7 @@ struct SunburstChartView: View {
     let onZoom: (String) -> Void
     let onSegmentClick: () -> Void
     let onNavigateToParent: () -> Void
+    let onDiscardPileDragActiveChange: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var chartModel: SunburstChartModel
@@ -27,6 +32,10 @@ struct SunburstChartView: View {
         rootNode: FileNodeRecord,
         parentNode: FileNodeRecord?,
         treeStore: FileTreeStore,
+        snapshotID: UUID,
+        activeTarget: ScanTarget?,
+        trashSafetyPolicy: TrashSafetyPolicy,
+        snapshotSource: ScanSnapshotSource,
         selectedNodeID: String?,
         selectedAncestorIDs: Set<String>,
         depthLimit: Int,
@@ -35,11 +44,16 @@ struct SunburstChartView: View {
         onZoom: @escaping (String) -> Void,
         onSegmentClick: @escaping () -> Void,
         onNavigateToParent: @escaping () -> Void,
+        onDiscardPileDragActiveChange: @escaping (Bool) -> Void,
         chartModel: @autoclosure @escaping () -> SunburstChartModel = SunburstChartModel()
     ) {
         self.rootNode = rootNode
         self.parentNode = parentNode
         self.treeStore = treeStore
+        self.snapshotID = snapshotID
+        self.activeTarget = activeTarget
+        self.trashSafetyPolicy = trashSafetyPolicy
+        self.snapshotSource = snapshotSource
         self.selectedNodeID = selectedNodeID
         self.selectedAncestorIDs = selectedAncestorIDs
         self.depthLimit = depthLimit
@@ -48,6 +62,7 @@ struct SunburstChartView: View {
         self.onZoom = onZoom
         self.onSegmentClick = onSegmentClick
         self.onNavigateToParent = onNavigateToParent
+        self.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         _chartModel = StateObject(wrappedValue: chartModel())
     }
 
@@ -165,6 +180,13 @@ struct SunburstChartView: View {
                     onMagnify: { location, factor in
                         zoomViewport(by: factor, anchor: location, in: baseChartFrame, animated: false)
                     },
+                    canStartPan: { location in
+                        canStartPan(at: location, in: baseChartFrame)
+                    },
+                    discardPileDragItem: { location in
+                        discardPileDragItem(at: location, in: baseChartFrame)
+                    },
+                    onDiscardPileDragActiveChange: onDiscardPileDragActiveChange,
                     help: { location in
                         guard !chartModel.isLayoutPending else { return nil }
                         return help(at: location, in: baseChartFrame)
@@ -357,6 +379,37 @@ struct SunburstChartView: View {
         }
 
         return chartModel.segment(at: chartPoint.point, in: chartPoint.size)
+    }
+
+    private func canStartPan(at location: CGPoint, in frame: CGRect) -> Bool {
+        !isCenterHit(at: location, in: frame) && hitTest(at: location, in: frame) == nil
+    }
+
+    private func discardPileDragItem(at location: CGPoint, in frame: CGRect) -> SunburstDiscardPileDragItem? {
+        guard let segment = hitTest(at: location, in: frame),
+              let nodeID = segment.nodeID,
+              !SunburstFreeSpaceVisualization.isFreeSpaceNodeID(nodeID),
+              let node = treeStore.node(id: nodeID),
+              canDragToDiscardPile(node) else {
+            return nil
+        }
+
+        return SunburstDiscardPileDragItem(
+            payload: DiscardPileDragPayload(
+                snapshotID: snapshotID,
+                nodeIDs: [nodeID]
+            ),
+            segment: segment
+        )
+    }
+
+    private func canDragToDiscardPile(_ node: FileNodeRecord) -> Bool {
+        FileNodeActionAvailability(
+            node: node,
+            activeTarget: activeTarget,
+            trashSafetyPolicy: trashSafetyPolicy,
+            snapshotSource: snapshotSource
+        ).canMoveToTrash
     }
 
     private func isCenterHit(at location: CGPoint, in frame: CGRect) -> Bool {

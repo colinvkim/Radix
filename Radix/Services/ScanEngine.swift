@@ -5,6 +5,7 @@
 //  Created by Codex on 4/2/26.
 //
 
+import Darwin
 import Dispatch
 import Foundation
 
@@ -189,12 +190,18 @@ actor ScanEngine {
         @Sendable () throws -> Void
     ) throws -> [URL]
 
+    typealias VolumeFileSystemTypeProvider = @Sendable (URL) -> String?
+
     private let directoryContents: DirectoryContentsProvider
     private let metadataLoader: ScanMetadataLoader
     private let atomicDirectorySummarizer: AtomicDirectorySummarizer
+    private let volumeFileSystemTypeProvider: VolumeFileSystemTypeProvider
     private let diagnostics: ScanDiagnosticsContext?
 
-    init(enumeratedDirectoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents) {
+    init(
+        enumeratedDirectoryContents: @escaping DirectoryContentsProvider = ScanEngine.defaultDirectoryContents,
+        volumeFileSystemTypeProvider: @escaping VolumeFileSystemTypeProvider = ScanEngine.defaultVolumeFileSystemType
+    ) {
         #if DEBUG
         let diagnostics = ScanDiagnostics.makeIfEnabled()
         #else
@@ -207,14 +214,18 @@ actor ScanEngine {
             metadataLoader: metadataLoader,
             diagnostics: diagnostics
         )
+        self.volumeFileSystemTypeProvider = volumeFileSystemTypeProvider
         self.diagnostics = diagnostics
     }
 
-    init(directoryContents: @escaping URLDirectoryContentsProvider) {
+    init(
+        directoryContents: @escaping URLDirectoryContentsProvider,
+        volumeFileSystemTypeProvider: @escaping VolumeFileSystemTypeProvider = ScanEngine.defaultVolumeFileSystemType
+    ) {
         self.init(enumeratedDirectoryContents: { url, keys, options, cancellationCheck in
             let urls = try directoryContents(url, keys, options, cancellationCheck)
             return DirectoryEnumerationResult(urls: urls)
-        })
+        }, volumeFileSystemTypeProvider: volumeFileSystemTypeProvider)
     }
 
     private nonisolated static func defaultDirectoryContents(
@@ -255,6 +266,21 @@ actor ScanEngine {
             enumerationError: { rootEnumerationError },
             localizedEnumerationFailures: { localizedFailures }
         )
+    }
+
+    private nonisolated static func defaultVolumeFileSystemType(for url: URL) -> String? {
+        var fileSystemStats = statfs()
+        let result = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return statfs(path, &fileSystemStats)
+        }
+        guard result == 0 else { return nil }
+
+        return withUnsafeBytes(of: fileSystemStats.f_fstypename) { rawBuffer -> String? in
+            let buffer = rawBuffer.bindMemory(to: CChar.self)
+            guard let baseAddress = buffer.baseAddress else { return nil }
+            return String(cString: baseAddress)
+        }
     }
 
     nonisolated static func enumeratedDirectoryContents(
@@ -1698,14 +1724,24 @@ actor ScanEngine {
         return !metadata.isPackage || options.treatPackagesAsDirectories
     }
 
-    /// A trustworthy total is only known for volume scans (the volume's used capacity).
-    /// For directory scans the root's own allocated size says nothing about its contents,
-    /// so no byte-based estimate is produced and progress relies on traversal weights.
+    /// Capacity reconciliation is useful on non-APFS volumes where per-file allocated
+    /// sizes can miss reserved filesystem space. APFS container capacity is shared,
+    /// so its free-space delta can overstate the scanned volume.
     private nonisolated func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
-        guard target.kind == .volume, let volumeUsedCapacity = metadata.volumeUsedCapacity else {
+        guard target.kind == .volume,
+              let volumeUsedCapacity = metadata.volumeUsedCapacity,
+              shouldReconcileVolumeCapacity(for: target.url) else {
             return 0
         }
         return max(volumeUsedCapacity, metadata.allocatedSize)
+    }
+
+    private nonisolated func shouldReconcileVolumeCapacity(for url: URL) -> Bool {
+        guard let fileSystemType = volumeFileSystemTypeProvider(url) else {
+            return false
+        }
+        let normalizedType = fileSystemType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !normalizedType.isEmpty && normalizedType != "apfs"
     }
 
 }

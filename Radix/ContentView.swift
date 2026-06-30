@@ -9,18 +9,26 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    private static let discardPileDragActivationDistance: CGFloat = 10
+
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = true
+    @State private var showsDiscardPileReview = false
+    @State private var discardPileDragIsActive = false
+    @State private var discardPileDragMonitorTask: Task<Void, Never>?
     @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
             SidebarView(
                 model: appModel.sidebar,
+                scanState: appModel.scanState,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
+                discardPileSummary: appModel.discardPileSummary,
+                discardPileDragIsActive: discardPileDragIsActive,
                 actions: sidebarActions
             )
                 .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 320)
@@ -32,6 +40,7 @@ struct ContentView: View {
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 showFreeSpaceInSunburst: appModel.showFreeSpaceInSunburst,
+                discardPileHiddenNodeIDs: appModel.discardPileHiddenNodeIDs,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
                 freeSpaceAvailableCapacity: { snapshot, focusNode in
@@ -85,6 +94,27 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appModel.showsOnboarding) {
             OnboardingView()
+        }
+        .sheet(isPresented: $showsDiscardPileReview) {
+            DiscardPileReviewSheet(
+                nodes: appModel.discardPileNodes,
+                actions: DiscardPileReviewActions(
+                    removeNode: { nodeID in
+                        appModel.removeDiscardPileNode(id: nodeID)
+                    },
+                    clear: {
+                        appModel.clearDiscardPile()
+                    },
+                    cancel: {
+                        showsDiscardPileReview = false
+                    },
+                    moveToTrash: {
+                        if appModel.requestMoveDiscardPileToTrash() {
+                            showsDiscardPileReview = false
+                        }
+                    }
+                )
+            )
         }
         .sheet(item: $appModel.pendingImportPreview) { preview in
             ImportSnapshotPreviewSheet(
@@ -141,6 +171,7 @@ struct ContentView: View {
             Text(pendingTrashMessage)
         }
         .onDisappear {
+            discardPileDragDidEnd()
             appModel.setWorkspaceWindowNumber(nil)
             appModel.suspendMainWindowActivity()
         }
@@ -153,7 +184,10 @@ struct ContentView: View {
             case .active:
                 appModel.refreshFullDiskAccessStatus()
             case .background:
+                discardPileDragDidEnd()
                 appModel.suspendBackgroundActivity()
+            case .inactive:
+                discardPileDragDidEnd()
             default:
                 break
             }
@@ -402,8 +436,82 @@ private extension ContentView {
         SidebarActions(
             selectTargetAfterViewUpdate: { appModel.selectSidebarTargetAfterViewUpdate(id: $0) },
             revealInFinder: { appModel.revealTargetInFinder($0) },
-            removeRecentTarget: { appModel.removeRecentTarget($0) }
+            removeRecentTarget: { appModel.removeRecentTarget($0) },
+            reviewDiscardPile: { showsDiscardPileReview = true },
+            addDroppedNodesToDiscardPile: { nodeIDs, snapshotID in
+                defer { discardPileDragDidEnd() }
+                return appModel.addNodeIDsToDiscardPile(nodeIDs, snapshotID: snapshotID)
+            }
         )
+    }
+
+    private func discardPileDragDidEnd() {
+        discardPileDragMonitorTask?.cancel()
+        discardPileDragMonitorTask = nil
+        discardPileDragIsActive = false
+    }
+
+    private func setDiscardPileDragIsActive(_ isActive: Bool) {
+        guard isActive else {
+            discardPileDragDidEnd()
+            return
+        }
+
+        discardPileDragIsActive = true
+        discardPileDragMonitorTask?.cancel()
+        discardPileDragMonitorTask = Task { @MainActor in
+            await monitorDiscardPileDragUntilMouseUp()
+        }
+    }
+
+    private func setDiscardPileDragIsActiveAfterThreshold(_ isActive: Bool) {
+        guard isActive else {
+            discardPileDragDidEnd()
+            return
+        }
+
+        guard discardPileDragMonitorTask == nil else { return }
+
+        let initialMouseLocation = NSEvent.mouseLocation
+        discardPileDragMonitorTask = Task { @MainActor in
+            while !Task.isCancelled {
+                guard NSEvent.pressedMouseButtons & 1 != 0 else {
+                    discardPileDragDidEnd()
+                    return
+                }
+
+                if Self.mouseLocation(
+                    NSEvent.mouseLocation,
+                    isAtLeast: Self.discardPileDragActivationDistance,
+                    from: initialMouseLocation
+                ) {
+                    discardPileDragIsActive = true
+                    await monitorDiscardPileDragUntilMouseUp()
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    private func monitorDiscardPileDragUntilMouseUp() async {
+        try? await Task.sleep(for: .milliseconds(120))
+
+        while !Task.isCancelled {
+            guard NSEvent.pressedMouseButtons & 1 != 0 else {
+                discardPileDragDidEnd()
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+    }
+
+    private static func mouseLocation(_ location: NSPoint, isAtLeast distance: CGFloat, from origin: NSPoint) -> Bool {
+        let dx = location.x - origin.x
+        let dy = location.y - origin.y
+        return ((dx * dx) + (dy * dy)) >= (distance * distance)
     }
 }
 
@@ -459,6 +567,7 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInSunburst: Bool
+    let discardPileHiddenNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
@@ -472,6 +581,7 @@ private struct WorkspaceDetailView: View {
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             maxRenderedDepth: maxRenderedDepth,
             showFreeSpaceInSunburst: showFreeSpaceInSunburst,
+            discardPileHiddenNodeIDs: discardPileHiddenNodeIDs,
             startupDiskTarget: startupDiskTarget,
             fullDiskAccessStatus: fullDiskAccessStatus,
             freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
@@ -521,7 +631,9 @@ private extension ContentView {
             recordSunburstSegmentClick: { appModel.recordSunburstSegmentClick() },
             selectedFileActions: previewSelectedFileActions,
             bulkFileActions: bulkFileActions,
-            openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
+            openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() },
+            setDiscardPileDragActive: setDiscardPileDragIsActive,
+            setDiscardPileDragActiveAfterThreshold: setDiscardPileDragIsActiveAfterThreshold
         )
     }
 
@@ -532,6 +644,7 @@ private extension ContentView {
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             zoomIntoSelection: { appModel.zoomIntoSelection() },
             selectedFileActions: primarySelectedFileActions,
+            addPrimarySelectionToDiscardPile: { appModel.addPrimarySelectionToDiscardPileAfterViewUpdate() },
             openFullDiskAccessSettings: { appModel.prepareAndOpenFullDiskAccessSettings() }
         )
     }
@@ -560,6 +673,7 @@ private extension ContentView {
         BulkFileActions(
             revealInFinder: { appModel.revealNodesInFinder($0) },
             copyPaths: { appModel.copyPaths(for: $0) },
+            addToDiscardPile: { appModel.addNodesToDiscardPile($0) },
             moveToTrash: { appModel.requestMoveNodesToTrash($0) }
         )
     }

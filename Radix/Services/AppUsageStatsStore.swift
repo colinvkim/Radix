@@ -15,7 +15,7 @@ struct AppUsageStats: Codable, Equatable, Sendable {
     var filesDeleted = 0
     var foldersDeleted = 0
     var bytesMovedToTrash: Int64 = 0
-    var biggestSingleCleanupBytes: Int64 = 0
+    var largestTrashMoveBytes: Int64 = 0
     var lastUpdatedAt: Date?
 
     static let empty = AppUsageStats()
@@ -30,7 +30,7 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         case filesDeleted
         case foldersDeleted
         case bytesMovedToTrash
-        case biggestSingleCleanupBytes
+        case largestTrashMoveBytes
         case lastUpdatedAt
     }
 
@@ -51,7 +51,7 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         filesDeleted = try container.decodeIfPresent(Int.self, forKey: .filesDeleted) ?? 0
         foldersDeleted = try container.decodeIfPresent(Int.self, forKey: .foldersDeleted) ?? 0
         bytesMovedToTrash = try container.decodeIfPresent(Int64.self, forKey: .bytesMovedToTrash) ?? 0
-        biggestSingleCleanupBytes = try container.decodeIfPresent(Int64.self, forKey: .biggestSingleCleanupBytes) ?? 0
+        largestTrashMoveBytes = try container.decodeIfPresent(Int64.self, forKey: .largestTrashMoveBytes) ?? 0
         lastUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .lastUpdatedAt)
     }
 
@@ -91,24 +91,29 @@ struct AppUsageStats: Codable, Equatable, Sendable {
         lastUpdatedAt = Date()
     }
 
-    mutating func recordTrashCleanup(nodes: [FileNodeRecord], fileTreeStore: FileTreeStore? = nil) {
+    mutating func recordTrashMove(nodes: [FileNodeRecord], fileTreeStore: FileTreeStore? = nil) {
         guard !nodes.isEmpty else { return }
 
-        let cleanupBytes = nodes.reduce(into: Int64(0)) { result, node in
+        let trashMoveBytes = nodes.reduce(into: Int64(0)) { result, node in
             result = result.addingClamped(max(0, node.allocatedSize))
         }
         let deletedFiles = nodes.reduce(into: 0) { result, node in
-            result = result.addingClamped(max(0, node.descendantFileCount))
+            result = result.addingClamped(deletedFileCount(for: node))
         }
         let deletedFolders = nodes.reduce(into: 0) { result, node in
             result = result.addingClamped(deletedFolderCount(for: node, in: fileTreeStore))
         }
 
-        bytesMovedToTrash = bytesMovedToTrash.addingClamped(cleanupBytes)
+        bytesMovedToTrash = bytesMovedToTrash.addingClamped(trashMoveBytes)
         filesDeleted = filesDeleted.addingClamped(deletedFiles)
         foldersDeleted = foldersDeleted.addingClamped(deletedFolders)
-        biggestSingleCleanupBytes = max(biggestSingleCleanupBytes, cleanupBytes)
+        largestTrashMoveBytes = max(largestTrashMoveBytes, trashMoveBytes)
         lastUpdatedAt = Date()
+    }
+
+    private func deletedFileCount(for node: FileNodeRecord) -> Int {
+        guard node.isDirectory else { return 1 }
+        return max(0, node.descendantFileCount)
     }
 
     private func deletedFolderCount(for node: FileNodeRecord, in fileTreeStore: FileTreeStore?) -> Int {

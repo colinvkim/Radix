@@ -9,12 +9,14 @@ struct FileBrowserActions {
     let zoomIntoSelection: () -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
+    let setDiscardPileDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct FileBrowserTableView: View {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
+    let hiddenNodeIDs: Set<FileNodeRecord.ID>
     let actions: FileBrowserActions
 
     @StateObject private var model: FileBrowserModel
@@ -24,12 +26,14 @@ struct FileBrowserTableView: View {
         scanState: ScanCoordinator,
         navigation: WorkspaceNavigationModel,
         focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
+        hiddenNodeIDs: Set<FileNodeRecord.ID>,
         actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
     ) {
         self.scanState = scanState
         self.navigation = navigation
         self._focusedWorkspaceTarget = focusedWorkspaceTarget
+        self.hiddenNodeIDs = hiddenNodeIDs
         self.actions = actions
         _model = StateObject(wrappedValue: model())
     }
@@ -139,6 +143,9 @@ struct FileBrowserTableView: View {
         .onChange(of: scanState.snapshot?.id) { _, _ in
             updateModelContent()
         }
+        .onChange(of: hiddenNodeIDs) { _, _ in
+            updateModelContent()
+        }
         .onChange(of: focusedWorkspaceTarget) { _, target in
             if target != nil {
                 isSearchFieldFocused = false
@@ -174,7 +181,9 @@ struct FileBrowserTableView: View {
     }
 
     private var contentsTable: some View {
-        Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
+        let dragContext = discardPileTableDragContext
+
+        return Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                 FileBrowserNameCell(
                     node: node,
@@ -210,6 +219,15 @@ struct FileBrowserTableView: View {
                 Text(model.displayValues(for: node).modifiedDate)
             }
             .width(min: 150, ideal: 180)
+        } rows: {
+            ForEach(model.displayedNodes) { node in
+                if dragContext.canDrag(startingFrom: node) {
+                    TableRow(node)
+                        .draggable(discardPileDragPayload(for: node, in: dragContext))
+                } else {
+                    TableRow(node)
+                }
+            }
         }
         .accessibilityLabel("Contents table")
         .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
@@ -236,7 +254,8 @@ struct FileBrowserTableView: View {
             nodes: nodes,
             contentID: contentID,
             snapshot: scanState.snapshot,
-            fileTreeStore: scanState.fileTreeStore
+            fileTreeStore: scanState.fileTreeStore,
+            hiddenNodeIDs: hiddenNodeIDs
         )
     }
 
@@ -339,6 +358,12 @@ struct FileBrowserTableView: View {
 
             Divider()
 
+            Button("Add to Discard Pile", systemImage: "checklist") {
+                actions.selectNode(id)
+                actions.bulkFileActions.addToDiscardPile([node])
+            }
+            .disabled(!selection.actionAvailability.canMoveToTrash)
+
             fileActionButton(.moveToTrash, availability: selection.actionAvailability, selectedID: selection.id)
 
             fileActionButton(.copyPath, availability: selection.actionAvailability, selectedID: selection.id)
@@ -360,6 +385,12 @@ struct FileBrowserTableView: View {
         .disabled(!selection.actionAvailability.canCopyPath)
 
         Divider()
+
+        Button("Add \(selection.nodes.count) Items to Discard Pile", systemImage: "checklist") {
+            actions.selectNodes(selection.ids, selection.primaryID)
+            actions.bulkFileActions.addToDiscardPile(selection.nodes)
+        }
+        .disabled(!selection.actionAvailability.canMoveToTrash)
 
         Button("Move \(selection.nodes.count) Items to Trash", systemImage: FileNodeAction.moveToTrash.systemImageName, role: .destructive) {
             actions.selectNodes(selection.ids, selection.primaryID)
@@ -413,6 +444,65 @@ struct FileBrowserTableView: View {
         model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
+    private var discardPileTableDragContext: FileBrowserTableDragContext {
+        guard let snapshotID = scanState.snapshot?.id else {
+            return .disabled
+        }
+
+        let displayedNodes = model.displayedNodes
+        let displayedIDs = Set(displayedNodes.map(\.id))
+        let selectedIDs = navigation.selectedNodeIDs.intersection(displayedIDs)
+        let selectedNodes = displayedNodes.filter { selectedIDs.contains($0.id) }
+        let selectedNodesCanMoveToTrash = !selectedNodes.isEmpty && canAddToDiscardPile(selectedNodes)
+
+        var individuallyDraggableNodeIDs = Set<FileNodeRecord.ID>()
+        individuallyDraggableNodeIDs.reserveCapacity(displayedNodes.count)
+        for node in displayedNodes where canAddToDiscardPile([node]) {
+            individuallyDraggableNodeIDs.insert(node.id)
+        }
+
+        return FileBrowserTableDragContext(
+            snapshotID: snapshotID,
+            selectedIDs: selectedIDs,
+            selectedNodes: selectedNodes,
+            selectedNodesCanMoveToTrash: selectedNodesCanMoveToTrash,
+            individuallyDraggableNodeIDs: individuallyDraggableNodeIDs
+        )
+    }
+
+    private func canAddToDiscardPile(_ nodes: [FileNodeRecord]) -> Bool {
+        FileNodeActionAvailability(
+            nodes: nodes,
+            activeTarget: scanState.selectedTarget,
+            trashSafetyPolicy: scanState.trashSafetyPolicy,
+            snapshotSource: scanState.snapshotSource
+        ).canMoveToTrash
+    }
+
+    private func discardPileDragPayload(
+        for node: FileNodeRecord,
+        in dragContext: FileBrowserTableDragContext
+    ) -> DiscardPileDragPayload {
+        guard let snapshotID = dragContext.snapshotID else {
+            preconditionFailure("Discard pile drag requires an active scan snapshot.")
+        }
+
+        let dragNodes = dragContext.nodes(startingFrom: node)
+        guard dragContext.canDrag(startingFrom: node) else {
+            return DiscardPileDragPayload(
+                snapshotID: snapshotID,
+                nodeIDs: []
+            )
+        }
+
+        actions.setDiscardPileDragActiveAfterThreshold(true)
+
+        return DiscardPileDragPayload(
+            snapshotID: snapshotID,
+            nodeIDs: dragNodes.map(\.id)
+        )
+    }
+
     private func primarySelectionID(in selectedIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
         if let currentID = navigation.selectedNodeID,
            selectedIDs.contains(currentID) {
@@ -446,6 +536,37 @@ struct FileBrowserTableView: View {
             actions.selectedFileActions.perform(action)
         }
         .disabled(!action.isEnabled(in: availability))
+    }
+}
+
+private struct FileBrowserTableDragContext {
+    static let disabled = FileBrowserTableDragContext(
+        snapshotID: nil,
+        selectedIDs: [],
+        selectedNodes: [],
+        selectedNodesCanMoveToTrash: false,
+        individuallyDraggableNodeIDs: []
+    )
+
+    let snapshotID: UUID?
+    let selectedIDs: Set<FileNodeRecord.ID>
+    let selectedNodes: [FileNodeRecord]
+    let selectedNodesCanMoveToTrash: Bool
+    let individuallyDraggableNodeIDs: Set<FileNodeRecord.ID>
+
+    func canDrag(startingFrom node: FileNodeRecord) -> Bool {
+        guard snapshotID != nil else { return false }
+        if selectedIDs.contains(node.id) {
+            return selectedNodesCanMoveToTrash
+        }
+        return individuallyDraggableNodeIDs.contains(node.id)
+    }
+
+    func nodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
+        if selectedIDs.contains(node.id) {
+            return selectedNodes
+        }
+        return [node]
     }
 }
 

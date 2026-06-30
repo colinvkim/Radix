@@ -641,7 +641,47 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testConfirmPendingTrashRecordsCleanupUsageStats() {
+    func testAsyncDiscardPileTrashDoesNotRemoveNewSnapshotListEntry() async throws {
+        let probe = AsyncTrashActionProbe()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.asyncVerifyTrashIdentity = { _ in .matches }
+        actions.asyncMoveToTrash = { url in
+            await probe.move(url)
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        let oldFile = makeTestFileNode(id: "/selection/file.txt", name: "file.txt", size: 40)
+        let oldRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [oldFile])
+        let oldStore = FileTreeStore(root: oldRoot, childrenByID: [oldRoot.id: [oldFile]])
+        let oldSnapshot = makeTestSnapshot(root: oldRoot, store: oldStore)
+        model.scanState.replaceCurrentSnapshot(oldSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
+        model.addNodesToDiscardPile([oldFile])
+        XCTAssertTrue(model.requestMoveDiscardPileToTrash())
+        model.confirmMovePendingSelectionToTrash()
+        try await probe.waitUntilStarted()
+
+        let newFile = makeTestFileNode(id: oldFile.id, name: oldFile.name, size: 80)
+        let newRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [newFile])
+        let newStore = FileTreeStore(root: newRoot, childrenByID: [newRoot.id: [newFile]])
+        let newSnapshot = makeTestSnapshot(root: newRoot, store: newStore)
+        model.scanState.replaceCurrentSnapshot(newSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(newSnapshot)
+        model.addNodesToDiscardPile([newFile])
+
+        await probe.finish()
+
+        try await waitUntil("old async trash completion recorded", timeout: 2) {
+            model.usageStats.bytesMovedToTrash == oldFile.allocatedSize
+        }
+        XCTAssertEqual(model.discardPile.snapshotID, newSnapshot.id)
+        XCTAssertEqual(model.discardPile.nodeIDs, [newFile.id])
+        XCTAssertEqual(model.discardPileSummary.totalAllocatedSize, newFile.allocatedSize)
+    }
+
+    @MainActor
+    func testConfirmPendingTrashRecordsTrashUsageStats() {
         let recorder = AppModelActionRecorder()
         let usageStats = SpyAppUsageStatsStore()
         let first = makeTestFileNode(id: "/selection/folder/first.bin", name: "first.bin", size: 40)
@@ -674,7 +714,7 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.usageStats.filesDeleted, 2)
         XCTAssertEqual(model.usageStats.foldersDeleted, 1)
         XCTAssertEqual(model.usageStats.bytesMovedToTrash, 100)
-        XCTAssertEqual(model.usageStats.biggestSingleCleanupBytes, 100)
+        XCTAssertEqual(model.usageStats.largestTrashMoveBytes, 100)
         XCTAssertEqual(usageStats.savedStats.last?.filesDeleted, 2)
         XCTAssertEqual(usageStats.savedStats.last?.foldersDeleted, 1)
     }
@@ -834,6 +874,422 @@ final class AppModelDependencyTests: XCTestCase {
 
         XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
         XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
+    }
+
+    @MainActor
+    func testDiscardPileAddsValidNode() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didAdd = model.addNodesToDiscardPile([file])
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
+        XCTAssertEqual(model.discardPileNodes.map(\.id), [file.id])
+        XCTAssertEqual(model.discardPileSummary.itemCount, 1)
+        XCTAssertEqual(model.discardPileSummary.totalAllocatedSize, file.allocatedSize)
+    }
+
+    @MainActor
+    func testPrimaryDiscardPileAddAfterViewUpdateDefersMutation() async throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        model.addPrimarySelectionToDiscardPileAfterViewUpdate()
+
+        XCTAssertTrue(model.discardPile.isEmpty)
+        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+
+        try await waitUntil("deferred discard pile add") {
+            model.discardPile.nodeIDs == [file.id] &&
+                model.navigation.selectedNodeID == nil
+        }
+    }
+
+    @MainActor
+    func testDiscardPileAddDefersLivePathValidationUntilTrashRequest() {
+        var fileExistsCallCount = 0
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in
+            fileExistsCallCount += 1
+            return false
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didAdd = model.addNodesToDiscardPile([file])
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
+        XCTAssertEqual(fileExistsCallCount, 0)
+
+        let didRequestTrash = model.requestMoveDiscardPileToTrash()
+
+        XCTAssertFalse(didRequestTrash)
+        XCTAssertEqual(fileExistsCallCount, 1)
+        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
+    }
+
+    @MainActor
+    func testDiscardPileAddsResolvedNodeIDs() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        let didAdd = model.addNodeIDsToDiscardPile([first.id, second.id], snapshotID: snapshot.id)
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.discardPile.nodeIDs, [first.id, second.id])
+    }
+
+    @MainActor
+    func testDiscardPileAddsLargeSiblingBatch() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let files = (0..<1_000).map { index in
+            makeTestFileNode(
+                id: "/selection/file-\(index).bin",
+                name: "file-\(index).bin",
+                size: Int64(index + 1)
+            )
+        }
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: files)
+        let store = FileTreeStore(root: root, childrenByID: [root.id: files])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        let didAdd = model.addNodeIDsToDiscardPile(files.map(\.id), snapshotID: snapshot.id)
+
+        XCTAssertTrue(didAdd)
+        XCTAssertEqual(model.discardPile.nodeIDs.count, files.count)
+        XCTAssertEqual(Set(model.discardPile.nodeIDs), Set(files.map(\.id)))
+    }
+
+    @MainActor
+    func testDiscardPileRejectsUnresolvedDroppedNodeIDBatch() throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        let snapshotID = model.scanState.snapshot?.id
+
+        let didAdd = model.addNodeIDsToDiscardPile(
+            [file.id, "/selection/missing.txt"],
+            snapshotID: try XCTUnwrap(snapshotID)
+        )
+
+        XCTAssertFalse(didAdd)
+        XCTAssertTrue(model.discardPile.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
+    func testDiscardPileRejectsNodeIDsFromDifferentSnapshot() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        let didAdd = model.addNodeIDsToDiscardPile([file.id], snapshotID: UUID())
+
+        XCTAssertFalse(didAdd)
+        XCTAssertTrue(model.discardPile.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
+    func testDiscardPileRejectsUnsupportedNode() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let syntheticNode = FileNodeRecord(
+            id: "/selection/system-data",
+            url: URL(filePath: "/selection/system-data"),
+            name: "System Data",
+            isDirectory: false,
+            isSymbolicLink: false,
+            allocatedSize: 10,
+            logicalSize: 10,
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true,
+            isSelfAccessible: true,
+            isSynthetic: true,
+            isAutoSummarized: false
+        )
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [syntheticNode])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [syntheticNode]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        let didAdd = model.addNodesToDiscardPile([syntheticNode])
+
+        XCTAssertFalse(didAdd)
+        XCTAssertTrue(model.discardPile.isEmpty)
+        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+    }
+
+    @MainActor
+    func testDiscardPileParentDedupRemovesQueuedChildren() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.addNodesToDiscardPile([child])
+        model.addNodesToDiscardPile([folder])
+
+        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
+    }
+
+    @MainActor
+    func testDiscardPileChildAddNoOpsWhenAncestorQueued() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        model.addNodesToDiscardPile([folder])
+        model.addNodesToDiscardPile([child])
+
+        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
+    }
+
+    @MainActor
+    func testDiscardPileHiddenNodeIDsTrackCurrentSnapshot() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+
+        model.addNodesToDiscardPile([file])
+
+        XCTAssertEqual(model.discardPileHiddenNodeIDs, [file.id])
+
+        let nextFile = makeTestFileNode(id: "/next/file.txt", name: "file.txt")
+        let nextRoot = makeTestDirectoryNode(id: "/next", name: "next", children: [nextFile])
+        let nextStore = FileTreeStore(root: nextRoot, childrenByID: [nextRoot.id: [nextFile]])
+        model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: nextRoot, store: nextStore))
+
+        XCTAssertTrue(model.discardPileHiddenNodeIDs.isEmpty)
+    }
+
+    @MainActor
+    func testDiscardPileAddClearsSelectionHiddenByQueuedNode() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+
+        model.addNodesToDiscardPile([file])
+
+        XCTAssertNil(model.navigation.selectedNodeID)
+        XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
+    }
+
+    @MainActor
+    func testDiscardPileAddMovesHiddenFocusToVisibleAncestor() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(folder.id)
+        model.select(nodeID: child.id)
+
+        model.addNodesToDiscardPile([folder])
+
+        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+        XCTAssertNil(model.navigation.selectedNodeID)
+        XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
+    }
+
+    @MainActor
+    func testDiscardPilePublishesAfterHiddenFocusReconciles() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(folder.id)
+        model.select(nodeID: folder.id)
+
+        var observedFocusID: FileNodeRecord.ID?
+        let cancellable = model.$discardPile.dropFirst().sink { _ in
+            observedFocusID = model.navigation.focusedNodeID
+        }
+        defer { cancellable.cancel() }
+
+        model.addNodesToDiscardPile([folder])
+
+        XCTAssertEqual(observedFocusID, root.id)
+    }
+
+    @MainActor
+    func testDeferredDiscardPileAddMovesFocusedSelectionToVisibleAncestor() async throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let sibling = makeTestFileNode(id: "/selection/sibling.txt", name: "sibling.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder, sibling],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.navigation.setFocusedNodeID(folder.id)
+        model.select(nodeID: folder.id)
+
+        model.addPrimarySelectionToDiscardPileAfterViewUpdate()
+
+        try await waitUntil("deferred focused discard pile add") {
+            model.discardPile.nodeIDs == [folder.id] &&
+                model.navigation.focusedNodeID == root.id &&
+                model.navigation.selectedNodeID == nil
+        }
+    }
+
+    @MainActor
+    func testDiscardPileClearsWhenActiveSnapshotIsReplaced() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let firstFile = makeTestFileNode(id: "/first/file.txt", name: "file.txt")
+        let firstRoot = makeTestDirectoryNode(id: "/first", name: "first", children: [firstFile])
+        let firstStore = FileTreeStore(root: firstRoot, childrenByID: [firstRoot.id: [firstFile]])
+        let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
+        model.scanState.replaceCurrentSnapshot(firstSnapshot)
+        model.navigation.reconcileAfterSnapshotApplied(firstSnapshot)
+        model.addNodesToDiscardPile([firstFile])
+
+        let secondFile = makeTestFileNode(id: "/second/file.txt", name: "file.txt")
+        let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [secondFile])
+        let secondStore = FileTreeStore(root: secondRoot, childrenByID: [secondRoot.id: [secondFile]])
+        let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
+        model.scanState.replaceCurrentSnapshot(secondSnapshot)
+
+        XCTAssertTrue(model.discardPile.isEmpty)
+    }
+
+    @MainActor
+    func testDiscardPileReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder],
+            folder.id: [child]
+        ])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.addNodesToDiscardPile([child])
+        model.addNodesToDiscardPile([folder])
+
+        let didRequestTrash = model.requestMoveDiscardPileToTrash()
+
+        XCTAssertTrue(didRequestTrash)
+        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
+        XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
+        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
+
+        model.confirmMovePendingSelectionToTrash()
+
+        XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
+        XCTAssertTrue(model.discardPile.isEmpty)
+    }
+
+    @MainActor
+    func testDiscardPileReconcilesUnavailableQueuedIDsOut() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.addNodesToDiscardPile([first, second])
+        XCTAssertEqual(model.discardPile.nodeIDs, [first.id, second.id])
+
+        let updatedRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first])
+        let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [updatedRoot.id: [first]])
+        let updatedSnapshot = ScanSnapshot(
+            id: snapshot.id,
+            target: snapshot.target,
+            treeStore: updatedStore,
+            startedAt: snapshot.startedAt,
+            finishedAt: snapshot.finishedAt,
+            scanWarnings: snapshot.scanWarnings,
+            aggregateStats: updatedStore.aggregateStats,
+            isComplete: snapshot.isComplete,
+            scanOptions: snapshot.scanOptions,
+            source: snapshot.source
+        )
+        model.scanState.replaceCurrentSnapshot(updatedSnapshot)
+
+        XCTAssertEqual(model.discardPile.nodeIDs, [first.id])
     }
 
     @MainActor

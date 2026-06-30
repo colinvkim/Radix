@@ -1,11 +1,20 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+struct SunburstDiscardPileDragItem {
+    let payload: DiscardPileDragPayload
+    let segment: SunburstSegment
+}
 
 struct SunburstInteractionOverlay: NSViewRepresentable {
     let onHover: (CGPoint?) -> Void
     let onClick: (CGPoint, Int) -> Void
     let onPan: (CGSize) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
+    let canStartPan: (CGPoint) -> Bool
+    let discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem?
+    let onDiscardPileDragActiveChange: (Bool) -> Void
     let help: (CGPoint) -> String?
     let isPanEnabled: Bool
 
@@ -15,6 +24,9 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onClick = onClick
         view.onPan = onPan
         view.onMagnify = onMagnify
+        view.canStartPan = canStartPan
+        view.discardPileDragItem = discardPileDragItem
+        view.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         view.help = help
         view.isPanEnabled = isPanEnabled
         return view
@@ -25,25 +37,34 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         nsView.onClick = onClick
         nsView.onPan = onPan
         nsView.onMagnify = onMagnify
+        nsView.canStartPan = canStartPan
+        nsView.discardPileDragItem = discardPileDragItem
+        nsView.onDiscardPileDragActiveChange = onDiscardPileDragActiveChange
         nsView.help = help
         nsView.isPanEnabled = isPanEnabled
     }
 
-    final class InteractionView: NSView {
+    final class InteractionView: NSView, NSDraggingSource {
         var onHover: (CGPoint?) -> Void = { _ in }
         var onClick: (CGPoint, Int) -> Void = { _, _ in }
         var onPan: (CGSize) -> Void = { _ in }
         var onMagnify: (CGPoint, CGFloat) -> Void = { _, _ in }
+        var canStartPan: (CGPoint) -> Bool = { _ in false }
+        var discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem? = { _ in nil }
+        var onDiscardPileDragActiveChange: (Bool) -> Void = { _ in }
         var help: (CGPoint) -> String? = { _ in nil }
         var isPanEnabled = false
 
         private static let dragThreshold: CGFloat = 3
+        private static let discardPileDragImageSize = NSSize(width: 42, height: 42)
         private static let lineScrollScale: CGFloat = 10
         fileprivate static let maximumScrollPanDelta: CGFloat = 80
         private var trackingArea: NSTrackingArea?
         private var mouseDownLocation: CGPoint?
         private var lastDragLocation: CGPoint?
+        private var shouldPanFromMouseDownLocation = false
         private var didPan = false
+        private var didStartDiscardPileDrag = false
 
         override var isFlipped: Bool {
             true
@@ -83,7 +104,9 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             let location = eventLocation(event)
             mouseDownLocation = location
             lastDragLocation = location
+            shouldPanFromMouseDownLocation = isPanEnabled && canStartPan(location)
             didPan = false
+            didStartDiscardPileDrag = false
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -96,6 +119,30 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                     return
                 }
                 didPan = true
+            }
+
+            if shouldPanFromMouseDownLocation {
+                defer { self.lastDragLocation = location }
+                guard isPanEnabled else { return }
+
+                onPan(CGSize(
+                    width: location.x - lastDragLocation.x,
+                    height: location.y - lastDragLocation.y
+                ))
+                updatePointerFeedback(at: location)
+                return
+            }
+
+            if !didStartDiscardPileDrag,
+               let discardPileDragItem = discardPileDragItem(mouseDownLocation),
+               let draggingItem = discardPileDraggingItem(
+                   for: discardPileDragItem,
+                   at: mouseDownLocation
+               ) {
+                didStartDiscardPileDrag = true
+                onDiscardPileDragActiveChange(true)
+                beginDraggingSession(with: [draggingItem], event: event, source: self)
+                return
             }
 
             defer { self.lastDragLocation = location }
@@ -115,7 +162,9 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
             }
             mouseDownLocation = nil
             lastDragLocation = nil
+            shouldPanFromMouseDownLocation = false
             didPan = false
+            didStartDiscardPileDrag = false
         }
 
         override func magnify(with event: NSEvent) {
@@ -188,6 +237,137 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
                 width: delta.width.clampedScrollPanDelta,
                 height: delta.height.clampedScrollPanDelta
             )
+        }
+
+        func draggingSession(
+            _ session: NSDraggingSession,
+            sourceOperationMaskFor context: NSDraggingContext
+        ) -> NSDragOperation {
+            .copy
+        }
+
+        func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+            true
+        }
+
+        func draggingSession(
+            _ session: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            onDiscardPileDragActiveChange(false)
+        }
+
+        private func discardPileDraggingItem(
+            for item: SunburstDiscardPileDragItem,
+            at location: CGPoint
+        ) -> NSDraggingItem? {
+            guard let data = try? JSONEncoder().encode(item.payload) else { return nil }
+
+            let pasteboardItem = NSPasteboardItem()
+            pasteboardItem.setData(
+                data,
+                forType: NSPasteboard.PasteboardType(DiscardPileDragPayload.contentType.identifier)
+            )
+
+            let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+            let size = Self.discardPileDragImageSize
+            draggingItem.setDraggingFrame(
+                NSRect(
+                    x: location.x - (size.width / 2),
+                    y: location.y - (size.height / 2),
+                    width: size.width,
+                    height: size.height
+                ),
+                contents: discardPileDragImage(for: item.segment)
+            )
+            return draggingItem
+        }
+
+        private func discardPileDragImage(for segment: SunburstSegment) -> NSImage {
+            NSImage(size: Self.discardPileDragImageSize, flipped: false) { bounds in
+                let segmentPath = self.segmentGhostPath(
+                    for: segment,
+                    in: bounds.insetBy(dx: 4, dy: 4)
+                )
+
+                NSGraphicsContext.saveGraphicsState()
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
+                shadow.shadowBlurRadius = 5
+                shadow.shadowOffset = NSSize(width: 0, height: -1)
+                shadow.set()
+                self.dragColor(for: segment).withAlphaComponent(0.9).setFill()
+                segmentPath.fill()
+                NSGraphicsContext.restoreGraphicsState()
+
+                NSColor.white.withAlphaComponent(0.62).setStroke()
+                segmentPath.lineWidth = 1.5
+                segmentPath.stroke()
+
+                return true
+            }
+        }
+
+        private func segmentGhostPath(for segment: SunburstSegment, in rect: NSRect) -> NSBezierPath {
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let outerRadius = min(rect.width, rect.height) / 2
+            let innerRadius = max(outerRadius - 10, outerRadius * 0.42)
+            let span = positiveAngleSpan(from: segment.startAngle.radians, to: segment.endAngle.radians)
+            let displaySpan = min(max(span, .pi / 3), .pi * 1.35)
+            let midpoint = segment.startAngle.radians + (span / 2) - (.pi / 2)
+            let startAngle = midpoint - (displaySpan / 2)
+            let endAngle = midpoint + (displaySpan / 2)
+
+            let path = NSBezierPath()
+            path.move(to: point(on: center, radius: outerRadius, angle: startAngle))
+            path.appendArc(
+                withCenter: center,
+                radius: outerRadius,
+                startAngle: degrees(-startAngle),
+                endAngle: degrees(-endAngle),
+                clockwise: true
+            )
+            path.line(to: point(on: center, radius: innerRadius, angle: endAngle))
+            path.appendArc(
+                withCenter: center,
+                radius: innerRadius,
+                startAngle: degrees(-endAngle),
+                endAngle: degrees(-startAngle),
+                clockwise: false
+            )
+            path.close()
+            return path
+        }
+
+        private func dragColor(for segment: SunburstSegment) -> NSColor {
+            let components = SunburstColorResolver.components(for: segment.colorToken)
+            return NSColor(
+                calibratedHue: CGFloat(components.hue),
+                saturation: CGFloat(components.saturation),
+                brightness: CGFloat(components.brightness),
+                alpha: 1
+            )
+        }
+
+        private func positiveAngleSpan(from start: Double, to end: Double) -> Double {
+            let fullCircle = Double.pi * 2
+            let rawSpan = end - start
+            guard rawSpan > 0 else { return fullCircle }
+
+            let remainder = rawSpan.truncatingRemainder(dividingBy: fullCircle)
+            return remainder == 0 ? fullCircle : remainder
+        }
+
+        private func point(on center: CGPoint, radius: CGFloat, angle: Double) -> CGPoint {
+            CGPoint(
+                x: center.x + (cos(angle) * radius),
+                y: center.y - (sin(angle) * radius)
+            )
+        }
+
+        private func degrees(_ radians: Double) -> CGFloat {
+            CGFloat(radians * 180 / .pi)
         }
     }
 }

@@ -18,6 +18,59 @@ final class FileTreeStoreTests: XCTestCase {
         XCTAssertEqual(store.parent(of: leaf.id)?.id, folder.id)
     }
 
+    func testTopLevelNodeIDsDropsDescendantsOfQueuedParents() {
+        let leaf = makeFileNode(id: "/root/folder/file.txt", name: "file.txt", size: 12)
+        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [leaf])
+        let sibling = makeFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 4)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [folder, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder, sibling],
+            folder.id: [leaf],
+        ])
+
+        XCTAssertEqual(
+            store.topLevelNodeIDs(from: [leaf.id, folder.id, sibling.id, folder.id]),
+            [folder.id, sibling.id]
+        )
+        XCTAssertTrue(store.isNodeOrDescendant(leaf.id, of: [folder.id]))
+        XCTAssertFalse(store.isNodeOrDescendant(sibling.id, of: [folder.id]))
+    }
+
+    func testRemovingSubtreesRemovesQueuedParentsAndRepairsTotals() {
+        let leaf = makeFileNode(id: "/root/folder/file.txt", name: "file.txt", size: 12)
+        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [leaf])
+        let sibling = makeFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 4)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [folder, sibling])
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: [folder, sibling],
+            folder.id: [leaf],
+        ])
+
+        let updatedStore = store.removingSubtrees(rootedAt: [leaf.id, folder.id])
+
+        XCTAssertNil(updatedStore.node(id: folder.id))
+        XCTAssertNil(updatedStore.node(id: leaf.id))
+        XCTAssertEqual(updatedStore.children(of: root.id).map(\.id), [sibling.id])
+        XCTAssertEqual(updatedStore.root.allocatedSize, sibling.allocatedSize)
+        XCTAssertEqual(updatedStore.root.descendantFileCount, 1)
+        XCTAssertEqual(updatedStore.aggregateStats.fileCount, 1)
+        XCTAssertEqual(updatedStore.aggregateStats.directoryCount, 1)
+    }
+
+    func testRemovingSubtreesRootReturnsEmptyRootStore() {
+        let child = makeFileNode(id: "/root/child.txt", name: "child.txt", size: 12)
+        let root = makeDirectoryNode(id: "/root", name: "root", children: [child])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [child]])
+
+        let updatedStore = store.removingSubtrees(rootedAt: [root.id])
+
+        XCTAssertEqual(updatedStore.root.id, root.id)
+        XCTAssertEqual(updatedStore.root.allocatedSize, 0)
+        XCTAssertEqual(updatedStore.root.descendantFileCount, 0)
+        XCTAssertTrue(updatedStore.children(of: root.id).isEmpty)
+        XCTAssertEqual(updatedStore.aggregateStats.fileCount, 0)
+    }
+
     func testIndexedNodeIDsPreserveTraversalOrderAndCanExcludeRoot() {
         let first = makeFileNode(id: "/root/a.txt", name: "a.txt", size: 12)
         let nested = makeFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 12)

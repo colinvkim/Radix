@@ -34,6 +34,16 @@
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Radix Discard Pile Drag Payload</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.colinkim.radix.discard-pile-drag-payload</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
 				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>

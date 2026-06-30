@@ -2,7 +2,7 @@ import XCTest
 @testable import RadixCore
 
 final class AppUsageStatsStoreTests: XCTestCase {
-    func testRecordsScanInteractionAndCleanupStats() {
+    func testRecordsScanInteractionAndTrashStats() {
         let first = makeTestFileNode(id: "/stats/first.bin", name: "first.bin", size: 100)
         let second = makeTestFileNode(id: "/stats/second.bin", name: "second.bin", size: 200)
         let nested = makeTestDirectoryNode(id: "/stats/folder/nested", name: "nested", children: [first])
@@ -27,7 +27,7 @@ final class AppUsageStatsStoreTests: XCTestCase {
         stats.recordCompletedScan(snapshot)
         stats.recordSunburstSegmentClick()
         stats.recordSunburstSegmentClick()
-        stats.recordTrashCleanup(nodes: [folder], fileTreeStore: store)
+        stats.recordTrashMove(nodes: [folder], fileTreeStore: store)
 
         XCTAssertEqual(stats.totalScansRun, 1)
         XCTAssertEqual(stats.totalBytesScanned, 300)
@@ -39,8 +39,20 @@ final class AppUsageStatsStoreTests: XCTestCase {
         XCTAssertEqual(stats.filesDeleted, 2)
         XCTAssertEqual(stats.foldersDeleted, 2)
         XCTAssertEqual(stats.bytesMovedToTrash, 300)
-        XCTAssertEqual(stats.biggestSingleCleanupBytes, 300)
+        XCTAssertEqual(stats.largestTrashMoveBytes, 300)
         XCTAssertNotNil(stats.lastUpdatedAt)
+    }
+
+    func testRecordsDirectFileTrashMoveAsDeletedFile() {
+        let file = makeTestFileNode(id: "/stats/file.bin", name: "file.bin", size: 128)
+
+        var stats = AppUsageStats.empty
+        stats.recordTrashMove(nodes: [file])
+
+        XCTAssertEqual(stats.filesDeleted, 1)
+        XCTAssertEqual(stats.foldersDeleted, 0)
+        XCTAssertEqual(stats.bytesMovedToTrash, 128)
+        XCTAssertEqual(stats.largestTrashMoveBytes, 128)
     }
 
     func testUserDefaultsStoreRoundTripsAndClearsStats() {
@@ -60,7 +72,7 @@ final class AppUsageStatsStoreTests: XCTestCase {
         XCTAssertEqual(store.loadUsageStats(), .empty)
     }
 
-    func testUserDefaultsStoreDefaultsMissingCleanupCounts() {
+    func testUserDefaultsStoreDefaultsMissingTrashCounts() {
         let defaults = makeIsolatedUsageStatsDefaults()
         defaults.set(
             Data(#"{"totalScansRun":1,"filesDeleted":2,"bytesMovedToTrash":300}"#.utf8),

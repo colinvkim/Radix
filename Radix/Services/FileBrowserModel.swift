@@ -49,6 +49,7 @@ final class FileBrowserModel: ObservableObject {
     private var contentRevision = 0
     private var snapshotID: UUID?
     private var fileTreeStore: FileTreeStore?
+    private var hiddenNodeIDs: Set<FileNodeRecord.ID> = []
     private var needsRefreshAfterCleanup = false
 
     init(
@@ -111,6 +112,7 @@ final class FileBrowserModel: ObservableObject {
         contentID: String,
         snapshot: ScanSnapshot?,
         fileTreeStore: FileTreeStore?,
+        hiddenNodeIDs: Set<FileNodeRecord.ID> = [],
         forceRefresh: Bool = false
     ) {
         let nextSnapshotID = snapshot?.id
@@ -119,6 +121,7 @@ final class FileBrowserModel: ObservableObject {
             needsRefreshAfterCleanup ||
             self.contentID != contentID ||
             snapshotID != nextSnapshotID ||
+            self.hiddenNodeIDs != hiddenNodeIDs ||
             !self.nodes.haveSameIDs(as: nodes) else {
             return
         }
@@ -129,6 +132,7 @@ final class FileBrowserModel: ObservableObject {
         self.contentID = contentID
         snapshotID = nextSnapshotID
         self.fileTreeStore = fileTreeStore
+        self.hiddenNodeIDs = hiddenNodeIDs
         pruneSearchIndexesIfNeeded(previousSnapshotID: previousSnapshotID, nextSnapshotID: nextSnapshotID)
         refreshDisplayedNodes()
     }
@@ -201,7 +205,8 @@ final class FileBrowserModel: ObservableObject {
             snapshotID: snapshotID,
             searchScope: searchScope,
             searchText: activeTrimmedSearchText,
-            sortOrder: sortOrder
+            sortOrder: sortOrder,
+            hiddenNodeIDs: hiddenNodeIDs
         )
     }
 
@@ -229,12 +234,17 @@ final class FileBrowserModel: ObservableObject {
     private func rebuildCurrentContentsResults() {
         let searchText = isFilteringCurrentContents ? trimmedCurrentContentsSearchText : ""
         let displayContext = currentDisplayContext
+        let visibleNodes = Self.visibleNodes(
+            nodes,
+            hiddenNodeIDs: hiddenNodeIDs,
+            fileTreeStore: fileTreeStore
+        )
 
-        guard shouldRefreshCurrentContentsAsynchronously else {
+        guard shouldRefreshCurrentContentsAsynchronously(visibleNodes) else {
             setIsRefreshingCurrentContents(false)
             applyDisplayedNodes(
                 FileBrowserResults.filteredAndSortedCurrentContents(
-                    nodes,
+                    visibleNodes,
                     searchText: searchText,
                     sortOrder: sortOrder,
                     fileTreeStore: fileTreeStore
@@ -244,18 +254,22 @@ final class FileBrowserModel: ObservableObject {
             return
         }
 
-        scheduleCurrentContentsRefresh(searchText: searchText, displayContext: displayContext)
+        scheduleCurrentContentsRefresh(
+            nodes: visibleNodes,
+            searchText: searchText,
+            displayContext: displayContext
+        )
     }
 
-    private var shouldRefreshCurrentContentsAsynchronously: Bool {
+    private func shouldRefreshCurrentContentsAsynchronously(_ nodes: [FileNodeRecord]) -> Bool {
         !nodes.isEmpty && nodes.count >= currentContentsAsyncThreshold
     }
 
     private func scheduleCurrentContentsRefresh(
+        nodes: [FileNodeRecord],
         searchText: String,
         displayContext: FileBrowserDisplayContext
     ) {
-        let nodes = nodes
         let sortOrder = sortOrder
         let fileTreeStore = fileTreeStore
         let request = FileBrowserDisplayRequest(
@@ -318,6 +332,7 @@ final class FileBrowserModel: ObservableObject {
         let includesPath = SearchNormalizer.queryIncludesPath(searchText)
         let sortOrder = sortOrder
         let debounceDuration = searchDebounceDuration
+        let hiddenNodeIDs = hiddenNodeIDs
         let request = FileBrowserDisplayRequest(
             generation: searchGeneration,
             displayContext: currentDisplayContext
@@ -334,6 +349,11 @@ final class FileBrowserModel: ObservableObject {
                     includesPath: includesPath,
                     sortOrder: sortOrder
                 )
+                let visibleMatchedNodes = Self.visibleNodes(
+                    matchedNodes,
+                    hiddenNodeIDs: hiddenNodeIDs,
+                    fileTreeStore: fileTreeStore
+                )
                 try Task.checkCancellation()
 
                 await MainActor.run { [weak self] in
@@ -342,7 +362,7 @@ final class FileBrowserModel: ObservableObject {
                         return
                     }
 
-                    applyDisplayedNodes(matchedNodes, context: request.displayContext)
+                    applyDisplayedNodes(visibleMatchedNodes, context: request.displayContext)
                     setIsSearchingEntireScan(false)
                 }
             } catch is CancellationError {
@@ -382,6 +402,21 @@ final class FileBrowserModel: ObservableObject {
         guard isRefreshingCurrentContents != isRefreshing else { return }
         isRefreshingCurrentContents = isRefreshing
     }
+
+    private nonisolated static func visibleNodes(
+        _ nodes: [FileNodeRecord],
+        hiddenNodeIDs: Set<FileNodeRecord.ID>,
+        fileTreeStore: FileTreeStore?
+    ) -> [FileNodeRecord] {
+        guard !hiddenNodeIDs.isEmpty,
+              let fileTreeStore else {
+            return nodes
+        }
+
+        return nodes.filter { node in
+            !fileTreeStore.isNodeOrDescendant(node.id, of: hiddenNodeIDs)
+        }
+    }
 }
 
 private struct FileBrowserDisplayRequest: Sendable {
@@ -396,6 +431,7 @@ private struct FileBrowserDisplayContext: Equatable, Sendable {
     let searchScope: FileBrowserFindTarget
     let searchText: String
     let sortOrder: [FileNodeTableComparator]
+    let hiddenNodeIDs: Set<FileNodeRecord.ID>
 
     static let empty = FileBrowserDisplayContext(
         contentID: "",
@@ -403,7 +439,8 @@ private struct FileBrowserDisplayContext: Equatable, Sendable {
         snapshotID: nil,
         searchScope: .currentContents,
         searchText: "",
-        sortOrder: []
+        sortOrder: [],
+        hiddenNodeIDs: []
     )
 }
 

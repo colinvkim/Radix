@@ -163,6 +163,12 @@ struct RadixCommands: Commands {
 
             Divider()
 
+            Button(addSelectionToDiscardPileTitle, systemImage: "checklist") {
+                appModel.addSelectedNodesToDiscardPile()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(!selectedActionAvailability.canMoveToTrash)
+
             selectedFileActionCommand(.moveToTrash, shortcut: .delete, modifiers: [])
         }
     }
@@ -181,6 +187,12 @@ struct RadixCommands: Commands {
             return "Hide Inspector"
         }
         return "Show Inspector"
+    }
+
+    private var addSelectionToDiscardPileTitle: String {
+        let count = navigation.selectedNodeIDs.count
+        guard count > 1 else { return "Add to Discard Pile" }
+        return "Add \(count) Items to Discard Pile"
     }
 
     private var commandSelectedFileActions: SelectedFileActions {
