@@ -1295,7 +1295,7 @@ final class ScanEngineTests: XCTestCase {
         try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
 
-        let engine = ScanEngine()
+        let engine = ScanEngine(volumeFileSystemTypeProvider: { _ in "hfs" })
         let target = ScanTarget(url: rootURL, kind: .volume)
         var options = ScanOptions()
         options.includeCloudStorage = true
@@ -1317,6 +1317,25 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertFalse(syntheticNode.supportsFileActions)
         XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
         XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.totalAllocatedSize, rootChildren(in: snapshot).filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })
+    }
+
+    func testAPFSVolumeSnapshotKeepsScannedAllocatedTotal() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try Data(repeating: 0x5A, count: 1_024).write(to: rootURL.appending(path: "payload.bin"))
+
+        let engine = ScanEngine(volumeFileSystemTypeProvider: { _ in "apfs" })
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL, kind: .volume),
+            options: ScanOptions(),
+            engine: engine
+        )
+        let children = rootChildren(in: snapshot)
+
+        XCTAssertFalse(children.contains(where: \.isSynthetic))
+        XCTAssertEqual(snapshot.root.allocatedSize, children.reduce(0) { $0 + $1.allocatedSize })
+        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
     }
 
     func testDirectoryChildrenAreOrderedDeterministically() async throws {
