@@ -181,7 +181,9 @@ struct FileBrowserTableView: View {
     }
 
     private var contentsTable: some View {
-        Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
+        let dragContext = discardPileTableDragContext
+
+        return Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                 FileBrowserNameCell(
                     node: node,
@@ -219,9 +221,9 @@ struct FileBrowserTableView: View {
             .width(min: 150, ideal: 180)
         } rows: {
             ForEach(model.displayedNodes) { node in
-                if canDragToDiscardPile(startingFrom: node) {
+                if dragContext.canDrag(startingFrom: node) {
                     TableRow(node)
-                        .draggable(discardPileDragPayload(for: node))
+                        .draggable(discardPileDragPayload(for: node, in: dragContext))
                 } else {
                     TableRow(node)
                 }
@@ -442,17 +444,30 @@ struct FileBrowserTableView: View {
         model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
-    private func canDragToDiscardPile(startingFrom node: FileNodeRecord) -> Bool {
-        guard scanState.snapshot != nil else { return false }
-        return canAddToDiscardPile(discardPileDragNodes(startingFrom: node))
-    }
-
-    private func discardPileDragNodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
-        guard tableSelection.wrappedValue.contains(node.id) else {
-            return [node]
+    private var discardPileTableDragContext: FileBrowserTableDragContext {
+        guard let snapshotID = scanState.snapshot?.id else {
+            return .disabled
         }
 
-        return selectedNodes(for: tableSelection.wrappedValue)
+        let displayedNodes = model.displayedNodes
+        let displayedIDs = Set(displayedNodes.map(\.id))
+        let selectedIDs = navigation.selectedNodeIDs.intersection(displayedIDs)
+        let selectedNodes = displayedNodes.filter { selectedIDs.contains($0.id) }
+        let selectedNodesCanMoveToTrash = !selectedNodes.isEmpty && canAddToDiscardPile(selectedNodes)
+
+        var individuallyDraggableNodeIDs = Set<FileNodeRecord.ID>()
+        individuallyDraggableNodeIDs.reserveCapacity(displayedNodes.count)
+        for node in displayedNodes where canAddToDiscardPile([node]) {
+            individuallyDraggableNodeIDs.insert(node.id)
+        }
+
+        return FileBrowserTableDragContext(
+            snapshotID: snapshotID,
+            selectedIDs: selectedIDs,
+            selectedNodes: selectedNodes,
+            selectedNodesCanMoveToTrash: selectedNodesCanMoveToTrash,
+            individuallyDraggableNodeIDs: individuallyDraggableNodeIDs
+        )
     }
 
     private func canAddToDiscardPile(_ nodes: [FileNodeRecord]) -> Bool {
@@ -464,13 +479,16 @@ struct FileBrowserTableView: View {
         ).canMoveToTrash
     }
 
-    private func discardPileDragPayload(for node: FileNodeRecord) -> DiscardPileDragPayload {
-        guard let snapshotID = scanState.snapshot?.id else {
+    private func discardPileDragPayload(
+        for node: FileNodeRecord,
+        in dragContext: FileBrowserTableDragContext
+    ) -> DiscardPileDragPayload {
+        guard let snapshotID = dragContext.snapshotID else {
             preconditionFailure("Discard pile drag requires an active scan snapshot.")
         }
 
-        let dragNodes = discardPileDragNodes(startingFrom: node)
-        guard canAddToDiscardPile(dragNodes) else {
+        let dragNodes = dragContext.nodes(startingFrom: node)
+        guard dragContext.canDrag(startingFrom: node) else {
             return DiscardPileDragPayload(
                 snapshotID: snapshotID,
                 nodeIDs: []
@@ -518,6 +536,37 @@ struct FileBrowserTableView: View {
             actions.selectedFileActions.perform(action)
         }
         .disabled(!action.isEnabled(in: availability))
+    }
+}
+
+private struct FileBrowserTableDragContext {
+    static let disabled = FileBrowserTableDragContext(
+        snapshotID: nil,
+        selectedIDs: [],
+        selectedNodes: [],
+        selectedNodesCanMoveToTrash: false,
+        individuallyDraggableNodeIDs: []
+    )
+
+    let snapshotID: UUID?
+    let selectedIDs: Set<FileNodeRecord.ID>
+    let selectedNodes: [FileNodeRecord]
+    let selectedNodesCanMoveToTrash: Bool
+    let individuallyDraggableNodeIDs: Set<FileNodeRecord.ID>
+
+    func canDrag(startingFrom node: FileNodeRecord) -> Bool {
+        guard snapshotID != nil else { return false }
+        if selectedIDs.contains(node.id) {
+            return selectedNodesCanMoveToTrash
+        }
+        return individuallyDraggableNodeIDs.contains(node.id)
+    }
+
+    func nodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
+        if selectedIDs.contains(node.id) {
+            return selectedNodes
+        }
+        return [node]
     }
 }
 
