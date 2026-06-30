@@ -126,20 +126,20 @@ private struct DiscardPileSidebarButton: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.86)))
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(dropBackgroundColor)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(dropBorderColor, style: dropBorderStyle)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(dropBackgroundColor)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(dropBorderColor, style: dropBorderStyle)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .shadow(
             color: isDropTargeted ? Color.accentColor.opacity(0.22) : Color.clear,
             radius: isDropTargeted ? 8 : 0,
