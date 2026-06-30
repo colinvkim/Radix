@@ -438,6 +438,8 @@ private struct DiscardPileReviewSheet: View {
     let onCancel: () -> Void
     let onMoveToTrash: () -> Void
 
+    @State private var isConfirmingClear = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
@@ -499,7 +501,7 @@ private struct DiscardPileReviewSheet: View {
 
             HStack {
                 Button("Clear All", role: .destructive) {
-                    onClear()
+                    isConfirmingClear = true
                 }
                 .disabled(nodes.isEmpty)
 
@@ -519,6 +521,19 @@ private struct DiscardPileReviewSheet: View {
         }
         .padding(20)
         .frame(width: 720, height: sheetHeight)
+        .confirmationDialog(
+            "Clear Discard Pile?",
+            isPresented: $isConfirmingClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                onClear()
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes all marked items from the Discard Pile. Files on disk are unchanged.")
+        }
     }
 
     private var emptyState: some View {
