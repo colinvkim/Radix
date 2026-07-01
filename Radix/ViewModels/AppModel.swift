@@ -1032,12 +1032,26 @@ final class AppModel: ObservableObject {
     private func performNavigationAction(_ action: NavigationAction) {
         switch action {
         case .select(let nodeID):
+            guard let nodeID else {
+                navigationModel.select(nodeID: nil)
+                return
+            }
+            guard isVisibleNavigationNode(nodeID) else { return }
             navigationModel.select(nodeID: nodeID)
         case .selectMultiple(let nodeIDs, let primary):
-            navigationModel.select(nodeIDs: nodeIDs, primaryNodeID: primary)
+            let visibleNodeIDs = visibleNavigationNodeIDs(from: nodeIDs)
+            guard !visibleNodeIDs.isEmpty || nodeIDs.isEmpty else { return }
+            let visiblePrimary = primary.flatMap { visibleNodeIDs.contains($0) ? $0 : nil }
+            navigationModel.select(nodeIDs: visibleNodeIDs, primaryNodeID: visiblePrimary)
         case .focus(let nodeID):
+            guard let nodeID else {
+                navigationModel.focus(nodeID: nil)
+                return
+            }
+            guard isVisibleNavigationNode(nodeID) else { return }
             navigationModel.focus(nodeID: nodeID)
         case .selectAndFocus(let nodeID):
+            guard isVisibleNavigationNode(nodeID) else { return }
             navigationModel.selectAndFocus(nodeID: nodeID)
         case .navigateBack:
             navigationModel.navigateBack()
@@ -1050,6 +1064,21 @@ final class AppModel: ObservableObject {
         case .clearSelection:
             navigationModel.clearSelection()
         }
+    }
+
+    private func visibleNavigationNodeIDs(from nodeIDs: Set<FileNodeRecord.ID>) -> Set<FileNodeRecord.ID> {
+        guard let snapshotID = scanCoordinator.snapshot?.id,
+              let fileTreeStore = scanCoordinator.fileTreeStore else {
+            return nodeIDs
+        }
+
+        let hiddenIDs = hiddenNodeIDs(for: snapshotID)
+        guard !hiddenIDs.isEmpty else { return nodeIDs }
+        return nodeIDs.filter { !fileTreeStore.isNodeOrDescendant($0, of: hiddenIDs) }
+    }
+
+    private func isVisibleNavigationNode(_ nodeID: FileNodeRecord.ID) -> Bool {
+        visibleNavigationNodeIDs(from: [nodeID]).contains(nodeID)
     }
 
     func selectSidebarTarget(id: String?) {
@@ -1186,7 +1215,11 @@ final class AppModel: ObservableObject {
     }
 
     func requestMoveSelectedToTrash() {
-        requestMoveNodesToTrash(navigationModel.selectedNodes)
+        do {
+            try requestTrashMove(for: validatedSelectedNodesForMutation())
+        } catch {
+            presentError(error)
+        }
     }
 
     func requestMovePrimarySelectionToTrash() {
@@ -1210,23 +1243,27 @@ final class AppModel: ObservableObject {
     func requestMoveNodesToTrash(_ nodes: [FileNodeRecord]) -> Bool {
         do {
             let nodes = try validatedNodesForMutation(nodes)
-            guard nodes.allSatisfy({ node in
-                node.supportsMoveToTrash(
-                    activeTarget: scanCoordinator.selectedTarget,
-                    trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
-                )
-            }) else {
-                throw FileActionError.unsupported
-            }
-
-            let trashNodes = topLevelTrashNodes(from: nodes)
-            pendingTrashNode = trashNodes.first
-            pendingTrashSelection = PendingTrashSelection(nodes: trashNodes)
+            try requestTrashMove(for: nodes)
             return true
         } catch {
             presentError(error)
             return false
         }
+    }
+
+    private func requestTrashMove(for nodes: [FileNodeRecord]) throws {
+        guard nodes.allSatisfy({ node in
+            node.supportsMoveToTrash(
+                activeTarget: scanCoordinator.selectedTarget,
+                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+            )
+        }) else {
+            throw FileActionError.unsupported
+        }
+
+        let trashNodes = topLevelTrashNodes(from: nodes)
+        pendingTrashNode = trashNodes.first
+        pendingTrashSelection = PendingTrashSelection(nodes: trashNodes)
     }
 
     @discardableResult
@@ -1685,6 +1722,10 @@ final class AppModel: ObservableObject {
         guard let selectedNode = navigationModel.selectedNode else {
             throw FileActionError.noSelection
         }
+        guard isVisibleNavigationNode(selectedNode.id) else {
+            clearSelection()
+            throw FileActionError.noSelection
+        }
         guard selectedNode.supportsFileActions else {
             throw FileActionError.unsupported
         }
@@ -1698,7 +1739,11 @@ final class AppModel: ObservableObject {
     }
 
     private func validatedSelectedNodes(requiresLivePath: Bool) throws -> [FileNodeRecord] {
-        try validatedNodes(navigationModel.selectedNodes, requiresLivePath: requiresLivePath)
+        let visibleNodes = navigationModel.selectedNodes.filter { isVisibleNavigationNode($0.id) }
+        if visibleNodes.isEmpty, !navigationModel.selectedNodes.isEmpty {
+            clearSelection()
+        }
+        return try validatedNodes(visibleNodes, requiresLivePath: requiresLivePath)
     }
 
     private func validatedNodes(
@@ -1728,7 +1773,7 @@ final class AppModel: ObservableObject {
 
     private func validatedSelectedNodesForPathCopy() throws -> [FileNodeRecord] {
         try validatePathCopyAllowed()
-        return try validatedNodes(navigationModel.selectedNodes, requiresLivePath: false)
+        return try validatedSelectedNodes(requiresLivePath: false)
     }
 
     private func validatedNodesForPathCopy(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
@@ -1744,6 +1789,11 @@ final class AppModel: ObservableObject {
     private func validatedNodesForMutation(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
         try validateSnapshotAllowsMutation()
         return try validatedNodes(nodes, requiresLivePath: true)
+    }
+
+    private func validatedSelectedNodesForMutation() throws -> [FileNodeRecord] {
+        try validateSnapshotAllowsMutation()
+        return try validatedSelectedNodes(requiresLivePath: true)
     }
 
     private func validatedNodesForDiscardPile(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {

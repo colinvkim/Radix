@@ -907,6 +907,84 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testMovingVisibleNodeToTrashDoesNotMoveDiscardPileNodes() async throws {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let queued = makeTestFileNode(id: "/selection/queued.txt", name: "queued.txt", size: 40)
+        let visible = makeTestFileNode(id: "/selection/visible.txt", name: "visible.txt", size: 80)
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [queued, visible])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.selectedTarget = snapshot.target
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+        XCTAssertTrue(model.requestMoveNodesToTrash([visible]))
+        model.confirmMovePendingSelectionToTrash()
+
+        XCTAssertEqual(recorder.movedToTrashURLs, [visible.url])
+        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
+        try await waitUntil("visible node removed from snapshot", timeout: 2) {
+            model.scanState.snapshot?.treeStore.node(id: visible.id) == nil
+        }
+        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: queued.id))
+    }
+
+    @MainActor
+    func testPrimaryTrashRejectsStaleDiscardPileSelection() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { recorder.movedToTrashURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let queued = makeTestFileNode(id: "/selection/queued.txt", name: "queued.txt", size: 40)
+        let visible = makeTestFileNode(id: "/selection/visible.txt", name: "visible.txt", size: 80)
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [queued, visible])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.selectedTarget = snapshot.target
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+
+        model.navigation.select(nodeID: queued.id)
+        model.requestMovePrimarySelectionToTrash()
+
+        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertNil(model.pendingTrashSelection)
+        XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
+        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
+        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
+    }
+
+    @MainActor
+    func testSelectedTrashFiltersStaleDiscardPileSelection() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let queued = makeTestFileNode(id: "/selection/queued.txt", name: "queued.txt", size: 40)
+        let visible = makeTestFileNode(id: "/selection/visible.txt", name: "visible.txt", size: 80)
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [queued, visible])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.selectedTarget = snapshot.target
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+
+        model.navigation.select(nodeIDs: [queued.id, visible.id], primaryNodeID: visible.id)
+        model.requestMoveSelectedToTrash()
+
+        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [visible.id])
+        XCTAssertEqual(model.pendingTrashNode?.id, visible.id)
+        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
+    }
+
+    @MainActor
     func testDiscardPileAddsValidNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }

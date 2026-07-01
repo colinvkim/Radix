@@ -364,7 +364,15 @@ struct FileBrowserTableView: View {
             }
             .disabled(!selection.actionAvailability.canMoveToTrash)
 
-            fileActionButton(.moveToTrash, availability: selection.actionAvailability, selectedID: selection.id)
+            Button(
+                FileNodeAction.moveToTrash.title,
+                systemImage: FileNodeAction.moveToTrash.systemImageName,
+                role: .destructive
+            ) {
+                actions.selectNode(id)
+                actions.bulkFileActions.moveToTrash([node])
+            }
+            .disabled(!FileNodeAction.moveToTrash.isEnabled(in: selection.actionAvailability))
 
             fileActionButton(.copyPath, availability: selection.actionAvailability, selectedID: selection.id)
         }
