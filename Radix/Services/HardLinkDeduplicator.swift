@@ -229,9 +229,11 @@ nonisolated struct HardLinkDeduplicator {
         guard !changedNodeIDs.isEmpty else { return [] }
 
         var affectedDirectoryIDs = Set<String>()
+        var visitedAncestorIDs = Set<String>()
         for changedNodeID in changedNodeIDs {
             var cursor = parentIDByID[changedNodeID]
             while let currentID = cursor {
+                guard visitedAncestorIDs.insert(currentID).inserted else { break }
                 if nodesByID[currentID]?.isDirectory == true {
                     affectedDirectoryIDs.insert(currentID)
                 }
@@ -239,9 +241,15 @@ nonisolated struct HardLinkDeduplicator {
             }
         }
 
+        var depthByDirectoryID: [String: Int] = [:]
+        depthByDirectoryID.reserveCapacity(affectedDirectoryIDs.count)
+        for directoryID in affectedDirectoryIDs {
+            depthByDirectoryID[directoryID] = treeDepth(of: directoryID, parentIDByID: parentIDByID)
+        }
+
         return affectedDirectoryIDs.sorted { lhs, rhs in
-            let lhsDepth = treeDepth(of: lhs, parentIDByID: parentIDByID)
-            let rhsDepth = treeDepth(of: rhs, parentIDByID: parentIDByID)
+            let lhsDepth = depthByDirectoryID[lhs] ?? 0
+            let rhsDepth = depthByDirectoryID[rhs] ?? 0
             if lhsDepth == rhsDepth {
                 return lhs < rhs
             }

@@ -57,6 +57,7 @@ enum SunburstLayout {
         let ringStart = centerRadius
         let ringWidth = (0.98 - ringStart) / CGFloat(max(depthLimit, 1))
         let denominator = max(root.allocatedSize, Int64(visibleChildren.count))
+        let colorBranchContext = ColorBranchContext(rootChildIDs: rootColorBranchIDs(in: treeStore))
 
         var result: [SunburstSegment] = []
         try appendSegments(
@@ -70,6 +71,7 @@ enum SunburstLayout {
             ringStart: ringStart,
             ringWidth: ringWidth,
             branchContext: nil,
+            colorBranchContext: colorBranchContext,
             minimumAngle: minimumAngle,
             cancellationCheck: cancellationCheck,
             into: &result
@@ -88,6 +90,7 @@ enum SunburstLayout {
         ringStart: CGFloat,
         ringWidth: CGFloat,
         branchContext: ColorBranch?,
+        colorBranchContext: ColorBranchContext,
         minimumAngle: Double,
         cancellationCheck: CancellationCheck,
         into segments: inout [SunburstSegment]
@@ -119,6 +122,7 @@ enum SunburstLayout {
             let branch = branchContext ?? colorBranch(
                 for: entry,
                 in: treeStore,
+                context: colorBranchContext,
                 fallbackIndex: siblingIndex,
                 fallbackCount: siblingCount
             )
@@ -168,6 +172,7 @@ enum SunburstLayout {
                     ringStart: ringStart,
                     ringWidth: ringWidth,
                     branchContext: branch,
+                    colorBranchContext: colorBranchContext,
                     minimumAngle: minimumAngle,
                     cancellationCheck: cancellationCheck,
                     into: &segments
@@ -267,6 +272,7 @@ enum SunburstLayout {
     private nonisolated static func colorBranch(
         for entry: GroupEntry,
         in treeStore: FileTreeStore,
+        context: ColorBranchContext,
         fallbackIndex: Int,
         fallbackCount: Int
     ) -> ColorBranch {
@@ -274,16 +280,11 @@ enum SunburstLayout {
             return ColorBranch(id: entry.colorID, index: fallbackIndex, count: fallbackCount)
         }
 
-        let rootChildIDs = rootColorBranchIDs(in: treeStore)
-        guard let index = rootChildIDs.firstIndex(of: branchID) else {
+        guard let branch = context.branch(id: branchID) else {
             return ColorBranch(id: branchID, index: fallbackIndex, count: fallbackCount)
         }
 
-        return ColorBranch(
-            id: branchID,
-            index: index,
-            count: max(rootChildIDs.count, 1)
-        )
+        return branch
     }
 
     private nonisolated static func rootColorBranchIDs(in treeStore: FileTreeStore) -> [String] {
@@ -327,6 +328,28 @@ enum SunburstLayout {
         let id: String
         let index: Int
         let count: Int
+    }
+
+    private struct ColorBranchContext {
+        private let indexByID: [String: Int]
+        private let count: Int
+
+        init(rootChildIDs: [String]) {
+            var indexByID: [String: Int] = [:]
+            indexByID.reserveCapacity(rootChildIDs.count)
+
+            for id in rootChildIDs where indexByID[id] == nil {
+                indexByID[id] = indexByID.count
+            }
+
+            self.indexByID = indexByID
+            self.count = max(indexByID.count, 1)
+        }
+
+        func branch(id: String) -> ColorBranch? {
+            guard let index = indexByID[id] else { return nil }
+            return ColorBranch(id: id, index: index, count: count)
+        }
     }
 
     private struct GroupEntry {

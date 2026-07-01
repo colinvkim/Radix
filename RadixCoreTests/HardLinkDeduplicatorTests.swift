@@ -81,6 +81,60 @@ final class HardLinkDeduplicatorTests: XCTestCase {
         }
     }
 
+    func testHardLinkDedupRebuildsDeepAncestorsBottomUp() {
+        let rootID = "/root"
+        let parentID = "/root/Parent"
+        let nestedID = "/root/Parent/Nested"
+        let firstLinkID = "/root/Parent/Nested/a.bin"
+        let duplicateLinkID = "/root/Parent/Nested/z.bin"
+        let siblingID = "/root/sibling.bin"
+        let identity = FileIdentity(device: 1, inode: 45)
+        let totalAllocatedSize: Int64 = 250
+
+        let store = HardLinkDeduplicator.deduplicatedStore(
+            rootID: rootID,
+            nodesByID: [
+                rootID: makeDirectory(id: rootID, allocatedSize: totalAllocatedSize, descendantFileCount: 3),
+                parentID: makeDirectory(id: parentID, allocatedSize: 200, descendantFileCount: 2),
+                nestedID: makeDirectory(id: nestedID, allocatedSize: 200, descendantFileCount: 2),
+                firstLinkID: makeFile(id: firstLinkID, allocatedSize: 100),
+                duplicateLinkID: makeFile(id: duplicateLinkID, allocatedSize: 100),
+                siblingID: makeFile(id: siblingID, allocatedSize: 50, linkCount: 1)
+            ],
+            childIDsByID: [
+                rootID: [parentID, siblingID],
+                parentID: [nestedID],
+                nestedID: [firstLinkID, duplicateLinkID]
+            ],
+            parentIDByID: [
+                parentID: rootID,
+                nestedID: parentID,
+                firstLinkID: nestedID,
+                duplicateLinkID: nestedID,
+                siblingID: rootID
+            ],
+            aggregateStats: ScanAggregateStats(
+                totalAllocatedSize: totalAllocatedSize,
+                totalLogicalSize: totalAllocatedSize,
+                fileCount: 3,
+                directoryCount: 3,
+                accessibleItemCount: 6,
+                inaccessibleItemCount: 0
+            ),
+            hardLinkClaims: [
+                HardLinkClaim(identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
+                HardLinkClaim(identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100)
+            ],
+            minimumAllocatedSizeByNodeID: [:]
+        )
+
+        XCTAssertEqual(store.node(id: duplicateLinkID)?.allocatedSize, 0)
+        XCTAssertEqual(store.node(id: nestedID)?.allocatedSize, 100)
+        XCTAssertEqual(store.node(id: parentID)?.allocatedSize, 100)
+        XCTAssertEqual(store.root.allocatedSize, 150)
+        XCTAssertEqual(store.aggregateStats.totalAllocatedSize, 150)
+    }
+
     func testRemovingWinningOwnerRestoresRemainingHardLinkSize() throws {
         let identity = FileIdentity(device: 1, inode: 42)
         let winner = makeFile(id: "/root/a.bin", allocatedSize: 100, identity: identity)
