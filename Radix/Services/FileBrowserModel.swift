@@ -678,9 +678,7 @@ actor FileSearchService: FileSearching {
             guard let node = treeStore.nodesByID[id] else { return }
             entries.append(FileSearchEntry(
                 id: id,
-                normalizedNameKindHaystack: SearchNormalizer.normalize(
-                    [node.name, node.itemKind].joined(separator: "\n")
-                )
+                normalizedNameKindHaystack: SearchNormalizer.normalizedNameKindHaystack(for: node)
             ))
         }
 
@@ -842,6 +840,8 @@ enum FileBrowserResults {
             )
         }
 
+        let normalizedSearchText = SearchNormalizer.normalize(trimmedSearchText)
+        let includesPath = SearchNormalizer.queryIncludesPath(trimmedSearchText)
         var filteredNodes: [FileNodeRecord] = []
         filteredNodes.reserveCapacity(min(nodes.count, 256))
 
@@ -850,9 +850,11 @@ enum FileBrowserResults {
                 try cancellationCheck()
             }
 
-            if node.name.localizedStandardContains(trimmedSearchText) ||
-                node.url.path.localizedStandardContains(trimmedSearchText) ||
-                node.itemKind.localizedStandardContains(trimmedSearchText) {
+            if SearchNormalizer.nodeMatches(
+                node,
+                normalizedQuery: normalizedSearchText,
+                includesPath: includesPath
+            ) {
                 filteredNodes.append(node)
             }
         }
@@ -992,6 +994,23 @@ enum SearchNormalizer {
 
     nonisolated static func queryIncludesPath(_ query: String) -> Bool {
         query.contains("/") || query.contains("\\")
+    }
+
+    nonisolated static func nodeMatches(
+        _ node: FileNodeRecord,
+        normalizedQuery: String,
+        includesPath: Bool
+    ) -> Bool {
+        if normalizedNameKindHaystack(for: node).contains(normalizedQuery) {
+            return true
+        }
+
+        guard includesPath else { return false }
+        return normalize(node.url.path).contains(normalizedQuery)
+    }
+
+    nonisolated static func normalizedNameKindHaystack(for node: FileNodeRecord) -> String {
+        normalize([node.name, node.itemKind].joined(separator: "\n"))
     }
 }
 

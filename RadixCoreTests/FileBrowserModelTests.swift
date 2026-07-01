@@ -30,17 +30,104 @@ final class FileBrowserModelTests: XCTestCase {
     }
 
     func testCurrentContentsFiltersBeforeReturningSortedMatches() {
-        let smallMatch = makeTestFileNode(id: "/root/matches/small.txt", name: "small.txt", size: 10)
-        let largeMatch = makeTestFileNode(id: "/root/matches/large.txt", name: "large.txt", size: 30)
+        let smallMatch = makeTestFileNode(id: "/root/matches/small.txt", name: "small-match.txt", size: 10)
+        let largeMatch = makeTestFileNode(id: "/root/matches/large.txt", name: "large-match.txt", size: 30)
         let ignored = makeTestFileNode(id: "/root/ignored.bin", name: "ignored.bin", size: 100)
 
         let result = FileBrowserResults.filteredAndSortedCurrentContents(
             [smallMatch, ignored, largeMatch],
-            searchText: "matches",
+            searchText: "match",
             sortOrder: [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
         )
 
         XCTAssertEqual(result.map(\.id), [largeMatch.id, smallMatch.id])
+    }
+
+    func testCurrentContentsSearchNormalizesCaseAccentsAndPathQueries() {
+        let resume = makeTestFileNode(id: "/root/docs/resume.pdf", name: "Résumé.pdf", size: 10)
+        let report = makeTestFileNode(id: "/root/reports/quarterly.pdf", name: "REPORT.PDF", size: 20)
+        let cache = makeTestFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 30)
+        let ignored = makeTestFileNode(id: "/root/other.bin", name: "other.bin", size: 40)
+        let nodes = [resume, report, cache, ignored]
+        let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
+
+        XCTAssertEqual(
+            FileBrowserResults.filteredAndSortedCurrentContents(
+                nodes,
+                searchText: "resume",
+                sortOrder: sortOrder
+            ).map(\.id),
+            [resume.id]
+        )
+        XCTAssertEqual(
+            FileBrowserResults.filteredAndSortedCurrentContents(
+                nodes,
+                searchText: "report",
+                sortOrder: sortOrder
+            ).map(\.id),
+            [report.id]
+        )
+        XCTAssertEqual(
+            FileBrowserResults.filteredAndSortedCurrentContents(
+                nodes,
+                searchText: "/library/caches",
+                sortOrder: sortOrder
+            ).map(\.id),
+            [cache.id]
+        )
+        XCTAssertTrue(
+            FileBrowserResults.filteredAndSortedCurrentContents(
+                nodes,
+                searchText: "Library",
+                sortOrder: sortOrder
+            ).isEmpty
+        )
+    }
+
+    func testCurrentContentsAndEntireScanSearchUseSameNormalizedRules() async throws {
+        let resume = makeTestFileNode(id: "/root/docs/resume.pdf", name: "Résumé.pdf", size: 10)
+        let report = makeTestFileNode(id: "/root/reports/quarterly.pdf", name: "REPORT.PDF", size: 20)
+        let cache = makeTestFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 30)
+        let ignored = makeTestFileNode(id: "/root/other.bin", name: "other.bin", size: 40)
+        let nodes = [resume, report, cache, ignored]
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: nodes)
+        let store = FileTreeStore(root: root, childrenByID: [root.id: nodes])
+        let service = FileSearchService()
+        let snapshotID = UUID()
+        let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
+        let cases: [(query: String, expectedIDs: [String])] = [
+            ("resume", [resume.id]),
+            ("report", [report.id]),
+            ("/library/caches", [cache.id]),
+            ("Library", [])
+        ]
+
+        for searchCase in cases {
+            let currentContentsResults = FileBrowserResults.filteredAndSortedCurrentContents(
+                nodes,
+                searchText: searchCase.query,
+                sortOrder: sortOrder,
+                fileTreeStore: store
+            )
+            let entireScanResults = try await service.search(
+                snapshotID: snapshotID,
+                treeStore: store,
+                normalizedQuery: SearchNormalizer.normalize(searchCase.query),
+                includesPath: SearchNormalizer.queryIncludesPath(searchCase.query),
+                sortOrder: sortOrder
+            )
+
+            XCTAssertEqual(
+                currentContentsResults.map(\.id),
+                searchCase.expectedIDs,
+                "Current contents query: \(searchCase.query)"
+            )
+            XCTAssertEqual(
+                entireScanResults.map(\.id),
+                searchCase.expectedIDs,
+                "Entire scan query: \(searchCase.query)"
+            )
+        }
     }
 
     @MainActor
