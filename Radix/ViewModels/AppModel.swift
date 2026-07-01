@@ -64,6 +64,19 @@ final class AppModel: ObservableObject {
         let fallbackFocusID: FileNodeRecord.ID?
     }
 
+    private struct OptimisticTrashVisibilityState: Equatable, Sendable {
+        let nodeIDs: Set<FileNodeRecord.ID>
+        let snapshotID: UUID?
+
+        init(
+            nodeIDs: Set<FileNodeRecord.ID> = [],
+            snapshotID: UUID? = nil
+        ) {
+            self.nodeIDs = nodeIDs
+            self.snapshotID = nodeIDs.isEmpty ? nil : snapshotID
+        }
+    }
+
     struct PendingTrashSelection {
         let nodes: [FileNodeRecord]
     }
@@ -168,6 +181,7 @@ final class AppModel: ObservableObject {
     @Published var pendingTrashSelection: PendingTrashSelection?
     @Published private(set) var discardPile = DiscardPileState()
     @Published private(set) var usageStats = AppUsageStats.empty
+    @Published private var optimisticTrashVisibility = OptimisticTrashVisibilityState()
 
     private let dependencies: AppDependencies
     private let scanCoordinator: ScanCoordinator
@@ -325,8 +339,7 @@ final class AppModel: ObservableObject {
     }
 
     var discardPileHiddenNodeIDs: Set<FileNodeRecord.ID> {
-        guard discardPile.snapshotID == scanCoordinator.snapshot?.id else { return [] }
-        return Set(discardPile.nodeIDs)
+        hiddenNodeIDs(for: scanCoordinator.snapshot?.id)
     }
 
     var startupDiskTarget: ScanTarget? {
@@ -863,6 +876,11 @@ final class AppModel: ObservableObject {
         postTrashRemovalTask = nil
     }
 
+    private func clearOptimisticTrashVisibility() {
+        guard optimisticTrashVisibility.snapshotID != nil else { return }
+        optimisticTrashVisibility = OptimisticTrashVisibilityState()
+    }
+
     private func scheduleDeferredViewUpdate(
         id idKeyPath: ReferenceWritableKeyPath<AppModel, UUID?>,
         task taskKeyPath: ReferenceWritableKeyPath<AppModel, Task<Void, Never>?>,
@@ -915,6 +933,7 @@ final class AppModel: ObservableObject {
         cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         cancelPostTrashSnapshotRemoval()
+        clearOptimisticTrashVisibility()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
         if resetState, scanCoordinator.snapshot == nil {
@@ -1378,6 +1397,8 @@ final class AppModel: ObservableObject {
             return
         }
 
+        hideTrashNodesDuringMove(nodes, snapshotID: originalSnapshotID)
+
         var actionError: Error?
         for node in nodes {
             do {
@@ -1390,6 +1411,7 @@ final class AppModel: ObservableObject {
         }
 
         finishConfirmedTrashMove(
+            requestedNodes: nodes,
             movedNodes,
             actionError: actionError,
             originalSnapshotID: originalSnapshotID,
@@ -1409,6 +1431,8 @@ final class AppModel: ObservableObject {
             return
         }
 
+        hideTrashNodesDuringMove(nodes, snapshotID: originalSnapshotID)
+
         var actionError: Error?
         for node in nodes {
             do {
@@ -1421,6 +1445,7 @@ final class AppModel: ObservableObject {
         }
 
         finishConfirmedTrashMove(
+            requestedNodes: nodes,
             movedNodes,
             actionError: actionError,
             originalSnapshotID: originalSnapshotID,
@@ -1483,6 +1508,7 @@ final class AppModel: ObservableObject {
     }
 
     private func finishConfirmedTrashMove(
+        requestedNodes: [FileNodeRecord],
         _ movedNodes: [FileNodeRecord],
         actionError: Error?,
         originalSnapshotID: UUID?,
@@ -1501,6 +1527,11 @@ final class AppModel: ObservableObject {
         }
 
         if let actionError {
+            unhideTrashNodesAfterFailedMove(
+                requestedNodes: requestedNodes,
+                movedNodes: movedNodes,
+                snapshotID: originalSnapshotID
+            )
             presentError(actionError)
         }
     }
@@ -1768,6 +1799,19 @@ final class AppModel: ObservableObject {
         return fileTreeStore.topLevelNodeIDs(from: nodes.map(\.id)).compactMap { nodesByID[$0] }
     }
 
+    private func hiddenNodeIDs(for snapshotID: UUID?) -> Set<FileNodeRecord.ID> {
+        guard let snapshotID else { return [] }
+
+        var nodeIDs = Set<FileNodeRecord.ID>()
+        if discardPile.snapshotID == snapshotID {
+            nodeIDs.formUnion(discardPile.nodeIDs)
+        }
+        if optimisticTrashVisibility.snapshotID == snapshotID {
+            nodeIDs.formUnion(optimisticTrashVisibility.nodeIDs)
+        }
+        return nodeIDs
+    }
+
     private func addDiscardPileNodes(
         _ nodes: [FileNodeRecord],
         snapshot: ScanSnapshot,
@@ -1778,10 +1822,62 @@ final class AppModel: ObservableObject {
         let queuedIDs = (discardPile.snapshotID == snapshot.id ? discardPile.nodeIDs : []) + nodes.map(\.id)
         let deduplicatedIDs = deduplicatedDiscardPileIDs(queuedIDs, fileTreeStore: fileTreeStore)
         reconcileNavigationForDiscardPileHiddenNodes(
-            hiddenNodeIDs: Set(deduplicatedIDs),
+            hiddenNodeIDs: hiddenNodeIDs(for: snapshot.id).union(deduplicatedIDs),
             fileTreeStore: fileTreeStore
         )
         discardPile = DiscardPileState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
+    }
+
+    private func hideTrashNodesDuringMove(
+        _ nodes: [FileNodeRecord],
+        snapshotID: UUID?
+    ) {
+        guard let snapshotID,
+              scanCoordinator.snapshot?.id == snapshotID,
+              let fileTreeStore = scanCoordinator.fileTreeStore else {
+            return
+        }
+
+        let nodeIDs = Set(fileTreeStore.topLevelNodeIDs(from: nodes.map(\.id)))
+        guard !nodeIDs.isEmpty else { return }
+
+        let existingIDs = optimisticTrashVisibility.snapshotID == snapshotID
+            ? optimisticTrashVisibility.nodeIDs
+            : []
+        let hiddenIDs = existingIDs.union(nodeIDs)
+        optimisticTrashVisibility = OptimisticTrashVisibilityState(
+            nodeIDs: hiddenIDs,
+            snapshotID: snapshotID
+        )
+        reconcileNavigationForDiscardPileHiddenNodes(
+            hiddenNodeIDs: hiddenNodeIDs(for: snapshotID),
+            fileTreeStore: fileTreeStore
+        )
+    }
+
+    private func unhideTrashNodesAfterFailedMove(
+        requestedNodes: [FileNodeRecord],
+        movedNodes: [FileNodeRecord],
+        snapshotID: UUID?
+    ) {
+        guard let snapshotID,
+              optimisticTrashVisibility.snapshotID == snapshotID else {
+            return
+        }
+
+        let movedNodeIDs = Set(movedNodes.map(\.id))
+        let unmovedNodeIDs = Set(
+            requestedNodes
+                .map(\.id)
+                .filter { !movedNodeIDs.contains($0) }
+        )
+        guard !unmovedNodeIDs.isEmpty else { return }
+
+        let hiddenIDs = optimisticTrashVisibility.nodeIDs.subtracting(unmovedNodeIDs)
+        optimisticTrashVisibility = OptimisticTrashVisibilityState(
+            nodeIDs: hiddenIDs,
+            snapshotID: snapshotID
+        )
     }
 
     private func deduplicatedDiscardPileIDs(
@@ -1867,6 +1963,22 @@ final class AppModel: ObservableObject {
         reconcileDiscardPile(snapshotID: snapshot.id, fileTreeStore: snapshot.treeStore)
     }
 
+    private func syncOptimisticTrashVisibility(with snapshot: ScanSnapshot?) {
+        guard optimisticTrashVisibility.snapshotID != nil else { return }
+        guard let snapshot,
+              optimisticTrashVisibility.snapshotID == snapshot.id else {
+            optimisticTrashVisibility = OptimisticTrashVisibilityState()
+            return
+        }
+
+        let nodeIDs = optimisticTrashVisibility.nodeIDs.filter { snapshot.treeStore.node(id: $0) != nil }
+        guard nodeIDs != optimisticTrashVisibility.nodeIDs else { return }
+        optimisticTrashVisibility = OptimisticTrashVisibilityState(
+            nodeIDs: nodeIDs,
+            snapshotID: snapshot.id
+        )
+    }
+
     private func reconcileDiscardPile(
         snapshotID: UUID,
         fileTreeStore: FileTreeStore
@@ -1893,6 +2005,7 @@ final class AppModel: ObservableObject {
         pendingTrashNode = nil
         pendingTrashSelection = nil
         discardPile = DiscardPileState()
+        clearOptimisticTrashVisibility()
         sidebarModel.setActiveTargetID(target.id)
 
         registerRecentTarget(target)
@@ -1924,6 +2037,7 @@ final class AppModel: ObservableObject {
         pendingTrashNode = nil
         pendingTrashSelection = nil
         discardPile = DiscardPileState()
+        clearOptimisticTrashVisibility()
         sidebarModel.setActiveTargetID(nil)
         quickLookController.closePreview()
     }
@@ -2010,6 +2124,7 @@ final class AppModel: ObservableObject {
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
                 guard let self else { return }
+                syncOptimisticTrashVisibility(with: snapshot)
                 syncDiscardPile(with: snapshot)
                 if let snapshotID = snapshot?.id,
                    snapshotID == deferredNavigationContextSnapshotID {

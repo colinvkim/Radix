@@ -626,6 +626,7 @@ final class AppModelDependencyTests: XCTestCase {
         let movedURLs = await probe.movedURLs()
         XCTAssertEqual(movedURLs, [file.url])
         XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: file.id))
+        XCTAssertTrue(model.discardPileHiddenNodeIDs.contains(file.id))
 
         await probe.finish()
 
@@ -638,6 +639,35 @@ final class AppModelDependencyTests: XCTestCase {
             model.scanState.snapshot?.treeStore.node(id: file.id),
             "selected target: \(model.scanState.selectedTarget?.id ?? "nil")"
         )
+    }
+
+    @MainActor
+    func testAsyncTrashFailureRestoresOptimisticallyHiddenNode() async throws {
+        let probe = AsyncTrashActionProbe()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.asyncVerifyTrashIdentity = { _ in .matches }
+        actions.asyncMoveToTrash = { url in
+            await probe.move(url)
+            throw NSError(domain: "RadixTrashTest", code: 1)
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        model.scanState.selectedTarget = ScanTarget(url: URL(filePath: "/selection", directoryHint: .isDirectory))
+
+        model.pendingTrashNode = file
+        model.confirmMovePendingNodeToTrash()
+
+        try await probe.waitUntilStarted()
+        XCTAssertTrue(model.discardPileHiddenNodeIDs.contains(file.id))
+
+        await probe.finish()
+
+        try await waitUntil("async trash failure reported", timeout: 2) {
+            model.lastErrorMessage != nil
+        }
+        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: file.id))
+        XCTAssertFalse(model.discardPileHiddenNodeIDs.contains(file.id))
     }
 
     @MainActor
