@@ -8,6 +8,10 @@
 import Foundation
 
 extension AtomicDirectorySummarizer {
+    private nonisolated static func directoryOnlyProbeLimit(minFileCount: Int) -> Int {
+        min(max(64, minFileCount / 4), 512)
+    }
+
     nonisolated static func isKnownGeneratedDirectory(at url: URL) -> Bool {
         let components = url.standardizedFileURL.pathComponents
         guard components.count >= 3 else { return false }
@@ -161,6 +165,12 @@ extension AtomicDirectorySummarizer {
 
                 guard !isDirectory else {
                     profile.observedDirectoryCount += 1
+                    // Dense file caches reveal files quickly; directory-only trees should traverse normally.
+                    if !isNodeDependencyLayout,
+                       profile.observedFileCount == 0,
+                       profile.observedDirectoryCount >= Self.directoryOnlyProbeLimit(minFileCount: minFileCount) {
+                        return profile
+                    }
                     continue
                 }
                 guard !isSymbolicLink else { continue }
@@ -172,6 +182,10 @@ extension AtomicDirectorySummarizer {
                     minFileCount: minFileCount,
                     maxAverageFileSize: maxAverageFileSize
                 ) {
+                    return profile
+                }
+                // Once minimum sample is large-file-biased, skip summary and keep full detail.
+                if profile.observedFileCount >= minFileCount {
                     return profile
                 }
             } catch {

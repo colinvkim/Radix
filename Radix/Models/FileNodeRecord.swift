@@ -97,20 +97,21 @@ struct FileNodeRecord: Identifiable, Sendable {
         childrenAreSorted: Bool = false
     ) -> FileNodeRecord {
         let sortedChildren = childrenAreSorted ? children : FileTreeStore.sortedChildren(children)
-        let allocatedSize = sortedChildren.reduce(into: Int64(0)) { result, child in
-            result += child.allocatedSize
-        }
-        let logicalSize = sortedChildren.reduce(into: Int64(0)) { result, child in
-            result += child.logicalSize
-        }
-        let descendantFileCount = sortedChildren.reduce(into: 0) { result, child in
+        var allocatedSize: Int64 = 0
+        var logicalSize: Int64 = 0
+        var descendantFileCount = 0
+        var childrenAreAccessible = true
+        for child in sortedChildren {
+            allocatedSize += child.allocatedSize
+            logicalSize += child.logicalSize
+            childrenAreAccessible = childrenAreAccessible && child.isAccessible
             if child.isDirectory {
-                result += child.descendantFileCount
+                descendantFileCount += child.descendantFileCount
             } else if !child.isSymbolicLink && !child.isSynthetic {
-                result += 1
+                descendantFileCount += 1
             }
         }
-        let isFullyAccessible = isAccessible && sortedChildren.allSatisfy(\.isAccessible)
+        let isFullyAccessible = isAccessible && childrenAreAccessible
 
         return FileNodeRecord(
             id: id,

@@ -1180,6 +1180,20 @@ actor ScanEngine {
     }
 
     nonisolated static func uniqueNodesForAssembly(_ nodes: [FileNodeRecord]) -> [FileNodeRecord] {
+        guard nodes.count > 1 else { return nodes }
+
+        var seenIDs = Set<String>()
+        seenIDs.reserveCapacity(nodes.count)
+        for node in nodes {
+            guard seenIDs.insert(node.id).inserted else {
+                return uniqueNodesAfterDuplicateFound(nodes)
+            }
+        }
+
+        return nodes
+    }
+
+    private nonisolated static func uniqueNodesAfterDuplicateFound(_ nodes: [FileNodeRecord]) -> [FileNodeRecord] {
         var seenIDs = Set<String>()
         var uniqueNodes: [FileNodeRecord] = []
         uniqueNodes.reserveCapacity(nodes.count)

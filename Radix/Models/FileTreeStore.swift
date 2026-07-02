@@ -161,7 +161,9 @@ struct FileTreeStore: Sendable {
     }
 
     nonisolated static func sortedChildren(_ children: [FileNodeRecord]) -> [FileNodeRecord] {
-        children.sorted { lhs, rhs in
+        guard children.count > 1 else { return children }
+
+        return children.sorted { lhs, rhs in
             if lhs.allocatedSize == rhs.allocatedSize {
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
