@@ -230,6 +230,18 @@ nonisolated struct ScanMetadataLoader: Sendable {
         let linkCount: UInt64
         let allocatedSize: Int64?
 
+        init(_ fileStat: stat) {
+            let blocks = max(Int64(fileStat.st_blocks), 0)
+            let (allocatedSize, overflow) = blocks.multipliedReportingOverflow(by: 512)
+            self.init(
+                fileFlags: fileStat.st_flags,
+                isDirectory: fileStat.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR),
+                fileIdentity: FileIdentity(device: UInt64(truncatingIfNeeded: fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
+                linkCount: max(UInt64(fileStat.st_nlink), 1),
+                allocatedSize: overflow ? Int64.max : allocatedSize
+            )
+        }
+
         init(
             fileFlags: UInt32,
             isDirectory: Bool,
@@ -614,15 +626,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
             return Int(lstat(path, &fileStat))
         }
         guard result == 0 else { return nil }
-        let blocks = max(Int64(fileStat.st_blocks), 0)
-        let (allocatedSize, overflow) = blocks.multipliedReportingOverflow(by: 512)
-        return FileStatus(
-            fileFlags: fileStat.st_flags,
-            isDirectory: fileStat.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR),
-            fileIdentity: FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
-            linkCount: max(UInt64(fileStat.st_nlink), 1),
-            allocatedSize: overflow ? Int64.max : allocatedSize
-        )
+        return FileStatus(fileStat)
     }
 
     nonisolated static func defaultCloneProbe(for url: URL) -> CloneMappingCapabilityCache.ProbeResult {

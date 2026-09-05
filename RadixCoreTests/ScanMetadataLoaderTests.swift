@@ -3,6 +3,23 @@ import XCTest
 @testable import RadixCore
 
 final class ScanMetadataLoaderTests: XCTestCase {
+    func testStatusPreservesSignedDeviceIdentityAndClampsAllocation() {
+        var fileStat = stat()
+        fileStat.st_dev = -1
+        fileStat.st_ino = 42
+        fileStat.st_mode = mode_t(S_IFDIR)
+        fileStat.st_flags = UInt32(SF_DATALESS)
+        fileStat.st_blocks = .max
+        let status = ScanMetadataLoader.FileStatus(fileStat)
+        XCTAssertEqual(status.fileIdentity, FileIdentity(device: UInt64.max, inode: 42))
+        XCTAssertTrue(status.isDirectory)
+        XCTAssertEqual(status.fileFlags, UInt32(SF_DATALESS))
+        XCTAssertEqual(status.allocatedSize, Int64.max)
+        XCTAssertEqual(status.linkCount, 1)
+        fileStat.st_blocks = -1
+        XCTAssertEqual(ScanMetadataLoader.FileStatus(fileStat).allocatedSize, 0)
+    }
+
     func testMetadataReusesStatusIdentityAndAllocationFallback() {
         let counters = MetadataProbeCounters()
         let identity = FileIdentity(device: 7, inode: 42)
