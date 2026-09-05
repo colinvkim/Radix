@@ -366,6 +366,46 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         }
     }
 
+    func testLeafPreparationPathBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RADIX_BENCH_LEAF_PATH"] == "1" else {
+            throw XCTSkip("Set RADIX_BENCH_LEAF_PATH=1 to measure path extraction during node preparation.")
+        }
+        let count = max(environment["RADIX_BENCH_LEAF_PATH_COUNT"].flatMap(Int.init) ?? 200_000, 1)
+        let scenario = environment["RADIX_BENCH_LEAF_PATH_SCENARIO"] ?? "ascii"
+        let parentPath = scenario == "unicode"
+            ? "/audit/" + String(repeating: "层级-é-😀-路径/", count: 24)
+            : "/audit/"
+        let parent = URL(filePath: parentPath, directoryHint: .isDirectory)
+        let urls = (0..<count).map { index in
+            parent.appending(
+                path: scenario == "unicode" ? "文件-cafe\u{301}-\(index)-100% #?.dat" : "file-\(index).dat",
+                directoryHint: .notDirectory
+            )
+        }
+        let metadata = NodeMetadata(
+            isDirectory: false, isPackage: false, isSymbolicLink: false,
+            logicalSize: 16, allocatedSize: 4_096, lastModified: nil, isReadable: true,
+            volumeCapacity: nil, fileIdentity: nil, linkCount: 1
+        )
+        let engine = ScanEngine()
+        let measurement = BenchmarkSupport.measure {
+            urls.map { engine.makeFileNode(url: $0, metadata: metadata) }
+        }
+        XCTAssertEqual(measurement.value.count, count)
+        XCTAssertTrue(zip(measurement.value, urls).allSatisfy {
+            $0.id == $1.path && $0.name == $1.lastPathComponent
+        })
+        let pathBytes = measurement.value.reduce(0) { $0 + $1.id.utf8.count }
+        let nameBytes = measurement.value.reduce(0) { $0 + $1.name.utf8.count }
+        print(
+            "RADIX_BENCH_LEAF_PATH scenario=\(scenario) count=\(count) "
+                + "seconds=\(BenchmarkSupport.format(measurement.seconds)) "
+                + "path_bytes=\(pathBytes) name_bytes=\(nameBytes) "
+                + "peak_rss=\(BenchmarkSupport.peakResidentBytes())"
+        )
+    }
+
     func testFilesystemAuditBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["RADIX_BENCH_AUDIT_PATH"] else {

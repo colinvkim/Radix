@@ -33,6 +33,24 @@ final class ScanModelTests: XCTestCase {
         )
     }
 
+    func testDisplayNameWithKnownPathPreservesRootAndLiteralComponents() throws {
+        let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
+        let volumeName = try rootURL.resourceValues(forKeys: [.volumeNameKey]).volumeName ?? "Startup Disk"
+        let cases: [(URL, String)] = [
+            (rootURL, volumeName),
+            (URL(filePath: "/Users/example/file-2.txt", directoryHint: .notDirectory), "file-2.txt"),
+            (URL(filePath: "/Users/example/folder/", directoryHint: .isDirectory), "folder"),
+            (
+                URL(filePath: "/Users/example/alias/文件-cafe\u{301}-100% #?.dat", directoryHint: .notDirectory),
+                "文件-cafe\u{301}-100% #?.dat"
+            )
+        ]
+        for (url, expected) in cases {
+            XCTAssertEqual(ScanTarget.displayName(for: url), expected)
+            XCTAssertEqual(ScanTarget.displayName(for: url, knownPath: url.path), expected)
+        }
+    }
+
     func testSupportsMoveToTrashRejectsSyntheticNodesAndRootPath() {
         let rootNode = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
         let syntheticNode = makeNode(id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)

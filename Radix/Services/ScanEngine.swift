@@ -2173,7 +2173,7 @@ actor ScanEngine {
                 let assembled = FileNodeRecord(
                     id: directoryID,
                     url: url,
-                    name: ScanTarget.displayName(for: url),
+                    name: ScanTarget.displayName(for: url, knownPath: directoryID),
                     isDirectory: true,
                     isSymbolicLink: false,
                     allocatedSize: allocatedSize,
@@ -2941,10 +2941,11 @@ actor ScanEngine {
         url: URL,
         metadata: NodeMetadata
     ) -> FileNodeRecord {
-        FileNodeRecord(
-            id: url.path,
+        let path = url.path
+        return FileNodeRecord(
+            id: path,
             url: url,
-            name: ScanTarget.displayName(for: url),
+            name: ScanTarget.displayName(for: url, knownPath: path),
             isDirectory: metadata.isDirectory,
             isSymbolicLink: metadata.isSymbolicLink,
             allocatedSize: metadata.allocatedSize,

@@ -85,8 +85,9 @@ nonisolated struct ScanTarget: Identifiable, Hashable, Sendable {
         return mountedVolumePaths.contains(path) ? .volume : .folder
     }
 
-    nonisolated static func displayName(for url: URL) -> String {
-        if url.path == "/" {
+    nonisolated static func displayName(for url: URL, knownPath: String? = nil) -> String {
+        let path = knownPath ?? url.path
+        if path == "/" {
             do {
                 let volumeName = try url.resourceValues(forKeys: [.volumeNameKey]).volumeName
                 return volumeName ?? "Startup Disk"
@@ -96,7 +97,7 @@ nonisolated struct ScanTarget: Identifiable, Hashable, Sendable {
         }
 
         let lastPathComponent = url.lastPathComponent
-        return lastPathComponent.isEmpty ? url.path : lastPathComponent
+        return lastPathComponent.isEmpty ? path : lastPathComponent
     }
 }
 

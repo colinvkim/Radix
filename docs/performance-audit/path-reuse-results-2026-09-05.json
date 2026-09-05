@@ -1,0 +1,545 @@
+{
+  "date": "2026-09-05",
+  "baseline_revision": "d82d6ab",
+  "candidate": "baseline plus reuse of existing paths in ScanTarget.displayName and both ScanEngine node constructors",
+  "configuration": "Release",
+  "environment": {
+    "hardware": "Apple M5, 10 cores, 32 GiB",
+    "macOS": "26.6.2",
+    "Xcode": "26.6 (17F113)",
+    "filesystem": "local APFS",
+    "sandbox": "outside",
+    "cache_state": "warm/uncontrolled"
+  },
+  "method": "Three pairs per workload/scenario; fresh sequential XCTest processes; second round reverses before/after order; no concurrent builds or fixture creation.",
+  "fixture": {
+    "root": "/private/tmp/radix-path-reuse-0qfagj8l",
+    "ascii": "/private/tmp/radix-path-reuse-0qfagj8l/ascii",
+    "unicode": "/private/tmp/radix-path-reuse-0qfagj8l/unicode/层级-é-😀-路径-00/层级-é-😀-路径-01/层级-é-😀-路径-02/层级-é-😀-路径-03/层级-é-😀-路径-04/层级-é-😀-路径-05/层级-é-😀-路径-06/层级-é-😀-路径-07/层级-é-😀-路径-08/层级-é-😀-路径-09/层级-é-😀-路径-10/层级-é-😀-路径-11/层级-é-😀-路径-12/层级-é-😀-路径-13/层级-é-😀-路径-14/层级-é-😀-路径-15/层级-é-😀-路径-16/层级-é-😀-路径-17/层级-é-😀-路径-18/层级-é-😀-路径-19/层级-é-😀-路径-20/层级-é-😀-路径-21/层级-é-😀-路径-22/层级-é-😀-路径-23",
+    "files_per_directory": 200000
+  },
+  "parity": {
+    "leaf": "Every record ID and name checked against URL.path and URL.lastPathComponent; counts and byte totals match all pairs.",
+    "scan": "All pairs match file/folder/node counts, logical/allocated bytes, zero warnings, and tree fingerprints."
+  },
+  "summary": [
+    {
+      "workload": "leaf",
+      "scenario": "ascii",
+      "before": {
+        "median_seconds": 0.119426,
+        "min_seconds": 0.101294,
+        "max_seconds": 0.126205
+      },
+      "after": {
+        "median_seconds": 0.082853,
+        "min_seconds": 0.069823,
+        "max_seconds": 0.084184
+      },
+      "median_time_reduction_percent": 30.62398472694389
+    },
+    {
+      "workload": "leaf",
+      "scenario": "unicode",
+      "before": {
+        "median_seconds": 1.399683,
+        "min_seconds": 1.396514,
+        "max_seconds": 1.417751
+      },
+      "after": {
+        "median_seconds": 0.774539,
+        "min_seconds": 0.678448,
+        "max_seconds": 0.839703
+      },
+      "median_time_reduction_percent": 44.663255894370366
+    },
+    {
+      "workload": "scan",
+      "scenario": "ascii",
+      "before": {
+        "median_seconds": 1.405078,
+        "min_seconds": 1.285475,
+        "max_seconds": 2.909359
+      },
+      "after": {
+        "median_seconds": 1.258666,
+        "min_seconds": 1.241073,
+        "max_seconds": 1.376411
+      },
+      "median_time_reduction_percent": 10.420204429932001
+    },
+    {
+      "workload": "scan",
+      "scenario": "unicode",
+      "before": {
+        "median_seconds": 7.519656,
+        "min_seconds": 7.492823,
+        "max_seconds": 8.066014
+      },
+      "after": {
+        "median_seconds": 7.160357,
+        "min_seconds": 7.14656,
+        "max_seconds": 7.54223
+      },
+      "median_time_reduction_percent": 4.778130808111436
+    }
+  ],
+  "runs": [
+    {
+      "round": 1,
+      "workload": "leaf",
+      "scenario": "ascii",
+      "variant": "before",
+      "metrics": {
+        "scenario": "ascii",
+        "count": 200000,
+        "seconds": 0.101294,
+        "path_bytes": 4288890,
+        "name_bytes": 2888890,
+        "peak_rss": 185286656
+      }
+    },
+    {
+      "round": 1,
+      "workload": "leaf",
+      "scenario": "ascii",
+      "variant": "after",
+      "metrics": {
+        "scenario": "ascii",
+        "count": 200000,
+        "seconds": 0.069823,
+        "path_bytes": 4288890,
+        "name_bytes": 2888890,
+        "peak_rss": 185188352
+      }
+    },
+    {
+      "round": 1,
+      "workload": "scan",
+      "scenario": "ascii",
+      "variant": "before",
+      "metrics": {
+        "mode": "native",
+        "seconds": 2.909359,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 206,
+        "warnings": 0,
+        "peak_rss": 307937280,
+        "initial_rss": 42663936,
+        "finalization_rss": 306167808,
+        "peak_rss_at_finalization": 306167808,
+        "finished_rss": 307937280,
+        "finalization_seconds": 0.596504,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "332b17b982b86f23"
+      }
+    },
+    {
+      "round": 1,
+      "workload": "scan",
+      "scenario": "ascii",
+      "variant": "after",
+      "metrics": {
+        "mode": "native",
+        "seconds": 1.258666,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 206,
+        "warnings": 0,
+        "peak_rss": 304660480,
+        "initial_rss": 42631168,
+        "finalization_rss": 304431104,
+        "peak_rss_at_finalization": 304463872,
+        "finished_rss": 304660480,
+        "finalization_seconds": 0.714563,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "332b17b982b86f23"
+      }
+    },
+    {
+      "round": 1,
+      "workload": "leaf",
+      "scenario": "unicode",
+      "variant": "before",
+      "metrics": {
+        "scenario": "unicode",
+        "count": 200000,
+        "seconds": 1.417751,
+        "path_bytes": 118088890,
+        "name_bytes": 6288890,
+        "peak_rss": 634617856
+      }
+    },
+    {
+      "round": 1,
+      "workload": "leaf",
+      "scenario": "unicode",
+      "variant": "after",
+      "metrics": {
+        "scenario": "unicode",
+        "count": 200000,
+        "seconds": 0.678448,
+        "path_bytes": 118088890,
+        "name_bytes": 6288890,
+        "peak_rss": 634585088
+      }
+    },
+    {
+      "round": 1,
+      "workload": "scan",
+      "scenario": "unicode",
+      "variant": "before",
+      "metrics": {
+        "mode": "native",
+        "seconds": 8.066014,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 221,
+        "warnings": 0,
+        "peak_rss": 809730048,
+        "initial_rss": 42762240,
+        "finalization_rss": 809533440,
+        "peak_rss_at_finalization": 809533440,
+        "finished_rss": 809730048,
+        "finalization_seconds": 1.657289,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "c52ff8bf1369cd13"
+      }
+    },
+    {
+      "round": 1,
+      "workload": "scan",
+      "scenario": "unicode",
+      "variant": "after",
+      "metrics": {
+        "mode": "native",
+        "seconds": 7.160357,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 220,
+        "warnings": 0,
+        "peak_rss": 809943040,
+        "initial_rss": 42729472,
+        "finalization_rss": 809762816,
+        "peak_rss_at_finalization": 809762816,
+        "finished_rss": 809943040,
+        "finalization_seconds": 1.611524,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "c52ff8bf1369cd13"
+      }
+    },
+    {
+      "round": 2,
+      "workload": "leaf",
+      "scenario": "ascii",
+      "variant": "after",
+      "metrics": {
+        "scenario": "ascii",
+        "count": 200000,
+        "seconds": 0.082853,
+        "path_bytes": 4288890,
+        "name_bytes": 2888890,
+        "peak_rss": 185204736
+      }
+    },
+    {
+      "round": 2,
+      "workload": "leaf",
+      "scenario": "ascii",
+      "variant": "before",
+      "metrics": {
+        "scenario": "ascii",
+        "count": 200000,
+        "seconds": 0.126205,
+        "path_bytes": 4288890,
+        "name_bytes": 2888890,
+        "peak_rss": 185204736
+      }
+    },
+    {
+      "round": 2,
+      "workload": "scan",
+      "scenario": "ascii",
+      "variant": "after",
+      "metrics": {
+        "mode": "native",
+        "seconds": 1.376411,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 206,
+        "warnings": 0,
+        "peak_rss": 310640640,
+        "initial_rss": 42598400,
+        "finalization_rss": 308625408,
+        "peak_rss_at_finalization": 308641792,
+        "finished_rss": 310640640,
+        "finalization_seconds": 0.75315,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "332b17b982b86f23"
+      }
+    },
+    {
+      "round": 2,
+      "workload": "scan",
+      "scenario": "ascii",
+      "variant": "before",
+      "metrics": {
+        "mode": "native",
+        "seconds": 1.285475,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 206,
+        "warnings": 0,
+        "peak_rss": 307118080,
+        "initial_rss": 42647552,
+        "finalization_rss": 306855936,
+        "peak_rss_at_finalization": 306888704,
+        "finished_rss": 307118080,
+        "finalization_seconds": 0.696852,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "332b17b982b86f23"
+      }
+    },
+    {
+      "round": 2,
+      "workload": "leaf",
+      "scenario": "unicode",
+      "variant": "after",
+      "metrics": {
+        "scenario": "unicode",
+        "count": 200000,
+        "seconds": 0.839703,
+        "path_bytes": 118088890,
+        "name_bytes": 6288890,
+        "peak_rss": 634585088
+      }
+    },
+    {
+      "round": 2,
+      "workload": "leaf",
+      "scenario": "unicode",
+      "variant": "before",
+      "metrics": {
+        "scenario": "unicode",
+        "count": 200000,
+        "seconds": 1.399683,
+        "path_bytes": 118088890,
+        "name_bytes": 6288890,
+        "peak_rss": 634601472
+      }
+    },
+    {
+      "round": 2,
+      "workload": "scan",
+      "scenario": "unicode",
+      "variant": "after",
+      "metrics": {
+        "mode": "native",
+        "seconds": 7.54223,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 220,
+        "warnings": 0,
+        "peak_rss": 809779200,
+        "initial_rss": 42713088,
+        "finalization_rss": 809582592,
+        "peak_rss_at_finalization": 809582592,
+        "finished_rss": 809779200,
+        "finalization_seconds": 1.583293,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "c52ff8bf1369cd13"
+      }
+    },
+    {
+      "round": 2,
+      "workload": "scan",
+      "scenario": "unicode",
+      "variant": "before",
+      "metrics": {
+        "mode": "native",
+        "seconds": 7.519656,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 220,
+        "warnings": 0,
+        "peak_rss": 807747584,
+        "initial_rss": 42745856,
+        "finalization_rss": 807469056,
+        "peak_rss_at_finalization": 807469056,
+        "finished_rss": 807747584,
+        "finalization_seconds": 1.557782,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "c52ff8bf1369cd13"
+      }
+    },
+    {
+      "round": 3,
+      "workload": "leaf",
+      "scenario": "ascii",
+      "variant": "before",
+      "metrics": {
+        "scenario": "ascii",
+        "count": 200000,
+        "seconds": 0.119426,
+        "path_bytes": 4288890,
+        "name_bytes": 2888890,
+        "peak_rss": 185204736
+      }
+    },
+    {
+      "round": 3,
+      "workload": "leaf",
+      "scenario": "ascii",
+      "variant": "after",
+      "metrics": {
+        "scenario": "ascii",
+        "count": 200000,
+        "seconds": 0.084184,
+        "path_bytes": 4288890,
+        "name_bytes": 2888890,
+        "peak_rss": 185155584
+      }
+    },
+    {
+      "round": 3,
+      "workload": "scan",
+      "scenario": "ascii",
+      "variant": "before",
+      "metrics": {
+        "mode": "native",
+        "seconds": 1.405078,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 206,
+        "warnings": 0,
+        "peak_rss": 307953664,
+        "initial_rss": 42713088,
+        "finalization_rss": 307724288,
+        "peak_rss_at_finalization": 307724288,
+        "finished_rss": 307953664,
+        "finalization_seconds": 0.768685,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "332b17b982b86f23"
+      }
+    },
+    {
+      "round": 3,
+      "workload": "scan",
+      "scenario": "ascii",
+      "variant": "after",
+      "metrics": {
+        "mode": "native",
+        "seconds": 1.241073,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 206,
+        "warnings": 0,
+        "peak_rss": 311296000,
+        "initial_rss": 42663936,
+        "finalization_rss": 309248000,
+        "peak_rss_at_finalization": 309264384,
+        "finished_rss": 311296000,
+        "finalization_seconds": 0.674205,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "332b17b982b86f23"
+      }
+    },
+    {
+      "round": 3,
+      "workload": "leaf",
+      "scenario": "unicode",
+      "variant": "before",
+      "metrics": {
+        "scenario": "unicode",
+        "count": 200000,
+        "seconds": 1.396514,
+        "path_bytes": 118088890,
+        "name_bytes": 6288890,
+        "peak_rss": 634601472
+      }
+    },
+    {
+      "round": 3,
+      "workload": "leaf",
+      "scenario": "unicode",
+      "variant": "after",
+      "metrics": {
+        "scenario": "unicode",
+        "count": 200000,
+        "seconds": 0.774539,
+        "path_bytes": 118088890,
+        "name_bytes": 6288890,
+        "peak_rss": 634585088
+      }
+    },
+    {
+      "round": 3,
+      "workload": "scan",
+      "scenario": "unicode",
+      "variant": "before",
+      "metrics": {
+        "mode": "native",
+        "seconds": 7.492823,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 220,
+        "warnings": 0,
+        "peak_rss": 807731200,
+        "initial_rss": 42729472,
+        "finalization_rss": 807419904,
+        "peak_rss_at_finalization": 807419904,
+        "finished_rss": 807731200,
+        "finalization_seconds": 1.730548,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "c52ff8bf1369cd13"
+      }
+    },
+    {
+      "round": 3,
+      "workload": "scan",
+      "scenario": "unicode",
+      "variant": "after",
+      "metrics": {
+        "mode": "native",
+        "seconds": 7.14656,
+        "files": 200000,
+        "folders": 1,
+        "nodes": 200001,
+        "progress_events": 219,
+        "warnings": 0,
+        "peak_rss": 809828352,
+        "initial_rss": 42762240,
+        "finalization_rss": 809631744,
+        "peak_rss_at_finalization": 809631744,
+        "finished_rss": 809828352,
+        "finalization_seconds": 1.572337,
+        "allocated": 0,
+        "logical": 0,
+        "fingerprint": "c52ff8bf1369cd13"
+      }
+    }
+  ]
+}
