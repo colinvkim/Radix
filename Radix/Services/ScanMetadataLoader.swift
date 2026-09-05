@@ -52,7 +52,8 @@ private nonisolated final class VolumeCapabilityCache: @unchecked Sendable {
     }
 
     private static func normalizedPath(_ path: String) -> String {
-        var result = URL(fileURLWithPath: path).standardizedFileURL.path
+        // Normalize the cache key without probing whether this path is a directory.
+        var result = URL(filePath: path, directoryHint: .inferFromPath).standardizedFileURL.path
         while result.count > 1 && result.hasSuffix("/") {
             result.removeLast()
         }

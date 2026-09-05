@@ -172,6 +172,35 @@ final class ScanMetadataLoaderTests: XCTestCase {
         XCTAssertEqual(counters.probeCount, 2)
     }
 
+    func testCloneCapabilityCacheNormalizesPathsAndPreservesVolumeBoundaries() {
+        let counters = MetadataProbeCounters()
+        let rootPath = "/Volumes/Audit Disk #1"
+        let siblingRootPath = rootPath + "-other"
+        let cache = CloneMappingCapabilityCache(
+            probeProvider: { _ in
+                counters.recordProbe()
+                return CloneMappingCapabilityCache.ProbeResult(
+                    identity: nil,
+                    supportsCloneMapping: false
+                )
+            },
+            volumeRootProvider: { url in
+                url.path.hasPrefix(siblingRootPath + "/") ? siblingRootPath : rootPath + "/./"
+            }
+        )
+
+        for path in [rootPath + "/first.bin", rootPath + "/nested/../second.bin"] {
+            XCTAssertNil(cache.cloneMetadata(for: URL(filePath: path, directoryHint: .notDirectory)).identity)
+        }
+        XCTAssertEqual(counters.probeCount, 1)
+
+        XCTAssertNil(cache.cloneMetadata(for: URL(
+            filePath: siblingRootPath + "/third.bin",
+            directoryHint: .notDirectory
+        )).identity)
+        XCTAssertEqual(counters.probeCount, 2)
+    }
+
     func testMissingLinkCountMetadataUsesLstatFallback() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
