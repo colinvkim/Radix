@@ -106,7 +106,8 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
             cancellation = await Self.measureCancellation(
                 targetURL: targetURL,
                 options: options,
-                delayMilliseconds: cancellationDelayMilliseconds
+                delayMilliseconds: cancellationDelayMilliseconds,
+                finalizationFraction: environment["RADIX_BENCH_FULL_SCAN_CANCEL_FINALIZATION_FRACTION"].flatMap(Double.init)
             )
         } else {
             cancellation = nil
@@ -272,7 +273,8 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
     private static func measureCancellation(
         targetURL: URL,
         options: ScanOptions,
-        delayMilliseconds: Int
+        delayMilliseconds: Int,
+        finalizationFraction: Double?
     ) async -> CancellationMeasurement {
         let observation = CancellationObservation()
         let workerActivity = BenchmarkWorkerActivity()
@@ -290,8 +292,8 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
                     options: options
                 ) {
                     switch event {
-                    case .progress:
-                        await observation.recordProgress()
+                    case .progress(let metrics):
+                        await observation.recordProgress(metrics)
                     case .finished:
                         emittedFinished = true
                     case .executionMode, .warning:
@@ -308,6 +310,16 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
             )
         }
 
+        if let finalizationFraction {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+            while await observation.observedFinalizationFraction() < finalizationFraction,
+                  await observation.outcome() == nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            let observed = await observation.observedFinalizationFraction()
+            XCTAssertGreaterThanOrEqual(observed, finalizationFraction)
+            print("RADIX_BENCH_FINALIZATION_CANCEL observed_fraction=\(observed) delay_ms=\(delayMilliseconds)")
+        }
         try? await Task.sleep(for: .milliseconds(delayMilliseconds))
         let clock = ContinuousClock()
         let cancellationStartedAt = clock.now
@@ -579,11 +591,15 @@ private actor CancellationObservation {
     }
 
     private var didObserveProgress = false
+    private var finalizationFraction: Double = 0
     private var terminationOutcome: Outcome?
 
-    func recordProgress() {
+    func recordProgress(_ metrics: ScanMetrics) {
         didObserveProgress = true
+        if metrics.isFinalizing { finalizationFraction = metrics.finalizationFraction }
     }
+
+    func observedFinalizationFraction() -> Double { finalizationFraction }
 
     func recordTermination(emittedFinished: Bool, unexpectedError: String?) {
         terminationOutcome = Outcome(

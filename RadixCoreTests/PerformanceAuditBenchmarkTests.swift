@@ -400,7 +400,9 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 + "initial_rss=\(initialRSS) finalization_rss=\(finalizationRSS) "
                 + "peak_rss_at_finalization=\(peakRSSAtFinalization) "
                 + "finished_rss=\(BenchmarkMemorySampler.currentResidentMemoryBytes()) "
-                + "finalization_seconds=\(BenchmarkSupport.format(finalizationSeconds))"
+                + "finalization_seconds=\(BenchmarkSupport.format(finalizationSeconds)) "
+                + "allocated=\(snapshot.root.allocatedSize) logical=\(snapshot.root.logicalSize) "
+                + "fingerprint=\(scanResultFingerprint(snapshot.treeStore))"
         )
     }
 

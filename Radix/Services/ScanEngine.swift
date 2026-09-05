@@ -2169,7 +2169,7 @@ actor ScanEngine {
                 childrenKeysByKey[key] = nil
                 // Duplicate paths are rejected before keys are assigned in phase 1,
                 // so children are already unique here.
-                sortedChildKeys.sort { lhsKey, rhsKey in
+                try CancellableSort.sort(&sortedChildKeys, cancellationCheck: Task.checkCancellation) { lhsKey, rhsKey in
                     let lhs = nodes[nextKey - lhsKey - 1]
                     let rhs = nodes[nextKey - rhsKey - 1]
                     if lhs.allocatedSize == rhs.allocatedSize {
@@ -2270,8 +2270,11 @@ actor ScanEngine {
         let indexStart = diagnostics?.start()
         #endif
 
-        let indexByNodeID = scanKeyByNodeID.mapValues { scanKey in
-            FileTreeNodeIndex(rawValue: UInt32(nextKey - scanKey - 1))
+        var indexedItems = 0
+        let indexByNodeID = try scanKeyByNodeID.mapValues { scanKey in
+            if indexedItems.isMultiple(of: 256) { try Task.checkCancellation() }
+            indexedItems += 1
+            return FileTreeNodeIndex(rawValue: UInt32(nextKey - scanKey - 1))
         }
         #if DEBUG
         diagnostics?.record(

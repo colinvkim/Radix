@@ -4,6 +4,23 @@
 //
 
 nonisolated enum CancellableSort {
+    /// Keeps the standard library's adaptive sort for an already-owned buffer,
+    /// including long presorted runs, while checking inside expensive tie sorts.
+    static func sort<Element>(
+        _ elements: inout [Element],
+        cancellationCheck: () throws -> Void,
+        by areInIncreasingOrder: (Element, Element) -> Bool
+    ) rethrows {
+        try cancellationCheck()
+        var comparisons = 0
+        try elements.sort { lhs, rhs in
+            if comparisons.isMultiple(of: 256) { try cancellationCheck() }
+            comparisons += 1
+            return areInIncreasingOrder(lhs, rhs)
+        }
+        try cancellationCheck()
+    }
+
     /// Avoids moving large values through the chunk and merge buffers.
     static func sortedByIndex<Element>(
         _ elements: [Element],
