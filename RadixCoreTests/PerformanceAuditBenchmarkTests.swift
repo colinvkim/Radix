@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import RadixCore
@@ -165,8 +166,150 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         )
     }
 
-    private static func makeFlatSnapshot(fileCount: Int) -> ScanSnapshot {
-        let rootID = "/audit"
+    @MainActor
+    func testSnapshotRetentionBenchmark() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RADIX_BENCH_RETENTION"] == "1" else {
+            throw XCTSkip("Set RADIX_BENCH_RETENTION=1 to measure snapshot ownership and release.")
+        }
+        let scenario = environment["RADIX_BENCH_RETENTION_SCENARIO"] ?? "single"
+        let fileCount = environment["RADIX_BENCH_RETENTION_FILES"].flatMap(Int.init) ?? 1_000_000
+        let path = environment["RADIX_BENCH_RETENTION_PATH"]
+        var cache = CompletedScanCache(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 250_000)
+        let navigation = WorkspaceNavigationModel()
+        Self.reportRetention(phase: "initial")
+        switch scenario {
+        case "single":
+            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario)
+        case "repeat":
+            for iteration in 0..<3 {
+                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario, iteration: iteration)
+                Self.reportRetention(phase: "released_\(iteration)")
+            }
+        case "cache":
+            for iteration in 0..<3 {
+                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario, iteration: iteration)
+                withExtendedLifetime(cache) {
+                    Self.reportRetention(phase: "cache_only_\(iteration)")
+                }
+            }
+        case "scope":
+            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario)
+            withExtendedLifetime(cache) {
+                Self.reportRetention(phase: "scope_only")
+            }
+        case "navigation":
+            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario, navigation: navigation)
+            Self.reportRetention(phase: "navigation_and_cache")
+        default:
+            XCTFail("Unknown retention scenario: \(scenario)")
+        }
+        let clearStartedAt = ContinuousClock.now
+        cache.removeAll()
+        Self.reportRetention(phase: "cache_cleared", seconds: BenchmarkSupport.durationSeconds(clearStartedAt.duration(to: .now)))
+        let navigationClearStartedAt = ContinuousClock.now
+        navigation.updateScanContext(snapshot: nil)
+        Self.reportRetention(phase: "released", seconds: BenchmarkSupport.durationSeconds(navigationClearStartedAt.duration(to: .now)))
+        try await Task.sleep(for: .milliseconds(100))
+        Self.reportRetention(phase: "settled")
+        let relievedBytes = malloc_zone_pressure_relief(nil, 0)
+        Self.reportRetention(phase: "allocator_relief", extra: "relieved_bytes=\(relievedBytes)")
+        if let pauseSeconds = environment["RADIX_BENCH_RETENTION_PAUSE_SECONDS"].flatMap(Int.init), pauseSeconds > 0 {
+            // Allow a separate vmmap capture after every snapshot owner releases.
+            fflush(nil)
+            try await Task.sleep(for: .seconds(pauseSeconds))
+        }
+    }
+
+    // The separate frame and explicit lifetimes keep ownership checkpoints
+    // meaningful in optimized builds without adding a production retention hook.
+    @inline(never)
+    @MainActor
+    private static func retainSnapshot(
+        fileCount: Int,
+        path: String?,
+        cache: inout CompletedScanCache,
+        scenario: String,
+        iteration: Int = 0,
+        navigation: WorkspaceNavigationModel? = nil
+    ) async throws {
+        let snapshot: ScanSnapshot
+        var options = ScanOptions()
+        options.autoSummarizeDirectories = false
+        options.includeHiddenFiles = iteration.isMultiple(of: 2)
+        options.treatPackagesAsDirectories = iteration > 1
+        let startedAt = ContinuousClock.now
+        if let path {
+            snapshot = try await scanRetentionFixture(path: path, options: options)
+        } else {
+            snapshot = autoreleasepool {
+                makeFlatSnapshot(fileCount: fileCount, rootID: "/retention/scan-\(iteration)")
+            }
+        }
+        withExtendedLifetime(snapshot) {
+            reportRetention(phase: "retained_\(iteration)", seconds: BenchmarkSupport.durationSeconds(startedAt.duration(to: .now)), extra: "nodes=\(snapshot.treeStore.nodeCount)")
+        }
+        if scenario == "cache" {
+            let storeStartedAt = ContinuousClock.now
+            cache.store(snapshot, for: ScanCacheKey(target: snapshot.target, options: options))
+            reportRetention(phase: "stored_\(iteration)", seconds: BenchmarkSupport.durationSeconds(storeStartedAt.duration(to: .now)))
+        } else if scenario == "scope" || scenario == "navigation" {
+            let child = try XCTUnwrap(snapshot.treeStore.childrenPrefix(of: snapshot.root.id, maxCount: 1).first)
+            let scope = try XCTUnwrap(snapshot.scoped(to: ScanTarget(url: child.url)))
+            if let navigation {
+                cache.store(snapshot, for: ScanCacheKey(target: snapshot.target, options: options))
+                navigation.updateScanContext(snapshot: snapshot)
+                navigation.updateScanContext(snapshot: scope)
+                XCTAssertEqual(navigation.state.fileTreeStore?.nodeCount, scope.treeStore.nodeCount)
+            } else {
+                cache.store(scope, for: ScanCacheKey(target: scope.target, options: options))
+            }
+            withExtendedLifetime(snapshot) {
+                reportRetention(phase: "parent_and_scope", extra: "scope_nodes=\(scope.treeStore.nodeCount)")
+            }
+        }
+        withExtendedLifetime(snapshot) {}
+    }
+
+    @inline(never)
+    private static func scanRetentionFixture(path: String, options: ScanOptions) async throws -> ScanSnapshot {
+        var completed: ScanSnapshot?
+        for try await event in ScanEngine().scan(
+            target: ScanTarget(url: URL(filePath: path, directoryHint: .isDirectory)),
+            options: options
+        ) {
+            if case .finished(let snapshot) = event {
+                completed = snapshot
+            }
+        }
+        let snapshot = try XCTUnwrap(completed)
+        XCTAssertTrue(snapshot.isComplete)
+        XCTAssertTrue(snapshot.scanWarnings.isEmpty)
+        return snapshot
+    }
+
+    private static func reportRetention(phase: String, seconds: Double = 0, extra: String = "") {
+        var statistics = malloc_statistics_t()
+        malloc_zone_statistics(nil, &statistics)
+        var vmInfo = task_vm_info_data_t()
+        var infoCount = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &vmInfo) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(infoCount)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &infoCount)
+            }
+        }
+        XCTAssertEqual(result, KERN_SUCCESS)
+        print(
+            "RADIX_BENCH_RETENTION phase=\(phase) seconds=\(BenchmarkSupport.format(seconds)) main_thread=\(Thread.isMainThread ? 1 : 0) pid=\(ProcessInfo.processInfo.processIdentifier) "
+                + "rss=\(BenchmarkMemorySampler.currentResidentMemoryBytes()) "
+                + "peak_rss=\(BenchmarkSupport.peakResidentBytes()) "
+                + "footprint=\(vmInfo.phys_footprint) reusable=\(vmInfo.reusable) "
+                + "malloc_in_use=\(statistics.size_in_use) malloc_reserved=\(statistics.size_allocated) "
+                + "malloc_blocks=\(statistics.blocks_in_use) \(extra)"
+        )
+    }
+
+    private static func makeFlatSnapshot(fileCount: Int, rootID: String = "/audit") -> ScanSnapshot {
         let allocatedSize = Int64(fileCount) * Int64(fileCount + 1) / 2
         let root = ChartResponsivenessBenchmarkSupport.node(
             id: rootID, name: "audit", isDirectory: true,
