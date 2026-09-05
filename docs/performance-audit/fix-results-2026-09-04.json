@@ -1,0 +1,318 @@
+{
+  "date": "2026-09-04",
+  "baselineRevision": "b4d1b5dcd554dc2516b14bf2750bc51af7134d06",
+  "baselineBundle": ".build/performance-audit/before/RadixCorePackageTests.xctest",
+  "after": "Selection zero/single fast paths; VolumeCapabilityCache uses URL(filePath:directoryHint:.inferFromPath).",
+  "methodology": "Three paired Release rounds, alternating original/fixed ordering, fresh process per invocation, identical generated one-byte-file fixtures, uncontrolled warm APFS caches. Each navigation invocation measures five getter samples on a million-row directory. Timing output rounds to six decimals; zero is below output precision, not literally zero cost. Instrumented libc call counts are separate. Foundation is an injected contentsOfDirectory backend, sharing production metadata classification; it is not the exact shipping enumerator backend.",
+  "environment": "Apple M5 MacBook Air; 10 cores; 32 GiB RAM; macOS 26.6.2; Xcode 26.6; local APFS",
+  "scanTimingSummary": {
+    "wide-native": {
+      "before": {
+        "samplesSeconds": [
+          0.056555,
+          0.057418,
+          0.056803
+        ],
+        "medianSeconds": 0.056803
+      },
+      "after": {
+        "samplesSeconds": [
+          0.062038,
+          0.058337,
+          0.05785
+        ],
+        "medianSeconds": 0.058337
+      }
+    },
+    "wide-foundation": {
+      "before": {
+        "samplesSeconds": [
+          0.233977,
+          0.224126,
+          0.230981
+        ],
+        "medianSeconds": 0.230981
+      },
+      "after": {
+        "samplesSeconds": [
+          0.225673,
+          0.223604,
+          0.218715
+        ],
+        "medianSeconds": 0.223604
+      }
+    },
+    "fanout-native": {
+      "before": {
+        "samplesSeconds": [
+          0.436568,
+          0.430107,
+          0.434674
+        ],
+        "medianSeconds": 0.434674
+      },
+      "after": {
+        "samplesSeconds": [
+          0.424448,
+          0.433126,
+          0.430254
+        ],
+        "medianSeconds": 0.430254
+      }
+    },
+    "fanout-foundation": {
+      "before": {
+        "samplesSeconds": [
+          2.249208,
+          2.144037,
+          2.287119
+        ],
+        "medianSeconds": 2.249208
+      },
+      "after": {
+        "samplesSeconds": [
+          2.144738,
+          2.254742,
+          2.268722
+        ],
+        "medianSeconds": 2.254742
+      }
+    }
+  },
+  "selectionSummary": {
+    "0": {
+      "before": {
+        "perProcessMedianSeconds": [
+          0.28509,
+          0.323126,
+          0.310675
+        ],
+        "medianSeconds": 0.310675
+      },
+      "after": {
+        "perProcessMedianSeconds": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "medianSeconds": 0.0
+      }
+    },
+    "1": {
+      "before": {
+        "perProcessMedianSeconds": [
+          0.310788,
+          0.33648,
+          0.333027
+        ],
+        "medianSeconds": 0.333027
+      },
+      "after": {
+        "perProcessMedianSeconds": [
+          1e-06,
+          1e-06,
+          1e-06
+        ],
+        "medianSeconds": 1e-06
+      }
+    }
+  },
+  "validation": {
+    "focusedTests": 40,
+    "coreTests": 886,
+    "skipped": 26,
+    "failed": 0,
+    "appBuild": "succeeded"
+  },
+  "rawResults": {
+    "counts-fanout-foundation-after": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.196184 files=100000 folders=101 nodes=100101 progress_events=211 warnings=0 peak_rss=261947392",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=1603 bulk_entries=100100 getattrlist=200406 lstat=100505 stat=2 fstat=101 fstatat=0"
+    ],
+    "counts-fanout-foundation-before": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.237910 files=100000 folders=101 nodes=100101 progress_events=211 warnings=0 peak_rss=260800512",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=1603 bulk_entries=100100 getattrlist=200406 lstat=200506 stat=2 fstat=101 fstatat=0"
+    ],
+    "counts-fanout-native-after": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.448686 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=184877056",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=402 bulk_entries=100100 getattrlist=102 lstat=3 stat=2 fstat=101 fstatat=0"
+    ],
+    "counts-fanout-native-before": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.470457 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=181977088",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=402 bulk_entries=100100 getattrlist=102 lstat=3 stat=2 fstat=101 fstatat=0"
+    ],
+    "counts-wide-foundation-after": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.226253 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=80740352",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=149 bulk_entries=10000 getattrlist=20006 lstat=10005 stat=2 fstat=1 fstatat=0"
+    ],
+    "counts-wide-foundation-before": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.245796 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=79183872",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=149 bulk_entries=10000 getattrlist=20006 lstat=20008 stat=2 fstat=1 fstatat=0"
+    ],
+    "counts-wide-native-after": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.060017 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=63111168",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=28 bulk_entries=10000 getattrlist=2 lstat=3 stat=2 fstat=1 fstatat=0"
+    ],
+    "counts-wide-native-before": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.059810 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=63127552",
+      "RADIX_AUDIT_LIBC_COUNTS bulk=28 bulk_entries=10000 getattrlist=2 lstat=3 stat=2 fstat=1 fstatat=0"
+    ],
+    "fanout-foundation-after-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.144738 files=100000 folders=101 nodes=100101 progress_events=210 warnings=0 peak_rss=260882432"
+    ],
+    "fanout-foundation-after-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.254742 files=100000 folders=101 nodes=100101 progress_events=212 warnings=0 peak_rss=261931008"
+    ],
+    "fanout-foundation-after-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.268722 files=100000 folders=101 nodes=100101 progress_events=211 warnings=0 peak_rss=261783552"
+    ],
+    "fanout-foundation-before-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.249208 files=100000 folders=101 nodes=100101 progress_events=211 warnings=0 peak_rss=262307840"
+    ],
+    "fanout-foundation-before-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.144037 files=100000 folders=101 nodes=100101 progress_events=211 warnings=0 peak_rss=262062080"
+    ],
+    "fanout-foundation-before-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=2.287119 files=100000 folders=101 nodes=100101 progress_events=211 warnings=0 peak_rss=261079040"
+    ],
+    "fanout-native-after-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.424448 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=181633024"
+    ],
+    "fanout-native-after-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.433126 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=180551680"
+    ],
+    "fanout-native-after-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.430254 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=181239808"
+    ],
+    "fanout-native-before-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.436568 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=181288960"
+    ],
+    "fanout-native-before-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.430107 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=183091200"
+    ],
+    "fanout-native-before-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.434674 files=100000 folders=101 nodes=100101 progress_events=200 warnings=0 peak_rss=183058432"
+    ],
+    "navigation-after-1": [
+      "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+      "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.492201 count=1000000 peak_rss=803897344 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.294300 count=1000000 peak_rss=1247936512 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.113979 count=1000000 peak_rss=1248051200 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.019315 count=1000000 peak_rss=1248296960 rss_delta=196608",
+      "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.092967 count=1000000 peak_rss=1248346112 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248411648 selected=0 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248411648 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000050 count=1000000 peak_rss=1248477184 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248509952 selected=1 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248509952 selected=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000006 count=1000000 peak_rss=1248509952 selected=1"
+    ],
+    "navigation-after-2": [
+      "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+      "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.489921 count=1000000 peak_rss=803815424 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.304130 count=1000000 peak_rss=1247854592 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.121871 count=1000000 peak_rss=1247969280 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.020692 count=1000000 peak_rss=1248215040 rss_delta=196608",
+      "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.106961 count=1000000 peak_rss=1248264192 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248329728 selected=0 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248329728 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000035 count=1000000 peak_rss=1248395264 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248428032 selected=1 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248428032 selected=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000007 count=1000000 peak_rss=1248428032 selected=1"
+    ],
+    "navigation-after-3": [
+      "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+      "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.484272 count=1000000 peak_rss=803799040 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.285929 count=1000000 peak_rss=1247838208 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.116574 count=1000000 peak_rss=1247952896 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.019096 count=1000000 peak_rss=1248198656 rss_delta=196608",
+      "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.093615 count=1000000 peak_rss=1248247808 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248313344 selected=0 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248313344 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000031 count=1000000 peak_rss=1248378880 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248411648 selected=1 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248411648 selected=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000007 count=1000000 peak_rss=1248411648 selected=1"
+    ],
+    "navigation-before-1": [
+      "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+      "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.487145 count=1000000 peak_rss=803930112 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.304181 count=1000000 peak_rss=1247952896 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.113820 count=1000000 peak_rss=1248067584 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.018835 count=1000000 peak_rss=1248313344 rss_delta=180224",
+      "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.089201 count=1000000 peak_rss=1248346112 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.285090 count=1000000 peak_rss=1248428032 selected=0 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248428032 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.296391 count=1000000 peak_rss=1248493568 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.310788 count=1000000 peak_rss=1248526336 selected=1 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248526336 selected=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.335769 count=1000000 peak_rss=1248526336 selected=1"
+    ],
+    "navigation-before-2": [
+      "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+      "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.490542 count=1000000 peak_rss=803815424 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.290270 count=1000000 peak_rss=1247854592 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.118486 count=1000000 peak_rss=1247969280 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.019058 count=1000000 peak_rss=1248231424 rss_delta=196608",
+      "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.095742 count=1000000 peak_rss=1248264192 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.323126 count=1000000 peak_rss=1248346112 selected=0 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248346112 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.320266 count=1000000 peak_rss=1248411648 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.336480 count=1000000 peak_rss=1248444416 selected=1 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000003 count=1000000 peak_rss=1248444416 selected=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.333038 count=1000000 peak_rss=1248444416 selected=1"
+    ],
+    "navigation-before-3": [
+      "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+      "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.479339 count=1000000 peak_rss=803897344 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.281463 count=1000000 peak_rss=1247936512 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.119053 count=1000000 peak_rss=1248051200 input_nodes=1000001 segments=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.018772 count=1000000 peak_rss=1248296960 rss_delta=180224",
+      "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.104509 count=1000000 peak_rss=1248329728 ",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.310675 count=1000000 peak_rss=1248411648 selected=0 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248411648 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.311521 count=1000000 peak_rss=1248477184 selected=0",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.333027 count=1000000 peak_rss=1248509952 selected=1 samples=5",
+      "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248509952 selected=1",
+      "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.341684 count=1000000 peak_rss=1248509952 selected=1"
+    ],
+    "wide-foundation-after-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.225673 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=79118336"
+    ],
+    "wide-foundation-after-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.223604 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=80052224"
+    ],
+    "wide-foundation-after-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.218715 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=79151104"
+    ],
+    "wide-foundation-before-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.233977 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=80789504"
+    ],
+    "wide-foundation-before-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.224126 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=80609280"
+    ],
+    "wide-foundation-before-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=foundation seconds=0.230981 files=10000 folders=1 nodes=10001 progress_events=25 warnings=0 peak_rss=79151104"
+    ],
+    "wide-native-after-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.062038 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=63127552"
+    ],
+    "wide-native-after-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.058337 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=63012864"
+    ],
+    "wide-native-after-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.057850 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=63062016"
+    ],
+    "wide-native-before-1": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.056555 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=63045632"
+    ],
+    "wide-native-before-2": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.057418 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=62980096"
+    ],
+    "wide-native-before-3": [
+      "RADIX_BENCH_AUDIT_FILESYSTEM mode=native seconds=0.056803 files=10000 folders=1 nodes=10001 progress_events=24 warnings=0 peak_rss=62996480"
+    ]
+  },
+  "afterRevision": "18be26261e7bac2acc23e5bbb27ac1ac0cde2cfc"
+}

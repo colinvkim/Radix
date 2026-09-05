@@ -1,0 +1,7 @@
+Captured on one generated fixture file, forced Foundation scan, debug build, 2026-09-04.
+
+1. ScanEngine.classifiedDirectoryEntries -> ScanMetadataLoader.metadata -> nodeMetadata -> defaultFileStatus -> URL.withUnsafeFileSystemRepresentation -> lstat
+
+2. ScanEngine.classifiedDirectoryEntries -> ScanMetadataLoader.metadata -> nodeMetadata -> CloneMappingCapabilityCache.cloneMetadata -> VolumeCapabilityCache.value -> normalizedPath -> Foundation.URL.init(fileURLWithPath:) -> Foundation._SwiftURL.init(filePath:pathStyle:directoryHint:relativeTo:) -> lstat
+
+Run syscall-counts.c with RADIX_AUDIT_STACKS=1 on a fixture containing file-00000000.dat to capture original symbolized frames.
