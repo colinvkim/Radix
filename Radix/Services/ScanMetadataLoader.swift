@@ -226,6 +226,23 @@ nonisolated struct ScanMetadataLoader: Sendable {
     struct FileStatus: Sendable {
         let fileFlags: UInt32
         let isDirectory: Bool
+        let fileIdentity: FileIdentity?
+        let linkCount: UInt64
+        let allocatedSize: Int64?
+
+        init(
+            fileFlags: UInt32,
+            isDirectory: Bool,
+            fileIdentity: FileIdentity? = nil,
+            linkCount: UInt64 = 1,
+            allocatedSize: Int64? = nil
+        ) {
+            self.fileFlags = fileFlags
+            self.isDirectory = isDirectory
+            self.fileIdentity = fileIdentity
+            self.linkCount = linkCount
+            self.allocatedSize = allocatedSize
+        }
     }
 
     typealias FileSystemInfoProvider = @Sendable (
@@ -292,8 +309,8 @@ nonisolated struct ScanMetadataLoader: Sendable {
     let diagnostics: ScanDiagnosticsContext?
     private let linkCountCapabilityCache: LinkCountCapabilityCache
     private let cloneMappingCapabilityCache: CloneMappingCapabilityCache
-    private let fileSystemInfoProvider: FileSystemInfoProvider
-    private let fileAllocatedSizeProvider: FileAllocatedSizeProvider
+    private let fileSystemInfoProvider: FileSystemInfoProvider?
+    private let fileAllocatedSizeProvider: FileAllocatedSizeProvider?
     private let fileStatusProvider: FileStatusProvider
     private let packageClassifier: PackageClassifier
 
@@ -301,8 +318,8 @@ nonisolated struct ScanMetadataLoader: Sendable {
         diagnostics: ScanDiagnosticsContext? = nil,
         linkCountCapabilityCache: LinkCountCapabilityCache = LinkCountCapabilityCache(),
         cloneMappingCapabilityCache: CloneMappingCapabilityCache = CloneMappingCapabilityCache(),
-        fileSystemInfoProvider: @escaping FileSystemInfoProvider = ScanMetadataLoader.defaultFileSystemInfo,
-        fileAllocatedSizeProvider: @escaping FileAllocatedSizeProvider = ScanMetadataLoader.defaultFileAllocatedSize,
+        fileSystemInfoProvider: FileSystemInfoProvider? = nil,
+        fileAllocatedSizeProvider: FileAllocatedSizeProvider? = nil,
         fileStatusProvider: @escaping FileStatusProvider = ScanMetadataLoader.defaultFileStatus,
         packageClassifier: PackageClassifier = PackageClassifier()
     ) {
@@ -424,7 +441,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
     /// Loads the descriptor-independent identity used to protect Foundation's
     /// path-based directory enumeration from persistent replacement.
     nonisolated func fileSystemIdentity(at url: URL) throws -> FileIdentity {
-        guard let identity = fileSystemInfoProvider(url, diagnostics).identity,
+        guard let identity = (fileSystemInfoProvider ?? Self.defaultFileSystemInfo)(url, diagnostics).identity,
               identity.isFileSystemIdentity else {
             throw Self.staleFileSystemIdentityError(for: url)
         }
@@ -459,18 +476,30 @@ nonisolated struct ScanMetadataLoader: Sendable {
         diagnostics: ScanDiagnosticsContext? = nil,
         linkCountCapabilityCache: LinkCountCapabilityCache,
         cloneMappingCapabilityCache: CloneMappingCapabilityCache,
-        fileSystemInfoProvider: FileSystemInfoProvider,
-        fileAllocatedSizeProvider: FileAllocatedSizeProvider,
+        fileSystemInfoProvider: FileSystemInfoProvider?,
+        fileAllocatedSizeProvider: FileAllocatedSizeProvider?,
         fileStatusProvider: FileStatusProvider
     ) -> NodeMetadata {
         let isDirectory = values.isDirectory ?? false
         let isPackage = values.isPackage ?? false
         let isSymbolicLink = values.isSymbolicLink ?? false
-        let isDataless = isDataless(fileFlags: fileStatusProvider(url)?.fileFlags)
+        // Reuse this load's lstat fields; identity validation before/after
+        // enumeration deliberately performs separate fresh reads.
+        let status = fileStatusProvider(url)
+        let isDataless = isDataless(fileFlags: status?.fileFlags)
+        func fileSystemInfo() -> (identity: FileIdentity?, linkCount: UInt64) {
+            if let fileSystemInfoProvider { return fileSystemInfoProvider(url, diagnostics) }
+            if let status, let identity = status.fileIdentity { return (identity, status.linkCount) }
+            return defaultFileSystemInfo(for: url, diagnostics: diagnostics)
+        }
+        func fallbackAllocatedSize() -> Int64? {
+            if let fileAllocatedSizeProvider { return fileAllocatedSizeProvider(url) }
+            return status?.allocatedSize ?? defaultFileStatus(for: url)?.allocatedSize
+        }
         let logicalSize = Int64(values.totalFileSize ?? values.fileSize ?? 0)
         let allocatedSize = values.totalFileAllocatedSize.map(Int64.init)
             ?? values.fileAllocatedSize.map(Int64.init)
-            ?? fileAllocatedSizeProvider(url)
+            ?? fallbackAllocatedSize()
             ?? 0
         let dataAllocatedSize = min(
             max(values.fileAllocatedSize.map(Int64.init) ?? allocatedSize, 0),
@@ -480,11 +509,11 @@ nonisolated struct ScanMetadataLoader: Sendable {
         var fileIdentity = Self.fileIdentity(from: values.fileResourceIdentifier)
         var linkCount = values.linkCount.map(UInt64.init) ?? 1
         if isSymbolicLink && loadsSymbolicLinkFileSystemInfo {
-            let fileSystemInfo = fileSystemInfoProvider(url, diagnostics)
+            let fileSystemInfo = fileSystemInfo()
             fileIdentity = fileSystemInfo.identity
             linkCount = fileSystemInfo.linkCount
         } else if isDirectory && loadsSymbolicLinkFileSystemInfo {
-            let fileSystemInfo = fileSystemInfoProvider(url, diagnostics)
+            let fileSystemInfo = fileSystemInfo()
             fileIdentity = fileSystemInfo.identity ?? fileIdentity
         } else if shouldReadFileSystemIdentity(
             isDirectory: isDirectory,
@@ -495,7 +524,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
             linkCountCapabilityCache: linkCountCapabilityCache,
             diagnostics: diagnostics
         ) {
-            let fileSystemInfo = fileSystemInfoProvider(url, diagnostics)
+            let fileSystemInfo = fileSystemInfo()
             fileIdentity = fileIdentity ?? fileSystemInfo.identity
             linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
         }
@@ -555,38 +584,14 @@ nonisolated struct ScanMetadataLoader: Sendable {
         for url: URL,
         diagnostics: ScanDiagnosticsContext? = nil
     ) -> (identity: FileIdentity?, linkCount: UInt64) {
-        var fileStat = stat()
         #if DEBUG
         let start = diagnostics?.start()
         #endif
-        let result = url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return -1 }
-            return Int(lstat(path, &fileStat))
-        }
+        let status = defaultFileStatus(for: url)
         #if DEBUG
         diagnostics?.record(operation: "metadata.lstat", url: url, startedAt: start)
         #endif
-        guard result == 0 else {
-            return (nil, 1)
-        }
-
-        return (
-            FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
-            max(UInt64(fileStat.st_nlink), 1)
-        )
-    }
-
-    private nonisolated static func defaultFileAllocatedSize(for url: URL) -> Int64? {
-        var fileStat = stat()
-        let result = url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return -1 }
-            return Int(lstat(path, &fileStat))
-        }
-        guard result == 0 else { return nil }
-
-        let blocks = max(Int64(fileStat.st_blocks), 0)
-        let (allocatedSize, overflow) = blocks.multipliedReportingOverflow(by: 512)
-        return overflow ? Int64.max : allocatedSize
+        return (status?.fileIdentity, status?.linkCount ?? 1)
     }
 
     nonisolated func datalessStatus(at url: URL) -> FileStatus? {
@@ -609,9 +614,14 @@ nonisolated struct ScanMetadataLoader: Sendable {
             return Int(lstat(path, &fileStat))
         }
         guard result == 0 else { return nil }
+        let blocks = max(Int64(fileStat.st_blocks), 0)
+        let (allocatedSize, overflow) = blocks.multipliedReportingOverflow(by: 512)
         return FileStatus(
             fileFlags: fileStat.st_flags,
-            isDirectory: fileStat.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
+            isDirectory: fileStat.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR),
+            fileIdentity: FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
+            linkCount: max(UInt64(fileStat.st_nlink), 1),
+            allocatedSize: overflow ? Int64.max : allocatedSize
         )
     }
 

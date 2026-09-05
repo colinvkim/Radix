@@ -310,6 +310,35 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         }
     }
 
+    func testMetadataReadAuditBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = environment["RADIX_BENCH_METADATA_PATH"] else {
+            throw XCTSkip("Set RADIX_BENCH_METADATA_PATH to an audit fixture containing directory, file, and symlink.")
+        }
+        let root = URL(filePath: path, directoryHint: .isDirectory)
+        let loader = ScanMetadataLoader()
+        for scenario in ["directory", "symlink", "file", "missing-allocation"] {
+            let url = root.appending(path: scenario == "missing-allocation" ? "file" : scenario)
+            let keys = scenario == "missing-allocation"
+                ? ScanMetadataLoader.scanResourceKeys.subtracting([
+                    .fileAllocatedSizeKey, .totalFileAllocatedSizeKey,
+                    .linkCountKey, .fileResourceIdentifierKey
+                ]) : ScanMetadataLoader.scanResourceKeys
+            let values = try url.resourceValues(forKeys: keys)
+            let start = ContinuousClock.now
+            var total: Int64 = 0
+            var identities = 0
+            for _ in 0..<10_000 {
+                let metadata = loader.metadata(for: url, prefetchedResourceValues: values)
+                total += metadata.allocatedSize
+                if metadata.fileIdentity != nil { identities += 1 }
+            }
+            let elapsed = start.duration(to: .now)
+            XCTAssertEqual(identities, 10_000)
+            print("RADIX_BENCH_METADATA scenario=\(scenario) seconds=\(BenchmarkSupport.durationSeconds(elapsed)) allocated_sum=\(total) identities=\(identities)")
+        }
+    }
+
     func testFilesystemAuditBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["RADIX_BENCH_AUDIT_PATH"] else {

@@ -3,6 +3,71 @@ import XCTest
 @testable import RadixCore
 
 final class ScanMetadataLoaderTests: XCTestCase {
+    func testMetadataReusesStatusIdentityAndAllocationFallback() {
+        let counters = MetadataProbeCounters()
+        let identity = FileIdentity(device: 7, inode: 42)
+        let loader = ScanMetadataLoader(
+            linkCountCapabilityCache: LinkCountCapabilityCache { _ in
+                .init(volumeRootPath: "/virtual", supportsHardLinks: true)
+            },
+            cloneMappingCapabilityCache: CloneMappingCapabilityCache(probeProvider: { _ in
+                .init(identity: nil, supportsCloneMapping: false)
+            }, volumeRootProvider: { _ in "/virtual" }),
+            fileStatusProvider: { _ in
+                counters.recordLstat()
+                return .init(fileFlags: UInt32(SF_DATALESS), isDirectory: false,
+                             fileIdentity: identity, linkCount: 3, allocatedSize: 8_192)
+            }
+        )
+
+        let metadata = loader.metadata(
+            for: URL(filePath: "/virtual/file", directoryHint: .notDirectory),
+            prefetchedResourceValues: URLResourceValues()
+        )
+
+        XCTAssertTrue(metadata.isDataless)
+        XCTAssertEqual(metadata.fileIdentity, identity)
+        XCTAssertEqual(metadata.linkCount, 3)
+        XCTAssertEqual(metadata.allocatedSize, 8_192)
+        XCTAssertEqual(metadata.dataAllocatedSize, 8_192)
+        XCTAssertEqual(counters.lstatCount, 1)
+    }
+
+    func testExplicitProviderFailuresDoNotFallThroughToStatusFields() {
+        let loader = ScanMetadataLoader(
+            linkCountCapabilityCache: LinkCountCapabilityCache { _ in
+                .init(volumeRootPath: "/virtual", supportsHardLinks: true)
+            },
+            fileSystemInfoProvider: { _, _ in (nil, 3) },
+            fileAllocatedSizeProvider: { _ in nil },
+            fileStatusProvider: { _ in
+                .init(fileFlags: 0, isDirectory: false,
+                      fileIdentity: FileIdentity(device: 7, inode: 42), linkCount: 7, allocatedSize: 8_192)
+            }
+        )
+        let metadata = loader.metadata(
+            for: URL(filePath: "/virtual/file", directoryHint: .notDirectory),
+            prefetchedResourceValues: URLResourceValues()
+        )
+        XCTAssertNil(metadata.fileIdentity)
+        XCTAssertEqual(metadata.linkCount, 3)
+        XCTAssertEqual(metadata.allocatedSize, 0)
+    }
+
+    func testReusedStatusDoesNotMaskDirectoryReplacement() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appending(path: "directory", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let loader = ScanMetadataLoader()
+        let original = try XCTUnwrap(loader.metadata(for: directory).fileIdentity)
+        try FileManager.default.moveItem(at: directory, to: root.appending(path: "old"))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(try loader.validateFileSystemIdentity(original, at: directory))
+        XCTAssertNotEqual(try loader.metadata(for: directory).fileIdentity, original)
+    }
+
     func testFileSystemIdentityValidationUsesTheDedicatedProvider() throws {
         let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
         let expectedIdentity = FileIdentity(device: 7, inode: 42)

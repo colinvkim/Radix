@@ -1,0 +1,1014 @@
+{
+  "baseline": "e87bebe",
+  "method": "Sequential fresh Release processes; six metadata pairs, three native/Foundation pairs, separate instrumented pairs and native semantic parity pair. Second timing pair and metadata pairs four/six reversed.",
+  "runs": [
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 1,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.04151525",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.041489958",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.078123708",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.129379083",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 1,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.0257495",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.029838209",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.086041041",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.114600083",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "before",
+      "iteration": 1,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.146473",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63488000",
+          "initial_rss": "42434560",
+          "finalization_rss": "63160320",
+          "peak_rss_at_finalization": "63160320",
+          "finished_rss": "63488000",
+          "finalization_seconds": "0.013047"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "after",
+      "iteration": 1,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.143138",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63684608",
+          "initial_rss": "42401792",
+          "finalization_rss": "63340544",
+          "peak_rss_at_finalization": "63340544",
+          "finished_rss": "63684608",
+          "finalization_seconds": "0.012675"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "before",
+      "iteration": 1,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.142651",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "71958528",
+          "initial_rss": "42467328",
+          "finalization_rss": "71467008",
+          "peak_rss_at_finalization": "71467008",
+          "finished_rss": "71958528",
+          "finalization_seconds": "0.013224"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "after",
+      "iteration": 1,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.143112",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "72040448",
+          "initial_rss": "42369024",
+          "finalization_rss": "71532544",
+          "peak_rss_at_finalization": "71532544",
+          "finished_rss": "72040448",
+          "finalization_seconds": "0.013370"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 2,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.026204292",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.030730792",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.091583",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.119510083",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 2,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.041611083",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.041153",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.0792415",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.132554792",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "after",
+      "iteration": 2,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.145743",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63520768",
+          "initial_rss": "42369024",
+          "finalization_rss": "63160320",
+          "peak_rss_at_finalization": "63176704",
+          "finished_rss": "63520768",
+          "finalization_seconds": "0.013145"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "before",
+      "iteration": 2,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.144206",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63520768",
+          "initial_rss": "42483712",
+          "finalization_rss": "63176704",
+          "peak_rss_at_finalization": "63193088",
+          "finished_rss": "63520768",
+          "finalization_seconds": "0.013100"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "after",
+      "iteration": 2,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.145366",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "71974912",
+          "initial_rss": "42418176",
+          "finalization_rss": "71483392",
+          "peak_rss_at_finalization": "71483392",
+          "finished_rss": "71974912",
+          "finalization_seconds": "0.013231"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "before",
+      "iteration": 2,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.140704",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "71991296",
+          "initial_rss": "42467328",
+          "finalization_rss": "71499776",
+          "peak_rss_at_finalization": "71499776",
+          "finished_rss": "71991296",
+          "finalization_seconds": "0.013535"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 3,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.042629666",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.041381291",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.079478083",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.131058542",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 3,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.023837083",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.029276375",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.079181542",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.113933875",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "before",
+      "iteration": 3,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.143695",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63782912",
+          "initial_rss": "42401792",
+          "finalization_rss": "63406080",
+          "peak_rss_at_finalization": "63422464",
+          "finished_rss": "63782912",
+          "finalization_seconds": "0.013098"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "after",
+      "iteration": 3,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.145064",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63717376",
+          "initial_rss": "42418176",
+          "finalization_rss": "63062016",
+          "peak_rss_at_finalization": "63094784",
+          "finished_rss": "63717376",
+          "finalization_seconds": "0.013174"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "before",
+      "iteration": 3,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.168023",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "72073216",
+          "initial_rss": "42434560",
+          "finalization_rss": "71565312",
+          "peak_rss_at_finalization": "71581696",
+          "finished_rss": "72073216",
+          "finalization_seconds": "0.013439"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "after",
+      "iteration": 3,
+      "instrumented": false,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.134571",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "72073216",
+          "initial_rss": "42401792",
+          "finalization_rss": "71581696",
+          "peak_rss_at_finalization": "71581696",
+          "finished_rss": "72073216",
+          "finalization_seconds": "0.013236"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 1,
+      "instrumented": true,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.045747541",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.045109208",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.083332834",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.135615584",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "20004",
+          "lstat": "90000",
+          "stat": "30002",
+          "fstat": "0",
+          "fstatat": "0"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "0",
+          "lstat": "0",
+          "stat": "0",
+          "fstat": "0",
+          "fstatat": "0"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 1,
+      "instrumented": true,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.028255167",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.032582042",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.082830334",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.114067041",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "20004",
+          "lstat": "40000",
+          "stat": "30002",
+          "fstat": "0",
+          "fstatat": "0"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "0",
+          "lstat": "0",
+          "stat": "0",
+          "fstat": "0",
+          "fstatat": "0"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "before",
+      "iteration": 1,
+      "instrumented": true,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.146964",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63733760",
+          "initial_rss": "42516480",
+          "finalization_rss": "63389696",
+          "peak_rss_at_finalization": "63406080",
+          "finished_rss": "63733760",
+          "finalization_seconds": "0.013146"
+        },
+        {
+          "bulk": "2004",
+          "bulk_entries": "12000",
+          "getattrlist": "1002",
+          "lstat": "3",
+          "stat": "2",
+          "fstat": "1001",
+          "fstatat": "0"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "0",
+          "lstat": "0",
+          "stat": "0",
+          "fstat": "0",
+          "fstatat": "0"
+        }
+      ]
+    },
+    {
+      "scenario": "native",
+      "variant": "after",
+      "iteration": 1,
+      "instrumented": true,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "0.144855",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "28",
+          "warnings": "0",
+          "peak_rss": "63488000",
+          "initial_rss": "42483712",
+          "finalization_rss": "63176704",
+          "peak_rss_at_finalization": "63193088",
+          "finished_rss": "63488000",
+          "finalization_seconds": "0.012905"
+        },
+        {
+          "bulk": "2004",
+          "bulk_entries": "12000",
+          "getattrlist": "1002",
+          "lstat": "1",
+          "stat": "2",
+          "fstat": "1001",
+          "fstatat": "0"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "0",
+          "lstat": "0",
+          "stat": "0",
+          "fstat": "0",
+          "fstatat": "0"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "before",
+      "iteration": 1,
+      "instrumented": true,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.139456",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "72056832",
+          "initial_rss": "42532864",
+          "finalization_rss": "71565312",
+          "peak_rss_at_finalization": "71565312",
+          "finished_rss": "72056832",
+          "finalization_seconds": "0.015546"
+        },
+        {
+          "bulk": "2014",
+          "bulk_entries": "12000",
+          "getattrlist": "25007",
+          "lstat": "17005",
+          "stat": "2",
+          "fstat": "1001",
+          "fstatat": "0"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "0",
+          "lstat": "0",
+          "stat": "0",
+          "fstat": "0",
+          "fstatat": "0"
+        }
+      ]
+    },
+    {
+      "scenario": "foundation",
+      "variant": "after",
+      "iteration": 1,
+      "instrumented": true,
+      "phases": [
+        {
+          "mode": "foundation",
+          "seconds": "1.127184",
+          "files": "10000",
+          "folders": "1001",
+          "nodes": "12001",
+          "progress_events": "35",
+          "warnings": "0",
+          "peak_rss": "72073216",
+          "initial_rss": "42467328",
+          "finalization_rss": "71565312",
+          "peak_rss_at_finalization": "71565312",
+          "finished_rss": "72073216",
+          "finalization_seconds": "0.013581"
+        },
+        {
+          "bulk": "2014",
+          "bulk_entries": "12000",
+          "getattrlist": "25007",
+          "lstat": "14003",
+          "stat": "2",
+          "fstat": "1001",
+          "fstatat": "0"
+        },
+        {
+          "bulk": "0",
+          "bulk_entries": "0",
+          "getattrlist": "0",
+          "lstat": "0",
+          "stat": "0",
+          "fstat": "0",
+          "fstatat": "0"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 4,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.023491583",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.030121959",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.079644708",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.110761916",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 4,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.042475666",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.041408584",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.07934925",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.129859459",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 5,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.040616666",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.0406605",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.077201417",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.128422292",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 5,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.024498125",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.0284685",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.07868125",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.112415291",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "after",
+      "iteration": 6,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.024384208",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.029668875",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.087382625",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.121664833",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    },
+    {
+      "scenario": "metadata",
+      "variant": "before",
+      "iteration": 6,
+      "instrumented": false,
+      "phases": [
+        {
+          "scenario": "directory",
+          "seconds": "0.0414035",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "symlink",
+          "seconds": "0.040692584",
+          "allocated_sum": "0",
+          "identities": "10000"
+        },
+        {
+          "scenario": "file",
+          "seconds": "0.077307209",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        },
+        {
+          "scenario": "missing-allocation",
+          "seconds": "0.129186625",
+          "allocated_sum": "40960000",
+          "identities": "10000"
+        }
+      ]
+    }
+  ],
+  "parity": [
+    {
+      "variant": "before",
+      "result": {
+        "aggregateDirectories": 1001,
+        "aggregateFiles": 10000,
+        "allocatedBytes": 40960000,
+        "autoSummarizedNodes": 0,
+        "automaticSummarization": false,
+        "currentRSSBytes": 63586304,
+        "directoriesVisited": 1001,
+        "enumeratedItems": 12001,
+        "exclusionPatternCount": 0,
+        "exclusionProfile": "none",
+        "filesVisited": 10000,
+        "logicalBytes": 21000,
+        "metadataWorkItems": 11001,
+        "ordinaryCompletedItems": 12001,
+        "ordinaryDirectoryEnumerations": 1001,
+        "ordinaryDiscoveredItems": 12001,
+        "packageNodes": 0,
+        "packagesExpanded": true,
+        "path": "/tmp/radix-metadata-zbw03yjh/tree",
+        "peakRSSBytes": 63586304,
+        "peakRSSIncreaseBytes": 21381120,
+        "progressEvents": 28,
+        "retainedNodes": 12001,
+        "scenario": "expanded-manual-none",
+        "semanticFingerprint": "54ab72a55bf84d1a",
+        "startRSSBytes": 42205184,
+        "summarizedDescendantFiles": 0,
+        "summaryAdditionalVisitedItems": 0,
+        "systemCPUSeconds": 0.086195,
+        "treeFingerprint": "80159fb15a868f47",
+        "userCPUSeconds": 0.111821,
+        "wallSeconds": 0.147834167,
+        "warningEvents": 0,
+        "warningFingerprint": "a8c7f832281a39c5",
+        "warningOrderFingerprint": "a8c7f832281a39c5",
+        "warnings": 0
+      }
+    },
+    {
+      "variant": "after",
+      "result": {
+        "aggregateDirectories": 1001,
+        "aggregateFiles": 10000,
+        "allocatedBytes": 40960000,
+        "autoSummarizedNodes": 0,
+        "automaticSummarization": false,
+        "currentRSSBytes": 63569920,
+        "directoriesVisited": 1001,
+        "enumeratedItems": 12001,
+        "exclusionPatternCount": 0,
+        "exclusionProfile": "none",
+        "filesVisited": 10000,
+        "logicalBytes": 21000,
+        "metadataWorkItems": 11001,
+        "ordinaryCompletedItems": 12001,
+        "ordinaryDirectoryEnumerations": 1001,
+        "ordinaryDiscoveredItems": 12001,
+        "packageNodes": 0,
+        "packagesExpanded": true,
+        "path": "/tmp/radix-metadata-zbw03yjh/tree",
+        "peakRSSBytes": 63569920,
+        "peakRSSIncreaseBytes": 21413888,
+        "progressEvents": 28,
+        "retainedNodes": 12001,
+        "scenario": "expanded-manual-none",
+        "semanticFingerprint": "54ab72a55bf84d1a",
+        "startRSSBytes": 42156032,
+        "summarizedDescendantFiles": 0,
+        "summaryAdditionalVisitedItems": 0,
+        "systemCPUSeconds": 0.082093,
+        "treeFingerprint": "80159fb15a868f47",
+        "userCPUSeconds": 0.11476699999999998,
+        "wallSeconds": 0.145453791,
+        "warningEvents": 0,
+        "warningFingerprint": "a8c7f832281a39c5",
+        "warningOrderFingerprint": "a8c7f832281a39c5",
+        "warnings": 0
+      }
+    }
+  ]
+}

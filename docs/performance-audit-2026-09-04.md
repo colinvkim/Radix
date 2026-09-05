@@ -14,12 +14,12 @@ The completed-scan cache now charges full backing trees once, evicts older indep
 
 **Follow-up status — 5 September 2026**
 
-Counting the nine prioritized findings below, three retain unfinished work after the comparison and main-actor fixes; all three are partly addressed. Six findings are complete. This counts whole findings, including their secondary recommendations; completing a finding's largest fix does not close its remaining follow-ups.
+Counting the nine prioritized findings below, two retain unfinished work after metadata read reuse; both are partly addressed. Seven findings are complete. This counts whole findings, including their secondary recommendations; completing a finding's largest fix does not close its remaining follow-ups.
 
 | Finding | Status | Remaining work |
 | --- | --- | --- |
 | 1. Selection resolution | Complete | Empty/single selection fast paths validated. |
-| 2. Metadata reads | Partial | Capability-cache path probes removed; sharing status/identity/allocation reads within a metadata load remains. |
+| 2. Metadata reads | Complete | Status/identity/allocation reads reused within each metadata load; independent identity validation remains fresh. See [metadata validation](/Users/colin/Programming/Radix/docs/performance-audit/metadata-reads-2026-09-05.md). |
 | 3. Large sorts | Partial | Browser index sorting and cancellation validated; scanner finalization sorting and cancellation still need focused profiling. |
 | 4. Main-actor navigation/publication | Complete | Large-directory loading and retired navigation/browser buffer release run in the background; see [buffer-release validation](/Users/colin/Programming/Radix/docs/performance-audit/buffer-release-2026-09-05.md). |
 | 5. Metadata-only search | Complete | Text indexing is deferred until needed. |
