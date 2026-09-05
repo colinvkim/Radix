@@ -2259,6 +2259,7 @@ private final class RescanRecordingService: ScanEventStreaming, @unchecked Senda
 }
 
 private actor RecordingSnapshotTransformService: ScanSnapshotTransforming {
+    private let service = ScanSnapshotTransformService()
     private var removingNodeIDBatches: [[String]] = []
 
     func recordedRemovingNodeIDs() -> [String] {
@@ -2275,13 +2276,41 @@ private actor RecordingSnapshotTransformService: ScanSnapshotTransforming {
         with replacement: FileTreeStore,
         additionalWarnings: [ScanWarning]
     ) async throws -> ScanSnapshot? {
-        try snapshot.replacingNode(
+        try await service.replacingNode(
+            in: snapshot,
+            id: targetID,
+            with: replacement,
+            additionalWarnings: additionalWarnings
+        )
+    }
+
+    func replacingSubtrees(
+        in snapshot: ScanSnapshot,
+        replacements: [String: FileTreeStore],
+        additionalWarnings: [ScanWarning]
+    ) async throws -> ScanSnapshot? {
+        try await service.replacingSubtrees(
+            in: snapshot,
+            replacements: replacements,
+            additionalWarnings: additionalWarnings
+        )
+    }
+
+    func replacingNodeForSubtreeRescan(
+        in snapshot: ScanSnapshot,
+        id targetID: String,
+        with replacement: FileTreeStore,
+        additionalWarnings: [ScanWarning],
+        volumeCapacity: VolumeCapacitySnapshot?,
+        reconcilesVolumeCapacity: Bool
+    ) async throws -> ScanSnapshot? {
+        return try await service.replacingNodeForSubtreeRescan(
+            in: snapshot,
             id: targetID,
             with: replacement,
             additionalWarnings: additionalWarnings,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
+            volumeCapacity: volumeCapacity,
+            reconcilesVolumeCapacity: reconcilesVolumeCapacity
         )
     }
 
@@ -2290,28 +2319,19 @@ private actor RecordingSnapshotTransformService: ScanSnapshotTransforming {
         ids targetIDs: [String]
     ) async throws -> ScanSnapshot? {
         removingNodeIDBatches.append(targetIDs)
-        return try snapshot.removingNodes(
-            ids: targetIDs,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
-        )
+        return try await service.removingNodes(in: snapshot, ids: targetIDs)
     }
 
     func scopedSnapshot(
         _ snapshot: ScanSnapshot,
         to target: ScanTarget
     ) async throws -> ScanSnapshot? {
-        try snapshot.scoped(
-            to: target,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
-        )
+        try await service.scopedSnapshot(snapshot, to: target)
     }
 }
 
 private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
+    private let service = ScanSnapshotTransformService()
     private let pausedRemovalID: String?
     private let pausedReplacementID: String?
     private var didPause = false
@@ -2353,13 +2373,43 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
     ) async throws -> ScanSnapshot? {
         replacementIDs.append(targetID)
         await pauseIfNeeded(pausedReplacementID == targetID)
-        return try snapshot.replacingNode(
+        return try await service.replacingNode(
+            in: snapshot,
+            id: targetID,
+            with: replacement,
+            additionalWarnings: additionalWarnings
+        )
+    }
+
+    func replacingSubtrees(
+        in snapshot: ScanSnapshot,
+        replacements: [String: FileTreeStore],
+        additionalWarnings: [ScanWarning]
+    ) async throws -> ScanSnapshot? {
+        try await service.replacingSubtrees(
+            in: snapshot,
+            replacements: replacements,
+            additionalWarnings: additionalWarnings
+        )
+    }
+
+    func replacingNodeForSubtreeRescan(
+        in snapshot: ScanSnapshot,
+        id targetID: String,
+        with replacement: FileTreeStore,
+        additionalWarnings: [ScanWarning],
+        volumeCapacity: VolumeCapacitySnapshot?,
+        reconcilesVolumeCapacity: Bool
+    ) async throws -> ScanSnapshot? {
+        replacementIDs.append(targetID)
+        await pauseIfNeeded(pausedReplacementID == targetID)
+        return try await service.replacingNodeForSubtreeRescan(
+            in: snapshot,
             id: targetID,
             with: replacement,
             additionalWarnings: additionalWarnings,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
+            volumeCapacity: volumeCapacity,
+            reconcilesVolumeCapacity: reconcilesVolumeCapacity
         )
     }
 
@@ -2369,24 +2419,14 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
     ) async throws -> ScanSnapshot? {
         removalBatches.append(targetIDs)
         await pauseIfNeeded(pausedRemovalID.map(targetIDs.contains) == true)
-        return try snapshot.removingNodes(
-            ids: targetIDs,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
-        )
+        return try await service.removingNodes(in: snapshot, ids: targetIDs)
     }
 
     func scopedSnapshot(
         _ snapshot: ScanSnapshot,
         to target: ScanTarget
     ) async throws -> ScanSnapshot? {
-        try snapshot.scoped(
-            to: target,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
-        )
+        try await service.scopedSnapshot(snapshot, to: target)
     }
 
     private func pauseIfNeeded(_ shouldPause: Bool) async {
