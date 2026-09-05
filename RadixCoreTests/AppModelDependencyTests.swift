@@ -592,7 +592,6 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(recorder.copiedPathURLs, [first.url])
         XCTAssertTrue(recorder.copiedPathManyURLs.isEmpty)
         XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [first.id])
-        XCTAssertEqual(model.pendingTrashNode?.id, first.id)
         XCTAssertNil(model.lastErrorMessage)
     }
 
@@ -825,11 +824,11 @@ final class AppModelDependencyTests: XCTestCase {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
 
-        model.pendingTrashNode = file
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertEqual(recorder.movedToTrashURLs, [file.url])
-        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertNil(model.pendingTrashSelection)
         XCTAssertEqual(model.availableTargets, [refreshedTarget])
         XCTAssertEqual(recorder.defaultTargetsCallCount, 2)
     }
@@ -847,10 +846,9 @@ final class AppModelDependencyTests: XCTestCase {
         let file = installSelection(on: model)
         model.scanState.selectedTarget = ScanTarget(url: URL(filePath: "/selection", directoryHint: .isDirectory))
 
-        model.pendingTrashNode = file
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashNode)
         XCTAssertNil(model.pendingTrashSelection)
 
         try await probe.waitUntilStarted()
@@ -887,7 +885,7 @@ final class AppModelDependencyTests: XCTestCase {
         let file = installSelection(on: model)
         model.scanState.selectedTarget = ScanTarget(url: URL(filePath: "/selection", directoryHint: .isDirectory))
 
-        model.pendingTrashNode = file
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
         try await probe.waitUntilStarted()
@@ -1040,7 +1038,6 @@ final class AppModelDependencyTests: XCTestCase {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [folder])
-        model.pendingTrashNode = folder
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
@@ -1071,7 +1068,7 @@ final class AppModelDependencyTests: XCTestCase {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         installSelection(on: model, file: file)
 
-        model.pendingTrashNode = file
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertEqual(verifiedNodeIDs, [file.id])
@@ -1092,7 +1089,7 @@ final class AppModelDependencyTests: XCTestCase {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         installSelection(on: model, file: file)
 
-        model.pendingTrashNode = file
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
@@ -1111,7 +1108,7 @@ final class AppModelDependencyTests: XCTestCase {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         installSelection(on: model, file: file)
 
-        model.pendingTrashNode = file
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
@@ -1186,7 +1183,7 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.requestMoveSelectedToTrash()
 
-        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertNil(model.pendingTrashSelection)
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
     }
@@ -1210,7 +1207,6 @@ final class AppModelDependencyTests: XCTestCase {
         model.requestMoveNodesToTrash([folder, child])
 
         XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
-        XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
     }
 
     @MainActor
@@ -1374,7 +1370,6 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(model.addNodesToDiscardPile([queued]))
         XCTAssertFalse(model.requestMoveNodesToTrash([folder]))
 
-        XCTAssertNil(model.pendingTrashNode)
         XCTAssertNil(model.pendingTrashSelection)
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
@@ -1405,7 +1400,6 @@ final class AppModelDependencyTests: XCTestCase {
         model.select(nodeID: folder.id)
         model.requestMovePrimarySelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashNode)
         XCTAssertNil(model.pendingTrashSelection)
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
@@ -1436,7 +1430,6 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(model.addNodesToDiscardPile([queued]))
         model.confirmMovePendingSelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashNode)
         XCTAssertNil(model.pendingTrashSelection)
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
@@ -1463,7 +1456,6 @@ final class AppModelDependencyTests: XCTestCase {
         model.navigation.select(nodeID: queued.id)
         model.requestMovePrimarySelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashNode)
         XCTAssertNil(model.pendingTrashSelection)
         XCTAssertEqual(model.navigation.selectedNodeIDs, [queued.id])
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
@@ -1489,7 +1481,6 @@ final class AppModelDependencyTests: XCTestCase {
         model.requestMoveSelectedToTrash()
 
         XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [visible.id])
-        XCTAssertEqual(model.pendingTrashNode?.id, visible.id)
         XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
     }
 
@@ -2017,7 +2008,6 @@ final class AppModelDependencyTests: XCTestCase {
 
         XCTAssertTrue(didRequestTrash)
         XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
-        XCTAssertEqual(model.pendingTrashNode?.id, folder.id)
         XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
 
         model.confirmMovePendingSelectionToTrash()
@@ -2262,7 +2252,7 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.select(nodeID: file.id)
         model.requestMoveSelectedToTrash()
-        XCTAssertNil(model.pendingTrashNode)
+        XCTAssertNil(model.pendingTrashSelection)
         XCTAssertEqual(model.lastErrorMessage, "Imported snapshots are read-only.")
     }
 

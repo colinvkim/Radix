@@ -210,14 +210,6 @@ final class AppModel: ObservableObject {
         set { trashFlow.pendingTrashSelection = newValue }
     }
 
-    /// Convenience mirror of a single-node pending trash request. Every pending
-    /// request is owned by `pendingTrashSelection`; this exposes it for callers
-    /// that only care about the common one-node case.
-    var pendingTrashNode: FileNodeRecord? {
-        get { trashFlow.pendingTrashNode }
-        set { trashFlow.pendingTrashNode = newValue }
-    }
-
     private(set) var pendingCloudFileAction: PendingCloudFileAction? {
         get { trashFlow.pendingCloudFileAction }
         set { trashFlow.pendingCloudFileAction = newValue }
@@ -605,7 +597,7 @@ final class AppModel: ObservableObject {
     }
 
     private func synchronizeTrashConfirmationPresentation() {
-        if pendingTrashSelection != nil || pendingTrashNode != nil {
+        if pendingTrashSelection != nil {
             presentationCoordinator.present(.dialog(.trashConfirmation))
         } else {
             resumeDeferredArchiveImport(
@@ -3257,7 +3249,6 @@ extension AppModel: AppQuickLookControllerDelegate {
     var isQuickLookKeyboardShortcutBlocked: Bool {
         showsOnboarding ||
             !canUseWorkspaceCommands ||
-            pendingTrashNode != nil ||
             pendingTrashSelection != nil ||
             pendingCloudFileAction != nil ||
             navigationModel.selectedNodeIDs.count > 1

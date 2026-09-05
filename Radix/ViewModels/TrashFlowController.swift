@@ -85,22 +85,6 @@ final class TrashFlowController {
         self.discardPile = discardPile
     }
 
-    var pendingTrashNode: FileNodeRecord? {
-        get {
-            guard let nodes = pendingTrashSelection?.nodes, nodes.count == 1 else {
-                return nil
-            }
-            return nodes.first
-        }
-        set {
-            if let node = newValue {
-                pendingTrashSelection = PendingTrashSelection(nodes: [node])
-            } else {
-                pendingTrashSelection = nil
-            }
-        }
-    }
-
     func cancelConfirmedTrashMove() {
         confirmedTrashMoveTask?.cancel()
         confirmedTrashMoveTask = nil

@@ -1475,7 +1475,7 @@ final class ScanCoordinatorTests: XCTestCase {
         model.focus(nodeID: populatedFolder.id)
         model.select(nodeID: child.id)
 
-        model.pendingTrashNode = child
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [child])
         model.confirmMovePendingSelectionToTrash()
 
         try await waitUntil("trashed child removed from current snapshot") {
@@ -1513,13 +1513,13 @@ final class ScanCoordinatorTests: XCTestCase {
         model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        model.pendingTrashNode = first
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first])
         model.confirmMovePendingSelectionToTrash()
         try await waitUntil("first trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
         }
 
-        model.pendingTrashNode = second
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [second])
         model.confirmMovePendingSelectionToTrash()
         try await waitUntil("second trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: second.id) == nil
@@ -1584,7 +1584,7 @@ final class ScanCoordinatorTests: XCTestCase {
         model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        model.pendingTrashNode = root
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [root])
         model.confirmMovePendingSelectionToTrash()
 
         XCTAssertNil(model.scanState.snapshot)
@@ -1642,7 +1642,7 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == secondTarget
         }
 
-        model.pendingTrashNode = secondChild
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [secondChild])
         model.confirmMovePendingSelectionToTrash()
         try await waitUntil("trashed child removed from second snapshot") {
             model.scanState.snapshot?.treeStore.node(id: secondChild.id) == nil

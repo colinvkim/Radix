@@ -231,7 +231,7 @@ struct ContentView: View {
             isPresented: Binding(
                 get: {
                     appModel.presentationCoordinator.activeDialog == .trashConfirmation &&
-                        (appModel.pendingTrashSelection != nil || appModel.pendingTrashNode != nil)
+                        appModel.pendingTrashSelection != nil
                 },
                 set: { newValue in
                     if !newValue {
@@ -869,7 +869,7 @@ private extension ContentView {
     }
 
     var pendingTrashMessage: String {
-        let nodes = appModel.pendingTrashSelection?.nodes ?? appModel.pendingTrashNode.map { [$0] } ?? []
+        let nodes = appModel.pendingTrashSelection?.nodes ?? []
         guard nodes.count != 1 else {
             return String(localized: "Radix will ask macOS to move \(nodes[0].url.path) to the Trash.", comment: "Confirmation message for moving one selected item to the Trash.")
         }
