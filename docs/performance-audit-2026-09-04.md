@@ -14,9 +14,9 @@ The completed-scan cache now charges full backing trees once, evicts older indep
 
 **Follow-up status — 5 September 2026**
 
-All nine prioritized findings have now been addressed with implementation and measurements, including the five findings in the current goal. A new scanner queue limit remains deferred based on measured ownership rather than added speculatively. The cumulative review of this goal is the final pending step.
+All nine prioritized findings have now been addressed with implementation and measurements, including the five findings in the current goal. A new scanner queue limit remains deferred based on measured ownership rather than added speculatively. The [cumulative review](/Users/colin/Programming/Radix/docs/performance-audit/review-2026-09-05.md) is complete, including two additional fixes, final validation, and UI checks.
 
-| Finding | Status | Remaining work |
+| Finding | Status | Result and evidence |
 | --- | --- | --- |
 | 1. Selection resolution | Complete | Empty/single selection fast paths validated. |
 | 2. Metadata reads | Complete | Status/identity/allocation reads reused within each metadata load; independent identity validation remains fresh. See [metadata validation](/Users/colin/Programming/Radix/docs/performance-audit/metadata-reads-2026-09-05.md). |

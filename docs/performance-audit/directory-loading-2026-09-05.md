@@ -25,7 +25,7 @@ Full [records and reproduction details](/Users/colin/Programming/Radix/docs/perf
 
 **Validation**
 
-The complete core suite passed 908 tests, with 31 opt-in skips and zero failures. All 23 focused Release navigation tests passed, and the full Debug app build passed. Added tests cover deferred large-directory loading, selection changes during a pending load, cancellation/reset with a superseded result, and completion revision changes. Existing tests preserve small-directory behavior, selection, focus history, metadata changes under the same snapshot ID, and explicit loading deferral.
+The complete core suite passed 908 tests, with 31 skips and zero failures. All 23 focused Release navigation tests passed, and the full Debug app build passed. Added tests cover deferred large-directory loading, selection changes during a pending load, cancellation/reset with a superseded result, and completion revision changes. Existing tests preserve small-directory behavior, selection, focus history, metadata changes under the same snapshot ID, and explicit loading deferral.
 
 The benchmark validates expected row counts and boundary IDs after navigation, and empty/full browser results after each filter cycle. The older navigation audit benchmark now awaits row availability after timing the synchronous installation call, so its subsequent selection measurements continue to use loaded contents.
 

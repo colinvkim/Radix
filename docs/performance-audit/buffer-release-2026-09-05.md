@@ -27,4 +27,4 @@ All eight processes passed their assertions. [Raw records](/Users/colin/Programm
 
 **Validation**
 
-The full core suite passed 911 tests, with 31 opt-in skips and zero failures. All 92 focused Release release-queue, navigation, browser, and cache tests passed. The full Debug app build passed. New tests verify off-main-thread final ownership release after the mutation stack unwinds, gated navigation/browser preparation with supersession, and a small scope retaining a large backing tree. Existing tests cover cache admission, eviction, selection, search generations, and cancelled navigation.
+The full core suite passed 911 tests, with 31 skips and zero failures. All 92 focused Release release-queue, navigation, browser, and cache tests passed. The full Debug app build passed. New tests verify off-main-thread final ownership release after the mutation stack unwinds, gated navigation/browser preparation with supersession, and a small scope retaining a large backing tree. Existing tests cover cache admission, eviction, selection, search generations, and cancelled navigation.

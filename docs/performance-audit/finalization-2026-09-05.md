@@ -23,6 +23,6 @@ For cancellation, the benchmark waits until it observes at least 99% assembly pr
 
 **Validation**
 
-The full core suite passed 918 tests, with 32 opt-in skips and zero failures. All 125 Release sorting/scanner tests passed; the complete Debug app build passed. Added tests compare stable tie ordering with the standard library, interrupt an active large sort, and cancel an empty input. Existing scanner tests cover aggregation, shared allocation, progress monotonicity, and scan cancellation.
+The full core suite passed 918 tests, with 32 skips and zero failures. All 125 Release sorting/scanner tests passed; the complete Debug app build passed. Added tests compare stable tie ordering with the standard library, interrupt an active large sort, and cancel an empty input. Existing scanner tests cover aggregation, shared allocation, progress monotonicity, and scan cancellation.
 
 Reproduce timing with the existing filesystem audit benchmark and `make-fixtures.py --wide-files 1000000 --fanout-directories 10000 --files-per-directory 100 --empty`. Cancellation probes use `FullDiskScanScalingBenchmarkTests.testFullDiskScanScalingBenchmark` with `RADIX_BENCH_FULL_SCAN_SCALING=1`, `RADIX_BENCH_FULL_SCAN_SCENARIO=expanded-manual-none`, `RADIX_BENCH_FULL_SCAN_CANCEL_FINALIZATION_FRACTION=0.99`, `RADIX_BENCH_FULL_SCAN_CANCEL_AFTER_MS=100`, and `RADIX_BENCH_FULL_SCAN_PATH` pointing to the flat fixture. Run each through `rtk proxy swift test -c release --filter` separately. No user files were modified.

@@ -27,7 +27,7 @@ Service timers use existing phase instrumentation. Refresh timers cover scheduli
 
 **Validation**
 
-The final complete core suite passed 905 tests, with 30 opt-in skips and zero failures. All 56 focused Release comparison tests passed, and the full Debug app build passed. Tests cover reuse across search/path/sort updates; invalidation for changed kinds, dataset, and cancellation; supplied projection reuse; cancellation during coverage/remainder work and between large sort runs; and older requests being unable to overwrite newer results. Existing tests preserve moves, hard links, opaque directories, overflow clamping, coverage, filtering, and deterministic ordering.
+The final complete core suite passed 905 tests, with 30 skips and zero failures. All 56 focused Release comparison tests passed, and the full Debug app build passed. Tests cover reuse across search/path/sort updates; invalidation for changed kinds, dataset, and cancellation; supplied projection reuse; cancellation during coverage/remainder work and between large sort runs; and older requests being unable to overwrite newer results. Existing tests preserve moves, hard links, opaque directories, overflow clamping, coverage, filtering, and deterministic ordering.
 
 The service and browser still retain substantial comparison data at million-row scale. This checkpoint addresses repeated projection, avoidable temporary arrays, and sort/cancellation gaps. Buffer ownership on the main actor is the next prioritized finding. Chunk sorts still have up to 16,384 elements between checks; cancellation cannot interrupt each comparison within a chunk.
 

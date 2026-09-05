@@ -35,6 +35,6 @@ All probe identity counts/allocation sums and scan file/folder/node/warning coun
 
 **Validation and reproduction**
 
-The complete core suite passed 915 tests, with 32 opt-in skips and zero failures. All 22 Release metadata tests passed; the full Debug app build passed. Added tests cover single-status reuse, authoritative failing overrides, and replacement of a directory between metadata loading and identity validation. Existing scanner tests cover hard links, clones, resource forks, symlinks, dataless entries, and enumeration replacement handling.
+The complete core suite passed 915 tests, with 32 skips and zero failures. All 22 Release metadata tests passed; the full Debug app build passed. Added tests cover single-status reuse, authoritative failing overrides, and replacement of a directory between metadata loading and identity validation. Existing scanner tests cover hard links, clones, resource forks, symlinks, dataless entries, and enumeration replacement handling.
 
 [Raw results](/Users/colin/Programming/Radix/docs/performance-audit/metadata-reads-results-2026-09-05.json) retain all 32 processes. Reproduce the direct probe by creating a temporary fixture with `directory`, `file`, and `symlink` entries and running `rtk proxy env RADIX_BENCH_METADATA_PATH=/absolute/fixture swift test -c release --filter PerformanceAuditBenchmarkTests.testMetadataReadAuditBenchmark`. Use the existing filesystem audit benchmark and interposer instructions for the scan/count workloads. No user files were modified.
