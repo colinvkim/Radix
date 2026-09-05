@@ -1,0 +1,321 @@
+{
+  "date": "2026-09-04",
+  "baselineRevision": "652e68927180f218aede642190b50ac9e2d98d28",
+  "baselineBundle": ".build/performance-audit/sort-before/RadixCorePackageTests.xctest",
+  "after": "Sort input-row indices through the existing cancellable merge sort; prepare item-kind and displayed-file-count arrays only when requested; project final records once.",
+  "methodology": "Three paired Release rounds, alternating before/after ordering, fresh process per invocation, the existing wide browser fixture with 1,000 directories and 1,000,000 files. Both bundles include identical sort-phase RSS sampling. Sorting follows the existing index/search phases in each process; RSS is resident process memory, not allocated bytes. phase_peak_rss samples current RSS approximately every millisecond, whereas peak_rss is the process lifetime high-water mark. Cancellation is requested after half the measured sort duration, clamped to 10 ms\u20131.5 s, and includes cleanup. No overlapping build or test workload. All sorted-result counts and fingerprints match.",
+  "environment": "Apple M5 MacBook Air; 10 cores; 32 GiB RAM; macOS 26.6.2; Xcode 26.6; local APFS",
+  "sortFingerprint": "8f64003a74b8684",
+  "summary": {
+    "sorting": {
+      "before": {
+        "seconds": {
+          "samples": [
+            2.883515,
+            2.791121,
+            2.810518
+          ],
+          "median": 2.810518
+        },
+        "start_rss": {
+          "samples": [
+            1441316864,
+            1441202176,
+            1441234944
+          ],
+          "median": 1441234944
+        },
+        "end_rss": {
+          "samples": [
+            1836859392,
+            1844838400,
+            1844903936
+          ],
+          "median": 1844838400
+        },
+        "phase_peak_rss": {
+          "samples": [
+            1844936704,
+            1844838400,
+            1844903936
+          ],
+          "median": 1844903936
+        },
+        "peak_rss": {
+          "samples": [
+            1844936704,
+            1844838400,
+            1844903936
+          ],
+          "median": 1844903936
+        },
+        "phase_peak_increase_bytes": {
+          "samples": [
+            403619840,
+            403636224,
+            403668992
+          ],
+          "median": 403636224
+        }
+      },
+      "after": {
+        "seconds": {
+          "samples": [
+            1.771611,
+            1.767751,
+            1.768952
+          ],
+          "median": 1.768952
+        },
+        "start_rss": {
+          "samples": [
+            1441185792,
+            1441218560,
+            1441284096
+          ],
+          "median": 1441218560
+        },
+        "end_rss": {
+          "samples": [
+            1609465856,
+            1609498624,
+            1609564160
+          ],
+          "median": 1609498624
+        },
+        "phase_peak_rss": {
+          "samples": [
+            1609465856,
+            1609498624,
+            1609564160
+          ],
+          "median": 1609498624
+        },
+        "peak_rss": {
+          "samples": [
+            1609465856,
+            1609498624,
+            1609564160
+          ],
+          "median": 1609498624
+        },
+        "phase_peak_increase_bytes": {
+          "samples": [
+            168280064,
+            168280064,
+            168280064
+          ],
+          "median": 168280064
+        }
+      }
+    },
+    "cancel_sort": {
+      "before": {
+        "seconds": {
+          "samples": [
+            0.092208,
+            0.090047,
+            0.091983
+          ],
+          "median": 0.091983
+        }
+      },
+      "after": {
+        "seconds": {
+          "samples": [
+            7.4e-05,
+            4.8e-05,
+            6.1e-05
+          ],
+          "median": 6.1e-05
+        }
+      }
+    },
+    "end_to_end": {
+      "before": {
+        "seconds": {
+          "samples": [
+            4.896888,
+            5.018988,
+            4.973961
+          ],
+          "median": 4.973961
+        }
+      },
+      "after": {
+        "seconds": {
+          "samples": [
+            3.777747,
+            3.785317,
+            3.784741
+          ],
+          "median": 3.784741
+        }
+      }
+    }
+  },
+  "runs": [
+    {
+      "round": 1,
+      "variant": "before",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.FileBrowserBenchmarkTests/testMillionNodeFileBrowserBenchmark",
+        ".build/performance-audit/sort-before/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=fixture seconds=1.429795 count=1001001 peak_rss=905576448 shape=wide current_rss=905576448 rss_delta=863305728",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cold_index seconds=1.877010 count=1001000 peak_rss=1027424256 shape=wide start_rss=905707520 end_rss=1027424256 phase_peak_rss=1027424256 cold_total=2.195100 warm_scan_median=0.318090 post_index_rss_delta=121716736",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=warm_text seconds=0.363216 count=10 peak_rss=1027555328 samples=0.363216,0.383787,0.356928",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_first seconds=0.048122 count=1000 peak_rss=1027620864 shape=wide start_rss=1027555328 end_rss=1027620864 phase_peak_rss=1027620864 post_query_rss_delta_from_index=196608",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_warm seconds=0.050362 count=1000 peak_rss=1027637248 shape=wide start_rss=1027637248 end_rss=1027637248 phase_peak_rss=1027637248 post_query_rss_delta_from_index=212992 samples=0.048934,0.050362,0.054366",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=filter_large seconds=0.078322 count=1000000 peak_rss=1441316864 samples=0.103625,0.078322,0.074234",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=sorting seconds=2.883515 count=1000000 peak_rss=1844936704 shape=wide start_rss=1441316864 end_rss=1836859392 phase_peak_rss=1844936704 fingerprint=8f64003a74b8684",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=display_projection seconds=0.190538 count=1000000 peak_rss=1844936704 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_publication seconds=0.000066 count=1000000 peak_rss=1844936704 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_replacement seconds=0.052361 count=1000000 peak_rss=1844936704 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_cold_search seconds=0.000340 count=1001000 peak_rss=1844936704 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_warm_search seconds=0.000046 count=1001000 peak_rss=1844936704 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_sort seconds=0.092208 count=1000000 peak_rss=1992425472 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=end_to_end seconds=4.896888 count=1000000 peak_rss=1993146368 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=suite_peak_rss seconds=0.000000 count=1001001 peak_rss=1993146368 shape=wide current_rss=1735507968 rss_delta=1950875648"
+      ]
+    },
+    {
+      "round": 1,
+      "variant": "after",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.FileBrowserBenchmarkTests/testMillionNodeFileBrowserBenchmark",
+        ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=fixture seconds=1.336725 count=1001001 peak_rss=905510912 shape=wide current_rss=905510912 rss_delta=863289344",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cold_index seconds=1.745649 count=1001000 peak_rss=1027407872 shape=wide start_rss=905658368 end_rss=1027407872 phase_peak_rss=1027407872 cold_total=2.040649 warm_scan_median=0.294999 post_index_rss_delta=121749504",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=warm_text seconds=0.337909 count=10 peak_rss=1027473408 samples=0.339260,0.337078,0.337909",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_first seconds=0.050541 count=1000 peak_rss=1027538944 shape=wide start_rss=1027473408 end_rss=1027538944 phase_peak_rss=1027538944 post_query_rss_delta_from_index=131072",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_warm seconds=0.046985 count=1000 peak_rss=1027555328 shape=wide start_rss=1027555328 end_rss=1027555328 phase_peak_rss=1027555328 post_query_rss_delta_from_index=147456 samples=0.047014,0.046985,0.046860",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=filter_large seconds=0.078157 count=1000000 peak_rss=1441185792 samples=0.097316,0.078157,0.077927",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=sorting seconds=1.771611 count=1000000 peak_rss=1609465856 shape=wide start_rss=1441185792 end_rss=1609465856 phase_peak_rss=1609465856 fingerprint=8f64003a74b8684",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=display_projection seconds=0.228393 count=1000000 peak_rss=1609547776 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_publication seconds=0.000197 count=1000000 peak_rss=1609777152 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_replacement seconds=0.057524 count=1000000 peak_rss=1828438016 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_cold_search seconds=0.000433 count=1001000 peak_rss=1828585472 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_warm_search seconds=0.000044 count=1001000 peak_rss=1828585472 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_sort seconds=0.000074 count=1000000 peak_rss=1828651008 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=end_to_end seconds=3.777747 count=1000000 peak_rss=1829175296 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=suite_peak_rss seconds=0.000000 count=1001001 peak_rss=1829175296 shape=wide current_rss=1612824576 rss_delta=1786953728"
+      ]
+    },
+    {
+      "round": 2,
+      "variant": "after",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.FileBrowserBenchmarkTests/testMillionNodeFileBrowserBenchmark",
+        ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=fixture seconds=1.319778 count=1001001 peak_rss=905543680 shape=wide current_rss=905543680 rss_delta=863322112",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cold_index seconds=1.785855 count=1001000 peak_rss=1027440640 shape=wide start_rss=905691136 end_rss=1027440640 phase_peak_rss=1027440640 cold_total=2.104471 warm_scan_median=0.318616 post_index_rss_delta=121749504",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=warm_text seconds=0.348742 count=10 peak_rss=1027506176 samples=0.348742,0.358891,0.348692",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_first seconds=0.046645 count=1000 peak_rss=1027571712 shape=wide start_rss=1027506176 end_rss=1027571712 phase_peak_rss=1027571712 post_query_rss_delta_from_index=131072",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_warm seconds=0.045341 count=1000 peak_rss=1027588096 shape=wide start_rss=1027588096 end_rss=1027588096 phase_peak_rss=1027588096 post_query_rss_delta_from_index=147456 samples=0.045341,0.044949,0.046913",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=filter_large seconds=0.077653 count=1000000 peak_rss=1441218560 samples=0.113726,0.077653,0.076962",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=sorting seconds=1.767751 count=1000000 peak_rss=1609498624 shape=wide start_rss=1441218560 end_rss=1609498624 phase_peak_rss=1609498624 fingerprint=8f64003a74b8684",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=display_projection seconds=0.186158 count=1000000 peak_rss=1609596928 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_publication seconds=0.000062 count=1000000 peak_rss=1609826304 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_replacement seconds=0.060563 count=1000000 peak_rss=1828519936 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_cold_search seconds=0.000070 count=1001000 peak_rss=1828667392 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_warm_search seconds=0.000085 count=1001000 peak_rss=1828667392 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_sort seconds=0.000048 count=1000000 peak_rss=1828700160 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=end_to_end seconds=3.785317 count=1000000 peak_rss=1829257216 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=suite_peak_rss seconds=0.000000 count=1001001 peak_rss=1829257216 shape=wide current_rss=1612857344 rss_delta=1787035648"
+      ]
+    },
+    {
+      "round": 2,
+      "variant": "before",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.FileBrowserBenchmarkTests/testMillionNodeFileBrowserBenchmark",
+        ".build/performance-audit/sort-before/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=fixture seconds=1.363597 count=1001001 peak_rss=905510912 shape=wide current_rss=905510912 rss_delta=863354880",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cold_index seconds=1.734951 count=1001000 peak_rss=1027424256 shape=wide start_rss=905641984 end_rss=1027424256 phase_peak_rss=1027424256 cold_total=2.040246 warm_scan_median=0.305295 post_index_rss_delta=121782272",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=warm_text seconds=0.355961 count=10 peak_rss=1027489792 samples=0.357469,0.355961,0.354949",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_first seconds=0.050798 count=1000 peak_rss=1027555328 shape=wide start_rss=1027489792 end_rss=1027555328 phase_peak_rss=1027555328 post_query_rss_delta_from_index=131072",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_warm seconds=0.046910 count=1000 peak_rss=1027571712 shape=wide start_rss=1027571712 end_rss=1027571712 phase_peak_rss=1027571712 post_query_rss_delta_from_index=147456 samples=0.046857,0.046910,0.046966",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=filter_large seconds=0.082602 count=1000000 peak_rss=1441202176 samples=0.094040,0.082602,0.077240",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=sorting seconds=2.791121 count=1000000 peak_rss=1844838400 shape=wide start_rss=1441202176 end_rss=1844838400 phase_peak_rss=1844838400 fingerprint=8f64003a74b8684",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=display_projection seconds=0.185143 count=1000000 peak_rss=1844936704 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_publication seconds=0.000204 count=1000000 peak_rss=1845149696 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_replacement seconds=0.048662 count=1000000 peak_rss=1895792640 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_cold_search seconds=0.000189 count=1001000 peak_rss=1895956480 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_warm_search seconds=0.000034 count=1001000 peak_rss=1895956480 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_sort seconds=0.090047 count=1000000 peak_rss=2097709056 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=end_to_end seconds=5.018988 count=1000000 peak_rss=2098298880 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=suite_peak_rss seconds=0.000000 count=1001001 peak_rss=2098298880 shape=wide current_rss=1838841856 rss_delta=2056142848"
+      ]
+    },
+    {
+      "round": 3,
+      "variant": "before",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.FileBrowserBenchmarkTests/testMillionNodeFileBrowserBenchmark",
+        ".build/performance-audit/sort-before/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=fixture seconds=1.396502 count=1001001 peak_rss=905560064 shape=wide current_rss=905560064 rss_delta=863371264",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cold_index seconds=1.817582 count=1001000 peak_rss=1027457024 shape=wide start_rss=905691136 end_rss=1027457024 phase_peak_rss=1027457024 cold_total=2.132086 warm_scan_median=0.314504 post_index_rss_delta=121765888",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=warm_text seconds=0.357247 count=10 peak_rss=1027522560 samples=0.359386,0.357247,0.354653",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_first seconds=0.050346 count=1000 peak_rss=1027588096 shape=wide start_rss=1027522560 end_rss=1027588096 phase_peak_rss=1027588096 post_query_rss_delta_from_index=131072",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_warm seconds=0.048628 count=1000 peak_rss=1027604480 shape=wide start_rss=1027604480 end_rss=1027604480 phase_peak_rss=1027604480 post_query_rss_delta_from_index=147456 samples=0.049091,0.048478,0.048628",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=filter_large seconds=0.082088 count=1000000 peak_rss=1441234944 samples=0.099876,0.082088,0.078080",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=sorting seconds=2.810518 count=1000000 peak_rss=1844903936 shape=wide start_rss=1441234944 end_rss=1844903936 phase_peak_rss=1844903936 fingerprint=8f64003a74b8684",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=display_projection seconds=0.193280 count=1000000 peak_rss=1845067776 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_publication seconds=0.000056 count=1000000 peak_rss=1845280768 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_replacement seconds=0.061017 count=1000000 peak_rss=1895923712 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_cold_search seconds=0.000314 count=1001000 peak_rss=1896038400 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_warm_search seconds=0.000067 count=1001000 peak_rss=1896038400 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_sort seconds=0.091983 count=1000000 peak_rss=2097758208 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=end_to_end seconds=4.973961 count=1000000 peak_rss=2098315264 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=suite_peak_rss seconds=0.000000 count=1001001 peak_rss=2098315264 shape=wide current_rss=1838776320 rss_delta=2056126464"
+      ]
+    },
+    {
+      "round": 3,
+      "variant": "after",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.FileBrowserBenchmarkTests/testMillionNodeFileBrowserBenchmark",
+        ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=fixture seconds=1.433208 count=1001001 peak_rss=905625600 shape=wide current_rss=905625600 rss_delta=863404032",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cold_index seconds=1.813264 count=1001000 peak_rss=1027522560 shape=wide start_rss=905773056 end_rss=1027522560 phase_peak_rss=1027522560 cold_total=2.122802 warm_scan_median=0.309538 post_index_rss_delta=121749504",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=warm_text seconds=0.368491 count=10 peak_rss=1027588096 samples=0.363015,0.390129,0.368491",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_first seconds=0.049471 count=1000 peak_rss=1027637248 shape=wide start_rss=1027588096 end_rss=1027637248 phase_peak_rss=1027637248 post_query_rss_delta_from_index=114688",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=path_warm seconds=0.046612 count=1000 peak_rss=1027653632 shape=wide start_rss=1027653632 end_rss=1027653632 phase_peak_rss=1027653632 post_query_rss_delta_from_index=131072 samples=0.045575,0.047263,0.046612",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=filter_large seconds=0.076046 count=1000000 peak_rss=1441284096 samples=0.125034,0.076046,0.074132",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=sorting seconds=1.768952 count=1000000 peak_rss=1609564160 shape=wide start_rss=1441284096 end_rss=1609564160 phase_peak_rss=1609564160 fingerprint=8f64003a74b8684",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=display_projection seconds=0.180003 count=1000000 peak_rss=1609678848 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_publication seconds=0.000215 count=1000000 peak_rss=1609908224 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=main_actor_replacement seconds=0.056826 count=1000000 peak_rss=1828569088 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_cold_search seconds=0.000481 count=1001000 peak_rss=1828732928 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_warm_search seconds=0.000071 count=1001000 peak_rss=1828732928 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=cancel_sort seconds=0.000061 count=1000000 peak_rss=1828782080 cancelled=true completed_before_cancel=false",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=end_to_end seconds=3.784741 count=1000000 peak_rss=1829306368 ",
+        "RADIX_FILE_BROWSER_BENCH_RESULT phase=suite_peak_rss seconds=0.000000 count=1001001 peak_rss=1829306368 shape=wide current_rss=1612890112 rss_delta=1787084800"
+      ]
+    }
+  ]
+}

@@ -209,7 +209,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         )
 
         let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
-        let sortingMeasurement = BenchmarkSupport.measure {
+        let sortingMeasurement = await Self.measureAsyncWithMemory {
             FileBrowserResults.sorted(
                 largeResults,
                 sortOrder: sortOrder,
@@ -230,7 +230,13 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             seconds: sortingMeasurement.seconds,
             count: sortedResults.count,
             peakRSS: sortingPeakRSS,
-            extra: "fingerprint=\(sortFingerprint)"
+            extra: Self.phaseMemoryReportExtra(
+                shape: fixture.shape,
+                startRSS: sortingMeasurement.startRSS,
+                endRSS: sortingMeasurement.endRSS,
+                phasePeakRSS: sortingMeasurement.peakRSS,
+                extra: "fingerprint=\(sortFingerprint)"
+            )
         )
 
         let projectionMeasurement = BenchmarkSupport.measure {

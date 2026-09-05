@@ -124,28 +124,51 @@ enum FileBrowserResults {
         try cancellationCheck()
         guard !sortOrder.isEmpty else { return nodes }
 
-        var preparedNodes = try preparedSortNodes(
-            nodes,
-            sortOrder: sortOrder,
-            fileTreeStore: fileTreeStore,
-            cancellationCheck: cancellationCheck
-        )
+        let preparesItemKind = sortOrder.contains { $0.field == .itemKind }
+        let preparesDescendantFileCount = sortOrder.contains { $0.field == .descendantFileCount }
+        var indices: [Int] = []
+        indices.reserveCapacity(nodes.count)
+        var keys = PreparedSortKeys()
+        if preparesItemKind {
+            keys.itemKinds.reserveCapacity(nodes.count)
+        }
+        if preparesDescendantFileCount {
+            keys.descendantFileCounts.reserveCapacity(nodes.count)
+        }
+
+        for (offset, node) in nodes.enumerated() {
+            if offset.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            indices.append(offset)
+            if preparesItemKind {
+                keys.itemKinds.append(node.itemKind)
+            }
+            if preparesDescendantFileCount {
+                keys.descendantFileCounts.append(
+                    FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
+                        ? 0
+                        : node.descendantFileCount
+                )
+            }
+        }
         try cancellationCheck()
 
-        let sortedNodes = try CancellableSort.sorted(
-            &preparedNodes,
+        // Keep records and prepared keys in input order; only offsets move through sort buffers.
+        let sortedIndices = try CancellableSort.sorted(
+            &indices,
             cancellationCheck: cancellationCheck
         ) { lhs, rhs in
-            lhs.isOrderedBefore(rhs, using: sortOrder)
+            keys.isOrderedBefore(lhs, rhs, in: nodes, using: sortOrder)
         }
         try cancellationCheck()
         var result: [FileNodeRecord] = []
-        result.reserveCapacity(sortedNodes.count)
+        result.reserveCapacity(sortedIndices.count)
         var start = 0
-        while start < sortedNodes.count {
-            let end = min(start + 256, sortedNodes.count)
+        while start < sortedIndices.count {
+            let end = min(start + 256, sortedIndices.count)
             while start < end {
-                result.append(sortedNodes[start].node)
+                result.append(nodes[sortedIndices[start]])
                 start += 1
             }
             try cancellationCheck()
@@ -153,63 +176,40 @@ enum FileBrowserResults {
         return result
     }
 
-    private nonisolated static func preparedSortNodes(
-        _ nodes: [FileNodeRecord],
-        sortOrder: [FileNodeTableComparator],
-        fileTreeStore: FileTreeStore?,
-        cancellationCheck: @Sendable () throws -> Void
-    ) rethrows -> [PreparedSortNode] {
-        let preparesItemKind = sortOrder.contains { $0.field == .itemKind }
-        let preparesDescendantFileCount = sortOrder.contains { $0.field == .descendantFileCount }
-        var preparedNodes: [PreparedSortNode] = []
-        preparedNodes.reserveCapacity(nodes.count)
+    private struct PreparedSortKeys {
+        var itemKinds: [String] = []
+        var descendantFileCounts: [Int] = []
 
-        for (offset, node) in nodes.enumerated() {
-            if offset.isMultiple(of: 256) {
-                try cancellationCheck()
-            }
-            preparedNodes.append(PreparedSortNode(
-                node: node,
-                itemKind: preparesItemKind ? node.itemKind : nil,
-                descendantFileCount: preparesDescendantFileCount
-                    ? (FileBrowserPackageContents.areHidden(for: node, fileTreeStore: fileTreeStore)
-                        ? 0
-                        : node.descendantFileCount)
-                    : nil
-            ))
-        }
-
-        return preparedNodes
-    }
-
-    private struct PreparedSortNode {
-        let node: FileNodeRecord
-        let itemKind: String?
-        let descendantFileCount: Int?
-
-        nonisolated func compare(_ rhs: PreparedSortNode, using comparator: FileNodeTableComparator) -> ComparisonResult {
+        nonisolated func compare(
+            _ lhs: Int,
+            _ rhs: Int,
+            in nodes: [FileNodeRecord],
+            using comparator: FileNodeTableComparator
+        ) -> ComparisonResult {
             let result: ComparisonResult = switch comparator.field {
             case .name:
-                node.name.localizedStandardCompare(rhs.node.name)
+                nodes[lhs].name.localizedStandardCompare(nodes[rhs].name)
             case .allocatedSize:
-                FileNodeSortComparison.compare(node.allocatedSize, rhs.node.allocatedSize)
+                FileNodeSortComparison.compare(nodes[lhs].allocatedSize, nodes[rhs].allocatedSize)
             case .itemKind:
-                itemKind!.localizedStandardCompare(rhs.itemKind!)
+                itemKinds[lhs].localizedStandardCompare(itemKinds[rhs])
             case .descendantFileCount:
-                FileNodeSortComparison.compare(descendantFileCount!, rhs.descendantFileCount!)
+                FileNodeSortComparison.compare(descendantFileCounts[lhs], descendantFileCounts[rhs])
             case .lastModified:
-                FileNodeSortComparison.compareOptional(node.lastModified, rhs.node.lastModified)
+                FileNodeSortComparison.compareOptional(nodes[lhs].lastModified, nodes[rhs].lastModified)
             }
 
             return FileNodeSortComparison.applying(comparator.order, to: result)
         }
 
         nonisolated func isOrderedBefore(
-            _ rhs: PreparedSortNode,
+            _ lhs: Int,
+            _ rhs: Int,
+            in nodes: [FileNodeRecord],
             using sortOrder: [FileNodeTableComparator]
         ) -> Bool {
             for comparator in sortOrder {
-                switch compare(rhs, using: comparator) {
+                switch compare(lhs, rhs, in: nodes, using: comparator) {
                 case .orderedAscending:
                     return true
                 case .orderedDescending:
@@ -221,10 +221,10 @@ enum FileBrowserResults {
                 }
             }
             return FileNodeSortComparison.fallback(
-                lhsName: node.name,
-                lhsID: node.id,
-                rhsName: rhs.node.name,
-                rhsID: rhs.node.id
+                lhsName: nodes[lhs].name,
+                lhsID: nodes[lhs].id,
+                rhsName: nodes[rhs].name,
+                rhsID: nodes[rhs].id
             ) == .orderedAscending
         }
     }

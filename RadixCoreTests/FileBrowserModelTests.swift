@@ -660,7 +660,15 @@ final class FileBrowserModelTests: XCTestCase {
 
     func testLargeSortPreservesOrderAcrossSortedRuns() {
         let nodes = (0..<20_000).map { index in
-            makeTestFileNode(
+            if index.isMultiple(of: 3) {
+                return makeTestSummarizedDirectoryNode(
+                    id: "/root/folder-\(index)",
+                    name: "folder-\(index)",
+                    size: Int64(index),
+                    descendantFileCount: index % 7
+                )
+            }
+            return makeTestFileNode(
                 id: "/root/file-\(index).dat",
                 name: "file-\(index).dat",
                 size: Int64(index)
@@ -673,6 +681,25 @@ final class FileBrowserModelTests: XCTestCase {
         )
 
         XCTAssertEqual(sortedNodes.map(\.id), nodes.reversed().map(\.id))
+
+        let sortOrder = [
+            FileNodeTableComparator(field: .itemKind),
+            FileNodeTableComparator(field: .descendantFileCount, order: .reverse),
+            FileNodeTableComparator(field: .allocatedSize, order: .reverse),
+        ]
+        let expected = nodes.sorted { lhs, rhs in
+            for comparator in sortOrder {
+                let result = comparator.compare(lhs, rhs)
+                if result != .orderedSame {
+                    return result == .orderedAscending
+                }
+            }
+            return false // Allocated sizes are unique in this fixture.
+        }
+        XCTAssertEqual(
+            FileBrowserResults.sorted(nodes, sortOrder: sortOrder).map(\.id),
+            expected.map(\.id)
+        )
     }
 
     func testCancellableSortChecksCancellationBetweenLargeRuns() {
