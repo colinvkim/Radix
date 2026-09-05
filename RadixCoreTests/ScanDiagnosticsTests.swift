@@ -3,6 +3,17 @@ import XCTest
 
 #if DEBUG
 final class ScanDiagnosticsTests: XCTestCase {
+    func testPeakCountersKeepMaximumAndReportInNameOrder() {
+        let diagnostics = ScanDiagnostics()
+        diagnostics.recordPeak("queue.slots", value: 100)
+        diagnostics.recordPeak("queue.listings", value: 2)
+        diagnostics.recordPeak("queue.slots", value: 40)
+        diagnostics.recordPeak("queue.slots", value: 150)
+
+        let report = diagnostics.makeReport(targetPath: "/tmp", elapsedSeconds: 0)
+        XCTAssertTrue(report.contains("RADIX_SCAN_DIAGNOSTICS peaks\n  queue.listings=2\n  queue.slots=150\n"))
+    }
+
     func testSlowEventsRemainBoundedAndOrdered() {
         let diagnostics = ScanDiagnostics(environment: [
             "RADIX_SCAN_DIAGNOSTICS_LIMIT": "3",

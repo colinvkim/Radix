@@ -30,6 +30,7 @@ nonisolated final class ScanDiagnostics: @unchecked Sendable {
     private var statsByOperation: [String: OperationStats] = [:]
     private var statsByPathBucket: [String: OperationStats] = [:]
     private var slowEvents: [SlowEvent] = []
+    private var peaks: [String: Int] = [:]
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         reportLimit = environment["RADIX_SCAN_DIAGNOSTICS_LIMIT"]
@@ -47,6 +48,12 @@ nonisolated final class ScanDiagnostics: @unchecked Sendable {
 
     func start() -> UInt64 {
         DispatchTime.now().uptimeNanoseconds
+    }
+
+    func recordPeak(_ name: String, value: Int) {
+        lock.lock()
+        peaks[name] = max(peaks[name] ?? 0, value)
+        lock.unlock()
     }
 
     func processCPUTime() -> ProcessCPUTime? {
@@ -105,7 +112,11 @@ nonisolated final class ScanDiagnostics: @unchecked Sendable {
             summary += " process_user_cpu=\(Self.format(seconds: max(0, processCPUTimeAtEnd.userSeconds - processCPUTimeAtStart.userSeconds)))s"
             summary += " process_system_cpu=\(Self.format(seconds: max(0, processCPUTimeAtEnd.systemSeconds - processCPUTimeAtStart.systemSeconds)))s"
         }
-        var lines = [summary, "RADIX_SCAN_DIAGNOSTICS operations"]
+        var lines = [summary, "RADIX_SCAN_DIAGNOSTICS peaks"]
+        for name in peaks.keys.sorted() {
+            lines.append("  \(name)=\(peaks[name]!)")
+        }
+        lines.append("RADIX_SCAN_DIAGNOSTICS operations")
 
         for (operation, stats) in sortedStats(statsByOperation) {
             lines.append(

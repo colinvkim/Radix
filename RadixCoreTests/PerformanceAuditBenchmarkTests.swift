@@ -127,11 +127,20 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         let target = ScanTarget(url: URL(filePath: path, directoryHint: .isDirectory))
         var finished: ScanSnapshot?
         var progressEvents = 0
+        let initialRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
+        var finalizationStartedAt: ContinuousClock.Instant?
+        var finalizationRSS: UInt64 = 0
+        var peakRSSAtFinalization: UInt64 = 0
         let startedAt = ContinuousClock.now
         for try await event in engine.scan(target: target, options: options) {
             switch event {
-            case .progress:
+            case .progress(let metrics):
                 progressEvents += 1
+                if metrics.isFinalizing, finalizationStartedAt == nil {
+                    finalizationStartedAt = .now
+                    finalizationRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
+                    peakRSSAtFinalization = BenchmarkSupport.peakResidentBytes()
+                }
             case .finished(let snapshot):
                 finished = snapshot
             case .warning, .executionMode:
@@ -139,13 +148,20 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             }
         }
         let elapsed = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
+        let finalizationSeconds = finalizationStartedAt.map {
+            BenchmarkSupport.durationSeconds($0.duration(to: .now))
+        } ?? 0
         let snapshot = try XCTUnwrap(finished)
         print(
             "RADIX_BENCH_AUDIT_FILESYSTEM mode=\(usesFoundation ? "foundation" : "native") "
                 + "seconds=\(BenchmarkSupport.format(elapsed)) "
                 + "files=\(snapshot.aggregateStats.fileCount) folders=\(snapshot.aggregateStats.directoryCount) "
                 + "nodes=\(snapshot.treeStore.nodeCount) progress_events=\(progressEvents) "
-                + "warnings=\(snapshot.scanWarnings.count) peak_rss=\(BenchmarkSupport.peakResidentBytes())"
+                + "warnings=\(snapshot.scanWarnings.count) peak_rss=\(BenchmarkSupport.peakResidentBytes()) "
+                + "initial_rss=\(initialRSS) finalization_rss=\(finalizationRSS) "
+                + "peak_rss_at_finalization=\(peakRSSAtFinalization) "
+                + "finished_rss=\(BenchmarkMemorySampler.currentResidentMemoryBytes()) "
+                + "finalization_seconds=\(BenchmarkSupport.format(finalizationSeconds))"
         )
     }
 

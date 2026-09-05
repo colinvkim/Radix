@@ -1,0 +1,646 @@
+{
+  "date": "2026-09-04",
+  "base_revision": "b8ad851",
+  "change": "Debug-only queue diagnostics and filesystem benchmark RSS checkpoints; no Release scheduling change.",
+  "machine": {
+    "model": "Apple M5 MacBook Air",
+    "cores": 10,
+    "ram_gib": 32,
+    "macos": "26.6.2",
+    "xcode": "26.6",
+    "filesystem": "local APFS"
+  },
+  "method": {
+    "rounds": 3,
+    "ordering": "fanout, wide, root in each round; Release then diagnostic per shape; fresh sequential processes, no overlapping builds",
+    "cache_state": "warm/uncontrolled after fixture creation and exploratory scans; not flushed",
+    "directory_traversal_workers": 5,
+    "ordinary_leaf_preparation_workers": 5,
+    "ordinary_leaf_batch_slots": 2048,
+    "auto_summarize_directories": false,
+    "include_hidden_files": true,
+    "rss_units": "bytes, whole process; includes live snapshot and allocator retention",
+    "peak_rss": "getrusage ru_maxrss at completion in each fresh process",
+    "finalization_checkpoint": "first received progress event with isFinalizing=true; asynchronous approximation",
+    "queue_peaks": "pending ordinary-leaf requests sampled after expansion; shared listing arrays counted once per parent; excludes active tasks, ready results and summary/probe ownership",
+    "diagnostic_timing": "retained for completeness; only normal Release rows used for reported timing/RSS medians"
+  },
+  "fixtures": {
+    "paths": {
+      "root": "/private/tmp/radix-audit-79xfrr2s",
+      "wide": "/private/tmp/radix-audit-79xfrr2s/wide",
+      "fanout": "/private/tmp/radix-audit-79xfrr2s/fanout"
+    },
+    "generator": [
+      "rtk",
+      "proxy",
+      "python3",
+      "docs/performance-audit/make-fixtures.py",
+      "--wide-files",
+      "1000000",
+      "--fanout-directories",
+      "100",
+      "--files-per-directory",
+      "10000",
+      "--empty"
+    ],
+    "shape_counts": {
+      "fanout": {
+        "files": 1000000,
+        "directories": 101
+      },
+      "wide": {
+        "files": 1000000,
+        "directories": 1
+      },
+      "root": {
+        "files": 2000000,
+        "directories": 103
+      }
+    },
+    "file_contents": "empty regular files; no packages or symlinks",
+    "removed_after_measurement": true
+  },
+  "invocations": {
+    "runner": [
+      "rtk",
+      "proxy",
+      "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+      "-XCTest",
+      "RadixCoreTests.PerformanceAuditBenchmarkTests/testFilesystemAuditBenchmark"
+    ],
+    "release_bundle": ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest",
+    "diagnostic_bundle": ".build/performance-audit/queue-profile/arm64-apple-macosx/release/RadixCorePackageTests.xctest",
+    "diagnostic_build_flags": [
+      "-c",
+      "release",
+      "-Xswiftc",
+      "-DDEBUG",
+      "--scratch-path",
+      ".build/performance-audit/queue-profile"
+    ],
+    "environment": {
+      "RADIX_BENCH_AUDIT_PATH": "fixture path by shape",
+      "RADIX_SCAN_DIAGNOSTICS": "1 in diagnostic processes only"
+    },
+    "cancellation_test": "RadixCoreTests.FullDiskScanScalingBenchmarkTests/testFullDiskScanScalingBenchmark",
+    "cancellation_environment": {
+      "RADIX_BENCH_FULL_SCAN_SCALING": "1",
+      "RADIX_BENCH_FULL_SCAN_PATH": "fixture path by shape",
+      "RADIX_BENCH_FULL_SCAN_SCENARIO": "expanded-manual-none",
+      "RADIX_BENCH_FULL_SCAN_CANCEL_AFTER_MS": "250"
+    },
+    "cancellation_boundary": "stream termination and summary-pool shutdown after traversal task-group exit; not a measurement of final RSS release"
+  },
+  "runs": [
+    {
+      "iteration": 1,
+      "shape": "fanout",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 5.436569,
+        "files": 1000000,
+        "folders": 101,
+        "nodes": 1000101,
+        "progress_events": 217,
+        "warnings": 0,
+        "peak_rss": 1318453248,
+        "initial_rss": 42369024,
+        "finalization_rss": 1134051328,
+        "peak_rss_at_finalization": 1134051328,
+        "finished_rss": 1318453248,
+        "finalization_seconds": 3.279696
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 1,
+      "shape": "fanout",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 5.324508,
+        "files": 1000000,
+        "folders": 101,
+        "nodes": 1000101,
+        "progress_events": 218,
+        "warnings": 0,
+        "peak_rss": 1315733504,
+        "initial_rss": 42467328,
+        "finalization_rss": 1131282432,
+        "peak_rss_at_finalization": 1131282432,
+        "finished_rss": 1315733504,
+        "finalization_seconds": 3.174477
+      },
+      "peaks": {
+        "directory_listing.entries": 10000,
+        "leaf_queue.listings": 4,
+        "leaf_queue.requests": 20,
+        "leaf_queue.retained_entries": 40000,
+        "leaf_queue.slots": 40000,
+        "work_stack.items": 100
+      }
+    },
+    {
+      "iteration": 1,
+      "shape": "wide",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 17.370649,
+        "files": 1000000,
+        "folders": 1,
+        "nodes": 1000001,
+        "progress_events": 209,
+        "warnings": 0,
+        "peak_rss": 1337131008,
+        "initial_rss": 42352640,
+        "finalization_rss": 1243152384,
+        "peak_rss_at_finalization": 1337131008,
+        "finished_rss": 1309671424,
+        "finalization_seconds": 5.828875
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 1,
+      "shape": "wide",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 15.265983,
+        "files": 1000000,
+        "folders": 1,
+        "nodes": 1000001,
+        "progress_events": 209,
+        "warnings": 0,
+        "peak_rss": 1336442880,
+        "initial_rss": 42434560,
+        "finalization_rss": 1242464256,
+        "peak_rss_at_finalization": 1336442880,
+        "finished_rss": 1309032448,
+        "finalization_seconds": 5.78807
+      },
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 1
+      }
+    },
+    {
+      "iteration": 1,
+      "shape": "root",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 21.349201,
+        "files": 2000000,
+        "folders": 103,
+        "nodes": 2000103,
+        "progress_events": 223,
+        "warnings": 0,
+        "peak_rss": 2675949568,
+        "initial_rss": 42385408,
+        "finalization_rss": 2219032576,
+        "peak_rss_at_finalization": 2506571776,
+        "finished_rss": 2675949568,
+        "finalization_seconds": 8.976857
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 1,
+      "shape": "root",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 21.624849,
+        "files": 2000000,
+        "folders": 103,
+        "nodes": 2000103,
+        "progress_events": 222,
+        "warnings": 0,
+        "peak_rss": 2677129216,
+        "initial_rss": 42483712,
+        "finalization_rss": 2220146688,
+        "peak_rss_at_finalization": 2495086592,
+        "finished_rss": 2677129216,
+        "finalization_seconds": 9.092952
+      },
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 3,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 100
+      }
+    },
+    {
+      "iteration": 2,
+      "shape": "fanout",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 5.155684,
+        "files": 1000000,
+        "folders": 101,
+        "nodes": 1000101,
+        "progress_events": 217,
+        "warnings": 0,
+        "peak_rss": 1320992768,
+        "initial_rss": 42401792,
+        "finalization_rss": 1136623616,
+        "peak_rss_at_finalization": 1136623616,
+        "finished_rss": 1320992768,
+        "finalization_seconds": 3.120308
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 2,
+      "shape": "fanout",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 5.339006,
+        "files": 1000000,
+        "folders": 101,
+        "nodes": 1000101,
+        "progress_events": 217,
+        "warnings": 0,
+        "peak_rss": 1315291136,
+        "initial_rss": 42483712,
+        "finalization_rss": 1130872832,
+        "peak_rss_at_finalization": 1130872832,
+        "finished_rss": 1315291136,
+        "finalization_seconds": 3.216039
+      },
+      "peaks": {
+        "directory_listing.entries": 10000,
+        "leaf_queue.listings": 4,
+        "leaf_queue.requests": 20,
+        "leaf_queue.retained_entries": 40000,
+        "leaf_queue.slots": 40000,
+        "work_stack.items": 100
+      }
+    },
+    {
+      "iteration": 2,
+      "shape": "wide",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 17.449158,
+        "files": 1000000,
+        "folders": 1,
+        "nodes": 1000001,
+        "progress_events": 209,
+        "warnings": 0,
+        "peak_rss": 1337032704,
+        "initial_rss": 42418176,
+        "finalization_rss": 1243054080,
+        "peak_rss_at_finalization": 1337032704,
+        "finished_rss": 1309605888,
+        "finalization_seconds": 5.908879
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 2,
+      "shape": "wide",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 15.450012,
+        "files": 1000000,
+        "folders": 1,
+        "nodes": 1000001,
+        "progress_events": 209,
+        "warnings": 0,
+        "peak_rss": 1336098816,
+        "initial_rss": 42467328,
+        "finalization_rss": 1242120192,
+        "peak_rss_at_finalization": 1336098816,
+        "finished_rss": 1308688384,
+        "finalization_seconds": 5.853717
+      },
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 1
+      }
+    },
+    {
+      "iteration": 2,
+      "shape": "root",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 21.411703,
+        "files": 2000000,
+        "folders": 103,
+        "nodes": 2000103,
+        "progress_events": 222,
+        "warnings": 0,
+        "peak_rss": 2679357440,
+        "initial_rss": 42418176,
+        "finalization_rss": 2222440448,
+        "peak_rss_at_finalization": 2495938560,
+        "finished_rss": 2679357440,
+        "finalization_seconds": 8.908335
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 2,
+      "shape": "root",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 21.389012,
+        "files": 2000000,
+        "folders": 103,
+        "nodes": 2000103,
+        "progress_events": 223,
+        "warnings": 0,
+        "peak_rss": 2675556352,
+        "initial_rss": 42483712,
+        "finalization_rss": 2218557440,
+        "peak_rss_at_finalization": 2493513728,
+        "finished_rss": 2675556352,
+        "finalization_seconds": 8.99049
+      },
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 3,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 100
+      }
+    },
+    {
+      "iteration": 3,
+      "shape": "fanout",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 5.168456,
+        "files": 1000000,
+        "folders": 101,
+        "nodes": 1000101,
+        "progress_events": 217,
+        "warnings": 0,
+        "peak_rss": 1321697280,
+        "initial_rss": 42401792,
+        "finalization_rss": 1137311744,
+        "peak_rss_at_finalization": 1137311744,
+        "finished_rss": 1321697280,
+        "finalization_seconds": 3.112853
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 3,
+      "shape": "fanout",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 5.498374,
+        "files": 1000000,
+        "folders": 101,
+        "nodes": 1000101,
+        "progress_events": 217,
+        "warnings": 0,
+        "peak_rss": 1318895616,
+        "initial_rss": 42467328,
+        "finalization_rss": 1134526464,
+        "peak_rss_at_finalization": 1134542848,
+        "finished_rss": 1318895616,
+        "finalization_seconds": 3.404074
+      },
+      "peaks": {
+        "directory_listing.entries": 10000,
+        "leaf_queue.listings": 4,
+        "leaf_queue.requests": 20,
+        "leaf_queue.retained_entries": 40000,
+        "leaf_queue.slots": 40000,
+        "work_stack.items": 100
+      }
+    },
+    {
+      "iteration": 3,
+      "shape": "wide",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 17.248326,
+        "files": 1000000,
+        "folders": 1,
+        "nodes": 1000001,
+        "progress_events": 209,
+        "warnings": 0,
+        "peak_rss": 1335820288,
+        "initial_rss": 42385408,
+        "finalization_rss": 1241841664,
+        "peak_rss_at_finalization": 1335820288,
+        "finished_rss": 1308377088,
+        "finalization_seconds": 5.770182
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 3,
+      "shape": "wide",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 15.431547,
+        "files": 1000000,
+        "folders": 1,
+        "nodes": 1000001,
+        "progress_events": 209,
+        "warnings": 0,
+        "peak_rss": 1336262656,
+        "initial_rss": 42450944,
+        "finalization_rss": 1242284032,
+        "peak_rss_at_finalization": 1336262656,
+        "finished_rss": 1308835840,
+        "finalization_seconds": 5.836611
+      },
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 1
+      }
+    },
+    {
+      "iteration": 3,
+      "shape": "root",
+      "build": "release",
+      "metrics": {
+        "mode": "native",
+        "seconds": 21.203664,
+        "files": 2000000,
+        "folders": 103,
+        "nodes": 2000103,
+        "progress_events": 222,
+        "warnings": 0,
+        "peak_rss": 2678636544,
+        "initial_rss": 42401792,
+        "finalization_rss": 2221703168,
+        "peak_rss_at_finalization": 2496643072,
+        "finished_rss": 2678636544,
+        "finalization_seconds": 8.896024
+      },
+      "peaks": {}
+    },
+    {
+      "iteration": 3,
+      "shape": "root",
+      "build": "diagnostic",
+      "metrics": {
+        "mode": "native",
+        "seconds": 21.033509,
+        "files": 2000000,
+        "folders": 103,
+        "nodes": 2000103,
+        "progress_events": 223,
+        "warnings": 0,
+        "peak_rss": 2679095296,
+        "initial_rss": 42500096,
+        "finalization_rss": 2222129152,
+        "peak_rss_at_finalization": 2509668352,
+        "finished_rss": 2679095296,
+        "finalization_seconds": 8.973925
+      },
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 3,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 100
+      }
+    }
+  ],
+  "cancellation_runs": [
+    {
+      "shape": "fanout",
+      "result": {
+        "aggregateDirectories": 101,
+        "aggregateFiles": 1000000,
+        "allocatedBytes": 0,
+        "autoSummarizedNodes": 0,
+        "automaticSummarization": false,
+        "cancellationDelayMilliseconds": 250,
+        "cancellationEmittedFinished": false,
+        "cancellationLatencySeconds": 0.022363334,
+        "cancellationPoolShutdown": true,
+        "cancellationProgressObserved": true,
+        "cancellationStreamTerminated": true,
+        "cancellationWorkersQuiescent": true,
+        "currentRSSBytes": 1314406400,
+        "directoriesVisited": 101,
+        "enumeratedItems": 1000101,
+        "exclusionPatternCount": 0,
+        "exclusionProfile": "none",
+        "filesVisited": 1000000,
+        "logicalBytes": 0,
+        "metadataWorkItems": 1000101,
+        "ordinaryCompletedItems": 1000101,
+        "ordinaryDirectoryEnumerations": 101,
+        "ordinaryDiscoveredItems": 1000101,
+        "packageNodes": 0,
+        "packagesExpanded": true,
+        "path": "/tmp/radix-audit-79xfrr2s/fanout",
+        "peakRSSBytes": 1314406400,
+        "peakRSSIncreaseBytes": 1272233984,
+        "progressEvents": 217,
+        "retainedNodes": 1000101,
+        "scenario": "expanded-manual-none",
+        "semanticFingerprint": "219117f676288803",
+        "startRSSBytes": 42172416,
+        "summarizedDescendantFiles": 0,
+        "summaryAdditionalVisitedItems": 0,
+        "systemCPUSeconds": 3.888863,
+        "treeFingerprint": "7521da31ab4e534c",
+        "userCPUSeconds": 6.282566,
+        "wallSeconds": 5.074264166,
+        "warningEvents": 0,
+        "warningFingerprint": "a8c7f832281a39c5",
+        "warningOrderFingerprint": "a8c7f832281a39c5",
+        "warnings": 0
+      }
+    },
+    {
+      "shape": "wide",
+      "result": {
+        "aggregateDirectories": 1,
+        "aggregateFiles": 1000000,
+        "allocatedBytes": 0,
+        "autoSummarizedNodes": 0,
+        "automaticSummarization": false,
+        "cancellationDelayMilliseconds": 250,
+        "cancellationEmittedFinished": false,
+        "cancellationLatencySeconds": 0.004074375,
+        "cancellationPoolShutdown": true,
+        "cancellationProgressObserved": true,
+        "cancellationStreamTerminated": true,
+        "cancellationWorkersQuiescent": true,
+        "currentRSSBytes": 1309655040,
+        "directoriesVisited": 1,
+        "enumeratedItems": 1000001,
+        "exclusionPatternCount": 0,
+        "exclusionProfile": "none",
+        "filesVisited": 1000000,
+        "logicalBytes": 0,
+        "metadataWorkItems": 1000001,
+        "ordinaryCompletedItems": 1000001,
+        "ordinaryDirectoryEnumerations": 1,
+        "ordinaryDiscoveredItems": 1000001,
+        "packageNodes": 0,
+        "packagesExpanded": true,
+        "path": "/tmp/radix-audit-79xfrr2s/wide",
+        "peakRSSBytes": 1337114624,
+        "peakRSSIncreaseBytes": 1294942208,
+        "progressEvents": 209,
+        "retainedNodes": 1000001,
+        "scenario": "expanded-manual-none",
+        "semanticFingerprint": "d69ac89e213d6959",
+        "startRSSBytes": 42172416,
+        "summarizedDescendantFiles": 0,
+        "summaryAdditionalVisitedItems": 0,
+        "systemCPUSeconds": 3.3081509999999996,
+        "treeFingerprint": "04c79a99259f0f7b",
+        "userCPUSeconds": 8.058435,
+        "wallSeconds": 17.135137292,
+        "warningEvents": 0,
+        "warningFingerprint": "a8c7f832281a39c5",
+        "warningOrderFingerprint": "a8c7f832281a39c5",
+        "warnings": 0
+      }
+    }
+  ],
+  "validation": {
+    "core_tests": 889,
+    "core_opt_in_skips": 27,
+    "core_failures": 0,
+    "debug_app_build": "passed",
+    "derived_data": ".build/xcode-derived-data",
+    "scan_result_counts_and_zero_warnings": "all 18 runs passed",
+    "shared_listing_deduplication_checks": "wide and fanout profiles passed in all three rounds",
+    "early_traversal_cancellation_checks": "both probes passed"
+  }
+}

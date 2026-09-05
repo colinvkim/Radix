@@ -1365,6 +1365,7 @@ actor ScanEngine {
 
         #if DEBUG
         let traversalStart = diagnostics?.start()
+        diagnostics?.recordPeak("work_stack.items", value: workStack.count)
         #endif
         try await withThrowingTaskGroup(of: ScanTaskResult.self) { group in
             var activeDirectoryTasks = 0
@@ -2065,6 +2066,28 @@ actor ScanEngine {
                         )
                     )
                 }
+                #if DEBUG
+                if let diagnostics {
+                    // Only enqueueing can increase pending ownership. Active tasks
+                    // and results waiting in the task group are outside these counts.
+                    var queuedSlots = 0
+                    var retainedEntries = 0
+                    var retainedParents: Set<Int> = []
+                    for request in pendingOrdinaryLeafRequests {
+                        queuedSlots += request.range.count
+                        // Every request for one parent shares the same listing array.
+                        if retainedParents.insert(request.parentKey).inserted {
+                            retainedEntries += request.entries.count
+                        }
+                    }
+                    diagnostics.recordPeak("leaf_queue.requests", value: pendingOrdinaryLeafRequests.count)
+                    diagnostics.recordPeak("leaf_queue.slots", value: queuedSlots)
+                    diagnostics.recordPeak("leaf_queue.retained_entries", value: retainedEntries)
+                    diagnostics.recordPeak("leaf_queue.listings", value: retainedParents.count)
+                    diagnostics.recordPeak("directory_listing.entries", value: childEntries.count)
+                    diagnostics.recordPeak("work_stack.items", value: workStack.count)
+                }
+                #endif
                 // Register this directory so phase 2 can assemble it.
                 completedByKey[itemKey] = .traversableDirectory(
                     metadata: candidate.metadata,

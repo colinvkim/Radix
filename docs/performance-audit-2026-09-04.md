@@ -6,6 +6,8 @@ Large-result browser sorting now moves compact row indices through its sort buff
 
 Metadata-only whole-scan searches now skip text-index construction when no valid index exists; see [metadata-search validation](/Users/colin/Programming/Radix/docs/performance-audit/metadata-2026-09-04.md).
 
+Million- and two-million-file scans now have pending-buffer and RSS measurements. The tested shapes did not justify adding backpressure; see [scanner queue findings](/Users/colin/Programming/Radix/docs/performance-audit/queue-2026-09-04.md).
+
 The highest-priority issue is main-actor selection resolution: even an empty selection walks every row in the focused directory's table contents. A million-row directory spent 285–332 ms resolving zero or one selected item. Large-result sorting and retained tree representations are the next substantial costs. Native APFS traversal is already effective: the 100,000-file fixture completed in 424 ms with almost no per-file metadata calls.
 
 This audit covers revision `b4d1b5dcd554dc2516b14bf2750bc51af7134d06`. Production code was not changed. The added opt-in benchmarks and measurement tools make the findings reproducible.
