@@ -58,6 +58,12 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             let tableRefresh = BenchmarkSupport.measure { model.refreshTableNodesForCurrentContext() }
             Self.report(phase: "refresh_unchanged_table_main_actor", count: count, seconds: tableRefresh.seconds)
 
+            let contextRefresh = BenchmarkSupport.measure { model.updateScanContext(snapshot: snapshot) }
+            Self.report(phase: "refresh_unchanged_scan_context_main_actor", count: count, seconds: contextRefresh.seconds)
+
+            let reconciliation = BenchmarkSupport.measure { model.reconcileAfterSnapshotApplied(snapshot) }
+            Self.report(phase: "reconcile_unchanged_scan_context_main_actor", count: count, seconds: reconciliation.seconds)
+
             for selectedCount in [0, 1] {
                 model.select(nodeID: selectedCount == 0 ? nil : model.tableNodes.last?.id)
                 var samples: [Double] = []

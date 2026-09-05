@@ -9,6 +9,11 @@ import Foundation
 struct WorkspaceNavigationState: Equatable {
     static let emptyTableContentID = "no-snapshot|no-focus"
 
+    private struct TableSource: Equatable {
+        let treeContentID: UUID
+        let directoryID: FileNodeRecord.ID
+    }
+
     var snapshotID: UUID?
     var fileTreeStore: FileTreeStore?
     var selectedNodeID: FileNodeRecord.ID?
@@ -20,6 +25,8 @@ struct WorkspaceNavigationState: Equatable {
     var tableContentID: String
     var tableContentRevision: Int
     var selectedAncestorIDs: Set<FileNodeRecord.ID>
+    // A nil source means the current table contents have not been materialized.
+    private var tableSource: TableSource?
 
     static let empty = WorkspaceNavigationState(
         snapshotID: nil,
@@ -45,6 +52,7 @@ struct WorkspaceNavigationState: Equatable {
             lhs.focusForwardStack == rhs.focusForwardStack &&
             lhs.tableContentID == rhs.tableContentID &&
             lhs.tableContentRevision == rhs.tableContentRevision &&
+            lhs.tableSource == rhs.tableSource &&
             lhs.selectedAncestorIDs == rhs.selectedAncestorIDs
     }
 }
@@ -362,25 +370,20 @@ private extension WorkspaceNavigationState {
             focusNode?.id ?? "no-focus"
         ].joined(separator: "|")
 
-        guard let fileTreeStore,
-              let focusNode else {
+        guard loadNodes,
+              let fileTreeStore,
+              let focusNode,
+              let directory = focusNode.isDirectory ? focusNode : fileTreeStore.parent(of: focusNode.id) else {
+            next.tableSource = nil
             next.replaceTableNodes([])
             return next
         }
 
-        guard loadNodes else {
-            next.replaceTableNodes([])
-            return next
-        }
+        let source = TableSource(treeContentID: fileTreeStore.contentID, directoryID: directory.id)
+        guard tableSource != source else { return next }
 
-        if focusNode.isDirectory {
-            next.replaceTableNodes(fileTreeStore.children(of: focusNode.id))
-        } else if let parent = fileTreeStore.parent(of: focusNode.id) {
-            next.replaceTableNodes(fileTreeStore.children(of: parent.id))
-        } else {
-            next.replaceTableNodes([])
-        }
-
+        next.tableSource = source
+        next.replaceTableNodes(fileTreeStore.children(of: directory.id))
         return next
     }
 
@@ -391,7 +394,8 @@ private extension WorkspaceNavigationState {
     }
 
     func firstSelectedID(in nodeIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
-        tableNodes.first(where: { nodeIDs.contains($0.id) })?.id ?? nodeIDs.min()
+        guard !nodeIDs.isEmpty else { return nil }
+        return tableNodes.first(where: { nodeIDs.contains($0.id) })?.id ?? nodeIDs.min()
     }
 }
 

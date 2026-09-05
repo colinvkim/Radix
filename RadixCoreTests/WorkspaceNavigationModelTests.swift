@@ -317,6 +317,13 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
         XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
 
+        let rootTableRevision = model.tableContentRevision
+        model.setFocusedNodeID(fixture.rootFile.id)
+
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentRevision, rootTableRevision)
+        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.rootFile.id)")
+
         model.setFocusedNodeID(fixture.docFile.id)
 
         XCTAssertEqual(model.focusedNodeID, fixture.docFile.id)
@@ -345,6 +352,16 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.refreshTableNodesForCurrentContext()
 
         XCTAssertEqual(model.tableContentRevision, deferredRevision + 1)
+
+        model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
+
+        XCTAssertTrue(model.tableNodes.isEmpty)
+        XCTAssertEqual(model.tableContentRevision, deferredRevision + 2)
+
+        model.refreshTableNodesForCurrentContext()
+
+        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        XCTAssertEqual(model.tableContentRevision, deferredRevision + 3)
     }
 
     @MainActor
@@ -468,6 +485,7 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.updateScanContext(snapshot: fixture.snapshot)
         model.reconcileAfterSnapshotApplied(fixture.snapshot)
+        model.refreshTableNodesForCurrentContext()
 
         XCTAssertTrue(publishedStates.isEmpty)
     }

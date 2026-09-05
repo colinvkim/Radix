@@ -1,0 +1,222 @@
+{
+  "date": "2026-09-04",
+  "baselineRevision": "469e5e320afcbf1a118c65beefeca8e6e9c57617",
+  "baselineBundle": ".build/performance-audit/refresh-before/RadixCorePackageTests.xctest",
+  "after": "Skip table materialization when tree content ID and containing directory ID match; invalidate the source for deferred loading; skip primary-selection lookup for an empty selection.",
+  "methodology": "Three paired Release rounds, alternating before/after order, fresh process per invocation, one synthetic flat directory with 1,000,000 rows. Both bundles include the same added unchanged-context benchmark phases. Reported medians use one invocation per phase per process. Navigation follows chart-layout phases in each process. Six-decimal seconds output has one-microsecond precision. Peak RSS is a process high-water mark, not isolated navigation allocation volume. No overlapping build or test workload.",
+  "environment": "Apple M5 MacBook Air; 10 cores; 32 GiB RAM; macOS 26.6.2; Xcode 26.6; local APFS",
+  "summary": {
+    "refresh_unchanged_table_main_actor": {
+      "before": {
+        "samplesSeconds": [
+          0.092888,
+          0.091859,
+          0.091851
+        ],
+        "medianSeconds": 0.091859
+      },
+      "after": {
+        "samplesSeconds": [
+          8e-06,
+          1e-05,
+          8e-06
+        ],
+        "medianSeconds": 8e-06
+      }
+    },
+    "refresh_unchanged_scan_context_main_actor": {
+      "before": {
+        "samplesSeconds": [
+          0.145359,
+          0.14949,
+          0.161435
+        ],
+        "medianSeconds": 0.14949
+      },
+      "after": {
+        "samplesSeconds": [
+          5e-06,
+          5e-06,
+          5e-06
+        ],
+        "medianSeconds": 5e-06
+      }
+    },
+    "reconcile_unchanged_scan_context_main_actor": {
+      "before": {
+        "samplesSeconds": [
+          0.147136,
+          0.146387,
+          0.153586
+        ],
+        "medianSeconds": 0.147136
+      },
+      "after": {
+        "samplesSeconds": [
+          4e-06,
+          4e-06,
+          4e-06
+        ],
+        "medianSeconds": 4e-06
+      }
+    }
+  },
+  "runs": [
+    {
+      "round": 1,
+      "variant": "before",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.PerformanceAuditBenchmarkTests/testNavigationAuditBenchmark",
+        ".build/performance-audit/refresh-before/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+        "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.477134 count=1000000 peak_rss=803897344 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.280477 count=1000000 peak_rss=1247920128 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.116207 count=1000000 peak_rss=1248034816 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.018588 count=1000000 peak_rss=1248280576 rss_delta=196608",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.092888 count=1000000 peak_rss=1248329728 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_scan_context_main_actor seconds=0.145359 count=1000000 peak_rss=1248329728 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=reconcile_unchanged_scan_context_main_actor seconds=0.147136 count=1000000 peak_rss=1248329728 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248395264 selected=0 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248395264 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000045 count=1000000 peak_rss=1248460800 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248493568 selected=1 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248493568 selected=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000006 count=1000000 peak_rss=1248493568 selected=1"
+      ]
+    },
+    {
+      "round": 1,
+      "variant": "after",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.PerformanceAuditBenchmarkTests/testNavigationAuditBenchmark",
+        ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+        "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.497002 count=1000000 peak_rss=803848192 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.291299 count=1000000 peak_rss=1247903744 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.116997 count=1000000 peak_rss=1248018432 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.019216 count=1000000 peak_rss=1248280576 rss_delta=196608",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.000008 count=1000000 peak_rss=1248313344 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_scan_context_main_actor seconds=0.000005 count=1000000 peak_rss=1248313344 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=reconcile_unchanged_scan_context_main_actor seconds=0.000004 count=1000000 peak_rss=1248313344 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248378880 selected=0 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248378880 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000021 count=1000000 peak_rss=1248428032 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000002 count=1000000 peak_rss=1248460800 selected=1 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248460800 selected=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000006 count=1000000 peak_rss=1248460800 selected=1"
+      ]
+    },
+    {
+      "round": 2,
+      "variant": "after",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.PerformanceAuditBenchmarkTests/testNavigationAuditBenchmark",
+        ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+        "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.498335 count=1000000 peak_rss=803897344 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.286243 count=1000000 peak_rss=1247969280 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.112143 count=1000000 peak_rss=1248083968 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.018763 count=1000000 peak_rss=1248346112 rss_delta=196608",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.000010 count=1000000 peak_rss=1248378880 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_scan_context_main_actor seconds=0.000005 count=1000000 peak_rss=1248378880 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=reconcile_unchanged_scan_context_main_actor seconds=0.000004 count=1000000 peak_rss=1248378880 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248444416 selected=0 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248444416 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000022 count=1000000 peak_rss=1248493568 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248526336 selected=1 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248526336 selected=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000006 count=1000000 peak_rss=1248526336 selected=1"
+      ]
+    },
+    {
+      "round": 2,
+      "variant": "before",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.PerformanceAuditBenchmarkTests/testNavigationAuditBenchmark",
+        ".build/performance-audit/refresh-before/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+        "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.474080 count=1000000 peak_rss=803880960 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.289240 count=1000000 peak_rss=1247920128 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.111519 count=1000000 peak_rss=1248034816 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.018346 count=1000000 peak_rss=1248280576 rss_delta=196608",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.091859 count=1000000 peak_rss=1248329728 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_scan_context_main_actor seconds=0.149490 count=1000000 peak_rss=1248329728 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=reconcile_unchanged_scan_context_main_actor seconds=0.146387 count=1000000 peak_rss=1248329728 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248395264 selected=0 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248395264 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000032 count=1000000 peak_rss=1248460800 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248493568 selected=1 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248493568 selected=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000008 count=1000000 peak_rss=1248493568 selected=1"
+      ]
+    },
+    {
+      "round": 3,
+      "variant": "before",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.PerformanceAuditBenchmarkTests/testNavigationAuditBenchmark",
+        ".build/performance-audit/refresh-before/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+        "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.479880 count=1000000 peak_rss=803897344 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.281815 count=1000000 peak_rss=1247936512 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.114673 count=1000000 peak_rss=1248051200 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.018837 count=1000000 peak_rss=1248296960 rss_delta=196608",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.091851 count=1000000 peak_rss=1248346112 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_scan_context_main_actor seconds=0.161435 count=1000000 peak_rss=1248346112 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=reconcile_unchanged_scan_context_main_actor seconds=0.153586 count=1000000 peak_rss=1248346112 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248411648 selected=0 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000002 count=1000000 peak_rss=1248411648 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000034 count=1000000 peak_rss=1248477184 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000001 count=1000000 peak_rss=1248509952 selected=1 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248509952 selected=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000006 count=1000000 peak_rss=1248509952 selected=1"
+      ]
+    },
+    {
+      "round": 3,
+      "variant": "after",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+        "-XCTest",
+        "RadixCoreTests.PerformanceAuditBenchmarkTests/testNavigationAuditBenchmark",
+        ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest"
+      ],
+      "rawLines": [
+        "RADIX_BENCH_AUDIT_LAYOUT file_node_stride=168",
+        "RADIX_BENCH_AUDIT_RESULT phase=fixture seconds=0.483894 count=1000000 peak_rss=803831808 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=sunburst_flat_global_root_layout seconds=0.287026 count=1000000 peak_rss=1247887360 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=treemap_flat_global_root_layout seconds=0.115712 count=1000000 peak_rss=1248002048 input_nodes=1000001 segments=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=install_scan_context_main_actor seconds=0.019080 count=1000000 peak_rss=1248264192 rss_delta=196608",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_table_main_actor seconds=0.000008 count=1000000 peak_rss=1248296960 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=refresh_unchanged_scan_context_main_actor seconds=0.000005 count=1000000 peak_rss=1248296960 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=reconcile_unchanged_scan_context_main_actor seconds=0.000004 count=1000000 peak_rss=1248296960 ",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000000 count=1000000 peak_rss=1248362496 selected=0 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248362496 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000021 count=1000000 peak_rss=1248411648 selected=0",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_nodes_main_actor seconds=0.000002 count=1000000 peak_rss=1248444416 selected=1 samples=5",
+        "RADIX_BENCH_AUDIT_RESULT phase=selected_node_direct_lookup_main_actor seconds=0.000001 count=1000000 peak_rss=1248444416 selected=1",
+        "RADIX_BENCH_AUDIT_RESULT phase=selection_summary_with_resolution_main_actor seconds=0.000006 count=1000000 peak_rss=1248444416 selected=1"
+      ]
+    }
+  ]
+}

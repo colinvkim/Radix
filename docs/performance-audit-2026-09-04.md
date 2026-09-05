@@ -1,6 +1,6 @@
 **Radix performance audit — 4 September 2026**
 
-Follow-up: the first two recommended fixes are implemented; see [before/after validation](/Users/colin/Programming/Radix/docs/performance-audit/fixes-2026-09-04.md). The original audit findings and measurements below remain the baseline for the other work.
+Follow-up: selection resolution and capability-cache path normalization are implemented; see [before/after validation](/Users/colin/Programming/Radix/docs/performance-audit/fixes-2026-09-04.md). Unchanged navigation refreshes now also skip directory materialization; see [refresh validation](/Users/colin/Programming/Radix/docs/performance-audit/refresh-2026-09-04.md). The original audit findings and measurements below remain the baseline for the other work.
 
 The highest-priority issue is main-actor selection resolution: even an empty selection walks every row in the focused directory's table contents. A million-row directory spent 285–332 ms resolving zero or one selected item. Large-result sorting and retained tree representations are the next substantial costs. Native APFS traversal is already effective: the 100,000-file fixture completed in 424 ms with almost no per-file metadata calls.
 
