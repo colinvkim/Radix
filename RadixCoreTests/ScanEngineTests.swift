@@ -1883,6 +1883,48 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertEqual(packageNode.descendantFileCount, 1)
     }
 
+    func testPooledSummaryPreservesRootAccessibilityAndErrors() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        for state in ["readable", "unreadable", "missing"] {
+            let packageURL = rootURL.appending(path: "\(state).app", directoryHint: .isDirectory)
+            if state != "missing" {
+                try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+            }
+            if state == "unreadable" {
+                try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: packageURL.path)
+            }
+            defer {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: packageURL.path)
+            }
+
+            let pool = AtomicDirectorySummaryPool(workerLimit: 1)
+            let summarizer = AtomicDirectorySummarizer(metadataLoader: ScanMetadataLoader(), summaryPool: pool)
+            let (_, continuation) = makeAtomicSummaryProgressReporter()
+            defer { continuation.finish() }
+            var metrics = ScanMetrics()
+            let result = try await summarizer.summarize(
+                at: packageURL,
+                treatPackagesAsDirectories: true,
+                progressKind: .package,
+                ownerNodeID: packageURL.path,
+                exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: packageURL),
+                cancellationCheck: {},
+                metrics: &metrics,
+                continuation: continuation
+            )
+            await pool.finish()
+
+            let summary = try XCTUnwrap(result)
+            XCTAssertEqual(summary.isAccessible, state == "readable", state)
+            XCTAssertEqual(summary.warnings.isEmpty, state == "readable", state)
+            XCTAssertTrue(summary.warnings.allSatisfy { $0.path == packageURL.path }, state)
+            XCTAssertEqual(summary.descendantFileCount, 0, state)
+            XCTAssertEqual(summary.allocatedSize, 0, state)
+        }
+    }
+
     func testAtomicPackageAccessFailuresProduceWarnings() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

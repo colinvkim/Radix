@@ -680,9 +680,8 @@ nonisolated final class AtomicDirectorySummaryPool: @unchecked Sendable {
 
         let accumulator = AtomicSummaryAccumulator()
         do {
-            let values = try request.url.resourceValues(
-                forKeys: ScanMetadataLoader.atomicSummaryResourceKeySet
-            )
+            // Seed accessibility without invoking unrelated package classification.
+            let values = try request.url.resourceValues(forKeys: [.isReadableKey])
             accumulator.updateAccessibility(values.isReadable ?? false)
         } catch {
             accumulator.recordWarning(for: request.url, error: error)
