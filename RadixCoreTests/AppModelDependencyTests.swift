@@ -20,7 +20,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testInitializesFromInjectedPreferencesTargetsAndRecentStore() {
+    func testInitializesFromInjectedPreferencesTargetsAndRecentStore() async throws {
         let availableRecent = makeTestTarget("/recent/available")
         let missingRecent = makeTestTarget("/recent/missing")
         let defaultTarget = makeTestTarget("/default")
@@ -68,6 +68,9 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.availableTargets, [defaultTarget])
         XCTAssertEqual(model.smartTargets, [defaultTarget])
         XCTAssertEqual(model.recentTargets, [availableRecent])
+        try await waitUntil("full disk access becomes notGranted") {
+            model.fullDiskAccessStatus == .notGranted
+        }
         XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
         XCTAssertEqual(recentPersistence.savedTargets, [[availableRecent]])
     }
@@ -320,7 +323,7 @@ final class AppModelDependencyTests: XCTestCase {
     func testAsyncFreeSpaceCapacityLoadDoesNotBlockMainActor() async throws {
         let probe = ControlledCapacityLoader()
         var actions = AppSystemActions.inert
-        actions.asyncVolumeAvailableCapacityForImportantUsage = { url in
+        actions.volumeAvailableCapacityForImportantUsage = { url in
             await probe.load(url)
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -350,7 +353,7 @@ final class AppModelDependencyTests: XCTestCase {
     func testStaleFreeSpaceCapacityResultCannotOverwriteNewSnapshot() async throws {
         let probe = ControlledCapacityLoader()
         var actions = AppSystemActions.inert
-        actions.asyncVolumeAvailableCapacityForImportantUsage = { url in
+        actions.volumeAvailableCapacityForImportantUsage = { url in
             await probe.load(url)
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -390,7 +393,7 @@ final class AppModelDependencyTests: XCTestCase {
     func testCleanupCancelsFreeSpaceCapacityLoadAndClearsCache() async throws {
         let probe = ControlledCapacityLoader()
         var actions = AppSystemActions.inert
-        actions.asyncVolumeAvailableCapacityForImportantUsage = { url in
+        actions.volumeAvailableCapacityForImportantUsage = { url in
             await probe.load(url)
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -810,7 +813,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testConfirmPendingTrashUsesInjectedFileActionsAndRefreshesTargets() {
+    func testConfirmPendingTrashUsesInjectedFileActionsAndRefreshesTargets() async throws {
         let recorder = AppModelActionRecorder()
         let refreshedTarget = makeTestTarget("/refreshed")
         recorder.defaultTargets = [refreshedTarget]
@@ -826,6 +829,9 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(recorder.movedToTrashURLs, [file.url])
         XCTAssertNil(model.pendingTrashSelection)
@@ -838,7 +844,7 @@ final class AppModelDependencyTests: XCTestCase {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.asyncMoveToTrash = { node in
+        actions.moveToTrash = { node in
             await probe.move(node.url)
             return .matches
         }
@@ -877,7 +883,7 @@ final class AppModelDependencyTests: XCTestCase {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.asyncMoveToTrash = { node in
+        actions.moveToTrash = { node in
             await probe.move(node.url)
             throw NSError(domain: "RadixTrashTest", code: 1)
         }
@@ -929,11 +935,47 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testCancellationStopsTrashBatchAfterUninterruptibleMove() async throws {
+        let probe = AsyncTrashActionProbe()
+        var movedIDs: [String] = []
+        var actions = AppSystemActions.inert
+        actions.moveToTrash = { node in
+            movedIDs.append(node.id)
+            await probe.move(node.url)
+            return .matches
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let first = makeTestFileNode(id: "/selection/first.bin", name: "first.bin", size: 40)
+        let second = makeTestFileNode(id: "/selection/second.bin", name: "second.bin", size: 60)
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.selectedTarget = snapshot.target
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first, second])
+
+        model.confirmMovePendingSelectionToTrash()
+        try await probe.waitUntilStarted()
+        model.suspendMainWindowActivity()
+        await probe.finish()
+
+        try await waitUntil("completed move reconciled after cancellation") {
+            model.scanState.snapshot?.treeStore.node(id: first.id) == nil
+        }
+        XCTAssertEqual(movedIDs, [first.id])
+        XCTAssertEqual(model.usageStats.bytesMovedToTrash, first.allocatedSize)
+        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: second.id))
+        XCTAssertFalse(model.workspaceHiddenNodeIDs.contains(second.id))
+        XCTAssertNil(model.lastErrorMessage)
+    }
+
+    @MainActor
     func testAsyncDiscardPileTrashDoesNotRemoveNewSnapshotListEntry() async throws {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.asyncMoveToTrash = { node in
+        actions.moveToTrash = { node in
             await probe.move(node.url)
             return .matches
         }
@@ -973,7 +1015,7 @@ final class AppModelDependencyTests: XCTestCase {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.asyncMoveToTrash = { node in
+        actions.moveToTrash = { node in
             if node.name == "second.bin" {
                 await probe.move(node.url)
                 try Task.checkCancellation()
@@ -1012,7 +1054,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testConfirmPendingTrashRecordsTrashUsageStats() {
+    func testConfirmPendingTrashRecordsTrashUsageStats() async throws {
         let recorder = AppModelActionRecorder()
         let usageStats = SpyAppUsageStatsStore()
         let first = makeTestFileNode(id: "/selection/folder/first.bin", name: "first.bin", size: 40)
@@ -1039,6 +1081,9 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [folder])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
         XCTAssertEqual(model.usageStats.filesDeleted, 2)
@@ -1050,7 +1095,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testConfirmPendingTrashAllowsMatchingIdentity() {
+    func testConfirmPendingTrashAllowsMatchingIdentity() async throws {
         let recorder = AppModelActionRecorder()
         let identity = FileIdentity(device: 12, inode: 34)
         let file = makeTestFileNode(
@@ -1070,6 +1115,9 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(verifiedNodeIDs, [file.id])
         XCTAssertEqual(recorder.movedToTrashURLs, [file.url])
@@ -1077,7 +1125,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testConfirmPendingTrashBlocksMismatchedIdentity() {
+    func testConfirmPendingTrashBlocksMismatchedIdentity() async throws {
         let recorder = AppModelActionRecorder()
         let file = makeTestFileNode(
             id: "/selection/replaced.txt",
@@ -1091,6 +1139,9 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(
@@ -1100,7 +1151,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testConfirmPendingTrashBlocksMissingScannedIdentity() {
+    func testConfirmPendingTrashBlocksMissingScannedIdentity() async throws {
         let recorder = AppModelActionRecorder()
         let file = makeTestFileNode(id: "/selection/unverified.txt", name: "unverified.txt")
         var actions = AppSystemActions.inert
@@ -1110,6 +1161,9 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
         XCTAssertEqual(
@@ -1149,6 +1203,9 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first, second])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(verifiedNodeIDs, [first.id, second.id])
         XCTAssertEqual(recorder.movedToTrashURLs, [first.url])
@@ -1243,7 +1300,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testMovingResidentCloudFileToTrashRequiresSecondConfirmation() {
+    func testMovingResidentCloudFileToTrashRequiresSecondConfirmation() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1277,6 +1334,9 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.pendingCloudFileAction?.cloudImpact, .storedInCloud)
 
         model.confirmPendingCloudFileAction()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(recorder.movedToTrashURLs, [cloudFile.url])
         XCTAssertNil(model.pendingCloudFileAction)
@@ -1301,6 +1361,9 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertTrue(model.addNodesToDiscardPile([queued]))
         XCTAssertTrue(model.requestMoveNodesToTrash([visible]))
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(recorder.movedToTrashURLs, [visible.url])
         XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
@@ -1337,6 +1400,9 @@ final class AppModelDependencyTests: XCTestCase {
         model.select(nodeID: visible.id)
         model.requestMovePrimarySelectionToTrash()
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(recorder.movedToTrashURLs, [visible.url])
 
@@ -1985,7 +2051,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testDiscardPileReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() {
+    func testDiscardPileReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2011,6 +2077,9 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
 
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("confirmed trash action completed") {
+            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
+        }
 
         XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
         XCTAssertTrue(model.discardPile.isEmpty)
@@ -2061,7 +2130,7 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
-    func testFullDiskAccessStatusCanRefreshThroughInjectedProbe() {
+    func testFullDiskAccessStatusCanRefreshThroughInjectedProbe() async throws {
         var statuses: [FullDiskAccessStatus] = [.notGranted, .granted]
         var actions = AppSystemActions.inert
         actions.fullDiskAccessStatus = {
@@ -2069,9 +2138,41 @@ final class AppModelDependencyTests: XCTestCase {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
+        try await waitUntil("full disk access becomes notGranted") {
+            model.fullDiskAccessStatus == .notGranted
+        }
         XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
 
         model.refreshFullDiskAccessStatus()
+
+        try await waitUntil("full disk access becomes granted") {
+            model.fullDiskAccessStatus == .granted
+        }
+        XCTAssertEqual(model.fullDiskAccessStatus, .granted)
+    }
+
+    @MainActor
+    func testFullDiskAccessRefreshIgnoresSupersededProbe() async throws {
+        let oldProbe = AsyncValueProbe<FullDiskAccessStatus>()
+        var callCount = 0
+        var oldProbeReturned = false
+        var actions = AppSystemActions.inert
+        actions.fullDiskAccessStatus = {
+            callCount += 1
+            if callCount == 1 {
+                let status = await oldProbe.wait()
+                oldProbeReturned = true
+                return status
+            }
+            return .granted
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        try await waitUntil("initial permission probe starts") { await oldProbe.isWaiting }
+
+        model.refreshFullDiskAccessStatus()
+        try await waitUntil("latest permission probe applies") { model.fullDiskAccessStatus == .granted }
+        await oldProbe.resume(returning: .notGranted)
+        try await waitUntil("superseded permission probe returns") { oldProbeReturned }
 
         XCTAssertEqual(model.fullDiskAccessStatus, .granted)
     }
@@ -2079,7 +2180,7 @@ final class AppModelDependencyTests: XCTestCase {
     @MainActor
     func testAsyncFullDiskAccessRefreshAppliesLatestProbe() async throws {
         var actions = AppSystemActions.inert
-        actions.asyncFullDiskAccessStatus = {
+        actions.fullDiskAccessStatus = {
             .granted
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -2099,7 +2200,7 @@ final class AppModelDependencyTests: XCTestCase {
         actions.defaultTargets = {
             [loadedTarget]
         }
-        actions.asyncTargetCapacityDescriptions = {
+        actions.targetCapacityDescriptions = {
             await probe.wait()
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -2156,7 +2257,7 @@ final class AppModelDependencyTests: XCTestCase {
         actions.defaultTargets = {
             [loadedTarget]
         }
-        actions.asyncTargetCapacityDescriptions = {
+        actions.targetCapacityDescriptions = {
             await probe.wait()
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))

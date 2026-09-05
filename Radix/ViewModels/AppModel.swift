@@ -320,16 +320,12 @@ final class AppModel: ObservableObject {
         )
         showsOnboarding = shouldShowOnboarding
         usageStats = dependencies.usageStats.loadUsageStats()
-        fullDiskAccessStatus = dependencies.systemActions.usesAsyncFullDiskAccessStatus
-            ? .unknown
-            : dependencies.systemActions.currentFullDiskAccessStatus()
+        fullDiskAccessStatus = .unknown
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
 
         refreshAvailableTargets()
         refreshSidebarTargetSections()
-        if dependencies.systemActions.usesAsyncFullDiskAccessStatus {
-            refreshFullDiskAccessStatus()
-        }
+        refreshFullDiskAccessStatus()
         quickLookController.delegate = self
         presentationCoordinator.objectWillChange
             .sink { [weak self] in
@@ -635,18 +631,13 @@ final class AppModel: ObservableObject {
     func refreshFullDiskAccessStatus() {
         fullDiskAccessRefreshTask?.cancel()
 
-        guard dependencies.systemActions.usesAsyncFullDiskAccessStatus else {
-            fullDiskAccessStatus = dependencies.systemActions.currentFullDiskAccessStatus()
-            fullDiskAccessRefreshTask = nil
-            return
-        }
-
+        let loadStatus = dependencies.systemActions.fullDiskAccessStatus
         fullDiskAccessRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            let status = await self.dependencies.systemActions.loadCurrentFullDiskAccessStatus()
             guard !Task.isCancelled else { return }
-            self.fullDiskAccessStatus = status
-            self.fullDiskAccessRefreshTask = nil
+            let status = await loadStatus()
+            guard !Task.isCancelled else { return }
+            self?.fullDiskAccessStatus = status
+            self?.fullDiskAccessRefreshTask = nil
         }
     }
 
@@ -2280,78 +2271,40 @@ final class AppModel: ObservableObject {
         let statsFileTreeStore = scanCoordinator.fileTreeStore
         let actions = dependencies.systemActions
 
-        if usesAsyncTrashActions {
-            confirmedTrashMoveTask = Task { @MainActor [weak self] in
-                await self?.trashFlow.runConfirmedMoveAsynchronously(
-                    nodes,
-                    originalSnapshotID: originalSnapshotID,
-                    statsFileTreeStore: statsFileTreeStore,
-                    actions: actions,
-                    beginMove: { snapshotID, _ in
-                        guard let self else { return }
-                        let activeFileTreeStore = self.scanCoordinator.fileTreeStore
-                        let didHide = self.trashFlow.hideTrashNodesDuringMove(
-                            nodes,
-                            snapshotID: snapshotID,
-                            activeSnapshotID: self.scanCoordinator.snapshot?.id,
-                            activeFileTreeStore: activeFileTreeStore
-                        )
-                        if didHide, let activeFileTreeStore {
-                            self.reconcileNavigationForHiddenNodes(
-                                hiddenNodeIDs: self.hiddenNodeIDs(for: snapshotID),
-                                fileTreeStore: activeFileTreeStore
-                            )
-                        }
-                    },
-                    onFinish: { requested, moved, actionError, wasCancelled in
-                        self?.finishConfirmedTrashMove(
-                            requestedNodes: requested,
-                            movedNodes: moved,
-                            actionError: actionError,
-                            originalSnapshotID: originalSnapshotID,
-                            statsFileTreeStore: statsFileTreeStore,
-                            wasCancelled: wasCancelled
-                        )
-                    }
-                )
-            }
-        } else {
-            trashFlow.runConfirmedMoveSynchronously(
+        confirmedTrashMoveTask = Task { @MainActor [weak self] in
+            await self?.trashFlow.runConfirmedMove(
                 nodes,
                 originalSnapshotID: originalSnapshotID,
                 statsFileTreeStore: statsFileTreeStore,
                 actions: actions,
                 beginMove: { snapshotID, _ in
-                    let activeFileTreeStore = scanCoordinator.fileTreeStore
-                    let didHide = trashFlow.hideTrashNodesDuringMove(
+                    guard let self else { return }
+                    let activeFileTreeStore = self.scanCoordinator.fileTreeStore
+                    let didHide = self.trashFlow.hideTrashNodesDuringMove(
                         nodes,
                         snapshotID: snapshotID,
-                        activeSnapshotID: scanCoordinator.snapshot?.id,
+                        activeSnapshotID: self.scanCoordinator.snapshot?.id,
                         activeFileTreeStore: activeFileTreeStore
                     )
                     if didHide, let activeFileTreeStore {
-                        reconcileNavigationForHiddenNodes(
-                            hiddenNodeIDs: hiddenNodeIDs(for: snapshotID),
+                        self.reconcileNavigationForHiddenNodes(
+                            hiddenNodeIDs: self.hiddenNodeIDs(for: snapshotID),
                             fileTreeStore: activeFileTreeStore
                         )
                     }
                 },
-                onFinish: { requested, moved, actionError in
-                    finishConfirmedTrashMove(
+                onFinish: { requested, moved, actionError, wasCancelled in
+                    self?.finishConfirmedTrashMove(
                         requestedNodes: requested,
                         movedNodes: moved,
                         actionError: actionError,
                         originalSnapshotID: originalSnapshotID,
                         statsFileTreeStore: statsFileTreeStore,
-                        wasCancelled: false
+                        wasCancelled: wasCancelled
                     )
                 }
             )
         }
-    }
-
-    private var usesAsyncTrashActions: Bool {
-        dependencies.systemActions.asyncMoveToTrash != nil
     }
 
     private func finishConfirmedTrashMove(
@@ -2954,20 +2907,13 @@ final class AppModel: ObservableObject {
         scanCoordinator.replaceTrashSafetyPolicy(dependencies.systemActions.trashSafetyPolicy())
         availableTargets = dependencies.systemActions.defaultTargets()
 
-        guard dependencies.systemActions.usesAsyncTargetCapacityDescriptions else {
-            sidebarModel.replaceTargetCapacityDescriptions(
-                dependencies.systemActions.currentTargetCapacityDescriptions()
-            )
-            targetCapacityDescriptionsRefreshTask = nil
-            return
-        }
-
+        let loadDescriptions = dependencies.systemActions.targetCapacityDescriptions
         targetCapacityDescriptionsRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            let descriptions = await self.dependencies.systemActions.loadCurrentTargetCapacityDescriptions()
             guard !Task.isCancelled else { return }
-            self.sidebarModel.replaceTargetCapacityDescriptions(descriptions)
-            self.targetCapacityDescriptionsRefreshTask = nil
+            let descriptions = await loadDescriptions()
+            guard !Task.isCancelled else { return }
+            self?.sidebarModel.replaceTargetCapacityDescriptions(descriptions)
+            self?.targetCapacityDescriptionsRefreshTask = nil
         }
     }
 
@@ -3115,7 +3061,7 @@ final class AppModel: ObservableObject {
 
         let systemActions = dependencies.systemActions
         diskFreeSpaceCapacityRefreshTask = Task { [weak self] in
-            let availableCapacity = await systemActions.loadVolumeAvailableCapacity(for: snapshot.target.url)
+            let availableCapacity = await systemActions.volumeAvailableCapacityForImportantUsage(snapshot.target.url)
             guard let self,
                   !Task.isCancelled,
                   diskFreeSpaceCapacityRefreshGeneration == generation,

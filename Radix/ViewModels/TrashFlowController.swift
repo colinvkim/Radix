@@ -237,42 +237,9 @@ final class TrashFlowController {
         )
     }
 
-    /// Runs one confirmed trash move synchronously and reports the outcome.
-    /// `beginMove` applies optimistic hiding using the caller's live snapshot
-    /// state; `onFinish` applies cross-model side effects on the caller.
-    func runConfirmedMoveSynchronously(
-        _ nodes: [FileNodeRecord],
-        originalSnapshotID: UUID?,
-        statsFileTreeStore: FileTreeStore?,
-        actions: AppSystemActions,
-        beginMove: (UUID?, FileTreeStore?) -> Void,
-        onFinish: (_ requested: [FileNodeRecord], _ moved: [FileNodeRecord], _ actionError: Error?) -> Void
-    ) {
-        beginMove(originalSnapshotID, statsFileTreeStore)
-
-        var movedNodes: [FileNodeRecord] = []
-        var actionError: Error?
-        for node in nodes {
-            do {
-                let verificationResult = try actions.moveToTrash(node)
-                if let identityError = Self.fileActionError(for: verificationResult, node: node) {
-                    actionError = identityError
-                    break
-                }
-                movedNodes.append(node)
-            } catch {
-                actionError = error
-                break
-            }
-        }
-
-        onFinish(nodes, movedNodes, actionError)
-    }
-
-    /// Async counterpart of runConfirmedMoveSynchronously; cancellation stops
-    /// the loop and is reported through the returned flag so unmoved items can
-    /// be restored without presenting a spurious error.
-    func runConfirmedMoveAsynchronously(
+    /// Runs the confirmed batch and reports moved items even when a later item
+    /// fails or cancellation stops the batch.
+    func runConfirmedMove(
         _ nodes: [FileNodeRecord],
         originalSnapshotID: UUID?,
         statsFileTreeStore: FileTreeStore?,
@@ -287,12 +254,8 @@ final class TrashFlowController {
         var wasCancelled = false
         for node in nodes {
             do {
-                let verificationResult: TrashIdentityVerificationResult
-                if let asyncMoveToTrash = actions.asyncMoveToTrash {
-                    verificationResult = try await asyncMoveToTrash(node)
-                } else {
-                    verificationResult = try actions.moveToTrash(node)
-                }
+                try Task.checkCancellation()
+                let verificationResult = try await actions.moveToTrash(node)
                 if let identityError = Self.fileActionError(for: verificationResult, node: node) {
                     actionError = identityError
                     break

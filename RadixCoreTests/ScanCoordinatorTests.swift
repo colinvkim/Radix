@@ -1586,6 +1586,9 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [root])
         model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("trashed active root clears snapshot") {
+            model.scanState.snapshot == nil
+        }
 
         XCTAssertNil(model.scanState.snapshot)
         XCTAssertNil(model.scanState.selectedTarget)

@@ -72,18 +72,14 @@ struct AppSystemActions {
     var revealMany: ([URL]) -> Void
     var copyPath: (URL) throws -> Void
     var copyPaths: ([URL]) throws -> Void
-    var moveToTrash: (FileNodeRecord) throws -> TrashIdentityVerificationResult
-    var asyncMoveToTrash: (@Sendable (FileNodeRecord) async throws -> TrashIdentityVerificationResult)?
+    var moveToTrash: @MainActor (FileNodeRecord) async throws -> TrashIdentityVerificationResult
     var quickLook: AppQuickLookActions
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
-    var fullDiskAccessStatus: () -> FullDiskAccessStatus
+    var fullDiskAccessStatus: @MainActor () async -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
-    var targetCapacityDescriptions: () -> [String: String]
-    var volumeAvailableCapacityForImportantUsage: (URL) -> Int64?
-    var asyncVolumeAvailableCapacityForImportantUsage: (@Sendable (URL) async -> Int64?)?
+    var targetCapacityDescriptions: @MainActor () async -> [String: String]
+    var volumeAvailableCapacityForImportantUsage: @MainActor (URL) async -> Int64?
     var trashSafetyPolicy: () -> TrashSafetyPolicy
-    var asyncFullDiskAccessStatus: (@Sendable () async -> FullDiskAccessStatus)?
-    var asyncTargetCapacityDescriptions: (@Sendable () async -> [String: String])?
     var presentOpenPanel: () -> ScanTarget?
     var presentExportScanPanel: (String) async -> URL?
     var presentImportScanPanel: () -> URL?
@@ -102,8 +98,7 @@ struct AppSystemActions {
         revealMany: { SystemIntegration.reveal($0) },
         copyPath: { try SystemIntegration.copyPath($0) },
         copyPaths: { try SystemIntegration.copyPaths($0) },
-        moveToTrash: { try SystemIntegration.moveToTrash($0) },
-        asyncMoveToTrash: { node in
+        moveToTrash: { node in
             try await Task.detached(priority: .userInitiated) {
                 try SystemIntegration.moveToTrash(node)
             }.value
@@ -113,34 +108,25 @@ struct AppSystemActions {
             SystemIntegration.prepareAndOpenFullDiskAccessSettings()
         },
         fullDiskAccessStatus: {
-            SystemIntegration.fullDiskAccessStatus()
+            await Task.detached(priority: .utility) {
+                SystemIntegration.fullDiskAccessStatus()
+            }.value
         },
         defaultTargets: {
             SystemIntegration.defaultTargets()
         },
         targetCapacityDescriptions: {
-            SystemIntegration.targetCapacityDescriptions()
+            await Task.detached(priority: .utility) {
+                SystemIntegration.targetCapacityDescriptions()
+            }.value
         },
-        volumeAvailableCapacityForImportantUsage: {
-            SystemIntegration.volumeAvailableCapacityForImportantUsage(for: $0)
-        },
-        asyncVolumeAvailableCapacityForImportantUsage: { url in
+        volumeAvailableCapacityForImportantUsage: { url in
             await Task.detached(priority: .utility) {
                 SystemIntegration.volumeAvailableCapacityForImportantUsage(for: url)
             }.value
         },
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
-        },
-        asyncFullDiskAccessStatus: {
-            await Task.detached(priority: .utility) {
-                SystemIntegration.fullDiskAccessStatus()
-            }.value
-        },
-        asyncTargetCapacityDescriptions: {
-            await Task.detached(priority: .utility) {
-                SystemIntegration.targetCapacityDescriptions()
-            }.value
         },
         presentOpenPanel: {
             SystemIntegration.presentScanPanel()
@@ -194,19 +180,15 @@ struct AppSystemActions {
         copyPath: { _ in },
         copyPaths: { _ in },
         moveToTrash: { _ in .matches },
-        asyncMoveToTrash: nil,
         quickLook: .disabled,
         prepareAndOpenFullDiskAccessSettings: { true },
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         targetCapacityDescriptions: { [:] },
         volumeAvailableCapacityForImportantUsage: { _ in nil },
-        asyncVolumeAvailableCapacityForImportantUsage: nil,
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },
-        asyncFullDiskAccessStatus: nil,
-        asyncTargetCapacityDescriptions: nil,
         presentOpenPanel: { nil },
         presentExportScanPanel: { _ in nil },
         presentImportScanPanel: { nil },
@@ -248,44 +230,5 @@ struct AppSystemActions {
         } catch {
             return false
         }
-    }
-}
-
-extension AppSystemActions {
-    var usesAsyncFullDiskAccessStatus: Bool {
-        asyncFullDiskAccessStatus != nil
-    }
-
-    var usesAsyncTargetCapacityDescriptions: Bool {
-        asyncTargetCapacityDescriptions != nil
-    }
-
-    func currentFullDiskAccessStatus() -> FullDiskAccessStatus {
-        fullDiskAccessStatus()
-    }
-
-    func loadCurrentFullDiskAccessStatus() async -> FullDiskAccessStatus {
-        if let asyncFullDiskAccessStatus {
-            return await asyncFullDiskAccessStatus()
-        }
-        return fullDiskAccessStatus()
-    }
-
-    func currentTargetCapacityDescriptions() -> [String: String] {
-        targetCapacityDescriptions()
-    }
-
-    func loadCurrentTargetCapacityDescriptions() async -> [String: String] {
-        if let asyncTargetCapacityDescriptions {
-            return await asyncTargetCapacityDescriptions()
-        }
-        return currentTargetCapacityDescriptions()
-    }
-
-    func loadVolumeAvailableCapacity(for url: URL) async -> Int64? {
-        if let asyncVolumeAvailableCapacityForImportantUsage {
-            return await asyncVolumeAvailableCapacityForImportantUsage(url)
-        }
-        return volumeAvailableCapacityForImportantUsage(url)
     }
 }
