@@ -1,13 +1,58 @@
 import SwiftUI
 
+/// Keeps viewport state and animation policy local to each chart view.
+struct ChartViewportState: DynamicProperty {
+    @State private(set) var transform = ChartViewportTransform.identity
+    @State private var settledLayoutID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func setTransform(_ nextTransform: ChartViewportTransform, animated: Bool = false) {
+        guard transform != nextTransform else { return }
+        let update = { transform = nextTransform }
+        if animated {
+            withAnimation(reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.16), update)
+        } else {
+            update()
+        }
+    }
+
+    /// Initial presentation keeps its viewport; a different layout resets it.
+    @discardableResult
+    func reset(for layoutID: String) -> Bool {
+        guard settledLayoutID != layoutID else { return false }
+        let shouldReset = settledLayoutID != nil
+        settledLayoutID = layoutID
+        if shouldReset { setTransform(.identity) }
+        return shouldReset
+    }
+
+    @discardableResult
+    func perform(_ action: ChartViewportAction, in frame: CGRect, canZoom: Bool) -> Bool {
+        let nextTransform: ChartViewportTransform
+        switch action {
+        case .zoomIn, .zoomOut:
+            guard canZoom else { return false }
+            nextTransform = transform.zoomed(
+                by: action == .zoomIn ? ChartViewportTransform.zoomInFactor : ChartViewportTransform.zoomOutFactor,
+                anchor: nil,
+                in: frame
+            )
+        case .reset:
+            nextTransform = .identity
+        }
+        setTransform(nextTransform, animated: true)
+        return true
+    }
+}
+
 struct ChartViewportControls: View {
-    let zoomText: String
-    let canZoomOut: Bool
-    let canZoomIn: Bool
-    let zoomOut: () -> Void
-    let zoomIn: () -> Void
-    let reset: () -> Void
+    let transform: ChartViewportTransform
+    let onAction: (ChartViewportAction) -> Void
     @State private var showsControls = false
+
+    private var zoomText: String {
+        "\(Int((transform.scale * 100).rounded()))%"
+    }
 
     var body: some View {
         let accessibilityLabel = String(
@@ -47,9 +92,9 @@ struct ChartViewportControls: View {
             controlButton(
                 systemName: "minus.magnifyingglass",
                 accessibilityLabel: String(localized: "Zoom Out", comment: "Accessibility label for zooming out of the disk map."),
-                action: zoomOut
+                action: { onAction(.zoomOut) }
             )
-            .disabled(!canZoomOut)
+            .disabled(!transform.isZoomed)
 
             Text(zoomText)
                 .font(.caption.monospacedDigit().weight(.medium))
@@ -59,9 +104,9 @@ struct ChartViewportControls: View {
             controlButton(
                 systemName: "plus.magnifyingglass",
                 accessibilityLabel: String(localized: "Zoom In", comment: "Accessibility label for zooming into the disk map."),
-                action: zoomIn
+                action: { onAction(.zoomIn) }
             )
-            .disabled(!canZoomIn)
+            .disabled(transform.scale >= ChartViewportTransform.maximumScale)
 
             Divider()
                 .frame(height: 16)
@@ -69,9 +114,9 @@ struct ChartViewportControls: View {
             controlButton(
                 systemName: "arrow.counterclockwise",
                 accessibilityLabel: String(localized: "Reset Zoom", comment: "Accessibility label for resetting the disk map zoom."),
-                action: reset
+                action: { onAction(.reset) }
             )
-            .disabled(!canZoomOut)
+            .disabled(!transform.isZoomed)
         }
     }
 

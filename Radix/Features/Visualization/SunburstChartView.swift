@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SunburstChartView: View {
     private static let chartPadding: CGFloat = 22
-    private static let loadingDiskMapDelay: Duration = .milliseconds(150)
 
     let rootNode: FileNodeRecord
     let parentNode: FileNodeRecord?
@@ -28,10 +27,8 @@ struct SunburstChartView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var chartModel: SunburstChartModel
     @State private var isHoveringCenter = false
-    @State private var showsLoadingDiskMapProgress = false
-    @State private var viewportTransform = ChartViewportTransform.identity
+    private var viewport = ChartViewportState()
     @State private var layoutRetryGeneration = 0
-    @State private var settledViewportLayoutID: String?
 
     init(
         rootNode: FileNodeRecord,
@@ -131,10 +128,6 @@ struct SunburstChartView: View {
             && !chartModel.renderedSegments.isEmpty
     }
 
-    private var isAwaitingLayout: Bool {
-        layoutPresentationState.isAwaitingLayout
-    }
-
     private var layoutPresentationState: ChartLayoutPresentationState {
         ChartLayoutPresentationState(
             readiness: chartModel.layoutReadiness,
@@ -146,14 +139,14 @@ struct SunburstChartView: View {
         "\(layoutID)|retry:\(layoutRetryGeneration)"
     }
 
-    private var loadingDiskMapProgressTaskID: String {
-        "\(layoutRequestID)|\(isAwaitingLayout)"
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let baseChartFrame = chartFrame(in: geometry.size)
-            let chartFrame = viewportTransform.frame(for: baseChartFrame)
+            let chartFrame = viewport.transform.frame(for: baseChartFrame)
+            let layoutTaskID = SunburstLayoutTaskID(
+                layoutID: layoutID,
+                retryGeneration: layoutRetryGeneration
+            )
             let layoutPresentation = layoutPresentationState
             let canAdjustViewport = self.canAdjustViewport
             ZStack {
@@ -199,22 +192,12 @@ struct SunburstChartView: View {
                         .transition(.opacity)
                 }
 
-                if layoutPresentation.shouldObscureRenderedLayout {
-                    Color(nsColor: .windowBackgroundColor)
-                        .opacity(0.28)
-                        .allowsHitTesting(false)
-
-                    if layoutPresentation.isAwaitingLayout,
-                       showsLoadingDiskMapProgress {
-                        ProgressView("Loading Disk Map…")
-                            .controlSize(.small)
-                            .transition(.opacity)
-                    }
-                } else if chartModel.layoutReadiness.failure == nil,
-                          chartModel.renderedSegments.isEmpty {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+                ChartLoadingOverlay(
+                    presentation: layoutPresentation,
+                    showsEmptyProgress: chartModel.layoutReadiness.failure == nil
+                        && chartModel.renderedSegments.isEmpty,
+                    requestID: layoutTaskID
+                )
             }
             .contentShape(Rectangle())
             .overlay {
@@ -258,8 +241,7 @@ struct SunburstChartView: View {
                         let nextTransform = zoomViewport(
                             by: factor,
                             anchor: location,
-                            in: baseChartFrame,
-                            animated: false
+                            in: baseChartFrame
                         )
                         updateHover(
                             at: location,
@@ -282,7 +264,7 @@ struct SunburstChartView: View {
                         guard layoutPresentation.canUseRenderedLayout else { return nil }
                         return help(at: location, in: baseChartFrame)
                     },
-                    isPanEnabled: canAdjustViewport && viewportTransform.isZoomed
+                    isPanEnabled: canAdjustViewport && viewport.transform.isZoomed
                 )
                 .accessibilityHidden(true)
                 .allowsHitTesting(layoutPresentation.canUseRenderedLayout)
@@ -294,13 +276,13 @@ struct SunburstChartView: View {
             .accessibilityValue(accessibilityValue)
             .accessibilityHint(accessibilityHint)
             .accessibilityAction(named: String(localized: "Zoom In", comment: "Accessibility action for zooming into the disk map.")) {
-                zoomViewport(by: ChartViewportTransform.zoomInFactor, anchor: nil, in: baseChartFrame, animated: true)
+                handleViewportAction(.zoomIn, in: baseChartFrame)
             }
             .accessibilityAction(named: String(localized: "Zoom Out", comment: "Accessibility action for zooming out of the disk map.")) {
-                zoomViewport(by: ChartViewportTransform.zoomOutFactor, anchor: nil, in: baseChartFrame, animated: true)
+                handleViewportAction(.zoomOut, in: baseChartFrame)
             }
             .accessibilityAction(named: String(localized: "Reset Zoom", comment: "Accessibility action for resetting the disk map zoom.")) {
-                resetViewport(animated: true)
+                handleViewportAction(.reset, in: baseChartFrame)
             }
             .focusable()
             .focusEffectDisabled()
@@ -317,20 +299,9 @@ struct SunburstChartView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if canAdjustViewport {
-                    ChartViewportControls(
-                        zoomText: viewportZoomText,
-                        canZoomOut: viewportTransform.isZoomed,
-                        canZoomIn: viewportTransform.scale < ChartViewportTransform.maximumScale,
-                        zoomOut: {
-                            zoomViewport(by: ChartViewportTransform.zoomOutFactor, anchor: nil, in: baseChartFrame, animated: true)
-                        },
-                        zoomIn: {
-                            zoomViewport(by: ChartViewportTransform.zoomInFactor, anchor: nil, in: baseChartFrame, animated: true)
-                        },
-                        reset: {
-                            resetViewport(animated: true)
-                        }
-                    )
+                    ChartViewportControls(transform: viewport.transform) { action in
+                        handleViewportAction(action, in: baseChartFrame)
+                    }
                     .padding(.top, 16)
                     .padding(.trailing, 18)
                 }
@@ -347,23 +318,16 @@ struct SunburstChartView: View {
             }
             .animation(chartTransitionAnimation, value: chartModel.renderedLayoutVersion)
             .animation(centerHoverAnimation, value: isHoveringCenter)
-            .animation(loadingIndicatorAnimation, value: showsLoadingDiskMapProgress)
             .onChange(of: baseChartFrame) { _, nextFrame in
-                viewportTransform = viewportTransform.constrained(to: nextFrame)
+                viewport.setTransform(viewport.transform.constrained(to: nextFrame))
             }
             .onChange(of: layoutID, initial: true) { _, _ in
-                updateViewportForSettledLayout()
+                viewport.reset(for: layoutID)
             }
             .focusedSceneValue(\.chartViewportAction) { action in
                 handleViewportAction(action, in: baseChartFrame)
             }
-            .task(id: loadingDiskMapProgressTaskID) {
-                await updateLoadingDiskMapProgress(isPending: isAwaitingLayout)
-            }
-            .task(id: SunburstLayoutTaskID(
-                layoutID: layoutID,
-                retryGeneration: layoutRetryGeneration
-            )) {
+            .task(id: layoutTaskID) {
                 await chartModel.loadLayout(
                     treeStore: treeStore,
                     rootID: rootNode.id,
@@ -387,13 +351,13 @@ struct SunburstChartView: View {
             return false
         }
 
-        let transformedFrame = viewportTransform.frame(for: baseChartFrame)
+        let transformedFrame = viewport.transform.frame(for: baseChartFrame)
         let point = chartModel.keyboardSelectionPoint(for: segment, in: transformedFrame)
-        viewportTransform = viewportTransform.revealing(
+        viewport.setTransform(viewport.transform.revealing(
             point: point,
             within: baseChartFrame,
             padding: 12
-        )
+        ))
         isHoveringCenter = false
         chartModel.setHoveredSegmentID(nil)
         onSelect(nodeID)
@@ -413,18 +377,6 @@ struct SunburstChartView: View {
         reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.14)
     }
 
-    private var loadingIndicatorAnimation: Animation {
-        reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.12)
-    }
-
-    private var viewportAnimation: Animation {
-        reduceMotion ? .linear(duration: 0.01) : .easeOut(duration: 0.16)
-    }
-
-    private var viewportZoomText: String {
-        "\(Int((viewportTransform.scale * 100).rounded()))%"
-    }
-
     private func updateHover(
         at location: CGPoint?,
         in frame: CGRect,
@@ -436,7 +388,7 @@ struct SunburstChartView: View {
             return
         }
 
-        let transform = transform ?? viewportTransform
+        let transform = transform ?? viewport.transform
         if parentNode != nil,
            isCenterHit(at: location, in: frame, using: transform) {
             isHoveringCenter = true
@@ -539,7 +491,7 @@ struct SunburstChartView: View {
         in frame: CGRect,
         using transform: ChartViewportTransform? = nil
     ) -> SunburstSegment? {
-        let transform = transform ?? viewportTransform
+        let transform = transform ?? viewport.transform
         guard let chartPoint = transform.localChartPoint(for: location, in: frame) else {
             return nil
         }
@@ -588,7 +540,7 @@ struct SunburstChartView: View {
         in frame: CGRect,
         using transform: ChartViewportTransform? = nil
     ) -> Bool {
-        let transform = transform ?? viewportTransform
+        let transform = transform ?? viewport.transform
         guard let chartPoint = transform.localChartPoint(for: location, in: frame) else {
             return false
         }
@@ -640,18 +592,17 @@ struct SunburstChartView: View {
     @discardableResult
     private func zoomViewport(
         by factor: CGFloat,
-        anchor: CGPoint?,
-        in baseFrame: CGRect,
-        animated: Bool
+        anchor: CGPoint,
+        in baseFrame: CGRect
     ) -> ChartViewportTransform {
-        guard canAdjustViewport else { return viewportTransform }
+        guard canAdjustViewport else { return viewport.transform }
 
-        let nextTransform = viewportTransform.zoomed(
+        let nextTransform = viewport.transform.zoomed(
             by: factor,
             anchor: anchor,
             in: baseFrame
         )
-        setViewportTransform(nextTransform, animated: animated)
+        viewport.setTransform(nextTransform)
         return nextTransform
     }
 
@@ -660,83 +611,22 @@ struct SunburstChartView: View {
         by delta: CGSize,
         in baseFrame: CGRect
     ) -> ChartViewportTransform {
-        guard canAdjustViewport else { return viewportTransform }
+        guard canAdjustViewport else { return viewport.transform }
 
-        let nextTransform = viewportTransform.panned(by: delta, in: baseFrame)
-        setViewportTransform(nextTransform, animated: false)
+        let nextTransform = viewport.transform.panned(by: delta, in: baseFrame)
+        viewport.setTransform(nextTransform, animated: false)
         return nextTransform
-    }
-
-    private func resetViewport(animated: Bool) {
-        setViewportTransform(.identity, animated: animated)
-    }
-
-    private func updateViewportForSettledLayout() {
-        guard settledViewportLayoutID != layoutID else { return }
-        let shouldReset = settledViewportLayoutID != nil
-        settledViewportLayoutID = layoutID
-        if shouldReset {
-            resetViewport(animated: false)
-        }
     }
 
     private func handleViewportAction(
         _ action: ChartViewportAction,
         in baseFrame: CGRect
     ) {
-        switch action {
-        case .zoomIn:
-            zoomViewport(
-                by: ChartViewportTransform.zoomInFactor,
-                anchor: nil,
-                in: baseFrame,
-                animated: true
-            )
-        case .zoomOut:
-            zoomViewport(
-                by: ChartViewportTransform.zoomOutFactor,
-                anchor: nil,
-                in: baseFrame,
-                animated: true
-            )
-        case .reset:
-            resetViewport(animated: true)
-        }
-    }
-
-    private func setViewportTransform(
-        _ nextTransform: ChartViewportTransform,
-        animated: Bool
-    ) {
-        guard viewportTransform != nextTransform else { return }
-
-        let update = {
-            viewportTransform = nextTransform
-        }
-
-        if animated {
-            withAnimation(viewportAnimation, update)
-        } else {
-            update()
-        }
-    }
-
-    private func updateLoadingDiskMapProgress(isPending: Bool) async {
-        guard isPending else {
-            showsLoadingDiskMapProgress = false
-            return
-        }
-
-        showsLoadingDiskMapProgress = false
-
-        do {
-            try await Task.sleep(for: Self.loadingDiskMapDelay)
-        } catch {
-            return
-        }
-
-        guard isAwaitingLayout else { return }
-        showsLoadingDiskMapProgress = true
+        viewport.perform(
+            action,
+            in: baseFrame,
+            canZoom: canAdjustViewport
+        )
     }
 }
 
