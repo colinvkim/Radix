@@ -262,44 +262,6 @@ actor ScanEngine {
         }
     }
 
-    private struct AggregateStatsAccumulator {
-        private(set) var fileCount = 0
-        private(set) var directoryCount = 0
-        private(set) var accessibleItemCount = 0
-        private(set) var inaccessibleItemCount = 0
-
-        mutating func include(_ node: FileNodeRecord, hasChildren: Bool) {
-            if node.isDirectory {
-                directoryCount += 1
-                if node.isPackage && !hasChildren {
-                    fileCount += node.descendantFileCount
-                }
-                if node.isAutoSummarized {
-                    fileCount += node.descendantFileCount
-                }
-            } else if !node.isSymbolicLink && !node.isSynthetic {
-                fileCount += 1
-            }
-
-            if node.isAccessible {
-                accessibleItemCount += 1
-            } else {
-                inaccessibleItemCount += 1
-            }
-        }
-
-        func makeStats(root: FileNodeRecord) -> ScanAggregateStats {
-            ScanAggregateStats(
-                totalAllocatedSize: root.allocatedSize,
-                totalLogicalSize: root.logicalSize,
-                fileCount: fileCount,
-                directoryCount: directoryCount,
-                accessibleItemCount: accessibleItemCount,
-                inaccessibleItemCount: inaccessibleItemCount
-            )
-        }
-    }
-
     /// A work item for the iterative scanner.
     /// `parentKey` links this item back to its parent for bottom-up assembly.
     /// `depth` tracks how deep we are in the directory tree.
@@ -2145,7 +2107,7 @@ actor ScanEngine {
         childSpans.reserveCapacity(nextKey)
         var childIndices: [FileTreeNodeIndex] = []
         childIndices.reserveCapacity(max(nextKey - 1, 0))
-        var aggregateStats = AggregateStatsAccumulator()
+        var aggregateStats = ScanAggregateStats.Accumulator()
         #if DEBUG
         let assemblyStart = diagnostics?.start()
         #endif
@@ -2230,7 +2192,7 @@ actor ScanEngine {
                     start: UInt32(childSpanStart),
                     count: UInt32(childIndices.count - childSpanStart)
                 ))
-                aggregateStats.include(assembled, hasChildren: childIndices.count > childSpanStart)
+                aggregateStats.include(assembled, hasMaterializedChildren: childIndices.count > childSpanStart)
 
                 metrics.completedItems = min(metrics.discoveredItems, metrics.completedItems + 1)
             case .leaf(let onlyChild):
@@ -2243,7 +2205,7 @@ actor ScanEngine {
                 nodes.append(correctedChild)
                 parentRawIndices.append(UInt32.max)
                 childSpans.append(FileTreeChildSpan())
-                aggregateStats.include(correctedChild, hasChildren: false)
+                aggregateStats.include(correctedChild, hasMaterializedChildren: false)
             }
 
             if finalizedItems.isMultiple(of: finalizationProgressInterval) || finalizedItems == finalizationTotal {
@@ -2301,7 +2263,7 @@ actor ScanEngine {
             parentRawIndices: parentRawIndices,
             childSpans: childSpans,
             childIndices: childIndices,
-            aggregateStats: aggregateStats.makeStats(root: rootNode),
+            aggregateStats: aggregateStats.stats(root: rootNode),
             cancellationCheck: Task.checkCancellation
         )
         #if DEBUG

@@ -1495,7 +1495,7 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertFalse(containsChildren(packageNode, in: snapshot))
         XCTAssertEqual(packageNode.descendantFileCount, 1)
         XCTAssertGreaterThanOrEqual(packageNode.logicalSize, Int64("binary".utf8.count))
-        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
     }
 
     func testPackageLeafNodesIncludeNestedPackageContents() async throws {
@@ -4483,6 +4483,21 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(cacheNode.isAutoSummarized)
         XCTAssertEqual(cacheNode.descendantFileCount, 13)
         XCTAssertGreaterThanOrEqual(cacheNode.logicalSize, (12 * 32) + 2_048)
+        XCTAssertEqual(snapshot.aggregateStats.fileCount, 13)
+
+        let rebuiltStore = FileTreeStore(
+            rootID: snapshot.treeStore.rootID,
+            nodesByID: snapshot.treeStore.nodesByID,
+            childIDsByID: snapshot.treeStore.childIDsByID
+        )
+        let scannedStats = snapshot.aggregateStats
+        let rebuiltStats = rebuiltStore.aggregateStats
+        XCTAssertEqual(scannedStats.fileCount, rebuiltStats.fileCount)
+        XCTAssertEqual(scannedStats.directoryCount, rebuiltStats.directoryCount)
+        XCTAssertEqual(scannedStats.accessibleItemCount, rebuiltStats.accessibleItemCount)
+        XCTAssertEqual(scannedStats.inaccessibleItemCount, rebuiltStats.inaccessibleItemCount)
+        XCTAssertEqual(scannedStats.totalAllocatedSize, rebuiltStats.totalAllocatedSize)
+        XCTAssertEqual(scannedStats.totalLogicalSize, rebuiltStats.totalLogicalSize)
     }
 
     func testAutoSummarizedDirectoryCountsAsSingleVisitedDirectory() async throws {

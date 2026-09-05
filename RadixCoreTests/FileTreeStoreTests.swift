@@ -68,6 +68,17 @@ final class FileTreeStoreTests: XCTestCase {
 
         XCTAssertEqual(store.aggregateStats.fileCount, 7)
         XCTAssertEqual(store.aggregateStats.directoryCount, 1)
+
+        let file = makeFileNode(id: "/root/Hybrid.pkg/file.bin", name: "file.bin", size: 10)
+        let expandedStore = FileTreeStore(
+            root: summarizedPackage,
+            childrenByID: [summarizedPackage.id: [file]]
+        )
+
+        XCTAssertTrue(expandedStore.root.isPackage)
+        XCTAssertTrue(expandedStore.root.isAutoSummarized)
+        XCTAssertEqual(expandedStore.aggregateStats.fileCount, 1)
+        XCTAssertEqual(expandedStore.aggregateStats.directoryCount, 1)
     }
 
     func testPathAndAncestorLookup() {

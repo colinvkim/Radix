@@ -520,56 +520,6 @@ nonisolated struct FileTreeStore: Sendable {
         let didDropReferences: Bool
     }
 
-    private struct AggregateStatsAccumulator {
-        private var fileCount = 0
-        private var directoryCount = 0
-        private var accessibleItemCount = 0
-        private var inaccessibleItemCount = 0
-
-        @inline(__always)
-        mutating func include(_ node: FileNodeRecord, hasMaterializedChildren: Bool) {
-            if node.isDirectory {
-                directoryCount += 1
-                if !hasMaterializedChildren && (node.isPackage || node.isAutoSummarized) {
-                    fileCount = FileTreeStore.saturatingAdd(fileCount, node.descendantFileCount)
-                }
-            } else if !node.isSymbolicLink && !node.isSynthetic {
-                fileCount = FileTreeStore.saturatingAdd(fileCount, 1)
-            }
-
-            if node.isAccessible {
-                accessibleItemCount = FileTreeStore.saturatingAdd(accessibleItemCount, 1)
-            } else {
-                inaccessibleItemCount = FileTreeStore.saturatingAdd(inaccessibleItemCount, 1)
-            }
-        }
-
-        mutating func replaceAccessibility(
-            from previousNode: FileNodeRecord,
-            to updatedNode: FileNodeRecord
-        ) {
-            guard previousNode.isAccessible != updatedNode.isAccessible else { return }
-            if updatedNode.isAccessible {
-                accessibleItemCount += 1
-                inaccessibleItemCount -= 1
-            } else {
-                accessibleItemCount -= 1
-                inaccessibleItemCount += 1
-            }
-        }
-
-        func stats(root: FileNodeRecord) -> ScanAggregateStats {
-            ScanAggregateStats(
-                totalAllocatedSize: root.allocatedSize,
-                totalLogicalSize: root.logicalSize,
-                fileCount: fileCount,
-                directoryCount: directoryCount,
-                accessibleItemCount: accessibleItemCount,
-                inaccessibleItemCount: inaccessibleItemCount
-            )
-        }
-    }
-
     private struct MaterializedDirectoryTotals {
         var allocatedSize: Int64 = 0
         var logicalSize: Int64 = 0
@@ -714,7 +664,7 @@ nonisolated struct FileTreeStore: Sendable {
         nodeRecords: [FileNodeRecord],
         topologyArena: FileTreeTopologyArena
     ) -> ScanAggregateStats {
-        var accumulator = AggregateStatsAccumulator()
+        var accumulator = ScanAggregateStats.Accumulator()
 
         for nodeIndex in topologyArena.orderedNodeIndices {
             let offset = Int(nodeIndex.rawValue)
@@ -898,7 +848,7 @@ nonisolated struct FileTreeStore: Sendable {
         let rootOffset = Int(rootIndex.rawValue)
         precondition(nodes.indices.contains(rootOffset), "Verified FileTreeStore root is missing.")
 
-        var statsAccumulator = AggregateStatsAccumulator()
+        var statsAccumulator = ScanAggregateStats.Accumulator()
         for nodeIndex in orderedNodeIndices.reversed() {
             let offset = Int(nodeIndex.rawValue)
             let span = childSpans[offset]
@@ -954,7 +904,7 @@ nonisolated struct FileTreeStore: Sendable {
         var indexByNodeID = [root.id: FileTreeNodeIndex(rawValue: 0)]
         var parentRawIndices = [UInt32.max]
         var orderedNodeIndices = [FileTreeNodeIndex(rawValue: 0)]
-        var statsAccumulator = AggregateStatsAccumulator()
+        var statsAccumulator = ScanAggregateStats.Accumulator()
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
         var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
         statsAccumulator.include(root, hasMaterializedChildren: true)
@@ -2064,7 +2014,7 @@ nonisolated struct FileTreeStore: Sendable {
         var compactedChildSpans = Array(repeating: FileTreeChildSpan(), count: retainedCount)
         var compactedChildIndices: [FileTreeNodeIndex] = []
         compactedChildIndices.reserveCapacity(max(retainedCount - 1, 0))
-        var statsAccumulator = AggregateStatsAccumulator()
+        var statsAccumulator = ScanAggregateStats.Accumulator()
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
         var sharedAllocationClaimNodeIndices: [FileTreeNodeIndex] = []
 
@@ -2305,7 +2255,7 @@ nonisolated struct FileTreeStore: Sendable {
         var orderedNodeIndices: [FileTreeNodeIndex] = []
         var affectedCompactedIndices: [FileTreeNodeIndex] = []
         var replacementRootCompactedIndices: [FileTreeNodeIndex] = []
-        var statsAccumulator = AggregateStatsAccumulator()
+        var statsAccumulator = ScanAggregateStats.Accumulator()
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
         var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
         compactedNodes.reserveCapacity(finalNodeCount)
@@ -2437,7 +2387,7 @@ nonisolated struct FileTreeStore: Sendable {
                 Self.saturatingAdd(targetRecord.descendantFileCount, 1)
             ))
         }
-        var statsAccumulator = AggregateStatsAccumulator()
+        var statsAccumulator = ScanAggregateStats.Accumulator()
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
         var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
         var stack = [targetIndex]
@@ -2580,7 +2530,7 @@ nonisolated struct FileTreeStore: Sendable {
         childSpans: [FileTreeChildSpan],
         childIndices: inout [FileTreeNodeIndex],
         orderedNodeIndices: inout [FileTreeNodeIndex],
-        statsAccumulator: inout AggregateStatsAccumulator,
+        statsAccumulator: inout ScanAggregateStats.Accumulator,
         cancellationCheck: () throws -> Void
     ) throws {
         var didReorderChildren = false
@@ -2633,7 +2583,7 @@ nonisolated struct FileTreeStore: Sendable {
         orderedNodeIndices: inout [FileTreeNodeIndex],
         affectedNodeIndices: [FileTreeNodeIndex],
         changedNodeIndices: [FileTreeNodeIndex] = [],
-        statsAccumulator: inout AggregateStatsAccumulator,
+        statsAccumulator: inout ScanAggregateStats.Accumulator,
         cancellationCheck: () throws -> Void
     ) throws -> FileTreeStore {
         var childSpans = Array(repeating: FileTreeChildSpan(), count: nodes.count)
@@ -2737,7 +2687,7 @@ nonisolated struct FileTreeStore: Sendable {
         var parentRawIndices: [UInt32] = []
         var orderedNodeIndices: [FileTreeNodeIndex] = []
         var affectedScopedIndices: [FileTreeNodeIndex] = []
-        var statsAccumulator = AggregateStatsAccumulator()
+        var statsAccumulator = ScanAggregateStats.Accumulator()
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
         var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
         var stack = [(sourceIndex: targetIndex, scopedParentRawIndex: UInt32.max)]

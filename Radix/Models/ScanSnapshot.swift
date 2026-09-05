@@ -26,6 +26,58 @@ nonisolated struct ScanAggregateStats: Sendable {
     let directoryCount: Int
     let accessibleItemCount: Int
     let inaccessibleItemCount: Int
+
+    nonisolated struct Accumulator {
+        private var fileCount = 0
+        private var directoryCount = 0
+        private var accessibleItemCount = 0
+        private var inaccessibleItemCount = 0
+
+        @inline(__always)
+        mutating func include(_ node: FileNodeRecord, hasMaterializedChildren: Bool) {
+            if node.isDirectory {
+                directoryCount = ScanIntegerMath.addingClamped(directoryCount, 1)
+                // Descendants are counted individually when present in the tree.
+                // A collapsed package or summary contributes its file count once.
+                if !hasMaterializedChildren && (node.isPackage || node.isAutoSummarized) {
+                    fileCount = ScanIntegerMath.addingClamped(fileCount, node.descendantFileCount)
+                }
+            } else if !node.isSymbolicLink && !node.isSynthetic {
+                fileCount = ScanIntegerMath.addingClamped(fileCount, 1)
+            }
+
+            if node.isAccessible {
+                accessibleItemCount = ScanIntegerMath.addingClamped(accessibleItemCount, 1)
+            } else {
+                inaccessibleItemCount = ScanIntegerMath.addingClamped(inaccessibleItemCount, 1)
+            }
+        }
+
+        mutating func replaceAccessibility(
+            from previousNode: FileNodeRecord,
+            to updatedNode: FileNodeRecord
+        ) {
+            guard previousNode.isAccessible != updatedNode.isAccessible else { return }
+            if updatedNode.isAccessible {
+                accessibleItemCount += 1
+                inaccessibleItemCount -= 1
+            } else {
+                accessibleItemCount -= 1
+                inaccessibleItemCount += 1
+            }
+        }
+
+        func stats(root: FileNodeRecord) -> ScanAggregateStats {
+            ScanAggregateStats(
+                totalAllocatedSize: root.allocatedSize,
+                totalLogicalSize: root.logicalSize,
+                fileCount: fileCount,
+                directoryCount: directoryCount,
+                accessibleItemCount: accessibleItemCount,
+                inaccessibleItemCount: inaccessibleItemCount
+            )
+        }
+    }
 }
 
 nonisolated struct VolumeCapacitySnapshot: Codable, Hashable, Sendable {
