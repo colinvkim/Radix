@@ -8,25 +8,31 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
 
+        XCTAssertTrue(model.selectedNodes.isEmpty)
+
         model.select(nodeID: fixture.docFile.id)
         XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
         XCTAssertEqual(model.selectedNodeIDs, [fixture.docFile.id])
         XCTAssertEqual(model.selectedNode?.id, fixture.docFile.id)
+        XCTAssertEqual(model.selectedNodes.map(\.id), [fixture.docFile.id])
         XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
         XCTAssertTrue(model.canClearSelection)
 
         model.select(nodeID: "/missing")
         XCTAssertNil(model.selectedNodeID)
         XCTAssertTrue(model.selectedNodeIDs.isEmpty)
+        XCTAssertTrue(model.selectedNodes.isEmpty)
         XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
         XCTAssertFalse(model.canClearSelection)
 
         model.select(nodeID: fixture.cache.id)
         XCTAssertEqual(model.selectedNodeID, fixture.cache.id)
+        XCTAssertEqual(model.selectedNodes.map(\.id), [fixture.cache.id])
         XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.cache.id]))
 
         model.select(nodeID: nil)
         XCTAssertNil(model.selectedNodeID)
+        XCTAssertTrue(model.selectedNodes.isEmpty)
         XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
     }
 

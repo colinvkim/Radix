@@ -445,7 +445,13 @@ final class WorkspaceNavigationModel: ObservableObject {
     }
 
     var selectedNodes: [FileNodeRecord] {
-        guard let fileTreeStore = state.fileTreeStore else { return [] }
+        guard !state.selectedNodeIDs.isEmpty,
+              let fileTreeStore = state.fileTreeStore else { return [] }
+
+        if state.selectedNodeIDs.count == 1 {
+            guard let node = fileTreeStore.node(id: state.selectedNodeIDs.first) else { return [] }
+            return [node]
+        }
 
         var emittedIDs = Set<FileNodeRecord.ID>()
         var nodes: [FileNodeRecord] = []
