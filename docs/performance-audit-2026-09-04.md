@@ -10,6 +10,8 @@ Million- and two-million-file scans now have pending-buffer and RSS measurements
 
 Completed-scan lifetime probes now distinguish live allocations from residual allocator memory and quantify the cache's oversized retention and synchronous release costs; see [retention findings](/Users/colin/Programming/Radix/docs/performance-audit/retention-2026-09-04.md).
 
+The completed-scan cache now charges full backing trees once, evicts older independent oversized scans, and releases discarded ownership through a bounded background worker. Paired million-file runs halved live cached allocations and reduced median main-actor eviction from 462 ms to 0.044 ms; see [cache validation](/Users/colin/Programming/Radix/docs/performance-audit/cache-2026-09-04.md).
+
 The highest-priority issue is main-actor selection resolution: even an empty selection walks every row in the focused directory's table contents. A million-row directory spent 285–332 ms resolving zero or one selected item. Large-result sorting and retained tree representations are the next substantial costs. Native APFS traversal is already effective: the 100,000-file fixture completed in 424 ms with almost no per-file metadata calls.
 
 This audit covers revision `b4d1b5dcd554dc2516b14bf2750bc51af7134d06`. Production code was not changed. The added opt-in benchmarks and measurement tools make the findings reproducible.

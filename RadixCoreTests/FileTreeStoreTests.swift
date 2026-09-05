@@ -695,6 +695,10 @@ final class FileTreeStoreTests: XCTestCase {
         let logicalScope = try XCTUnwrap(store.logicalScope(rootedAt: folder.id))
 
         XCTAssertNotEqual(logicalScope.contentID, store.contentID)
+        XCTAssertEqual(logicalScope.backingStorageID, store.backingStorageID)
+        XCTAssertEqual(logicalScope.backingNodeCapacity, store.nodeCount)
+        XCTAssertNotEqual(scopedStore.backingStorageID, store.backingStorageID)
+        XCTAssertEqual(scopedStore.backingNodeCapacity, 2)
         XCTAssertEqual(logicalScope.rootID, folder.id)
         XCTAssertEqual(logicalScope.root, folder)
         XCTAssertEqual(logicalScope.nodeCount, 2)
@@ -755,6 +759,8 @@ final class FileTreeStoreTests: XCTestCase {
 
         let nestedScope = try XCTUnwrap(homeScope.logicalScope(rootedAt: summarized.id))
 
+        XCTAssertEqual(nestedScope.backingStorageID, store.backingStorageID)
+        XCTAssertEqual(nestedScope.backingNodeCapacity, store.nodeCount)
         XCTAssertEqual(nestedScope.rootID, summarized.id)
         XCTAssertEqual(nestedScope.nodeCount, 1)
         XCTAssertEqual(nestedScope.aggregateStats.fileCount, 7)
@@ -1541,6 +1547,7 @@ final class FileTreeStoreTests: XCTestCase {
         let grownRemainder = try XCTUnwrap(grown.node(id: remainder.id))
 
         XCTAssertNotEqual(grown.contentID, store.contentID)
+        XCTAssertNotEqual(grown.backingStorageID, store.backingStorageID)
         XCTAssertEqual(grown.root.allocatedSize, 1_200 * mebibyte)
         XCTAssertEqual(grownRemainder.allocatedSize, 700 * mebibyte)
         XCTAssertEqual(grownRemainder.name, "System & Unattributed")

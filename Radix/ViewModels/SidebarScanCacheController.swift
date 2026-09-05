@@ -15,26 +15,33 @@ nonisolated struct ScanCacheKey: Hashable {
     }
 }
 
-nonisolated struct CompletedScanCache {
-    private let minimumRetainedSnapshotCount: Int
+// The cache remains synchronous on the main actor; only discarded ownership
+// crosses to the release queue. Admission pauses until that queue drains.
+@MainActor
+final class CompletedScanCache {
     private let maxTotalNodeCount: Int
+    private let releaseQueue: DispatchQueue
     private var snapshotsByKey: [ScanCacheKey: ScanSnapshot] = [:]
-    private var nodeCountsByKey: [ScanCacheKey: Int] = [:]
     private var keysByRecency: [ScanCacheKey] = []
     private var totalNodeCount = 0
+    private var releaseBatch: DiscardedSnapshots?
+    private var releaseTask: Task<Void, Never>?
 
-    init(minimumRetainedSnapshotCount: Int, maxTotalNodeCount: Int) {
-        self.minimumRetainedSnapshotCount = max(minimumRetainedSnapshotCount, 1)
+    init(
+        maxTotalNodeCount: Int,
+        releaseQueue: DispatchQueue = DispatchQueue(label: "com.colinkim.Radix.snapshot-release", qos: .utility)
+    ) {
         self.maxTotalNodeCount = max(maxTotalNodeCount, 1)
+        self.releaseQueue = releaseQueue
     }
 
-    mutating func snapshot(for key: ScanCacheKey) -> ScanSnapshot? {
+    func snapshot(for key: ScanCacheKey) -> ScanSnapshot? {
         guard let snapshot = snapshotsByKey[key] else { return nil }
         markRecentlyUsed(key)
         return snapshot
     }
 
-    mutating func mostRecentSnapshot(
+    func mostRecentSnapshot(
         matchingOrContaining target: ScanTarget,
         options: ScanOptions
     ) -> ScanSnapshot? {
@@ -51,47 +58,110 @@ nonisolated struct CompletedScanCache {
         return nil
     }
 
-    mutating func store(_ snapshot: ScanSnapshot, for key: ScanCacheKey) {
+    func store(_ snapshot: ScanSnapshot, for key: ScanCacheKey) {
         guard snapshot.isComplete else { return }
-        let nodeCount = snapshot.treeStore.nodeCount
-        let previousNodeCount = nodeCountsByKey[key] ?? 0
+        let backingID = snapshot.treeStore.backingStorageID
+        // Keep one entry per backing tree. A cached parent can produce every
+        // contained scope without accumulating additional scope bitsets.
+        if let containingKey = keysByRecency.last(where: { candidate in
+            guard candidate.options == key.options, let cached = snapshotsByKey[candidate] else { return false }
+            return cached.treeStore.backingStorageID == backingID
+                && cached.treeStore.node(id: snapshot.target.id) != nil
+                && (candidate != key || cached.id == snapshot.id)
+        }) {
+            if containingKey != key { removeSnapshot(for: key) }
+            markRecentlyUsed(containingKey)
+            return
+        }
 
+        // No new ownership while cleanup is pending: even repeated clear/store
+        // calls can enqueue only the cache contents present at the first eviction.
+        // Invalidate stale entries when an incoming scan cannot be cached.
+        guard releaseTask == nil else {
+            removeAll()
+            return
+        }
+
+        let supersededKeys = keysByRecency.filter { candidate in
+            candidate == key || snapshotsByKey[candidate]?.treeStore.backingStorageID == backingID
+        }
+        for candidate in supersededKeys { removeSnapshot(for: candidate) }
         snapshotsByKey[key] = snapshot
-        nodeCountsByKey[key] = nodeCount
-        totalNodeCount += nodeCount - previousNodeCount
+        totalNodeCount += snapshot.treeStore.backingNodeCapacity
         markRecentlyUsed(key)
-        trimToBudget()
-    }
-
-    mutating func removeAll() {
-        snapshotsByKey.removeAll()
-        nodeCountsByKey.removeAll()
-        keysByRecency.removeAll()
-        totalNodeCount = 0
-    }
-
-    private mutating func markRecentlyUsed(_ key: ScanCacheKey) {
-        keysByRecency.removeAll { $0 == key }
-        keysByRecency.append(key)
-    }
-
-    private mutating func trimToBudget() {
-        // Keep the most recent scans even when one is larger than the soft
-        // node budget, so sidebar back-and-forth does not forget a large parent.
-        while totalNodeCount > maxTotalNodeCount,
-              snapshotsByKey.count > minimumRetainedSnapshotCount,
+        // One oversized backing tree remains available for folder navigation.
+        // The budget takes precedence over retaining older independent scans.
+        while totalNodeCount > maxTotalNodeCount, snapshotsByKey.count > 1,
               let oldestKey = keysByRecency.first {
             removeSnapshot(for: oldestKey)
         }
     }
 
-    private mutating func removeSnapshot(for key: ScanCacheKey) {
-        if let nodeCount = nodeCountsByKey[key] {
-            totalNodeCount -= nodeCount
-        }
-        snapshotsByKey[key] = nil
-        nodeCountsByKey[key] = nil
+    func removeAll() {
+        for snapshot in snapshotsByKey.values { discard(snapshot) }
+        snapshotsByKey.removeAll()
+        keysByRecency.removeAll()
+        totalNodeCount = 0
+    }
+
+    func waitForPendingReleases() async {
+        while let releaseTask { await releaseTask.value }
+    }
+
+    private func markRecentlyUsed(_ key: ScanCacheKey) {
         keysByRecency.removeAll { $0 == key }
+        keysByRecency.append(key)
+    }
+
+    private func removeSnapshot(for key: ScanCacheKey) {
+        guard let nodeCount = snapshotsByKey[key]?.treeStore.backingNodeCapacity else { return }
+        totalNodeCount -= nodeCount
+        discard(snapshotsByKey.removeValue(forKey: key)!)
+        keysByRecency.removeAll { $0 == key }
+    }
+
+    private func discard(_ snapshot: ScanSnapshot) {
+        let batch = releaseBatch ?? DiscardedSnapshots()
+        releaseBatch = batch
+        batch.append(snapshot)
+        guard releaseTask == nil else { return }
+        // Starting on this actor lets the mutation's stack unwind before the
+        // worker takes ownership, so temporary main-thread copies cannot win
+        // the race to perform the final release.
+        releaseTask = Task { [weak self, releaseQueue] in
+            repeat {
+                await withCheckedContinuation { continuation in
+                    releaseQueue.async {
+                        batch.release()
+                        continuation.resume()
+                    }
+                }
+            } while !batch.isEmpty
+            self?.releaseBatch = nil
+            self?.releaseTask = nil
+        }
+    }
+}
+
+private nonisolated final class DiscardedSnapshots: @unchecked Sendable {
+    private let lock = NSLock()
+    private var snapshots: [ScanSnapshot] = []
+
+    var isEmpty: Bool { lock.withLock { snapshots.isEmpty } }
+
+    func append(_ snapshot: ScanSnapshot) {
+        lock.withLock { snapshots.append(snapshot) }
+    }
+
+    @inline(never)
+    func release() {
+        let batch = lock.withLock {
+            let batch = snapshots
+            snapshots = []
+            return batch
+        }
+        // No tree destruction while holding the lock or on the main actor.
+        withExtendedLifetime(batch) {}
     }
 }
 
@@ -102,20 +172,18 @@ final class SidebarScanCacheController {
     typealias ScanStart = @MainActor @Sendable (ScanTarget) -> Void
 
     private let snapshotTransformService: ScanSnapshotTransformService
-    private var completedScanCache: CompletedScanCache
+    private let completedScanCache: CompletedScanCache
     private var activeScanCacheKey: ScanCacheKey?
     private var displayedScanCacheKey: ScanCacheKey?
     private var sidebarScopeTask: Task<Void, Never>?
     private var sidebarScopeID: UUID?
 
     init(
-        minimumRetainedSnapshotCount: Int,
         maxTotalNodeCount: Int,
         snapshotTransformService: ScanSnapshotTransformService = ScanSnapshotTransformService()
     ) {
         self.snapshotTransformService = snapshotTransformService
         self.completedScanCache = CompletedScanCache(
-            minimumRetainedSnapshotCount: minimumRetainedSnapshotCount,
             maxTotalNodeCount: maxTotalNodeCount
         )
     }
@@ -179,6 +247,20 @@ final class SidebarScanCacheController {
         restoreSnapshot: @escaping SnapshotRestoration,
         startScan: @escaping ScanStart
     ) -> Bool {
+        let cacheKey = ScanCacheKey(target: target, options: options)
+        if let currentSnapshot,
+           currentSnapshot.target.id == target.id,
+           displayedScanCacheKey == cacheKey {
+            applyExactCachedSnapshot(
+                currentSnapshot,
+                cacheKey: cacheKey,
+                currentSnapshot: currentSnapshot,
+                cancelDeferredScanStart: cancelDeferredScanStart,
+                restoreSnapshot: restoreSnapshot
+            )
+            return false
+        }
+
         if scheduleContainedSidebarTargetRestore(
             target,
             options: options,
@@ -192,7 +274,6 @@ final class SidebarScanCacheController {
             return false
         }
 
-        let cacheKey = ScanCacheKey(target: target, options: options)
         if let cachedSnapshot = completedScanCache.mostRecentSnapshot(
             matchingOrContaining: target,
             options: options
@@ -295,8 +376,13 @@ final class SidebarScanCacheController {
             do {
                 let scopedSnapshot = try await snapshotTransformService.scopedSnapshot(containingSnapshot, to: target)
                 try Task.checkCancellation()
-                guard let self,
-                      isCurrentSidebarScope(scopeID) else {
+                guard let self else { return }
+                // A scan completed during cleanup may have missed admission.
+                // Retain its parent before publishing a scope, so returning to
+                // that parent still works without another filesystem scan.
+                await completedScanCache.waitForPendingReleases()
+                try Task.checkCancellation()
+                guard isCurrentSidebarScope(scopeID) else {
                     return
                 }
                 guard isTargetActive(target) else {
@@ -310,6 +396,7 @@ final class SidebarScanCacheController {
                     return
                 }
 
+                completedScanCache.store(containingSnapshot, for: ScanCacheKey(target: containingSnapshot.target, options: options))
                 restoreScopedSidebarTarget(scopedSnapshot, target: target, options: options, restoreSnapshot: restoreSnapshot)
             } catch is CancellationError {
                 if let self, isCurrentSidebarScope(scopeID) {

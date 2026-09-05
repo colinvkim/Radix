@@ -298,7 +298,6 @@ final class AppModel: ObservableObject {
 
     init(
         dependencies: AppDependencies = .live,
-        completedScanCacheMinimumRetainedSnapshotCount: Int = 2,
         completedScanCacheMaxTotalNodeCount: Int = 250_000
     ) {
         self.dependencies = dependencies
@@ -310,7 +309,6 @@ final class AppModel: ObservableObject {
         self.quickLookController = AppQuickLookController(systemActions: dependencies.systemActions)
         self.archiveWorkflow = ArchiveWorkflowCoordinator()
         self.sidebarScanCacheController = SidebarScanCacheController(
-            minimumRetainedSnapshotCount: completedScanCacheMinimumRetainedSnapshotCount,
             maxTotalNodeCount: completedScanCacheMaxTotalNodeCount
         )
 

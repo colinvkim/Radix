@@ -1,9 +1,10 @@
 import XCTest
 @testable import RadixCore
 
+@MainActor
 final class SidebarScanCacheControllerTests: XCTestCase {
     func testCompletedScanCacheTrimsLeastRecentlyUsedSnapshotsToBudget() {
-        var cache = CompletedScanCache(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 1)
+        let cache = CompletedScanCache(maxTotalNodeCount: 2)
         let first = makeCacheSnapshot("/cache/first")
         let second = makeCacheSnapshot("/cache/second")
         let third = makeCacheSnapshot("/cache/third")
@@ -24,7 +25,7 @@ final class SidebarScanCacheControllerTests: XCTestCase {
     }
 
     func testCompletedScanCacheReplacingSnapshotKeepsNodeBudgetAccurate() {
-        var cache = CompletedScanCache(minimumRetainedSnapshotCount: 1, maxTotalNodeCount: 3)
+        let cache = CompletedScanCache(maxTotalNodeCount: 3)
         let replaced = makeCacheSnapshot("/cache/replaced")
         let second = makeCacheSnapshot("/cache/second", childCount: 1)
         let options = ScanOptions()
@@ -39,8 +40,121 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertNotNil(cache.snapshot(for: secondKey))
     }
 
+    func testCompletedScanCacheChargesFullBackingTreeForScope() throws {
+        let tree = makeParentAndChildSnapshot()
+        let scope = try XCTUnwrap(tree.snapshot.scoped(to: tree.childTarget))
+        let cache = CompletedScanCache(maxTotalNodeCount: 3)
+        let other = makeCacheSnapshot("/cache/other")
+        let options = ScanOptions()
+        let scopeKey = ScanCacheKey(target: scope.target, options: options)
+        let otherKey = ScanCacheKey(target: other.target, options: options)
+        XCTAssertEqual(scope.treeStore.nodeCount, 2)
+        XCTAssertEqual(scope.treeStore.backingNodeCapacity, 3)
+
+        cache.store(scope, for: scopeKey)
+        cache.store(other, for: otherKey)
+
+        XCTAssertNil(cache.snapshot(for: scopeKey))
+        XCTAssertNotNil(cache.snapshot(for: otherKey))
+    }
+
+    func testCompletedScanCacheKeepsParentInsteadOfDuplicateScopes() throws {
+        let tree = makeParentAndChildSnapshot()
+        let scope = try XCTUnwrap(tree.snapshot.scoped(to: tree.childTarget))
+        let cache = CompletedScanCache(maxTotalNodeCount: 4)
+        let other = makeCacheSnapshot("/cache/other")
+        let options = ScanOptions()
+        let parentKey = ScanCacheKey(target: tree.snapshot.target, options: options)
+        let scopeKey = ScanCacheKey(target: scope.target, options: options)
+        let otherKey = ScanCacheKey(target: other.target, options: options)
+
+        cache.store(tree.snapshot, for: parentKey)
+        cache.store(other, for: otherKey)
+        cache.store(scope, for: scopeKey)
+
+        XCTAssertNotNil(cache.snapshot(for: parentKey))
+        XCTAssertNotNil(cache.snapshot(for: otherKey))
+        XCTAssertNil(cache.snapshot(for: scopeKey))
+        XCTAssertEqual(cache.mostRecentSnapshot(matchingOrContaining: scope.target, options: options)?.id, tree.snapshot.id)
+    }
+
+    func testCompletedScanCacheReplacesScopeWithParentWithoutDoubleCharging() async throws {
+        let tree = makeParentAndChildSnapshot()
+        let scope = try XCTUnwrap(tree.snapshot.scoped(to: tree.childTarget))
+        let cache = CompletedScanCache(maxTotalNodeCount: 4)
+        let other = makeCacheSnapshot("/cache/other")
+        let options = ScanOptions()
+        let parentKey = ScanCacheKey(target: tree.snapshot.target, options: options)
+        let scopeKey = ScanCacheKey(target: scope.target, options: options)
+        let otherKey = ScanCacheKey(target: other.target, options: options)
+
+        cache.store(scope, for: scopeKey)
+        cache.store(tree.snapshot, for: parentKey)
+        await cache.waitForPendingReleases()
+        cache.store(other, for: otherKey)
+
+        XCTAssertNil(cache.snapshot(for: scopeKey))
+        XCTAssertNotNil(cache.snapshot(for: parentKey))
+        XCTAssertNotNil(cache.snapshot(for: otherKey))
+    }
+
+    func testCompletedScanCacheRecountsReplacementWithDifferentBackingTree() async {
+        let cache = CompletedScanCache(maxTotalNodeCount: 3)
+        let large = makeCacheSnapshot("/cache/replaced", childCount: 4)
+        let small = makeCacheSnapshot("/cache/replaced")
+        let other = makeCacheSnapshot("/cache/other", childCount: 1)
+        let options = ScanOptions()
+        let replacedKey = ScanCacheKey(target: large.target, options: options)
+        let otherKey = ScanCacheKey(target: other.target, options: options)
+
+        cache.store(large, for: replacedKey)
+        cache.store(small, for: replacedKey)
+        await cache.waitForPendingReleases()
+        cache.store(other, for: otherKey)
+
+        XCTAssertEqual(cache.snapshot(for: replacedKey)?.id, small.id)
+        XCTAssertNotNil(cache.snapshot(for: otherKey))
+    }
+
+    func testCompletedScanCacheStopsAdmissionWhileDiscardedOwnershipIsPending() async throws {
+        let first = makeCacheSnapshot("/cache/first")
+        let tree = makeParentAndChildSnapshot()
+        let second = tree.snapshot
+        let scope = try XCTUnwrap(second.scoped(to: tree.childTarget))
+        let queue = DispatchQueue(label: "cache-release-test")
+        queue.suspend()
+        let cache = CompletedScanCache(maxTotalNodeCount: 1, releaseQueue: queue)
+        let options = ScanOptions()
+        let firstKey = ScanCacheKey(target: first.target, options: options)
+        let secondKey = ScanCacheKey(target: second.target, options: options)
+
+        cache.store(first, for: firstKey)
+        cache.store(second, for: secondKey)
+        XCTAssertNil(cache.snapshot(for: firstKey))
+        XCTAssertNotNil(cache.snapshot(for: secondKey))
+        await Task.yield()
+        cache.store(scope, for: ScanCacheKey(target: scope.target, options: options))
+        XCTAssertNotNil(cache.snapshot(for: secondKey))
+        // Cleanup cannot run, but the actor remains available. New scans cannot
+        // add to retained ownership, including replacement and clear cycles.
+        for _ in 0..<10 {
+            cache.store(first, for: firstKey)
+            XCTAssertNil(cache.snapshot(for: firstKey))
+            cache.store(second, for: secondKey)
+            XCTAssertNil(cache.snapshot(for: secondKey))
+            cache.removeAll()
+        }
+        XCTAssertNil(cache.snapshot(for: firstKey))
+        XCTAssertNil(cache.snapshot(for: secondKey))
+        queue.resume()
+        await cache.waitForPendingReleases()
+
+        cache.store(first, for: firstKey)
+        XCTAssertNotNil(cache.snapshot(for: firstKey))
+    }
+
     func testCompletedScanCacheFindsRecentMatchingOrContainingSnapshotWithMatchingOptions() {
-        var cache = CompletedScanCache(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let cache = CompletedScanCache(maxTotalNodeCount: 100)
         let child = makeTestDirectoryNode(id: "/cache/root/child", name: "child", children: [])
         let root = makeTestDirectoryNode(id: "/cache/root", name: "root", children: [child])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [child]])
@@ -65,9 +179,8 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         )
     }
 
-    @MainActor
     func testControllerRestoresExactCachedSidebarTarget() {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let snapshot = makeCacheSnapshot("/cache/exact")
         let options = ScanOptions(includeHiddenFiles: true)
@@ -99,9 +212,60 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
 
-    @MainActor
+    func testControllerRetainsParentAfterScanMissesAdmissionDuringCleanup() async throws {
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 1)
+        let recorder = SidebarScanCacheRecorder()
+        let tree = makeParentAndChildSnapshot()
+        let options = ScanOptions()
+        // These synchronous completions keep the release task pending until
+        // this actor yields. The third scan therefore misses cache admission.
+        for snapshot in [makeCacheSnapshot("/cache/first"), makeCacheSnapshot("/cache/second"), tree.snapshot] {
+            controller.prepareForScanStart(target: snapshot.target, options: options)
+            controller.handleCompletedScanSnapshot(snapshot)
+        }
+        XCTAssertFalse(controller.applyCachedOrContainedSidebarTarget(
+            tree.snapshot.target,
+            options: options,
+            currentSnapshot: tree.snapshot,
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { snapshot, _ in recorder.restoredSnapshots.append(snapshot) },
+            startScan: { recorder.startedTargets.append($0) }
+        ))
+        XCTAssertTrue(recorder.restoredSnapshots.isEmpty)
+        let shouldScanChild = controller.applyCachedOrContainedSidebarTarget(
+            tree.childTarget,
+            options: options,
+            currentSnapshot: tree.snapshot,
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { snapshot, _ in
+                controller.handleCompletedScanSnapshot(snapshot)
+                recorder.restoredSnapshots.append(snapshot)
+            },
+            startScan: { recorder.startedTargets.append($0) }
+        )
+        XCTAssertFalse(shouldScanChild)
+        try await waitUntil("child scope after cache admission resumes") {
+            !recorder.restoredSnapshots.isEmpty
+        }
+        let childSnapshot = try XCTUnwrap(recorder.restoredSnapshots.first)
+        let shouldScanParent = controller.applyCachedOrContainedSidebarTarget(
+            tree.snapshot.target,
+            options: options,
+            currentSnapshot: childSnapshot,
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { snapshot, _ in recorder.restoredSnapshots.append(snapshot) },
+            startScan: { recorder.startedTargets.append($0) }
+        )
+        XCTAssertFalse(shouldScanParent)
+        XCTAssertEqual(recorder.restoredSnapshots.last?.id, tree.snapshot.id)
+        XCTAssertTrue(recorder.startedTargets.isEmpty)
+    }
+
     func testControllerReplacesDisplayedCachedSnapshotAfterRefresh() throws {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let cachedSnapshot = makeCacheSnapshot("/cache/refreshed", childCount: 1)
         let refreshedFile = makeTestFileNode(
@@ -158,9 +322,8 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
 
-    @MainActor
     func testControllerKeepsCurrentCachedParentWhenChildScopeIsPending() async {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let tree = makeParentAndChildSnapshot()
         let options = ScanOptions(includeHiddenFiles: true)
@@ -203,9 +366,8 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
 
-    @MainActor
     func testControllerPrefersNewerContainingSnapshotAfterTargetDetour() async throws {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 3, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let tree = makeParentAndChildSnapshot()
         let staleFile = makeTestFileNode(
@@ -267,9 +429,8 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
 
-    @MainActor
     func testControllerScopesCurrentSidebarSnapshotWhenDisplayedOptionsMatch() async throws {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let tree = makeParentAndChildSnapshot()
         let options = ScanOptions(includeHiddenFiles: true)
@@ -309,9 +470,8 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
 
-    @MainActor
     func testControllerDoesNotScopeCurrentSnapshotWhenDisplayedOptionsDiffer() {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let tree = makeParentAndChildSnapshot()
         recorder.activeTargetID = tree.childTarget.id
@@ -347,9 +507,8 @@ final class SidebarScanCacheControllerTests: XCTestCase {
         XCTAssertTrue(recorder.startedTargets.isEmpty)
     }
 
-    @MainActor
     func testControllerScopedRestoreRebalancesHardLinksInsideTarget() async throws {
-        let controller = SidebarScanCacheController(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 100)
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let recorder = SidebarScanCacheRecorder()
         let identity = FileIdentity(device: 1, inode: 90)
         let ownerFile = makeTestFileNode(

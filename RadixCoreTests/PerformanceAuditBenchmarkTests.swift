@@ -175,31 +175,32 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         let scenario = environment["RADIX_BENCH_RETENTION_SCENARIO"] ?? "single"
         let fileCount = environment["RADIX_BENCH_RETENTION_FILES"].flatMap(Int.init) ?? 1_000_000
         let path = environment["RADIX_BENCH_RETENTION_PATH"]
-        var cache = CompletedScanCache(minimumRetainedSnapshotCount: 2, maxTotalNodeCount: 250_000)
+        let cache = CompletedScanCache(maxTotalNodeCount: 250_000)
         let navigation = WorkspaceNavigationModel()
         Self.reportRetention(phase: "initial")
         switch scenario {
         case "single":
-            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario)
+            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario)
         case "repeat":
             for iteration in 0..<3 {
-                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario, iteration: iteration)
+                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario, iteration: iteration)
                 Self.reportRetention(phase: "released_\(iteration)")
             }
         case "cache":
             for iteration in 0..<3 {
-                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario, iteration: iteration)
+                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario, iteration: iteration)
+                await cache.waitForPendingReleases()
                 withExtendedLifetime(cache) {
                     Self.reportRetention(phase: "cache_only_\(iteration)")
                 }
             }
         case "scope":
-            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario)
+            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario)
             withExtendedLifetime(cache) {
                 Self.reportRetention(phase: "scope_only")
             }
         case "navigation":
-            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: &cache, scenario: scenario, navigation: navigation)
+            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario, navigation: navigation)
             Self.reportRetention(phase: "navigation_and_cache")
         default:
             XCTFail("Unknown retention scenario: \(scenario)")
@@ -210,6 +211,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         let navigationClearStartedAt = ContinuousClock.now
         navigation.updateScanContext(snapshot: nil)
         Self.reportRetention(phase: "released", seconds: BenchmarkSupport.durationSeconds(navigationClearStartedAt.duration(to: .now)))
+        await cache.waitForPendingReleases()
         try await Task.sleep(for: .milliseconds(100))
         Self.reportRetention(phase: "settled")
         let relievedBytes = malloc_zone_pressure_relief(nil, 0)
@@ -228,7 +230,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
     private static func retainSnapshot(
         fileCount: Int,
         path: String?,
-        cache: inout CompletedScanCache,
+        cache: CompletedScanCache,
         scenario: String,
         iteration: Int = 0,
         navigation: WorkspaceNavigationModel? = nil

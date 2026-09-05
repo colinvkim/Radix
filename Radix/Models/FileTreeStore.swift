@@ -412,6 +412,8 @@ nonisolated struct FileTreeStore: Sendable {
     }
 
     let contentID: UUID
+    /// Shared by logical scopes that retain the same full node and topology buffers.
+    let backingStorageID: UUID
     let rootID: String
     private let nodeRecords: [FileNodeRecord]
     private let topologyArena: FileTreeTopologyArena
@@ -679,6 +681,7 @@ nonisolated struct FileTreeStore: Sendable {
             childIDsByID: childIDsByID
         )
         self.contentID = UUID()
+        self.backingStorageID = contentID
         self.rootID = rootID
         let storedNodes = topology.didDropReferences || aggregateStats == nil
             ? Self.repairMaterializedDirectoryTotals(
@@ -738,6 +741,7 @@ nonisolated struct FileTreeStore: Sendable {
     ) {
         precondition(nodesByID[rootID] != nil, "Verified FileTreeStore root is missing.")
         self.contentID = UUID()
+        self.backingStorageID = contentID
         self.rootID = rootID
         let orderedNodeIDs = Self.orderedNodeIDsAssumingValidTopology(
             rootID: rootID,
@@ -914,6 +918,7 @@ nonisolated struct FileTreeStore: Sendable {
         }
 
         self.contentID = UUID()
+        self.backingStorageID = contentID
         self.rootID = nodes[rootOffset].id
         self.nodeRecords = nodes
         self.topologyArena = topologyArena
@@ -926,9 +931,11 @@ nonisolated struct FileTreeStore: Sendable {
         nodeRecords: [FileNodeRecord],
         topologyArena: FileTreeTopologyArena,
         aggregateStats: ScanAggregateStats,
-        logicalScope: LogicalScope? = nil
+        logicalScope: LogicalScope? = nil,
+        backingStorageID: UUID? = nil
     ) {
         self.contentID = UUID()
+        self.backingStorageID = backingStorageID ?? contentID
         self.rootID = rootID
         self.nodeRecords = nodeRecords
         self.topologyArena = topologyArena
@@ -2541,7 +2548,8 @@ nonisolated struct FileTreeStore: Sendable {
             nodeRecords: nodeRecords,
             topologyArena: topologyArena,
             aggregateStats: scope.aggregateStats,
-            logicalScope: scope
+            logicalScope: scope,
+            backingStorageID: backingStorageID
         )
     }
 

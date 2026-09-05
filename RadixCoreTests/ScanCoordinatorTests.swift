@@ -1096,7 +1096,6 @@ final class ScanCoordinatorTests: XCTestCase {
                 scanService: service,
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
             ),
-            completedScanCacheMinimumRetainedSnapshotCount: 2,
             completedScanCacheMaxTotalNodeCount: 3
         )
         let homeSnapshot = makeCoordinatorHomeSnapshot(
@@ -1133,7 +1132,7 @@ final class ScanCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAppModelKeepsOversizedCachedScanAfterAnotherScan() async throws {
+    func testAppModelRescansEvictedOversizedScanAfterAnotherScan() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/oversized-recent-home")
         let downloadsTarget = makeCoordinatorTarget("/app/sidebar/oversized-recent-home/Downloads")
@@ -1142,7 +1141,6 @@ final class ScanCoordinatorTests: XCTestCase {
                 scanService: service,
                 systemActions: makeCoordinatorSidebarActions(targets: [homeTarget, downloadsTarget])
             ),
-            completedScanCacheMinimumRetainedSnapshotCount: 2,
             completedScanCacheMaxTotalNodeCount: 3
         )
         let homeSnapshot = makeCoordinatorHomeSnapshot(
@@ -1174,11 +1172,16 @@ final class ScanCoordinatorTests: XCTestCase {
         }
 
         model.selectSidebarTarget(id: homeTarget.id)
-        try await waitUntil("oversized recent home restored from cache") {
+        try await waitUntil("evicted home rescan requested") {
+            service.requests.count == 3
+        }
+        service.yield(.finished(homeSnapshot), scanIndex: 2)
+        service.finish(scanIndex: 2)
+        try await waitUntil("evicted home rescan finished") {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        XCTAssertEqual(service.requests.count, 2)
+        XCTAssertEqual(service.requests.count, 3)
         XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
         XCTAssertEqual(model.scanState.snapshot?.root.id, homeTarget.id)
         XCTAssertEqual(model.navigation.focusedNodeID, homeTarget.id)
