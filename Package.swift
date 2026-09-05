@@ -47,6 +47,7 @@ let package = Package(
                 "Services/ChartLayoutRequestCoordinator.swift",
                 "Services/ChartSpatialSelection.swift",
                 "Services/CancellableSort.swift",
+                "Services/BackgroundReleaseQueue.swift",
                 "Services/AppDependencies.swift",
                 "Services/AppPreferencesStore.swift",
                 "Services/AppSystemActions.swift",

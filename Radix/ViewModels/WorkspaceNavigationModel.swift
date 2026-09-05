@@ -411,10 +411,12 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     typealias TableLoader = @Sendable (FileTreeStore, String) async throws -> [FileNodeRecord]
     private let tableLoader: TableLoader
+    private let releases: BackgroundReleaseQueue
     private var tableLoadTask: Task<Void, Never>?
     private var tableLoadSource: WorkspaceNavigationState.TableSource?
 
-    init(tableLoader: TableLoader? = nil) {
+    init(tableLoader: TableLoader? = nil, releases: BackgroundReleaseQueue = .shared) {
+        self.releases = releases
         let service = FileBrowserDisplayService()
         self.tableLoader = tableLoader ?? { store, directoryID in
             try await service.children(in: store, directoryID: directoryID)
@@ -598,6 +600,13 @@ final class WorkspaceNavigationModel: ObservableObject {
 
         let oldSelectionID = state.selectedNodeID
         let oldSelectionIDs = state.selectedNodeIDs
+        if state.tableContentRevision != nextState.tableContentRevision, state.tableNodes.count > 512 {
+            releases.discard(state.tableNodes)
+        }
+        if state.fileTreeStore?.contentID != nextState.fileTreeStore?.contentID,
+           let store = state.fileTreeStore, store.backingNodeCapacity > 512 {
+            releases.discard(store)
+        }
         state = nextState
 
         if oldSelectionID != nextState.selectedNodeID || oldSelectionIDs != nextState.selectedNodeIDs {
@@ -613,21 +622,28 @@ final class WorkspaceNavigationModel: ObservableObject {
         tableLoadTask = nil
         tableLoadSource = source
         guard let source, let store = state.fileTreeStore else { return }
-        tableLoadTask = Task { [weak self, tableLoader] in
+        tableLoadTask = Task.detached(priority: .userInitiated) { [weak self, tableLoader, releases] in
             do {
+                await releases.waitForPendingReleases()
+                try Task.checkCancellation()
                 let nodes = try await tableLoader(store, source.directoryID)
                 try Task.checkCancellation()
-                guard let self, state.tableSource == source, state.isLoadingTableNodes else { return }
-                var next = state
-                next.isLoadingTableNodes = false
-                next.replaceTableNodes(nodes)
-                publish(next)
+                await MainActor.run { [weak self] in
+                    guard !Task.isCancelled, let self,
+                          state.tableSource == source, state.isLoadingTableNodes else { return }
+                    var next = state
+                    next.isLoadingTableNodes = false
+                    next.replaceTableNodes(nodes)
+                    publish(next)
+                }
             } catch {
-                guard !Task.isCancelled, let self, state.tableSource == source else { return }
-                var next = state
-                next.tableSource = nil
-                next.isLoadingTableNodes = false
-                publish(next)
+                await MainActor.run { [weak self] in
+                    guard !Task.isCancelled, let self, state.tableSource == source else { return }
+                    var next = state
+                    next.tableSource = nil
+                    next.isLoadingTableNodes = false
+                    publish(next)
+                }
             }
         }
     }

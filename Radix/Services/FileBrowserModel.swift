@@ -25,6 +25,7 @@ final class FileBrowserModel: ObservableObject {
     private let displayService = FileBrowserDisplayService()
     private let searchDebounceDuration: Duration
     private let currentContentsAsyncThreshold: Int
+    private let releases: BackgroundReleaseQueue
     private var searchTask: Task<Void, Never>?
     private var searchIndexPruneTask: Task<Void, Never>?
     private var searchGeneration = 0
@@ -39,11 +40,13 @@ final class FileBrowserModel: ObservableObject {
     init(
         searchService: any FileSearching = FileSearchService(),
         searchDebounceDuration: Duration = .milliseconds(180),
-        currentContentsAsyncThreshold: Int = 512
+        currentContentsAsyncThreshold: Int = 512,
+        releases: BackgroundReleaseQueue = .shared
     ) {
         self.searchService = searchService
         self.searchDebounceDuration = searchDebounceDuration
         self.currentContentsAsyncThreshold = currentContentsAsyncThreshold
+        self.releases = releases
     }
 
     deinit {
@@ -117,6 +120,11 @@ final class FileBrowserModel: ObservableObject {
 
         needsRefreshAfterCleanup = false
         contentRevision += 1
+        if self.nodes.count > 512 { releases.discard(self.nodes) }
+        if self.fileTreeStore?.contentID != fileTreeStore?.contentID,
+           let oldStore = self.fileTreeStore, oldStore.backingNodeCapacity > 512 {
+            releases.discard(oldStore)
+        }
         self.nodes = nodes
         self.contentID = contentID
         snapshotID = nextSnapshotID
@@ -256,8 +264,10 @@ final class FileBrowserModel: ObservableObject {
         let debounceDuration = query.hasText ? searchDebounceDuration : Duration.zero
 
         setIsRefreshingCurrentContents(true)
-        searchTask = Task { [displayService] in
+        searchTask = Task.detached(priority: .userInitiated) { [weak self, displayService, releases] in
             do {
+                await releases.waitForPendingReleases()
+                try Task.checkCancellation()
                 let projection = try await displayService.currentContentsProjection(
                     nodes,
                     query: query,
@@ -315,9 +325,11 @@ final class FileBrowserModel: ObservableObject {
         )
 
         setIsSearchingEntireScan(true)
-        searchTask = Task { [searchService, displayService] in
+        searchTask = Task.detached(priority: .userInitiated) { [weak self, searchService, displayService, releases] in
             do {
                 try await Task.sleep(for: debounceDuration)
+                await releases.waitForPendingReleases()
+                try Task.checkCancellation()
                 let matchedNodes = try await searchService.search(
                     snapshotID: snapshotID,
                     treeStore: fileTreeStore,
@@ -375,6 +387,9 @@ final class FileBrowserModel: ObservableObject {
         _ projection: FileBrowserDisplayProjection,
         context: FileBrowserDisplayContext
     ) {
+        if displayState.nodes.count > 512 {
+            releases.discard((displayState.nodes, displayState.indexesByNodeID, displayState.displayValueCache))
+        }
         displayState = FileBrowserDisplayState(projection: projection, context: context)
     }
 

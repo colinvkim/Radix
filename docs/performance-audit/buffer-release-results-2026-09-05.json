@@ -1,0 +1,906 @@
+{
+  "baseline": "53d68aa",
+  "method": "Three sequential fresh Release process pairs, second pair reversed; one million synthetic directory children; 1 ms main-actor heartbeat. Then one before/after cache-retention pair. Builds did not overlap measurement.",
+  "directory_runs": [
+    {
+      "variant": "before",
+      "iteration": 1,
+      "phases": [
+        {
+          "phase": "directory_enter_1",
+          "seconds": "0.038907",
+          "count": "1000000",
+          "peak_rss": "1503035392",
+          "main_actor_submit": "0.000024",
+          "main_actor_longest_gap": "0.002102"
+        },
+        {
+          "phase": "directory_exit_1",
+          "seconds": "0.024619",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.024617",
+          "main_actor_longest_gap": "0.024664"
+        },
+        {
+          "phase": "directory_enter_2",
+          "seconds": "0.032575",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.000061",
+          "main_actor_longest_gap": "0.002080"
+        },
+        {
+          "phase": "directory_exit_2",
+          "seconds": "0.019354",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.019353",
+          "main_actor_longest_gap": "0.019396"
+        },
+        {
+          "phase": "directory_enter_3",
+          "seconds": "0.028926",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.000057",
+          "main_actor_longest_gap": "0.002063"
+        },
+        {
+          "phase": "directory_exit_3",
+          "seconds": "0.018941",
+          "count": "1000000",
+          "peak_rss": "1503068160",
+          "main_actor_submit": "0.018940",
+          "main_actor_longest_gap": "0.018980"
+        },
+        {
+          "phase": "browser_filter_clear_1",
+          "seconds": "0.059654",
+          "count": "1000000",
+          "peak_rss": "1738342400",
+          "main_actor_submit": "0.000050",
+          "main_actor_longest_gap": "0.031772"
+        },
+        {
+          "phase": "browser_filter_clear_2",
+          "seconds": "0.058232",
+          "count": "1000000",
+          "peak_rss": "1738391552",
+          "main_actor_submit": "0.000024",
+          "main_actor_longest_gap": "0.030196"
+        },
+        {
+          "phase": "browser_filter_clear_3",
+          "seconds": "0.059767",
+          "count": "1000000",
+          "peak_rss": "1738489856",
+          "main_actor_submit": "0.000036",
+          "main_actor_longest_gap": "0.031460"
+        },
+        {
+          "phase": "browser_content_clear",
+          "seconds": "0.048478",
+          "count": "1000000",
+          "peak_rss": "1738506240",
+          "main_actor_submit": "0.048474",
+          "main_actor_longest_gap": "0.048516"
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "iteration": 1,
+      "phases": [
+        {
+          "phase": "directory_enter_1",
+          "seconds": "0.037966",
+          "count": "1000000",
+          "peak_rss": "1502937088",
+          "main_actor_submit": "0.000029",
+          "main_actor_longest_gap": "0.002072"
+        },
+        {
+          "phase": "directory_exit_1",
+          "seconds": "0.000075",
+          "count": "1000000",
+          "peak_rss": "1503035392",
+          "main_actor_submit": "0.000074",
+          "main_actor_longest_gap": "0.002072"
+        },
+        {
+          "phase": "directory_enter_2",
+          "seconds": "0.050403",
+          "count": "1000000",
+          "peak_rss": "1503068160",
+          "main_actor_submit": "0.000023",
+          "main_actor_longest_gap": "0.002057"
+        },
+        {
+          "phase": "directory_exit_2",
+          "seconds": "0.000030",
+          "count": "1000000",
+          "peak_rss": "1503068160",
+          "main_actor_submit": "0.000029",
+          "main_actor_longest_gap": "0.002048"
+        },
+        {
+          "phase": "directory_enter_3",
+          "seconds": "0.041972",
+          "count": "1000000",
+          "peak_rss": "1503084544",
+          "main_actor_submit": "0.000026",
+          "main_actor_longest_gap": "0.002105"
+        },
+        {
+          "phase": "directory_exit_3",
+          "seconds": "0.000059",
+          "count": "1000000",
+          "peak_rss": "1503100928",
+          "main_actor_submit": "0.000058",
+          "main_actor_longest_gap": "0.002094"
+        },
+        {
+          "phase": "browser_filter_clear_1",
+          "seconds": "0.030028",
+          "count": "1000000",
+          "peak_rss": "1738358784",
+          "main_actor_submit": "0.000036",
+          "main_actor_longest_gap": "0.002076"
+        },
+        {
+          "phase": "browser_filter_clear_2",
+          "seconds": "0.030163",
+          "count": "1000000",
+          "peak_rss": "1738424320",
+          "main_actor_submit": "0.000040",
+          "main_actor_longest_gap": "0.002086"
+        },
+        {
+          "phase": "browser_filter_clear_3",
+          "seconds": "0.029922",
+          "count": "1000000",
+          "peak_rss": "1738424320",
+          "main_actor_submit": "0.000030",
+          "main_actor_longest_gap": "0.002115"
+        },
+        {
+          "phase": "browser_content_clear",
+          "seconds": "0.000075",
+          "count": "1000000",
+          "peak_rss": "1738457088",
+          "main_actor_submit": "0.000075",
+          "main_actor_longest_gap": "0.002070"
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "iteration": 2,
+      "phases": [
+        {
+          "phase": "directory_enter_1",
+          "seconds": "0.036949",
+          "count": "1000000",
+          "peak_rss": "1502937088",
+          "main_actor_submit": "0.000044",
+          "main_actor_longest_gap": "0.002117"
+        },
+        {
+          "phase": "directory_exit_1",
+          "seconds": "0.000071",
+          "count": "1000000",
+          "peak_rss": "1503035392",
+          "main_actor_submit": "0.000071",
+          "main_actor_longest_gap": "0.002075"
+        },
+        {
+          "phase": "directory_enter_2",
+          "seconds": "0.048840",
+          "count": "1000000",
+          "peak_rss": "1503117312",
+          "main_actor_submit": "0.000021",
+          "main_actor_longest_gap": "0.002153"
+        },
+        {
+          "phase": "directory_exit_2",
+          "seconds": "0.000043",
+          "count": "1000000",
+          "peak_rss": "1503117312",
+          "main_actor_submit": "0.000043",
+          "main_actor_longest_gap": "0.002070"
+        },
+        {
+          "phase": "directory_enter_3",
+          "seconds": "0.046079",
+          "count": "1000000",
+          "peak_rss": "1503117312",
+          "main_actor_submit": "0.000028",
+          "main_actor_longest_gap": "0.002078"
+        },
+        {
+          "phase": "directory_exit_3",
+          "seconds": "0.000051",
+          "count": "1000000",
+          "peak_rss": "1503133696",
+          "main_actor_submit": "0.000050",
+          "main_actor_longest_gap": "0.002072"
+        },
+        {
+          "phase": "browser_filter_clear_1",
+          "seconds": "0.030395",
+          "count": "1000000",
+          "peak_rss": "1738293248",
+          "main_actor_submit": "0.000039",
+          "main_actor_longest_gap": "0.002082"
+        },
+        {
+          "phase": "browser_filter_clear_2",
+          "seconds": "0.032763",
+          "count": "1000000",
+          "peak_rss": "1738391552",
+          "main_actor_submit": "0.000029",
+          "main_actor_longest_gap": "0.002093"
+        },
+        {
+          "phase": "browser_filter_clear_3",
+          "seconds": "0.030112",
+          "count": "1000000",
+          "peak_rss": "1738391552",
+          "main_actor_submit": "0.000033",
+          "main_actor_longest_gap": "0.002086"
+        },
+        {
+          "phase": "browser_content_clear",
+          "seconds": "0.000067",
+          "count": "1000000",
+          "peak_rss": "1738424320",
+          "main_actor_submit": "0.000066",
+          "main_actor_longest_gap": "0.002110"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "iteration": 2,
+      "phases": [
+        {
+          "phase": "directory_enter_1",
+          "seconds": "0.036898",
+          "count": "1000000",
+          "peak_rss": "1503035392",
+          "main_actor_submit": "0.000030",
+          "main_actor_longest_gap": "0.002083"
+        },
+        {
+          "phase": "directory_exit_1",
+          "seconds": "0.019926",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.019925",
+          "main_actor_longest_gap": "0.019970"
+        },
+        {
+          "phase": "directory_enter_2",
+          "seconds": "0.027929",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.000058",
+          "main_actor_longest_gap": "0.002080"
+        },
+        {
+          "phase": "directory_exit_2",
+          "seconds": "0.018638",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.018637",
+          "main_actor_longest_gap": "0.018676"
+        },
+        {
+          "phase": "directory_enter_3",
+          "seconds": "0.029971",
+          "count": "1000000",
+          "peak_rss": "1503051776",
+          "main_actor_submit": "0.000026",
+          "main_actor_longest_gap": "0.002111"
+        },
+        {
+          "phase": "directory_exit_3",
+          "seconds": "0.018102",
+          "count": "1000000",
+          "peak_rss": "1503068160",
+          "main_actor_submit": "0.018100",
+          "main_actor_longest_gap": "0.019381"
+        },
+        {
+          "phase": "browser_filter_clear_1",
+          "seconds": "0.057795",
+          "count": "1000000",
+          "peak_rss": "1738326016",
+          "main_actor_submit": "0.000036",
+          "main_actor_longest_gap": "0.028067"
+        },
+        {
+          "phase": "browser_filter_clear_2",
+          "seconds": "0.058845",
+          "count": "1000000",
+          "peak_rss": "1738375168",
+          "main_actor_submit": "0.000039",
+          "main_actor_longest_gap": "0.028769"
+        },
+        {
+          "phase": "browser_filter_clear_3",
+          "seconds": "0.059286",
+          "count": "1000000",
+          "peak_rss": "1738391552",
+          "main_actor_submit": "0.000032",
+          "main_actor_longest_gap": "0.030594"
+        },
+        {
+          "phase": "browser_content_clear",
+          "seconds": "0.047585",
+          "count": "1000000",
+          "peak_rss": "1738522624",
+          "main_actor_submit": "0.047581",
+          "main_actor_longest_gap": "0.047624"
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "iteration": 3,
+      "phases": [
+        {
+          "phase": "directory_enter_1",
+          "seconds": "0.036959",
+          "count": "1000000",
+          "peak_rss": "1503002624",
+          "main_actor_submit": "0.000044",
+          "main_actor_longest_gap": "0.002091"
+        },
+        {
+          "phase": "directory_exit_1",
+          "seconds": "0.019799",
+          "count": "1000000",
+          "peak_rss": "1503019008",
+          "main_actor_submit": "0.019798",
+          "main_actor_longest_gap": "0.019836"
+        },
+        {
+          "phase": "directory_enter_2",
+          "seconds": "0.028532",
+          "count": "1000000",
+          "peak_rss": "1503019008",
+          "main_actor_submit": "0.000059",
+          "main_actor_longest_gap": "0.002079"
+        },
+        {
+          "phase": "directory_exit_2",
+          "seconds": "0.018606",
+          "count": "1000000",
+          "peak_rss": "1503019008",
+          "main_actor_submit": "0.018605",
+          "main_actor_longest_gap": "0.018645"
+        },
+        {
+          "phase": "directory_enter_3",
+          "seconds": "0.028346",
+          "count": "1000000",
+          "peak_rss": "1503019008",
+          "main_actor_submit": "0.000053",
+          "main_actor_longest_gap": "0.002084"
+        },
+        {
+          "phase": "directory_exit_3",
+          "seconds": "0.018743",
+          "count": "1000000",
+          "peak_rss": "1503035392",
+          "main_actor_submit": "0.018743",
+          "main_actor_longest_gap": "0.018782"
+        },
+        {
+          "phase": "browser_filter_clear_1",
+          "seconds": "0.065757",
+          "count": "1000000",
+          "peak_rss": "1738227712",
+          "main_actor_submit": "0.000034",
+          "main_actor_longest_gap": "0.035049"
+        },
+        {
+          "phase": "browser_filter_clear_2",
+          "seconds": "0.061389",
+          "count": "1000000",
+          "peak_rss": "1738342400",
+          "main_actor_submit": "0.000033",
+          "main_actor_longest_gap": "0.030705"
+        },
+        {
+          "phase": "browser_filter_clear_3",
+          "seconds": "0.059800",
+          "count": "1000000",
+          "peak_rss": "1738342400",
+          "main_actor_submit": "0.000031",
+          "main_actor_longest_gap": "0.031118"
+        },
+        {
+          "phase": "browser_content_clear",
+          "seconds": "0.050772",
+          "count": "1000000",
+          "peak_rss": "1738424320",
+          "main_actor_submit": "0.050765",
+          "main_actor_longest_gap": "0.050808"
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "iteration": 3,
+      "phases": [
+        {
+          "phase": "directory_enter_1",
+          "seconds": "0.038200",
+          "count": "1000000",
+          "peak_rss": "1502969856",
+          "main_actor_submit": "0.000046",
+          "main_actor_longest_gap": "0.002116"
+        },
+        {
+          "phase": "directory_exit_1",
+          "seconds": "0.000069",
+          "count": "1000000",
+          "peak_rss": "1503068160",
+          "main_actor_submit": "0.000069",
+          "main_actor_longest_gap": "0.002071"
+        },
+        {
+          "phase": "directory_enter_2",
+          "seconds": "0.044187",
+          "count": "1000000",
+          "peak_rss": "1503084544",
+          "main_actor_submit": "0.000022",
+          "main_actor_longest_gap": "0.002083"
+        },
+        {
+          "phase": "directory_exit_2",
+          "seconds": "0.000043",
+          "count": "1000000",
+          "peak_rss": "1503084544",
+          "main_actor_submit": "0.000043",
+          "main_actor_longest_gap": "0.002074"
+        },
+        {
+          "phase": "directory_enter_3",
+          "seconds": "0.041761",
+          "count": "1000000",
+          "peak_rss": "1503084544",
+          "main_actor_submit": "0.000021",
+          "main_actor_longest_gap": "0.002081"
+        },
+        {
+          "phase": "directory_exit_3",
+          "seconds": "0.000055",
+          "count": "1000000",
+          "peak_rss": "1503100928",
+          "main_actor_submit": "0.000054",
+          "main_actor_longest_gap": "0.002114"
+        },
+        {
+          "phase": "browser_filter_clear_1",
+          "seconds": "0.032780",
+          "count": "1000000",
+          "peak_rss": "1738424320",
+          "main_actor_submit": "0.000051",
+          "main_actor_longest_gap": "0.002078"
+        },
+        {
+          "phase": "browser_filter_clear_2",
+          "seconds": "0.030063",
+          "count": "1000000",
+          "peak_rss": "1738588160",
+          "main_actor_submit": "0.000063",
+          "main_actor_longest_gap": "0.002084"
+        },
+        {
+          "phase": "browser_filter_clear_3",
+          "seconds": "0.031562",
+          "count": "1000000",
+          "peak_rss": "1738670080",
+          "main_actor_submit": "0.000036",
+          "main_actor_longest_gap": "0.002086"
+        },
+        {
+          "phase": "browser_content_clear",
+          "seconds": "0.000067",
+          "count": "1000000",
+          "peak_rss": "1738686464",
+          "main_actor_submit": "0.000067",
+          "main_actor_longest_gap": "0.002079"
+        }
+      ]
+    }
+  ],
+  "cache_runs": [
+    {
+      "variant": "before",
+      "phases": [
+        {
+          "phase": "initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "42319872",
+          "peak_rss": "42319872",
+          "footprint": "6390432",
+          "reusable": "0",
+          "malloc_in_use": "1147328",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5968"
+        },
+        {
+          "phase": "retained_0",
+          "seconds": "0.569114",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "852606976",
+          "peak_rss": "852606976",
+          "footprint": "816792800",
+          "reusable": "0",
+          "malloc_in_use": "807131216",
+          "malloc_reserved": "830062592",
+          "malloc_blocks": "7006044",
+          "nodes": "1000001"
+        },
+        {
+          "phase": "stored_0",
+          "seconds": "0.000073",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "852705280",
+          "peak_rss": "852705280",
+          "footprint": "816825568",
+          "reusable": "0",
+          "malloc_in_use": "807133440",
+          "malloc_reserved": "830062592",
+          "malloc_blocks": "7006046"
+        },
+        {
+          "phase": "cache_only_0",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "852705280",
+          "peak_rss": "852705280",
+          "footprint": "816825568",
+          "reusable": "0",
+          "malloc_in_use": "807133440",
+          "malloc_reserved": "830062592",
+          "malloc_blocks": "7006046"
+        },
+        {
+          "phase": "retained_1",
+          "seconds": "0.556759",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1662484480",
+          "peak_rss": "1662484480",
+          "footprint": "1627014992",
+          "reusable": "0",
+          "malloc_in_use": "1613091616",
+          "malloc_reserved": "1639153664",
+          "malloc_blocks": "14006066",
+          "nodes": "1000001"
+        },
+        {
+          "phase": "stored_1",
+          "seconds": "0.000050",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1662533632",
+          "peak_rss": "1662533632",
+          "footprint": "1627047760",
+          "reusable": "0",
+          "malloc_in_use": "1613096032",
+          "malloc_reserved": "1639153664",
+          "malloc_blocks": "14006080"
+        },
+        {
+          "phase": "cache_only_1",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1494876160",
+          "peak_rss": "1662812160",
+          "footprint": "939755224",
+          "reusable": "519487488",
+          "malloc_in_use": "807136064",
+          "malloc_reserved": "1408876544",
+          "malloc_blocks": "7006057"
+        },
+        {
+          "phase": "retained_2",
+          "seconds": "0.542694",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1662926848",
+          "peak_rss": "1662926848",
+          "footprint": "1107871568",
+          "reusable": "519503872",
+          "malloc_in_use": "1613094176",
+          "malloc_reserved": "1639153664",
+          "malloc_blocks": "14006076",
+          "nodes": "1000001"
+        },
+        {
+          "phase": "stored_2",
+          "seconds": "0.000017",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1662926848",
+          "peak_rss": "1662926848",
+          "footprint": "1107871568",
+          "reusable": "519503872",
+          "malloc_in_use": "1613096416",
+          "malloc_reserved": "1639153664",
+          "malloc_blocks": "14006084"
+        },
+        {
+          "phase": "cache_only_2",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1495154688",
+          "peak_rss": "1663156224",
+          "footprint": "403310296",
+          "reusable": "1056210944",
+          "malloc_in_use": "807136064",
+          "malloc_reserved": "1408876544",
+          "malloc_blocks": "7006057"
+        },
+        {
+          "phase": "cache_cleared",
+          "seconds": "0.000007",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1495154688",
+          "peak_rss": "1663156224",
+          "footprint": "403310296",
+          "reusable": "1056210944",
+          "malloc_in_use": "807134336",
+          "malloc_reserved": "1408876544",
+          "malloc_blocks": "7006063"
+        },
+        {
+          "phase": "released",
+          "seconds": "0.000092",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1495252992",
+          "peak_rss": "1663156224",
+          "footprint": "403326680",
+          "reusable": "1056210944",
+          "malloc_in_use": "807135072",
+          "malloc_reserved": "1408876544",
+          "malloc_blocks": "7006082"
+        },
+        {
+          "phase": "settled",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1495367680",
+          "peak_rss": "1663156224",
+          "footprint": "403424984",
+          "reusable": "1056210944",
+          "malloc_in_use": "1174656",
+          "malloc_reserved": "1178599424",
+          "malloc_blocks": "6054"
+        },
+        {
+          "phase": "allocator_relief",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43855",
+          "rss": "1495367680",
+          "peak_rss": "1663156224",
+          "footprint": "403424984",
+          "reusable": "1056210944",
+          "malloc_in_use": "1174720",
+          "malloc_reserved": "1178599424",
+          "malloc_blocks": "6055",
+          "relieved_bytes": "0"
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "phases": [
+        {
+          "phase": "initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "42369024",
+          "peak_rss": "42369024",
+          "footprint": "6423224",
+          "reusable": "0",
+          "malloc_in_use": "1147504",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5980"
+        },
+        {
+          "phase": "retained_0",
+          "seconds": "0.574688",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "852656128",
+          "peak_rss": "852656128",
+          "footprint": "816809208",
+          "reusable": "0",
+          "malloc_in_use": "807131392",
+          "malloc_reserved": "834256896",
+          "malloc_blocks": "7006056",
+          "nodes": "1000001"
+        },
+        {
+          "phase": "stored_0",
+          "seconds": "0.000059",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "852754432",
+          "peak_rss": "852754432",
+          "footprint": "816841976",
+          "reusable": "0",
+          "malloc_in_use": "807133616",
+          "malloc_reserved": "834256896",
+          "malloc_blocks": "7006058"
+        },
+        {
+          "phase": "cache_only_0",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "852754432",
+          "peak_rss": "852754432",
+          "footprint": "816841976",
+          "reusable": "0",
+          "malloc_in_use": "807133616",
+          "malloc_reserved": "834256896",
+          "malloc_blocks": "7006058"
+        },
+        {
+          "phase": "retained_1",
+          "seconds": "0.553666",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1662517248",
+          "peak_rss": "1662517248",
+          "footprint": "1627015016",
+          "reusable": "0",
+          "malloc_in_use": "1613091792",
+          "malloc_reserved": "1643347968",
+          "malloc_blocks": "14006078",
+          "nodes": "1000001"
+        },
+        {
+          "phase": "stored_1",
+          "seconds": "0.000040",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1662599168",
+          "peak_rss": "1662599168",
+          "footprint": "1627047784",
+          "reusable": "0",
+          "malloc_in_use": "1613095968",
+          "malloc_reserved": "1643347968",
+          "malloc_blocks": "14006086"
+        },
+        {
+          "phase": "cache_only_1",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1494958080",
+          "peak_rss": "1662894080",
+          "footprint": "939788016",
+          "reusable": "519487488",
+          "malloc_in_use": "807136064",
+          "malloc_reserved": "1413070848",
+          "malloc_blocks": "7006064"
+        },
+        {
+          "phase": "retained_2",
+          "seconds": "0.547963",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1663025152",
+          "peak_rss": "1663025152",
+          "footprint": "1107920744",
+          "reusable": "519503872",
+          "malloc_in_use": "1613094176",
+          "malloc_reserved": "1643347968",
+          "malloc_blocks": "14006083",
+          "nodes": "1000001"
+        },
+        {
+          "phase": "stored_2",
+          "seconds": "0.000017",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1663025152",
+          "peak_rss": "1663025152",
+          "footprint": "1107920744",
+          "reusable": "519503872",
+          "malloc_in_use": "1613096352",
+          "malloc_reserved": "1643347968",
+          "malloc_blocks": "14006090"
+        },
+        {
+          "phase": "cache_only_2",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1495252992",
+          "peak_rss": "1663254528",
+          "footprint": "403359472",
+          "reusable": "1056210944",
+          "malloc_in_use": "807136064",
+          "malloc_reserved": "1413070848",
+          "malloc_blocks": "7006064"
+        },
+        {
+          "phase": "cache_cleared",
+          "seconds": "0.000007",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1495252992",
+          "peak_rss": "1663254528",
+          "footprint": "403359472",
+          "reusable": "1056210944",
+          "malloc_in_use": "807134272",
+          "malloc_reserved": "1413070848",
+          "malloc_blocks": "7006069"
+        },
+        {
+          "phase": "released",
+          "seconds": "0.000085",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1495318528",
+          "peak_rss": "1663254528",
+          "footprint": "403375856",
+          "reusable": "1056210944",
+          "malloc_in_use": "807135008",
+          "malloc_reserved": "1413070848",
+          "malloc_blocks": "7006088"
+        },
+        {
+          "phase": "settled",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1495400448",
+          "peak_rss": "1663254528",
+          "footprint": "403441392",
+          "reusable": "1056210944",
+          "malloc_in_use": "1174592",
+          "malloc_reserved": "1182793728",
+          "malloc_blocks": "6060"
+        },
+        {
+          "phase": "allocator_relief",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "43857",
+          "rss": "1495400448",
+          "peak_rss": "1663254528",
+          "footprint": "403441392",
+          "reusable": "1056210944",
+          "malloc_in_use": "1174720",
+          "malloc_reserved": "1182793728",
+          "malloc_blocks": "6062",
+          "relieved_bytes": "0"
+        }
+      ]
+    }
+  ]
+}

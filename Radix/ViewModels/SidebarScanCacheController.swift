@@ -20,19 +20,17 @@ nonisolated struct ScanCacheKey: Hashable {
 @MainActor
 final class CompletedScanCache {
     private let maxTotalNodeCount: Int
-    private let releaseQueue: DispatchQueue
+    private let releases: BackgroundReleaseQueue
     private var snapshotsByKey: [ScanCacheKey: ScanSnapshot] = [:]
     private var keysByRecency: [ScanCacheKey] = []
     private var totalNodeCount = 0
-    private var releaseBatch: DiscardedSnapshots?
-    private var releaseTask: Task<Void, Never>?
 
     init(
         maxTotalNodeCount: Int,
         releaseQueue: DispatchQueue = DispatchQueue(label: "com.colinkim.Radix.snapshot-release", qos: .utility)
     ) {
         self.maxTotalNodeCount = max(maxTotalNodeCount, 1)
-        self.releaseQueue = releaseQueue
+        self.releases = BackgroundReleaseQueue(queue: releaseQueue)
     }
 
     func snapshot(for key: ScanCacheKey) -> ScanSnapshot? {
@@ -77,7 +75,7 @@ final class CompletedScanCache {
         // No new ownership while cleanup is pending: even repeated clear/store
         // calls can enqueue only the cache contents present at the first eviction.
         // Invalidate stale entries when an incoming scan cannot be cached.
-        guard releaseTask == nil else {
+        guard !releases.isReleasing else {
             removeAll()
             return
         }
@@ -98,14 +96,14 @@ final class CompletedScanCache {
     }
 
     func removeAll() {
-        for snapshot in snapshotsByKey.values { discard(snapshot) }
+        for snapshot in snapshotsByKey.values { releases.discard(snapshot) }
         snapshotsByKey.removeAll()
         keysByRecency.removeAll()
         totalNodeCount = 0
     }
 
     func waitForPendingReleases() async {
-        while let releaseTask { await releaseTask.value }
+        await releases.waitForPendingReleases()
     }
 
     private func markRecentlyUsed(_ key: ScanCacheKey) {
@@ -116,52 +114,8 @@ final class CompletedScanCache {
     private func removeSnapshot(for key: ScanCacheKey) {
         guard let nodeCount = snapshotsByKey[key]?.treeStore.backingNodeCapacity else { return }
         totalNodeCount -= nodeCount
-        discard(snapshotsByKey.removeValue(forKey: key)!)
+        releases.discard(snapshotsByKey.removeValue(forKey: key)!)
         keysByRecency.removeAll { $0 == key }
-    }
-
-    private func discard(_ snapshot: ScanSnapshot) {
-        let batch = releaseBatch ?? DiscardedSnapshots()
-        releaseBatch = batch
-        batch.append(snapshot)
-        guard releaseTask == nil else { return }
-        // Starting on this actor lets the mutation's stack unwind before the
-        // worker takes ownership, so temporary main-thread copies cannot win
-        // the race to perform the final release.
-        releaseTask = Task { [weak self, releaseQueue] in
-            repeat {
-                await withCheckedContinuation { continuation in
-                    releaseQueue.async {
-                        batch.release()
-                        continuation.resume()
-                    }
-                }
-            } while !batch.isEmpty
-            self?.releaseBatch = nil
-            self?.releaseTask = nil
-        }
-    }
-}
-
-private nonisolated final class DiscardedSnapshots: @unchecked Sendable {
-    private let lock = NSLock()
-    private var snapshots: [ScanSnapshot] = []
-
-    var isEmpty: Bool { lock.withLock { snapshots.isEmpty } }
-
-    func append(_ snapshot: ScanSnapshot) {
-        lock.withLock { snapshots.append(snapshot) }
-    }
-
-    @inline(never)
-    func release() {
-        let batch = lock.withLock {
-            let batch = snapshots
-            snapshots = []
-            return batch
-        }
-        // No tree destruction while holding the lock or on the main actor.
-        withExtendedLifetime(batch) {}
     }
 }
 
