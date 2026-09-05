@@ -58,7 +58,6 @@ nonisolated enum SunburstLayout {
         let ringStart = centerRadius
         let ringWidth = (0.98 - ringStart) / CGFloat(max(depthLimit, 1))
         let denominator = max(Double(root.allocatedSize), Double(visibleChildren.count))
-        let colorBranchContext = ColorBranchContext(rootChildIDs: rootColorBranchIDs(in: treeStore))
 
         var result: [SunburstSegment] = []
         try appendSegments(
@@ -73,7 +72,7 @@ nonisolated enum SunburstLayout {
             ringStart: ringStart,
             ringWidth: ringWidth,
             branchContext: nil,
-            colorBranchContext: colorBranchContext,
+            colorBranchContext: nil,
             minimumAngle: minimumAngle,
             cancellationCheck: cancellationCheck,
             into: &result
@@ -92,8 +91,8 @@ nonisolated enum SunburstLayout {
         depthLimit: Int,
         ringStart: CGFloat,
         ringWidth: CGFloat,
-        branchContext: ColorBranch?,
-        colorBranchContext: ColorBranchContext,
+        branchContext: DiskMapColorBranch?,
+        colorBranchContext: DiskMapColorBranchContext?,
         minimumAngle: Double,
         cancellationCheck: CancellationCheck,
         into segments: inout [SunburstSegment]
@@ -101,8 +100,13 @@ nonisolated enum SunburstLayout {
         guard depth < depthLimit else { return }
 
         try cancellationCheck()
-        let effectiveChildTotal = children.reduce(0.0) { total, child in
-            total + Double(max(child.allocatedSize, 1))
+        var effectiveChildTotal = 0.0
+        for start in stride(from: 0, to: children.count, by: 256) {
+            try cancellationCheck()
+            let end = min(start + 256, children.count)
+            effectiveChildTotal = children[start..<end].reduce(effectiveChildTotal) { total, child in
+                total + Double(max(child.allocatedSize, 1))
+            }
         }
         let safeDenominator = max(parentDenominator, effectiveChildTotal)
         let totalAngle = endAngle - startAngle
@@ -114,7 +118,14 @@ nonisolated enum SunburstLayout {
             cancellationCheck: cancellationCheck
         )
 
-        let siblingIndexes = colorableIndexes(for: grouped)
+        let colorBranchContext = try colorBranchContext ?? DiskMapColorBranchContext(
+            in: treeStore,
+            layoutRootID: parentID,
+            layoutRootChildren: children,
+            visibleNodeIDs: grouped.lazy.compactMap(\.nodeID),
+            cancellationCheck: cancellationCheck
+        )
+        let siblingIndexes = try colorableIndexes(for: grouped, cancellationCheck: cancellationCheck)
         let siblingCount = max(siblingIndexes.count, 1)
         var cursor = startAngle
         for entry in grouped {
@@ -122,13 +133,8 @@ nonisolated enum SunburstLayout {
             let proportion = Double(entry.totalSize) / safeDenominator
             let segmentEnd = cursor + (totalAngle * proportion)
             let siblingIndex = siblingIndexes[entry.id] ?? 0
-            let branch = branchContext ?? colorBranch(
-                for: entry,
-                in: treeStore,
-                context: colorBranchContext,
-                fallbackIndex: siblingIndex,
-                fallbackCount: siblingCount
-            )
+            let branch = branchContext ?? colorBranchContext.branch(forNodeID: entry.nodeID)
+                ?? DiskMapColorBranch(id: entry.colorID, index: siblingIndex, count: siblingCount)
             let colorToken = SunburstColorToken(
                 branchID: branch.id,
                 localID: entry.colorID,
@@ -280,87 +286,19 @@ nonisolated enum SunburstLayout {
         return .normal
     }
 
-    private nonisolated static func colorBranch(
-        for entry: GroupEntry,
-        in treeStore: some DiskMapTreeReading,
-        context: ColorBranchContext,
-        fallbackIndex: Int,
-        fallbackCount: Int
-    ) -> ColorBranch {
-        guard let branchID = topLevelBranchID(for: entry.nodeID, in: treeStore) else {
-            return ColorBranch(id: entry.colorID, index: fallbackIndex, count: fallbackCount)
-        }
-
-        guard let branch = context.branch(id: branchID) else {
-            return ColorBranch(id: branchID, index: fallbackIndex, count: fallbackCount)
-        }
-
-        return branch
-    }
-
-    private nonisolated static func rootColorBranchIDs(in treeStore: some DiskMapTreeReading) -> [String] {
-        treeStore.children(of: treeStore.rootID)
-            .map(\.id)
-            .filter { !DiskMapFreeSpaceVisualization.isFreeSpaceNodeID($0) }
-    }
-
-    private nonisolated static func topLevelBranchID(
-        for nodeID: String?,
-        in treeStore: some DiskMapTreeReading
-    ) -> String? {
-        guard let nodeID else { return nil }
-        guard nodeID != treeStore.rootID else { return nodeID }
-
-        var currentID = nodeID
-        while let parentID = treeStore.parentID(of: currentID) {
-            if parentID == treeStore.rootID {
-                return currentID
-            }
-            currentID = parentID
-        }
-
-        return nodeID
-    }
-
     private nonisolated static func colorableIndexes(
-        for entries: [GroupEntry]
-    ) -> [String: Int] {
+        for entries: [GroupEntry],
+        cancellationCheck: CancellationCheck
+    ) throws -> [String: Int] {
         var indexes: [String: Int] = [:]
         indexes.reserveCapacity(entries.count)
 
         for entry in entries where !entry.isAggregate {
+            try cancellationCheck()
             indexes[entry.id] = indexes.count
         }
 
         return indexes
-    }
-
-    private nonisolated struct ColorBranch {
-        let id: String
-        let index: Int
-        let count: Int
-    }
-
-    private nonisolated struct ColorBranchContext {
-        private let indexByID: [String: Int]
-        private let count: Int
-
-        nonisolated init(rootChildIDs: [String]) {
-            var indexByID: [String: Int] = [:]
-            indexByID.reserveCapacity(rootChildIDs.count)
-
-            for id in rootChildIDs where indexByID[id] == nil {
-                indexByID[id] = indexByID.count
-            }
-
-            self.indexByID = indexByID
-            self.count = max(indexByID.count, 1)
-        }
-
-        nonisolated func branch(id: String) -> ColorBranch? {
-            guard let index = indexByID[id] else { return nil }
-            return ColorBranch(id: id, index: index, count: count)
-        }
     }
 
     private nonisolated struct GroupEntry {

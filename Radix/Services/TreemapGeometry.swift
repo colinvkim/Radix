@@ -69,26 +69,11 @@ nonisolated enum TreemapLayout {
             minimumTileArea: max(minimumTileArea, 1),
             cancellationCheck: cancellationCheck
         )
-        var retainedBranchIDs = Set<String>()
-        if root.id == treeStore.rootID {
-            retainedBranchIDs.reserveCapacity(rootEntries.count)
-            for entry in rootEntries {
-                try cancellationCheck()
-                if let nodeID = entry.nodeID {
-                    retainedBranchIDs.insert(nodeID)
-                }
-            }
-        }
-        let colorBranchContext = try ColorBranchContext(
-            rootChildren: rootColorBranchChildren(
-                in: treeStore,
-                layoutRootID: root.id,
-                layoutRootChildren: rootChildren,
-                cancellationCheck: cancellationCheck
-            ),
-            retainedBranchIDs: retainedBranchIDs,
+        let colorBranchContext = try DiskMapColorBranchContext(
+            in: treeStore,
             layoutRootID: root.id,
-            treeStore: treeStore,
+            layoutRootChildren: rootChildren,
+            visibleNodeIDs: rootEntries.lazy.compactMap(\.nodeID),
             cancellationCheck: cancellationCheck
         )
 
@@ -118,8 +103,8 @@ nonisolated enum TreemapLayout {
         rootSize: CGSize,
         depth: Int,
         depthLimit: Int,
-        branchContext: ColorBranch?,
-        colorBranchContext: ColorBranchContext,
+        branchContext: DiskMapColorBranch?,
+        colorBranchContext: DiskMapColorBranchContext,
         minimumTileArea: CGFloat,
         cancellationCheck: CancellationCheck,
         into segments: inout [TreemapSegment]
@@ -131,22 +116,20 @@ nonisolated enum TreemapLayout {
             in: bounds,
             cancellationCheck: cancellationCheck
         )
-        let siblingIndexes = colorableIndexes(for: entries)
+        let siblingIndexes = try colorableIndexes(for: entries, cancellationCheck: cancellationCheck)
         let siblingCount = max(siblingIndexes.count, 1)
 
         for tile in tiles {
             try cancellationCheck()
             let entry = tile.entry
             let siblingIndex = siblingIndexes[entry.id] ?? 0
-            let branch = branchContext ?? colorBranch(
-                for: entry,
-                context: colorBranchContext,
-                fallbackIndex: siblingIndex,
-                fallbackCount: siblingCount
-            )
+            let branch = branchContext ?? colorBranchContext.branch(forNodeID: entry.nodeID)
+                ?? DiskMapColorBranch(id: entry.colorID, index: siblingIndex, count: siblingCount)
 
+            let childBounds = childContentBounds(in: tile.rect)
             let childNodes: [FileNodeRecord]
-            if let node = entry.node,
+            if childBounds != nil,
+               let node = entry.node,
                node.isDirectory,
                depth + 1 < depthLimit {
                 childNodes = try treeStore.children(of: node.id, cancellationCheck: cancellationCheck)
@@ -154,8 +137,7 @@ nonisolated enum TreemapLayout {
                 childNodes = []
             }
 
-            let childBounds = childContentBounds(in: tile.rect)
-            let showsContainerHeader = !childNodes.isEmpty && childBounds != nil
+            let showsContainerHeader = !childNodes.isEmpty
             let colorToken = SunburstColorToken(
                 branchID: branch.id,
                 localID: entry.colorID,
@@ -266,7 +248,7 @@ nonisolated enum TreemapLayout {
             visible.append(Entry(node: onlyGroupedChild))
         }
 
-        return visible.sorted {
+        return try CancellableSort.sorted(&visible, cancellationCheck: cancellationCheck) {
             if $0.totalSize == $1.totalSize {
                 return $0.id.localizedStandardCompare($1.id) == .orderedAscending
             }
@@ -281,13 +263,12 @@ nonisolated enum TreemapLayout {
     ) throws -> [Tile] {
         guard !entries.isEmpty, bounds.width > 0, bounds.height > 0 else { return [] }
 
-        let totalWeight = entries.reduce(0.0) { total, entry in
-            total + Double(max(entry.totalSize, 1))
+        var totalWeight = 0.0
+        for entry in entries {
+            try cancellationCheck()
+            totalWeight += Double(max(entry.totalSize, 1))
         }
         let scale = Double(bounds.width * bounds.height) / max(totalWeight, 1)
-        let weightedEntries = entries.map {
-            WeightedEntry(entry: $0, area: CGFloat(Double(max($0.totalSize, 1)) * scale))
-        }
         var nextEntryIndex = 0
         var remainingBounds = bounds
         var row: [WeightedEntry] = []
@@ -296,9 +277,10 @@ nonisolated enum TreemapLayout {
         var rowMaximumArea = CGFloat(0)
         var result: [Tile] = []
 
-        while nextEntryIndex < weightedEntries.count {
+        while nextEntryIndex < entries.count {
             try cancellationCheck()
-            let next = weightedEntries[nextEntryIndex]
+            let entry = entries[nextEntryIndex]
+            let next = WeightedEntry(entry: entry, area: CGFloat(Double(max(entry.totalSize, 1)) * scale))
             let shortSide = min(remainingBounds.width, remainingBounds.height)
             let candidateArea = rowArea + next.area
             let candidateMinimumArea = min(rowMinimumArea, next.area)
@@ -320,10 +302,11 @@ nonisolated enum TreemapLayout {
                 rowMaximumArea = candidateMaximumArea
                 nextEntryIndex += 1
             } else {
-                remainingBounds = layoutRow(
+                remainingBounds = try layoutRow(
                     row,
                     area: rowArea,
                     in: remainingBounds,
+                    cancellationCheck: cancellationCheck,
                     into: &result
                 )
                 row.removeAll(keepingCapacity: true)
@@ -334,7 +317,7 @@ nonisolated enum TreemapLayout {
         }
 
         if !row.isEmpty {
-            _ = layoutRow(row, area: rowArea, in: remainingBounds, into: &result)
+            _ = try layoutRow(row, area: rowArea, in: remainingBounds, cancellationCheck: cancellationCheck, into: &result)
         }
 
         return result
@@ -361,14 +344,16 @@ nonisolated enum TreemapLayout {
         _ row: [WeightedEntry],
         area rowArea: CGFloat,
         in bounds: CGRect,
+        cancellationCheck: CancellationCheck,
         into result: inout [Tile]
-    ) -> CGRect {
+    ) throws -> CGRect {
         guard !row.isEmpty, bounds.width > 0, bounds.height > 0 else { return bounds }
 
         if bounds.width >= bounds.height {
             let columnWidth = min(rowArea / bounds.height, bounds.width)
             var cursorY = bounds.minY
             for (index, weightedEntry) in row.enumerated() {
+                try cancellationCheck()
                 let height = index == row.count - 1
                     ? max(bounds.maxY - cursorY, 0)
                     : min(weightedEntry.area / max(columnWidth, .leastNonzeroMagnitude), bounds.maxY - cursorY)
@@ -389,6 +374,7 @@ nonisolated enum TreemapLayout {
         let rowHeight = min(rowArea / bounds.width, bounds.height)
         var cursorX = bounds.minX
         for (index, weightedEntry) in row.enumerated() {
+            try cancellationCheck()
             let width = index == row.count - 1
                 ? max(bounds.maxX - cursorX, 0)
                 : min(weightedEntry.area / max(rowHeight, .leastNonzeroMagnitude), bounds.maxX - cursorX)
@@ -434,115 +420,16 @@ nonisolated enum TreemapLayout {
         return .normal
     }
 
-    private nonisolated static func colorBranch(
-        for entry: Entry,
-        context: ColorBranchContext,
-        fallbackIndex: Int,
-        fallbackCount: Int
-    ) -> ColorBranch {
-        guard let branch = context.branch(forNodeID: entry.nodeID) else {
-            return ColorBranch(id: entry.colorID, index: fallbackIndex, count: fallbackCount)
-        }
-        return branch
-    }
-
-    private nonisolated static func rootColorBranchChildren(
-        in treeStore: some DiskMapTreeReading,
-        layoutRootID: String,
-        layoutRootChildren: [FileNodeRecord],
+    private nonisolated static func colorableIndexes(
+        for entries: [Entry],
         cancellationCheck: CancellationCheck
-    ) throws -> [FileNodeRecord] {
-        if layoutRootID == treeStore.rootID {
-            return layoutRootChildren
-        }
-        return try treeStore.children(
-            of: treeStore.rootID,
-            cancellationCheck: cancellationCheck
-        )
-    }
-
-    private nonisolated static func topLevelBranchID(
-        for nodeID: String?,
-        in treeStore: some DiskMapTreeReading
-    ) -> String? {
-        guard let nodeID else { return nil }
-        guard nodeID != treeStore.rootID else { return nodeID }
-
-        var currentID = nodeID
-        while let parentID = treeStore.parentID(of: currentID) {
-            if parentID == treeStore.rootID { return currentID }
-            currentID = parentID
-        }
-        return nodeID
-    }
-
-    private nonisolated static func colorableIndexes(for entries: [Entry]) -> [String: Int] {
+    ) throws -> [String: Int] {
         var indexes: [String: Int] = [:]
         for entry in entries where !entry.isAggregate {
+            try cancellationCheck()
             indexes[entry.id] = indexes.count
         }
         return indexes
-    }
-
-    private nonisolated struct ColorBranch {
-        let id: String
-        let index: Int
-        let count: Int
-    }
-
-    private nonisolated struct ColorBranchContext {
-        private let indexByID: [String: Int]
-        private let focusedBranchID: String?
-        private let count: Int
-
-        nonisolated init(
-            rootChildren: [FileNodeRecord],
-            retainedBranchIDs: Set<String>,
-            layoutRootID: String,
-            treeStore: some DiskMapTreeReading,
-            cancellationCheck: CancellationCheck
-        ) throws {
-            let focusedBranchID: String?
-            if layoutRootID == treeStore.rootID {
-                focusedBranchID = nil
-            } else {
-                try cancellationCheck()
-                focusedBranchID = TreemapLayout.topLevelBranchID(
-                    for: layoutRootID,
-                    in: treeStore
-                ) ?? layoutRootID
-            }
-
-            var retainedBranchIDs = retainedBranchIDs
-            if let focusedBranchID {
-                retainedBranchIDs.insert(focusedBranchID)
-            }
-            var indexByID: [String: Int] = [:]
-            indexByID.reserveCapacity(retainedBranchIDs.count)
-            var branchCount = 0
-            for child in rootChildren {
-                try cancellationCheck()
-                guard !DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(child.id) else {
-                    continue
-                }
-                if retainedBranchIDs.contains(child.id) {
-                    indexByID[child.id] = branchCount
-                }
-                branchCount += 1
-            }
-            self.indexByID = indexByID
-            self.count = max(branchCount, 1)
-            self.focusedBranchID = focusedBranchID
-        }
-
-        nonisolated func branch(forNodeID nodeID: String?) -> ColorBranch? {
-            guard let nodeID else { return nil }
-            let branchID = focusedBranchID ?? nodeID
-            guard let index = indexByID[branchID] else {
-                return nil
-            }
-            return ColorBranch(id: branchID, index: index, count: count)
-        }
     }
 
     private nonisolated struct Entry {

@@ -89,6 +89,7 @@ let package = Package(
                 "Services/SunburstChartModel.swift",
                 "Services/SunburstColorResolver.swift",
                 "Services/DiskMapFreeSpaceVisualization.swift",
+                "Services/DiskMapColorBranchContext.swift",
                 "Services/SunburstGeometry.swift",
                 "Services/DiscardPileVisualizationOverlay.swift",
                 "Services/ChartViewportTransform.swift",

@@ -1,0 +1,1259 @@
+{
+  "date": "2026-09-05",
+  "baseline_commit": "8a0accb",
+  "after": "Working tree chart preparation changes",
+  "machine": {
+    "model": "Apple M5 MacBook Air",
+    "cpu_cores": 10,
+    "ram_gib": 32,
+    "macos": "26.6.2",
+    "xcode": "26.6"
+  },
+  "methodology": {
+    "build": "SwiftPM Release",
+    "targeted": "Three rounds per scenario and variant in fresh sequential processes; reversed order in round 2.",
+    "responsiveness": "One Sunburst before/after pair; three Treemap pairs with reversed order in round 2. Large-scan and Treemap flat phases report the median of three within-process samples; dense phases have one sample per process.",
+    "process_count": 26,
+    "timing": "Targeted timer includes layout only, with an empty cancellation callback. Fixture construction and post-layout reflection fingerprinting are outside the timer.",
+    "memory": "Whole-process peak RSS includes XCTest, synthetic fixtures, probe instrumentation, allocator retention, and post-layout reflection; decimal MB. Not an allocation count or isolated chart heap measurement.",
+    "projection_counts": "FileTreeStore child records materialized through ChartReadProbe; not filesystem or metadata calls.",
+    "baseline_bundle": ".build/performance-audit/charts-before/RadixCorePackageTests.xctest",
+    "after_bundle": ".build/arm64-apple-macosx/release/RadixCorePackageTests.xctest",
+    "targeted_command": "rtk proxy env RADIX_BENCH_CHART_PREPARATION=1 RADIX_BENCH_CHART_SCENARIO=SCENARIO /Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest RadixCoreTests.PerformanceAuditBenchmarkTests/testChartPreparationBenchmark BUNDLE",
+    "responsiveness_command": "rtk proxy env RADIX_BENCH_CHART=1 /Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest RadixCoreTests.ChartResponsivenessBenchmarkTests/testLargeScanChartResponsivenessBenchmark BUNDLE (replace CHART with SUNBURST or TREEMAP and Chart with Sunburst or Treemap)",
+    "fixture": "One million equal-sized synthetic files under /chart/dense. Focused Sunburst selects one leaf. Tiny Treemap adds a /chart parent and uses a 40 by 40 layout; original and combined tree fixtures remain alive.",
+    "limitations": [
+      "Machine load and allocator state uncontrolled.",
+      "Cancellation observations are not latency bounds.",
+      "No interactive SwiftUI frame trace or filesystem calls measured."
+    ]
+  },
+  "validation": {
+    "core_tests": 901,
+    "opt_in_skips": 29,
+    "failures": 0,
+    "focused_release_tests": 37,
+    "debug_app_build": "passed",
+    "all_fingerprints_match": true
+  },
+  "summary": [
+    {
+      "scenario": "sunburst_flat",
+      "variant": "before",
+      "median_seconds": 0.32308,
+      "median_peak_rss": 1264123904,
+      "seconds_range": [
+        0.319096,
+        0.341837
+      ],
+      "projected_nodes": 2000000,
+      "root_reads": 2
+    },
+    {
+      "scenario": "sunburst_flat",
+      "variant": "after",
+      "median_seconds": 0.117834,
+      "median_peak_rss": 988332032,
+      "seconds_range": [
+        0.114331,
+        0.1412
+      ],
+      "projected_nodes": 1000000,
+      "root_reads": 1
+    },
+    {
+      "scenario": "sunburst_focused",
+      "variant": "before",
+      "median_seconds": 0.20718,
+      "median_peak_rss": 1096056832,
+      "seconds_range": [
+        0.206524,
+        0.209783
+      ],
+      "projected_nodes": 1000000,
+      "root_reads": 1
+    },
+    {
+      "scenario": "sunburst_focused",
+      "variant": "after",
+      "median_seconds": 0.104439,
+      "median_peak_rss": 988364800,
+      "seconds_range": [
+        0.099731,
+        0.107501
+      ],
+      "projected_nodes": 1000000,
+      "root_reads": 1
+    },
+    {
+      "scenario": "treemap_tiny",
+      "variant": "before",
+      "median_seconds": 0.05419,
+      "median_peak_rss": 1470201856,
+      "seconds_range": [
+        0.053838,
+        0.056467
+      ],
+      "projected_nodes": 1000001,
+      "root_reads": 1
+    },
+    {
+      "scenario": "treemap_tiny",
+      "variant": "after",
+      "median_seconds": 8.3e-05,
+      "median_peak_rss": 1302331392,
+      "seconds_range": [
+        8e-05,
+        8.7e-05
+      ],
+      "projected_nodes": 1,
+      "root_reads": 1
+    }
+  ],
+  "targeted_runs": [
+    {
+      "iteration": 1,
+      "scenario": "sunburst_flat",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_sunburst_flat",
+        "seconds": 0.341837,
+        "count": 1000000,
+        "peak_rss": 1264123904,
+        "initial_rss": 819888128,
+        "initial_peak_rss": 819888128,
+        "timed_layout_only": 1,
+        "projected_nodes": 2000000,
+        "root_reads": 2,
+        "segments": 1,
+        "fingerprint": "dbbab51794227b59"
+      }
+    },
+    {
+      "iteration": 1,
+      "scenario": "sunburst_flat",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_sunburst_flat",
+        "seconds": 0.114331,
+        "count": 1000000,
+        "peak_rss": 988332032,
+        "initial_rss": 819937280,
+        "initial_peak_rss": 819937280,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "dbbab51794227b59"
+      }
+    },
+    {
+      "iteration": 1,
+      "scenario": "sunburst_focused",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_sunburst_focused",
+        "seconds": 0.206524,
+        "count": 1000000,
+        "peak_rss": 1096056832,
+        "initial_rss": 819937280,
+        "initial_peak_rss": 819937280,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "912a89b0abaf8433"
+      }
+    },
+    {
+      "iteration": 1,
+      "scenario": "sunburst_focused",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_sunburst_focused",
+        "seconds": 0.107501,
+        "count": 1000000,
+        "peak_rss": 988348416,
+        "initial_rss": 819986432,
+        "initial_peak_rss": 819986432,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "912a89b0abaf8433"
+      }
+    },
+    {
+      "iteration": 1,
+      "scenario": "treemap_tiny",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_treemap_tiny",
+        "seconds": 0.056467,
+        "count": 1000000,
+        "peak_rss": 1470201856,
+        "initial_rss": 1301889024,
+        "initial_peak_rss": 1301889024,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000001,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "4b4cc18f043eda45"
+      }
+    },
+    {
+      "iteration": 1,
+      "scenario": "treemap_tiny",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_treemap_tiny",
+        "seconds": 8e-05,
+        "count": 1000000,
+        "peak_rss": 1302331392,
+        "initial_rss": 1302003712,
+        "initial_peak_rss": 1302003712,
+        "timed_layout_only": 1,
+        "projected_nodes": 1,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "4b4cc18f043eda45"
+      }
+    },
+    {
+      "iteration": 2,
+      "scenario": "sunburst_flat",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_sunburst_flat",
+        "seconds": 0.117834,
+        "count": 1000000,
+        "peak_rss": 988332032,
+        "initial_rss": 819920896,
+        "initial_peak_rss": 819920896,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "dbbab51794227b59"
+      }
+    },
+    {
+      "iteration": 2,
+      "scenario": "sunburst_flat",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_sunburst_flat",
+        "seconds": 0.319096,
+        "count": 1000000,
+        "peak_rss": 1264140288,
+        "initial_rss": 819937280,
+        "initial_peak_rss": 819937280,
+        "timed_layout_only": 1,
+        "projected_nodes": 2000000,
+        "root_reads": 2,
+        "segments": 1,
+        "fingerprint": "dbbab51794227b59"
+      }
+    },
+    {
+      "iteration": 2,
+      "scenario": "sunburst_focused",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_sunburst_focused",
+        "seconds": 0.104439,
+        "count": 1000000,
+        "peak_rss": 988364800,
+        "initial_rss": 819986432,
+        "initial_peak_rss": 819986432,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "912a89b0abaf8433"
+      }
+    },
+    {
+      "iteration": 2,
+      "scenario": "sunburst_focused",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_sunburst_focused",
+        "seconds": 0.20718,
+        "count": 1000000,
+        "peak_rss": 1096056832,
+        "initial_rss": 819937280,
+        "initial_peak_rss": 819937280,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "912a89b0abaf8433"
+      }
+    },
+    {
+      "iteration": 2,
+      "scenario": "treemap_tiny",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_treemap_tiny",
+        "seconds": 8.3e-05,
+        "count": 1000000,
+        "peak_rss": 1302331392,
+        "initial_rss": 1301987328,
+        "initial_peak_rss": 1301987328,
+        "timed_layout_only": 1,
+        "projected_nodes": 1,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "4b4cc18f043eda45"
+      }
+    },
+    {
+      "iteration": 2,
+      "scenario": "treemap_tiny",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_treemap_tiny",
+        "seconds": 0.053838,
+        "count": 1000000,
+        "peak_rss": 1470201856,
+        "initial_rss": 1301905408,
+        "initial_peak_rss": 1301905408,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000001,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "4b4cc18f043eda45"
+      }
+    },
+    {
+      "iteration": 3,
+      "scenario": "sunburst_flat",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_sunburst_flat",
+        "seconds": 0.32308,
+        "count": 1000000,
+        "peak_rss": 1264107520,
+        "initial_rss": 819871744,
+        "initial_peak_rss": 819871744,
+        "timed_layout_only": 1,
+        "projected_nodes": 2000000,
+        "root_reads": 2,
+        "segments": 1,
+        "fingerprint": "dbbab51794227b59"
+      }
+    },
+    {
+      "iteration": 3,
+      "scenario": "sunburst_flat",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_sunburst_flat",
+        "seconds": 0.1412,
+        "count": 1000000,
+        "peak_rss": 988332032,
+        "initial_rss": 819937280,
+        "initial_peak_rss": 819937280,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "dbbab51794227b59"
+      }
+    },
+    {
+      "iteration": 3,
+      "scenario": "sunburst_focused",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_sunburst_focused",
+        "seconds": 0.209783,
+        "count": 1000000,
+        "peak_rss": 1096105984,
+        "initial_rss": 820002816,
+        "initial_peak_rss": 820002816,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "912a89b0abaf8433"
+      }
+    },
+    {
+      "iteration": 3,
+      "scenario": "sunburst_focused",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_sunburst_focused",
+        "seconds": 0.099731,
+        "count": 1000000,
+        "peak_rss": 988381184,
+        "initial_rss": 820002816,
+        "initial_peak_rss": 820002816,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000000,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "912a89b0abaf8433"
+      }
+    },
+    {
+      "iteration": 3,
+      "scenario": "treemap_tiny",
+      "variant": "before",
+      "result": {
+        "phase": "chart_preparation_treemap_tiny",
+        "seconds": 0.05419,
+        "count": 1000000,
+        "peak_rss": 1470218240,
+        "initial_rss": 1301905408,
+        "initial_peak_rss": 1301905408,
+        "timed_layout_only": 1,
+        "projected_nodes": 1000001,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "4b4cc18f043eda45"
+      }
+    },
+    {
+      "iteration": 3,
+      "scenario": "treemap_tiny",
+      "variant": "after",
+      "result": {
+        "phase": "chart_preparation_treemap_tiny",
+        "seconds": 8.7e-05,
+        "count": 1000000,
+        "peak_rss": 1302315008,
+        "initial_rss": 1301970944,
+        "initial_peak_rss": 1301970944,
+        "timed_layout_only": 1,
+        "projected_nodes": 1,
+        "root_reads": 1,
+        "segments": 1,
+        "fingerprint": "4b4cc18f043eda45"
+      }
+    }
+  ],
+  "responsiveness_runs": [
+    {
+      "chart": "Sunburst",
+      "variant": "before",
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.291808",
+          "count": "1000002",
+          "peak_rss": "904413184",
+          "rss_delta": "862306304"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.112650",
+          "count": "2",
+          "peak_rss": "1072709632",
+          "samples": "0.123681,0.112650,0.111190",
+          "fingerprint": "f9dd7f41c71b36b6"
+        },
+        {
+          "phase": "layout_dense_root",
+          "seconds": "0.112788",
+          "count": "1000000",
+          "peak_rss": "1072742400",
+          "segments": "1",
+          "fingerprint": "da644aad5c5047db"
+        },
+        {
+          "phase": "layout_interaction_geometry",
+          "seconds": "0.000807",
+          "count": "1200",
+          "peak_rss": "1074446336",
+          "fingerprint": "e82f2dee818b5391"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.000840",
+          "count": "1200",
+          "peak_rss": "1076707328"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.027561",
+          "count": "100000",
+          "peak_rss": "1076707328",
+          "hits": "56460",
+          "fingerprint": "ae2255c06ef82948"
+        },
+        {
+          "phase": "selection_overlay_alternating",
+          "seconds": "0.082694",
+          "count": "20000",
+          "peak_rss": "1076822016",
+          "segments": "200000",
+          "fingerprint": "8dff3a5672301a65"
+        },
+        {
+          "phase": "selection_overlay_same_selection",
+          "seconds": "0.019333",
+          "count": "20000",
+          "peak_rss": "1076822016",
+          "segments": "200000",
+          "fingerprint": "ca2f4f4ebcb67a25"
+        },
+        {
+          "phase": "keyboard_selection",
+          "seconds": "0.048499",
+          "count": "20000",
+          "peak_rss": "1076838400",
+          "selections": "20000",
+          "fingerprint": "3511ae5183c75d75"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.047345",
+          "count": "1000000",
+          "peak_rss": "1076936704",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_root_depth_changes",
+          "seconds": "0.120658",
+          "count": "4",
+          "peak_rss": "1077133312",
+          "total_seconds": "0.125957",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "da644aad5c5047db"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1000002",
+          "peak_rss": "1077133312",
+          "rss_delta": "1035026432"
+        }
+      ],
+      "iteration": 1
+    },
+    {
+      "chart": "Sunburst",
+      "variant": "after",
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.353749",
+          "count": "1000002",
+          "peak_rss": "904265728",
+          "rss_delta": "862208000"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.115946",
+          "count": "2",
+          "peak_rss": "1072594944",
+          "samples": "0.122940,0.112986,0.115946",
+          "fingerprint": "f9dd7f41c71b36b6"
+        },
+        {
+          "phase": "layout_dense_root",
+          "seconds": "0.115337",
+          "count": "1000000",
+          "peak_rss": "1072627712",
+          "segments": "1",
+          "fingerprint": "da644aad5c5047db"
+        },
+        {
+          "phase": "layout_interaction_geometry",
+          "seconds": "0.000828",
+          "count": "1200",
+          "peak_rss": "1074380800",
+          "fingerprint": "e82f2dee818b5391"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.000804",
+          "count": "1200",
+          "peak_rss": "1076543488"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.027102",
+          "count": "100000",
+          "peak_rss": "1076543488",
+          "hits": "56460",
+          "fingerprint": "ae2255c06ef82948"
+        },
+        {
+          "phase": "selection_overlay_alternating",
+          "seconds": "0.081900",
+          "count": "20000",
+          "peak_rss": "1076658176",
+          "segments": "200000",
+          "fingerprint": "8dff3a5672301a65"
+        },
+        {
+          "phase": "selection_overlay_same_selection",
+          "seconds": "0.017064",
+          "count": "20000",
+          "peak_rss": "1076674560",
+          "segments": "200000",
+          "fingerprint": "ca2f4f4ebcb67a25"
+        },
+        {
+          "phase": "keyboard_selection",
+          "seconds": "0.041140",
+          "count": "20000",
+          "peak_rss": "1076690944",
+          "selections": "20000",
+          "fingerprint": "3511ae5183c75d75"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.015689",
+          "count": "1000000",
+          "peak_rss": "1076805632",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_root_depth_changes",
+          "seconds": "0.122166",
+          "count": "4",
+          "peak_rss": "1076969472",
+          "total_seconds": "0.124898",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "da644aad5c5047db"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1000002",
+          "peak_rss": "1076969472",
+          "rss_delta": "1034911744"
+        }
+      ],
+      "iteration": 1
+    },
+    {
+      "chart": "Treemap",
+      "variant": "before",
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.405418",
+          "count": "1008202",
+          "peak_rss": "911458304",
+          "rss_delta": "869416960"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.116466",
+          "count": "402",
+          "peak_rss": "913735680",
+          "samples": "0.116529,0.116466,0.115945",
+          "fingerprint": "84ccd1f6b22ca3fd"
+        },
+        {
+          "phase": "layout_dense_folder",
+          "seconds": "0.014129",
+          "count": "8000",
+          "peak_rss": "923828224",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "layout_flat_high_fanout",
+          "seconds": "0.008462",
+          "count": "50000",
+          "peak_rss": "971964416",
+          "segments": "1",
+          "samples": "0.009582,0.008434,0.008462",
+          "fingerprint": "b4c991f7480ea3af"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.009183",
+          "count": "8000",
+          "peak_rss": "971964416"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.090962",
+          "count": "100000",
+          "peak_rss": "971964416",
+          "hits": "80117",
+          "fingerprint": "3c6c559e6ca749d7"
+        },
+        {
+          "phase": "keyboard_selection_wide",
+          "seconds": "0.163253",
+          "count": "1000",
+          "peak_rss": "971964416",
+          "selections": "625",
+          "fingerprint": "9a467eadac606460"
+        },
+        {
+          "phase": "keyboard_selection_tall",
+          "seconds": "0.164397",
+          "count": "1000",
+          "peak_rss": "971964416",
+          "selections": "626",
+          "fingerprint": "633bed2aab2413c1"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.000073",
+          "count": "1008202",
+          "peak_rss": "971964416",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_resize",
+          "seconds": "0.132193",
+          "count": "6",
+          "peak_rss": "971964416",
+          "total_seconds": "0.134892",
+          "applied": "1",
+          "cancelled": "5",
+          "fingerprint": "5c67c71bf9fcda04"
+        },
+        {
+          "phase": "rapid_navigation",
+          "seconds": "0.019362",
+          "count": "4",
+          "peak_rss": "971964416",
+          "total_seconds": "0.021310",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1008202",
+          "peak_rss": "971964416",
+          "rss_delta": "929923072"
+        }
+      ],
+      "iteration": 1
+    },
+    {
+      "chart": "Treemap",
+      "variant": "after",
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.452751",
+          "count": "1008202",
+          "peak_rss": "911474688",
+          "rss_delta": "869449728"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.120062",
+          "count": "402",
+          "peak_rss": "913801216",
+          "samples": "0.119890,0.121160,0.120062",
+          "fingerprint": "84ccd1f6b22ca3fd"
+        },
+        {
+          "phase": "layout_dense_folder",
+          "seconds": "0.021225",
+          "count": "8000",
+          "peak_rss": "924581888",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "layout_flat_high_fanout",
+          "seconds": "0.006020",
+          "count": "50000",
+          "peak_rss": "972718080",
+          "segments": "1",
+          "samples": "0.006694,0.006020,0.006015",
+          "fingerprint": "b4c991f7480ea3af"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.009223",
+          "count": "8000",
+          "peak_rss": "972718080"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.090510",
+          "count": "100000",
+          "peak_rss": "972718080",
+          "hits": "80117",
+          "fingerprint": "3c6c559e6ca749d7"
+        },
+        {
+          "phase": "keyboard_selection_wide",
+          "seconds": "0.162394",
+          "count": "1000",
+          "peak_rss": "972718080",
+          "selections": "625",
+          "fingerprint": "9a467eadac606460"
+        },
+        {
+          "phase": "keyboard_selection_tall",
+          "seconds": "0.163663",
+          "count": "1000",
+          "peak_rss": "972718080",
+          "selections": "626",
+          "fingerprint": "633bed2aab2413c1"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.000091",
+          "count": "1008202",
+          "peak_rss": "972718080",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_resize",
+          "seconds": "0.131523",
+          "count": "6",
+          "peak_rss": "972718080",
+          "total_seconds": "0.134560",
+          "applied": "1",
+          "cancelled": "5",
+          "fingerprint": "5c67c71bf9fcda04"
+        },
+        {
+          "phase": "rapid_navigation",
+          "seconds": "0.018099",
+          "count": "4",
+          "peak_rss": "972718080",
+          "total_seconds": "0.020467",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1008202",
+          "peak_rss": "972718080",
+          "rss_delta": "930693120"
+        }
+      ],
+      "iteration": 1
+    },
+    {
+      "chart": "Treemap",
+      "variant": "after",
+      "iteration": 2,
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.402714",
+          "count": "1008202",
+          "peak_rss": "911441920",
+          "rss_delta": "869449728"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.117773",
+          "count": "402",
+          "peak_rss": "913752064",
+          "samples": "0.123787,0.115792,0.117773",
+          "fingerprint": "84ccd1f6b22ca3fd"
+        },
+        {
+          "phase": "layout_dense_folder",
+          "seconds": "0.012989",
+          "count": "8000",
+          "peak_rss": "921632768",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "layout_flat_high_fanout",
+          "seconds": "0.005875",
+          "count": "50000",
+          "peak_rss": "969785344",
+          "segments": "1",
+          "samples": "0.006621,0.005875,0.005798",
+          "fingerprint": "b4c991f7480ea3af"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.008947",
+          "count": "8000",
+          "peak_rss": "969785344"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.089029",
+          "count": "100000",
+          "peak_rss": "969785344",
+          "hits": "80117",
+          "fingerprint": "3c6c559e6ca749d7"
+        },
+        {
+          "phase": "keyboard_selection_wide",
+          "seconds": "0.165678",
+          "count": "1000",
+          "peak_rss": "969785344",
+          "selections": "625",
+          "fingerprint": "9a467eadac606460"
+        },
+        {
+          "phase": "keyboard_selection_tall",
+          "seconds": "0.164496",
+          "count": "1000",
+          "peak_rss": "969785344",
+          "selections": "626",
+          "fingerprint": "633bed2aab2413c1"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.000116",
+          "count": "1008202",
+          "peak_rss": "969785344",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_resize",
+          "seconds": "0.128271",
+          "count": "6",
+          "peak_rss": "969785344",
+          "total_seconds": "0.131239",
+          "applied": "1",
+          "cancelled": "5",
+          "fingerprint": "5c67c71bf9fcda04"
+        },
+        {
+          "phase": "rapid_navigation",
+          "seconds": "0.018327",
+          "count": "4",
+          "peak_rss": "969785344",
+          "total_seconds": "0.020681",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1008202",
+          "peak_rss": "969785344",
+          "rss_delta": "927793152"
+        }
+      ]
+    },
+    {
+      "chart": "Treemap",
+      "variant": "before",
+      "iteration": 2,
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.343918",
+          "count": "1008202",
+          "peak_rss": "911474688",
+          "rss_delta": "869400576"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.116993",
+          "count": "402",
+          "peak_rss": "913752064",
+          "samples": "0.119373,0.116993,0.116819",
+          "fingerprint": "84ccd1f6b22ca3fd"
+        },
+        {
+          "phase": "layout_dense_folder",
+          "seconds": "0.014316",
+          "count": "8000",
+          "peak_rss": "923844608",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "layout_flat_high_fanout",
+          "seconds": "0.008064",
+          "count": "50000",
+          "peak_rss": "971997184",
+          "segments": "1",
+          "samples": "0.008852,0.007882,0.008064",
+          "fingerprint": "b4c991f7480ea3af"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.009568",
+          "count": "8000",
+          "peak_rss": "971997184"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.091277",
+          "count": "100000",
+          "peak_rss": "971997184",
+          "hits": "80117",
+          "fingerprint": "3c6c559e6ca749d7"
+        },
+        {
+          "phase": "keyboard_selection_wide",
+          "seconds": "0.165274",
+          "count": "1000",
+          "peak_rss": "971997184",
+          "selections": "625",
+          "fingerprint": "9a467eadac606460"
+        },
+        {
+          "phase": "keyboard_selection_tall",
+          "seconds": "0.165464",
+          "count": "1000",
+          "peak_rss": "971997184",
+          "selections": "626",
+          "fingerprint": "633bed2aab2413c1"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.000132",
+          "count": "1008202",
+          "peak_rss": "971997184",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_resize",
+          "seconds": "0.129822",
+          "count": "6",
+          "peak_rss": "971997184",
+          "total_seconds": "0.132388",
+          "applied": "1",
+          "cancelled": "5",
+          "fingerprint": "5c67c71bf9fcda04"
+        },
+        {
+          "phase": "rapid_navigation",
+          "seconds": "0.019220",
+          "count": "4",
+          "peak_rss": "971997184",
+          "total_seconds": "0.021568",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1008202",
+          "peak_rss": "971997184",
+          "rss_delta": "929923072"
+        }
+      ]
+    },
+    {
+      "chart": "Treemap",
+      "variant": "before",
+      "iteration": 3,
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.391505",
+          "count": "1008202",
+          "peak_rss": "911441920",
+          "rss_delta": "869400576"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.119006",
+          "count": "402",
+          "peak_rss": "913719296",
+          "samples": "0.117406,0.119986,0.119006",
+          "fingerprint": "84ccd1f6b22ca3fd"
+        },
+        {
+          "phase": "layout_dense_folder",
+          "seconds": "0.014221",
+          "count": "8000",
+          "peak_rss": "923811840",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "layout_flat_high_fanout",
+          "seconds": "0.008297",
+          "count": "50000",
+          "peak_rss": "971980800",
+          "segments": "1",
+          "samples": "0.009164,0.008297,0.008131",
+          "fingerprint": "b4c991f7480ea3af"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.009176",
+          "count": "8000",
+          "peak_rss": "971980800"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.087549",
+          "count": "100000",
+          "peak_rss": "971980800",
+          "hits": "80117",
+          "fingerprint": "3c6c559e6ca749d7"
+        },
+        {
+          "phase": "keyboard_selection_wide",
+          "seconds": "0.159567",
+          "count": "1000",
+          "peak_rss": "971980800",
+          "selections": "625",
+          "fingerprint": "9a467eadac606460"
+        },
+        {
+          "phase": "keyboard_selection_tall",
+          "seconds": "0.169345",
+          "count": "1000",
+          "peak_rss": "971980800",
+          "selections": "626",
+          "fingerprint": "633bed2aab2413c1"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.000132",
+          "count": "1008202",
+          "peak_rss": "971980800",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_resize",
+          "seconds": "0.131617",
+          "count": "6",
+          "peak_rss": "971980800",
+          "total_seconds": "0.134571",
+          "applied": "1",
+          "cancelled": "5",
+          "fingerprint": "5c67c71bf9fcda04"
+        },
+        {
+          "phase": "rapid_navigation",
+          "seconds": "0.019543",
+          "count": "4",
+          "peak_rss": "971980800",
+          "total_seconds": "0.022008",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1008202",
+          "peak_rss": "971980800",
+          "rss_delta": "929939456"
+        }
+      ]
+    },
+    {
+      "chart": "Treemap",
+      "variant": "after",
+      "iteration": 3,
+      "phases": [
+        {
+          "phase": "fixture",
+          "seconds": "2.396827",
+          "count": "1008202",
+          "peak_rss": "911458304",
+          "rss_delta": "869433344"
+        },
+        {
+          "phase": "layout_large_scan",
+          "seconds": "0.115942",
+          "count": "402",
+          "peak_rss": "913801216",
+          "samples": "0.115942,0.116275,0.115639",
+          "fingerprint": "84ccd1f6b22ca3fd"
+        },
+        {
+          "phase": "layout_dense_folder",
+          "seconds": "0.013074",
+          "count": "8000",
+          "peak_rss": "921665536",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "layout_flat_high_fanout",
+          "seconds": "0.005919",
+          "count": "50000",
+          "peak_rss": "969818112",
+          "segments": "1",
+          "samples": "0.006612,0.005919,0.005870",
+          "fingerprint": "b4c991f7480ea3af"
+        },
+        {
+          "phase": "render_state_publication",
+          "seconds": "0.008959",
+          "count": "8000",
+          "peak_rss": "969818112"
+        },
+        {
+          "phase": "hit_testing",
+          "seconds": "0.088590",
+          "count": "100000",
+          "peak_rss": "969818112",
+          "hits": "80117",
+          "fingerprint": "3c6c559e6ca749d7"
+        },
+        {
+          "phase": "keyboard_selection_wide",
+          "seconds": "0.159693",
+          "count": "1000",
+          "peak_rss": "969818112",
+          "selections": "625",
+          "fingerprint": "9a467eadac606460"
+        },
+        {
+          "phase": "keyboard_selection_tall",
+          "seconds": "0.159519",
+          "count": "1000",
+          "peak_rss": "969818112",
+          "selections": "626",
+          "fingerprint": "633bed2aab2413c1"
+        },
+        {
+          "phase": "cancel_layout",
+          "seconds": "0.000115",
+          "count": "1008202",
+          "peak_rss": "969818112",
+          "cancelled": "true",
+          "completed_before_cancel": "false"
+        },
+        {
+          "phase": "rapid_resize",
+          "seconds": "0.127343",
+          "count": "6",
+          "peak_rss": "969818112",
+          "total_seconds": "0.129322",
+          "applied": "1",
+          "cancelled": "5",
+          "fingerprint": "5c67c71bf9fcda04"
+        },
+        {
+          "phase": "rapid_navigation",
+          "seconds": "0.018476",
+          "count": "4",
+          "peak_rss": "969818112",
+          "total_seconds": "0.020586",
+          "applied": "1",
+          "cancelled": "3",
+          "fingerprint": "f595374a01f8e2c9"
+        },
+        {
+          "phase": "suite_peak_rss",
+          "seconds": "0.000000",
+          "count": "1008202",
+          "peak_rss": "969818112",
+          "rss_delta": "927793152"
+        }
+      ]
+    }
+  ]
+}

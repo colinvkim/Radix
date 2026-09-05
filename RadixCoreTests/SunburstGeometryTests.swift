@@ -307,6 +307,27 @@ final class SunburstGeometryTests: XCTestCase {
         }
         XCTAssertEqual(cancellationChecks, 4)
     }
+
+    func testGroupedRootReusesChildrenAndPreservesGlobalColorPositions() throws {
+        let children = [
+            makeFileNode(id: "/root/visible", name: "visible", size: 999),
+            makeFileNode(id: "/root/small-a", name: "small-a", size: 1),
+            makeFileNode(id: "/root/small-b", name: "small-b", size: 1)
+        ]
+        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let tree = ChartReadProbe(makeStore(root: root, children: children))
+
+        let segments = try SunburstLayout.segments(
+            in: tree, rootID: root.id, depthLimit: 1, cancellationCheck: {}
+        )
+        let visible = try XCTUnwrap(segments.first { $0.nodeID == children[0].id })
+        XCTAssertEqual(visible.colorToken.branchIndex, 0)
+        XCTAssertEqual(visible.colorToken.branchCount, 3)
+        XCTAssertEqual(segments.count, 2)
+        XCTAssertTrue(segments.contains { $0.isAggregate })
+        XCTAssertEqual(tree.childReadCount(for: root.id), 1)
+        XCTAssertEqual(tree.projectedNodeCount, children.count)
+    }
 }
 
 private func pointInside(segment: SunburstSegment, in size: CGSize) -> CGPoint {

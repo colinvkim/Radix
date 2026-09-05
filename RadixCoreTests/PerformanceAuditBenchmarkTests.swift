@@ -6,6 +6,73 @@ import XCTest
 /// Opt-in measurements for the performance audit; elapsed times are never test assertions.
 final class PerformanceAuditBenchmarkTests: XCTestCase {
     @MainActor
+    func testChartPreparationBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RADIX_BENCH_CHART_PREPARATION"] == "1" else {
+            throw XCTSkip("Set RADIX_BENCH_CHART_PREPARATION=1 to measure chart preparation.")
+        }
+        let scenario = environment["RADIX_BENCH_CHART_SCENARIO"] ?? "sunburst_flat"
+        let count = environment["RADIX_BENCH_CHART_FILES"].flatMap(Int.init) ?? 1_000_000
+        let snapshot = Self.makeFlatSnapshot(fileCount: count, rootID: "/chart/dense")
+        let store: FileTreeStore
+        let layoutRootID: String
+        if scenario == "treemap_tiny" {
+            let root = makeTestDirectoryNode(id: "/chart", name: "chart", children: [snapshot.root])
+            store = try FileTreeStore.combining(
+                root: root,
+                childSubtrees: [try XCTUnwrap(FileTreeStore.SubtreeSource(store: snapshot.treeStore, rootedAt: snapshot.root.id))],
+                cancellationCheck: {}
+            )
+            layoutRootID = root.id
+        } else {
+            store = snapshot.treeStore
+            layoutRootID = scenario == "sunburst_focused"
+                ? try XCTUnwrap(store.childrenPrefix(of: store.rootID, maxCount: 1).first).id
+                : store.rootID
+        }
+        let tree = ChartReadProbe(store)
+        let initialRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
+        let initialPeak = BenchmarkSupport.peakResidentBytes()
+        let seconds: Double
+        let descriptions: [String]
+        switch scenario {
+        case "sunburst_flat", "sunburst_focused":
+            let measurement = try BenchmarkSupport.measure {
+                try SunburstLayout.segments(
+                    in: tree, rootID: layoutRootID, depthLimit: 6, cancellationCheck: {}
+                )
+            }
+            seconds = measurement.seconds
+            descriptions = measurement.value.map { String(reflecting: $0) }
+        case "treemap_tiny":
+            let measurement = try BenchmarkSupport.measure {
+                try TreemapLayout.segments(
+                    in: tree, rootID: layoutRootID, depthLimit: 6,
+                    size: CGSize(width: 40, height: 40), cancellationCheck: {}
+                )
+            }
+            seconds = measurement.seconds
+            descriptions = measurement.value.map { String(reflecting: $0) }
+        default:
+            XCTFail("Unknown chart scenario: \(scenario)")
+            return
+        }
+        XCTAssertEqual(descriptions.count, 1)
+        var fingerprint = ChartResponsivenessBenchmarkSupport.fnvOffsetBasis
+        for description in descriptions {
+            ChartResponsivenessBenchmarkSupport.hash(description, into: &fingerprint)
+        }
+        Self.report(
+            phase: "chart_preparation_\(scenario)", count: count, seconds: seconds,
+            extra: "initial_rss=\(initialRSS) initial_peak_rss=\(initialPeak) timed_layout_only=1 "
+                + "projected_nodes=\(tree.projectedNodeCount) root_reads=\(tree.childReadCount(for: store.rootID)) "
+                + "segments=\(descriptions.count) fingerprint=\(String(fingerprint, radix: 16))"
+        )
+        withExtendedLifetime(snapshot) {}
+        withExtendedLifetime(tree) {}
+    }
+
+    @MainActor
     func testNavigationAuditBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RADIX_BENCH_AUDIT"] == "1" else {

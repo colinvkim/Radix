@@ -8,7 +8,7 @@ nonisolated enum CancellableSort {
 
     static func sorted<Element>(
         _ elements: inout [Element],
-        cancellationCheck: CancellationCheck,
+        cancellationCheck: () throws -> Void,
         by areInIncreasingOrder: (Element, Element) -> Bool
     ) rethrows -> [Element] {
         guard elements.count > chunkSize else {
@@ -53,7 +53,7 @@ nonisolated enum CancellableSort {
         start: Int,
         middle: Int,
         end: Int,
-        cancellationCheck: CancellationCheck,
+        cancellationCheck: () throws -> Void,
         by areInIncreasingOrder: (Element, Element) -> Bool
     ) rethrows {
         var lhsIndex = start

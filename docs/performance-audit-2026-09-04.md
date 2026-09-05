@@ -12,6 +12,26 @@ Completed-scan lifetime probes now distinguish live allocations from residual al
 
 The completed-scan cache now charges full backing trees once, evicts older independent oversized scans, and releases discarded ownership through a bounded background worker. Paired million-file runs halved live cached allocations and reduced median main-actor eviction from 462 ms to 0.044 ms; see [cache validation](/Users/colin/Programming/Radix/docs/performance-audit/cache-2026-09-04.md).
 
+**Follow-up status — 5 September 2026**
+
+Counting the nine prioritized findings below, five retain unfinished work after the chart fix: four are partly addressed and comparison work is open. Four findings are complete. This counts whole findings, including their secondary recommendations; completing a finding's largest fix does not close its remaining follow-ups.
+
+| Finding | Status | Remaining work |
+| --- | --- | --- |
+| 1. Selection resolution | Complete | Empty/single selection fast paths validated. |
+| 2. Metadata reads | Partial | Capability-cache path probes removed; sharing status/identity/allocation reads within a metadata load remains. |
+| 3. Large sorts | Partial | Browser index sorting and cancellation validated; scanner finalization sorting and cancellation still need focused profiling. |
+| 4. Main-actor navigation/publication | Partial | Unchanged refreshes and cache releases improved; changed-directory row projection and browser-owned buffer release remain. |
+| 5. Metadata-only search | Complete | Text indexing is deferred until needed. |
+| 6. Scanning allocations/queues | Partial | Queue retention measured and a scheduling limit deferred; per-entry native-name allocations and other frontier shapes remain follow-ups. |
+| 7. Completed-scan cache | Complete | Full backing accounting, eviction, and bounded background cleanup validated. |
+| 8. Chart preparation | Complete | Shared selective color preparation, skipped unrenderable children, and cooperative cancellation implemented; see [chart validation](/Users/colin/Programming/Radix/docs/performance-audit/charts-2026-09-05.md). |
+| 9. Comparison projection/sorting | Open | Measure and reduce repeated projection; improve cancellation and sorting. |
+
+The queue-policy part of finding 6 is deferred because the measured workloads did not show sustained queue accumulation. The broader profiling opportunities under “Other investigated areas” are not included in this nine-finding count.
+
+**Original audit baseline**
+
 The highest-priority issue is main-actor selection resolution: even an empty selection walks every row in the focused directory's table contents. A million-row directory spent 285–332 ms resolving zero or one selected item. Large-result sorting and retained tree representations are the next substantial costs. Native APFS traversal is already effective: the 100,000-file fixture completed in 424 ms with almost no per-file metadata calls.
 
 This audit covers revision `b4d1b5dcd554dc2516b14bf2750bc51af7134d06`. Production code was not changed. The added opt-in benchmarks and measurement tools make the findings reproducible.

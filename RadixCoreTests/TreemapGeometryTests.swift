@@ -398,6 +398,26 @@ final class TreemapGeometryTests: XCTestCase {
             }
         ))
     }
+
+    func testTinyDirectoryTileDoesNotReadUnrenderableChildren() throws {
+        let file = makeTestFileNode(id: "/root/folder/file", name: "file", size: 100)
+        let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [file])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [folder])
+        let tree = ChartReadProbe(FileTreeStore(root: root, childrenByID: [root.id: [folder], folder.id: [file]]))
+
+        let segments = try TreemapLayout.segments(
+            in: tree, rootID: root.id, depthLimit: 3, size: CGSize(width: 40, height: 40),
+            cancellationCheck: {}
+        )
+        XCTAssertEqual(segments.count, 1)
+        let tile = try XCTUnwrap(segments.first)
+        XCTAssertEqual(tile.nodeID, folder.id)
+        XCTAssertTrue(tile.isDirectory)
+        XCTAssertFalse(tile.showsContainerHeader)
+        XCTAssertEqual(tile.rect, CGRect(x: 0, y: 0, width: 1, height: 1))
+        XCTAssertEqual(tree.childReadCount(for: folder.id), 0)
+        XCTAssertEqual(tree.projectedNodeCount, 1)
+    }
 }
 
 private func makeTreemapSegment(
