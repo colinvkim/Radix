@@ -14,7 +14,7 @@ The completed-scan cache now charges full backing trees once, evicts older indep
 
 **Follow-up status — 5 September 2026**
 
-Counting the nine prioritized findings below, one remains partly addressed after scanner finalization cancellation. Eight findings are complete. This counts whole findings, including their secondary recommendations; completing a finding's largest fix does not close its remaining follow-ups.
+All nine prioritized findings have now been addressed with implementation and measurements, including the five findings in the current goal. A new scanner queue limit remains deferred based on measured ownership rather than added speculatively. The cumulative review of this goal is the final pending step.
 
 | Finding | Status | Remaining work |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ Counting the nine prioritized findings below, one remains partly addressed after
 | 3. Large sorts | Complete | Browser/comparison index sorting and scanner finalization cancellation validated; see [finalization measurements](/Users/colin/Programming/Radix/docs/performance-audit/finalization-2026-09-05.md). |
 | 4. Main-actor navigation/publication | Complete | Large-directory loading and retired navigation/browser buffer release run in the background; see [buffer-release validation](/Users/colin/Programming/Radix/docs/performance-audit/buffer-release-2026-09-05.md). |
 | 5. Metadata-only search | Complete | Text indexing is deferred until needed. |
-| 6. Scanning allocations/queues | Partial | Queue retention measured and a scheduling limit deferred; per-entry native-name allocations and other frontier shapes remain follow-ups. |
+| 6. Scanning allocations/queues | Complete | Unused native-name buffers removed; 10,000-directory and combined two-million-file frontiers measured. Queue-policy change deferred; see [enumeration validation](/Users/colin/Programming/Radix/docs/performance-audit/enumeration-2026-09-05.md). |
 | 7. Completed-scan cache | Complete | Full backing accounting, eviction, and bounded background cleanup validated. |
 | 8. Chart preparation | Complete | Shared selective color preparation, skipped unrenderable children, and cooperative cancellation implemented; see [chart validation](/Users/colin/Programming/Radix/docs/performance-audit/charts-2026-09-05.md). |
 | 9. Comparison projection/sorting | Complete | Published projection reuse, reduced temporary arrays, offset sorting, and cancellation validated at 100k/1m rows; see [comparison validation](/Users/colin/Programming/Radix/docs/performance-audit/comparison-2026-09-05.md). |

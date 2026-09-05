@@ -38,7 +38,9 @@ nonisolated enum BulkDirectoryEnumerator {
         fileprivate init<Bytes: Collection>(
             validatedFileSystemBytes bytes: Bytes
         ) where Bytes.Element == UInt8 {
-            var storage = Array(bytes)
+            var storage: [UInt8] = []
+            storage.reserveCapacity(bytes.count + 1)
+            storage.append(contentsOf: bytes)
             storage.append(0)
             nullTerminatedBytes = storage
         }
@@ -582,10 +584,16 @@ nonisolated enum BulkDirectoryEnumerator {
                 continue
             }
 
-            let nativeName = NativeName(
-                validatedFileSystemBytes: parsed.nativeNameBytes
-            )
-            if !parsed.nativeNameBytes.allSatisfy({ $0 < 0x80 }) {
+            let isASCII = parsed.nativeNameBytes.allSatisfy { $0 < 0x80 }
+            // Ordinary ASCII leaves never perform descriptor-relative work.
+            // Keep exact bytes for traversal, exceptional entries, and Unicode
+            // collision detection across kernel batches.
+            let needsNativeName = !isASCII || parsed.isDirectory ||
+                parsed.entryError != nil || parsed.metadata?.isSymbolicLink == true
+            let nativeName = needsNativeName
+                ? NativeName(validatedFileSystemBytes: parsed.nativeNameBytes)
+                : nil
+            if !isASCII, let nativeName {
                 if let previousName = nonASCIINativeNameByDecodedName[parsed.decodedName],
                    previousName != nativeName {
                     // Canonically equivalent Unicode names compare equal as Swift
@@ -742,7 +750,7 @@ nonisolated enum BulkDirectoryEnumerator {
 
     private static func materializedEntry(
         _ parsed: ParsedEntry,
-        nativeName: NativeName,
+        nativeName: NativeName?,
         under directoryURL: URL,
         loadsPackageMetadata: Bool,
         metadataLoader: ScanMetadataLoader

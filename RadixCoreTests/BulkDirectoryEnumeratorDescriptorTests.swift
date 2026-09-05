@@ -169,7 +169,12 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
         for name in pathEntries.keys {
             let pathMetadata = try XCTUnwrap(pathEntries[name]?.metadata)
             let nativeMetadata = try XCTUnwrap(nativeEntries[name]?.metadata)
-            XCTAssertNotNil(nativeEntries[name]?.nativeName, name)
+            if nativeMetadata.isDirectory || nativeMetadata.isSymbolicLink {
+                XCTAssertNotNil(nativeEntries[name]?.nativeName, name)
+            } else {
+                // ASCII regular files, including hard links, need only the URL.
+                XCTAssertNil(nativeEntries[name]?.nativeName, name)
+            }
             XCTAssertEqual(nativeMetadata.isDirectory, pathMetadata.isDirectory, name)
             XCTAssertEqual(nativeMetadata.isPackage, pathMetadata.isPackage, name)
             XCTAssertEqual(nativeMetadata.isSymbolicLink, pathMetadata.isSymbolicLink, name)

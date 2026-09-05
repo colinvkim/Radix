@@ -1,0 +1,832 @@
+{
+  "baseline": "dd912a6",
+  "method": "Three sequential fresh Release process pairs for retained enumeration and complete flat/branching scans; then three optimized DEBUG diagnostic processes per flat/branching/combined shape. Timing and diagnostics separate.",
+  "fixture_root": "/private/tmp/radix-audit-t9edvd73",
+  "runs": [
+    {
+      "scenario": "enumeration",
+      "variant": "before",
+      "iteration": 1,
+      "phases": [
+        {
+          "phase": "enumeration_initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "45696",
+          "rss": "42008576",
+          "peak_rss": "42008576",
+          "footprint": "6455992",
+          "reusable": "0",
+          "malloc_in_use": "1127344",
+          "malloc_reserved": "41943040",
+          "malloc_blocks": "5860"
+        },
+        {
+          "phase": "enumeration_retained",
+          "seconds": "9.505147",
+          "main_thread": "1",
+          "pid": "45696",
+          "rss": "1042153472",
+          "peak_rss": "1042153472",
+          "footprint": "1006945672",
+          "reusable": "0",
+          "malloc_in_use": "829571232",
+          "malloc_reserved": "872415232",
+          "malloc_blocks": "7005902",
+          "entries": "1000000",
+          "native_names": "1000000"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "enumeration",
+      "variant": "after",
+      "iteration": 1,
+      "phases": [
+        {
+          "phase": "enumeration_initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "45703",
+          "rss": "41959424",
+          "peak_rss": "41959424",
+          "footprint": "6390432",
+          "reusable": "0",
+          "malloc_in_use": "1126848",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5861"
+        },
+        {
+          "phase": "enumeration_retained",
+          "seconds": "8.413467",
+          "main_thread": "1",
+          "pid": "45703",
+          "rss": "977829888",
+          "peak_rss": "977829888",
+          "footprint": "942556480",
+          "reusable": "16384",
+          "malloc_in_use": "765570704",
+          "malloc_reserved": "792723456",
+          "malloc_blocks": "6005903",
+          "entries": "1000000",
+          "native_names": "0"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "before",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.873180",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1336033280",
+          "initial_rss": "42500096",
+          "finalization_rss": "1242054656",
+          "peak_rss_at_finalization": "1336033280",
+          "finished_rss": "1308622848",
+          "finalization_seconds": "5.724781",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "after",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.982128",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1288814592",
+          "initial_rss": "42401792",
+          "finalization_rss": "1272496128",
+          "peak_rss_at_finalization": "1272512512",
+          "finished_rss": "1288814592",
+          "finalization_seconds": "5.745746",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "fanout",
+      "variant": "before",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "5.269498",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1314947072",
+          "initial_rss": "42516480",
+          "finalization_rss": "1127890944",
+          "peak_rss_at_finalization": "1127907328",
+          "finished_rss": "1314947072",
+          "finalization_seconds": "2.470289",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "fanout",
+      "variant": "after",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "4.951039",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1316306944",
+          "initial_rss": "42500096",
+          "finalization_rss": "1129316352",
+          "peak_rss_at_finalization": "1129349120",
+          "finished_rss": "1316306944",
+          "finalization_seconds": "2.486649",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "enumeration",
+      "variant": "after",
+      "iteration": 2,
+      "phases": [
+        {
+          "phase": "enumeration_initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "45739",
+          "rss": "41926656",
+          "peak_rss": "41926656",
+          "footprint": "6357664",
+          "reusable": "0",
+          "malloc_in_use": "1126848",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5861"
+        },
+        {
+          "phase": "enumeration_retained",
+          "seconds": "10.639311",
+          "main_thread": "1",
+          "pid": "45739",
+          "rss": "977797120",
+          "peak_rss": "977797120",
+          "footprint": "942540096",
+          "reusable": "0",
+          "malloc_in_use": "765570576",
+          "malloc_reserved": "796917760",
+          "malloc_blocks": "6005900",
+          "entries": "1000000",
+          "native_names": "0"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "enumeration",
+      "variant": "before",
+      "iteration": 2,
+      "phases": [
+        {
+          "phase": "enumeration_initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "45744",
+          "rss": "41943040",
+          "peak_rss": "41943040",
+          "footprint": "6374048",
+          "reusable": "0",
+          "malloc_in_use": "1127344",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5860"
+        },
+        {
+          "phase": "enumeration_retained",
+          "seconds": "8.497155",
+          "main_thread": "1",
+          "pid": "45744",
+          "rss": "1042087936",
+          "peak_rss": "1042087936",
+          "footprint": "1006863728",
+          "reusable": "0",
+          "malloc_in_use": "829571104",
+          "malloc_reserved": "859832320",
+          "malloc_blocks": "7005899",
+          "entries": "1000000",
+          "native_names": "1000000"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "after",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.870021",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1288437760",
+          "initial_rss": "42434560",
+          "finalization_rss": "1272119296",
+          "peak_rss_at_finalization": "1272135680",
+          "finished_rss": "1288437760",
+          "finalization_seconds": "5.752714",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "before",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.953937",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1336639488",
+          "initial_rss": "42516480",
+          "finalization_rss": "1242660864",
+          "peak_rss_at_finalization": "1336639488",
+          "finished_rss": "1309245440",
+          "finalization_seconds": "5.664742",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "fanout",
+      "variant": "after",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "4.989748",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1314881536",
+          "initial_rss": "42434560",
+          "finalization_rss": "1127890944",
+          "peak_rss_at_finalization": "1127890944",
+          "finished_rss": "1314881536",
+          "finalization_seconds": "2.464445",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "fanout",
+      "variant": "before",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "5.028844",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1316732928",
+          "initial_rss": "42418176",
+          "finalization_rss": "1129627648",
+          "peak_rss_at_finalization": "1129644032",
+          "finished_rss": "1316732928",
+          "finalization_seconds": "2.546649",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "enumeration",
+      "variant": "before",
+      "iteration": 3,
+      "phases": [
+        {
+          "phase": "enumeration_initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "45783",
+          "rss": "41926656",
+          "peak_rss": "41926656",
+          "footprint": "6374072",
+          "reusable": "0",
+          "malloc_in_use": "1127344",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5860"
+        },
+        {
+          "phase": "enumeration_retained",
+          "seconds": "10.445944",
+          "main_thread": "1",
+          "pid": "45783",
+          "rss": "1042087936",
+          "peak_rss": "1042087936",
+          "footprint": "1006880136",
+          "reusable": "0",
+          "malloc_in_use": "829571104",
+          "malloc_reserved": "864026624",
+          "malloc_blocks": "7005899",
+          "entries": "1000000",
+          "native_names": "1000000"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "enumeration",
+      "variant": "after",
+      "iteration": 3,
+      "phases": [
+        {
+          "phase": "enumeration_initial",
+          "seconds": "0.000000",
+          "main_thread": "1",
+          "pid": "45792",
+          "rss": "41975808",
+          "peak_rss": "41975808",
+          "footprint": "6423224",
+          "reusable": "0",
+          "malloc_in_use": "1126848",
+          "malloc_reserved": "25165824",
+          "malloc_blocks": "5861"
+        },
+        {
+          "phase": "enumeration_retained",
+          "seconds": "8.633834",
+          "main_thread": "1",
+          "pid": "45792",
+          "rss": "977862656",
+          "peak_rss": "977862656",
+          "footprint": "942605656",
+          "reusable": "16384",
+          "malloc_in_use": "765570704",
+          "malloc_reserved": "796917760",
+          "malloc_blocks": "6005903",
+          "entries": "1000000",
+          "native_names": "0"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "before",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.858126",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1336918016",
+          "initial_rss": "42516480",
+          "finalization_rss": "1242939392",
+          "peak_rss_at_finalization": "1336918016",
+          "finished_rss": "1309523968",
+          "finalization_seconds": "5.744407",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "after",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.980390",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1288749056",
+          "initial_rss": "42418176",
+          "finalization_rss": "1272463360",
+          "peak_rss_at_finalization": "1272496128",
+          "finished_rss": "1288749056",
+          "finalization_seconds": "5.720847",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "fanout",
+      "variant": "before",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "5.020715",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1314947072",
+          "initial_rss": "42467328",
+          "finalization_rss": "1127874560",
+          "peak_rss_at_finalization": "1127890944",
+          "finished_rss": "1314947072",
+          "finalization_seconds": "2.478888",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "fanout",
+      "variant": "after",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "4.884284",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1316552704",
+          "initial_rss": "42418176",
+          "finalization_rss": "1129545728",
+          "peak_rss_at_finalization": "1129562112",
+          "finished_rss": "1316552704",
+          "finalization_seconds": "2.394379",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {}
+    },
+    {
+      "scenario": "wide",
+      "variant": "diagnostic",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "16.752009",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1289191424",
+          "initial_rss": "42598400",
+          "finalization_rss": "1272823808",
+          "peak_rss_at_finalization": "1272823808",
+          "finished_rss": "1289191424",
+          "finalization_seconds": "5.794942",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 1
+      }
+    },
+    {
+      "scenario": "fanout",
+      "variant": "diagnostic",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "5.035106",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1316683776",
+          "initial_rss": "42582016",
+          "finalization_rss": "1129562112",
+          "peak_rss_at_finalization": "1129562112",
+          "finished_rss": "1316683776",
+          "finalization_seconds": "2.487598",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 10000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 1,
+        "leaf_queue.retained_entries": 100,
+        "leaf_queue.slots": 100,
+        "work_stack.items": 10000
+      }
+    },
+    {
+      "scenario": "root",
+      "variant": "diagnostic",
+      "iteration": 1,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "21.144540",
+          "files": "2000000",
+          "folders": "10003",
+          "nodes": "2010003",
+          "progress_events": "222",
+          "warnings": "0",
+          "peak_rss": "2817048576",
+          "initial_rss": "42532864",
+          "finalization_rss": "2453880832",
+          "peak_rss_at_finalization": "2453897216",
+          "finished_rss": "2817048576",
+          "finalization_seconds": "8.248152",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "8a64bad88b6722cd"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 10000
+      }
+    },
+    {
+      "scenario": "wide",
+      "variant": "diagnostic",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.845869",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1289519104",
+          "initial_rss": "42565632",
+          "finalization_rss": "1273184256",
+          "peak_rss_at_finalization": "1273184256",
+          "finished_rss": "1289519104",
+          "finalization_seconds": "5.740694",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 1
+      }
+    },
+    {
+      "scenario": "fanout",
+      "variant": "diagnostic",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "5.058410",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "218",
+          "warnings": "0",
+          "peak_rss": "1315061760",
+          "initial_rss": "42516480",
+          "finalization_rss": "1127989248",
+          "peak_rss_at_finalization": "1128022016",
+          "finished_rss": "1315061760",
+          "finalization_seconds": "2.471639",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 10000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 1,
+        "leaf_queue.retained_entries": 100,
+        "leaf_queue.slots": 100,
+        "work_stack.items": 10000
+      }
+    },
+    {
+      "scenario": "root",
+      "variant": "diagnostic",
+      "iteration": 2,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "20.953065",
+          "files": "2000000",
+          "folders": "10003",
+          "nodes": "2010003",
+          "progress_events": "222",
+          "warnings": "0",
+          "peak_rss": "2814345216",
+          "initial_rss": "42532864",
+          "finalization_rss": "2451226624",
+          "peak_rss_at_finalization": "2451243008",
+          "finished_rss": "2814345216",
+          "finalization_seconds": "8.143545",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "8a64bad88b6722cd"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 10000
+      }
+    },
+    {
+      "scenario": "wide",
+      "variant": "diagnostic",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "14.762251",
+          "files": "1000000",
+          "folders": "1",
+          "nodes": "1000001",
+          "progress_events": "209",
+          "warnings": "0",
+          "peak_rss": "1288634368",
+          "initial_rss": "42549248",
+          "finalization_rss": "1272299520",
+          "peak_rss_at_finalization": "1272332288",
+          "finished_rss": "1288634368",
+          "finalization_seconds": "5.721154",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "47b72d885dffc5b1"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 1
+      }
+    },
+    {
+      "scenario": "fanout",
+      "variant": "diagnostic",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "5.069376",
+          "files": "1000000",
+          "folders": "10001",
+          "nodes": "1010001",
+          "progress_events": "217",
+          "warnings": "0",
+          "peak_rss": "1315061760",
+          "initial_rss": "42516480",
+          "finalization_rss": "1127956480",
+          "peak_rss_at_finalization": "1127972864",
+          "finished_rss": "1315061760",
+          "finalization_seconds": "2.519802",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "15dc28cfbd52986e"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 10000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 1,
+        "leaf_queue.retained_entries": 100,
+        "leaf_queue.slots": 100,
+        "work_stack.items": 10000
+      }
+    },
+    {
+      "scenario": "root",
+      "variant": "diagnostic",
+      "iteration": 3,
+      "phases": [
+        {
+          "mode": "native",
+          "seconds": "21.079750",
+          "files": "2000000",
+          "folders": "10003",
+          "nodes": "2010003",
+          "progress_events": "222",
+          "warnings": "0",
+          "peak_rss": "2814328832",
+          "initial_rss": "42565632",
+          "finalization_rss": "2451210240",
+          "peak_rss_at_finalization": "2451243008",
+          "finished_rss": "2814328832",
+          "finalization_seconds": "8.254699",
+          "allocated": "0",
+          "logical": "0",
+          "fingerprint": "8a64bad88b6722cd"
+        }
+      ],
+      "peaks": {
+        "directory_listing.entries": 1000000,
+        "leaf_queue.listings": 1,
+        "leaf_queue.requests": 489,
+        "leaf_queue.retained_entries": 1000000,
+        "leaf_queue.slots": 1000000,
+        "work_stack.items": 10000
+      }
+    }
+  ]
+}

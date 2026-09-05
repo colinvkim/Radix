@@ -17,8 +17,8 @@ nonisolated struct DirectoryEntry: Sendable {
     let metadata: NodeMetadata?
     let localizedEnumerationError: Error?
     let isDirectoryHint: Bool?
-    /// Exact validated child-name bytes from native bulk enumeration.
-    /// Foundation/fallback enumeration leaves this unavailable.
+    /// Exact validated child-name bytes for native descriptor-relative work and
+    /// Unicode names. Ordinary ASCII leaves and Foundation entries omit them.
     let nativeName: BulkDirectoryEnumerator.NativeName?
 
     init(

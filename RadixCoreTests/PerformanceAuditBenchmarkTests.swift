@@ -310,6 +310,33 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         }
     }
 
+    func testNativeEnumerationAllocationBenchmark() throws {
+        guard let path = ProcessInfo.processInfo.environment["RADIX_BENCH_ENUMERATION_PATH"] else {
+            throw XCTSkip("Set RADIX_BENCH_ENUMERATION_PATH to measure native enumeration buffers.")
+        }
+        Self.reportRetention(phase: "enumeration_initial")
+        let start = ContinuousClock.now
+        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
+            at: URL(filePath: path, directoryHint: .isDirectory),
+            includeHiddenFiles: true,
+            metadataLoader: ScanMetadataLoader(),
+            cancellationCheck: Task.checkCancellation
+        ))
+        let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
+        var nativeNames = 0
+        var missingMetadata = 0
+        for entry in result.entries {
+            if entry.nativeName != nil { nativeNames += 1 }
+            if entry.metadata == nil { missingMetadata += 1 }
+        }
+        XCTAssertEqual(result.entries.count, result.enumeratedItemCount)
+        XCTAssertEqual(missingMetadata, 0)
+        withExtendedLifetime(result) {
+            Self.reportRetention(phase: "enumeration_retained", seconds: seconds,
+                                 extra: "entries=\(result.entries.count) native_names=\(nativeNames)")
+        }
+    }
+
     func testMetadataReadAuditBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["RADIX_BENCH_METADATA_PATH"] else {
