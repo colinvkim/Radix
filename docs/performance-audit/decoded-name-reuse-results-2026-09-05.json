@@ -1,0 +1,236 @@
+{
+  "date": "2026-09-05",
+  "baseline_revision": "fa4308aae921de3953a8a2c5fe737190bd83d87d",
+  "decision": "Reject prototype: no repeatable complete-scan benefit justifies retaining a decoded-name field.",
+  "candidate": "Add optional DirectoryEntry.decodedName for native files and symlinks; pass it to both leaf-preparation paths and avoid extracting URL.lastPathComponent again.",
+  "environment": {
+    "hardware": "Apple M5, 10 cores, 32 GiB",
+    "macOS": "26.6.2",
+    "Xcode": "26.6 (17F113)",
+    "filesystem": "local APFS",
+    "configuration": "Release",
+    "sandbox": "outside",
+    "cache_state": "uncontrolled; strong first-versus-second scan effect"
+  },
+  "method": "Fresh sequential XCTest processes, initial warm-up pair excluded for each workload, then six measured pairs. Odd rounds run baseline first, even rounds candidate first. Sixth pair added after observing strong order effects in initial five pairs. No builds or fixture creation overlapped timing.",
+  "fixtures": {
+    "branching": "/private/tmp/radix-name-reuse-qbs2t4qz/branching",
+    "root": "/private/tmp/radix-name-reuse-qbs2t4qz",
+    "ascii": "/private/tmp/radix-name-reuse-qbs2t4qz/ascii",
+    "unicode": "/private/tmp/radix-name-reuse-qbs2t4qz/unicode/层级-é-😀-路径-00/层级-é-😀-路径-01/层级-é-😀-路径-02/层级-é-😀-路径-03/层级-é-😀-路径-04/层级-é-😀-路径-05/层级-é-😀-路径-06/层级-é-😀-路径-07/层级-é-😀-路径-08/层级-é-😀-路径-09/层级-é-😀-路径-10/层级-é-😀-路径-11/层级-é-😀-路径-12/层级-é-😀-路径-13/层级-é-😀-路径-14/层级-é-😀-路径-15/层级-é-😀-路径-16/层级-é-😀-路径-17/层级-é-😀-路径-18/层级-é-😀-路径-19/层级-é-😀-路径-20/层级-é-😀-路径-21/层级-é-😀-路径-22/层级-é-😀-路径-23",
+    "files_per_directory": 200000
+  },
+  "branching_shape": {
+    "directories": 2000,
+    "files_per_directory": 100
+  },
+  "parity": "All 56 scans match per-workload counts, bytes, zero warnings, and tree fingerprints; /Applications also matches semantic fingerprints.",
+  "summary": [
+    {
+      "scenario": "ascii",
+      "before": {
+        "seconds": {
+          "median": 2.215122,
+          "min": 1.249243,
+          "max": 3.179702
+        },
+        "peak_rss": {
+          "median": 307036160.0,
+          "min": 304414720,
+          "max": 310853632
+        },
+        "median_seconds_by_position": {
+          "first": 3.087879,
+          "second": 1.338592
+        }
+      },
+      "after": {
+        "seconds": {
+          "median": 2.3061295,
+          "min": 1.260323,
+          "max": 3.128258
+        },
+        "peak_rss": {
+          "median": 308207616.0,
+          "min": 307822592,
+          "max": 309280768
+        },
+        "median_seconds_by_position": {
+          "first": 3.007749,
+          "second": 1.391888
+        }
+      },
+      "median_time_change_percent": 4.108464454779459,
+      "median_peak_rss_change_bytes": 1171456.0
+    },
+    {
+      "scenario": "unicode",
+      "before": {
+        "seconds": {
+          "median": 6.607459,
+          "min": 6.103204,
+          "max": 7.560596
+        },
+        "peak_rss": {
+          "median": 809607168.0,
+          "min": 807124992,
+          "max": 810352640
+        },
+        "median_seconds_by_position": {
+          "first": 6.95917,
+          "second": 6.33865
+        }
+      },
+      "after": {
+        "seconds": {
+          "median": 6.6514015,
+          "min": 6.151365,
+          "max": 7.023043
+        },
+        "peak_rss": {
+          "median": 810917888.0,
+          "min": 792854528,
+          "max": 812892160
+        },
+        "median_seconds_by_position": {
+          "first": 6.868961,
+          "second": 6.154042
+        }
+      },
+      "median_time_change_percent": 0.6650438542259662,
+      "median_peak_rss_change_bytes": 1310720.0
+    },
+    {
+      "scenario": "branching",
+      "before": {
+        "seconds": {
+          "median": 0.6344190000000001,
+          "min": 0.577751,
+          "max": 0.715774
+        },
+        "peak_rss": {
+          "median": 316456960.0,
+          "min": 316309504,
+          "max": 317489152
+        },
+        "median_seconds_by_position": {
+          "first": 0.690955,
+          "second": 0.587887
+        }
+      },
+      "after": {
+        "seconds": {
+          "median": 0.644891,
+          "min": 0.573326,
+          "max": 0.736228
+        },
+        "peak_rss": {
+          "median": 317087744.0,
+          "min": 316014592,
+          "max": 318996480
+        },
+        "median_seconds_by_position": {
+          "first": 0.686884,
+          "second": 0.59646
+        }
+      },
+      "median_time_change_percent": 1.6506441326630927,
+      "median_peak_rss_change_bytes": 630784.0
+    },
+    {
+      "scenario": "applications",
+      "before": {
+        "seconds": {
+          "median": 1.4397967915,
+          "min": 1.404362333,
+          "max": 1.8838971249999998
+        },
+        "peak_rss": {
+          "median": 81584128.0,
+          "min": 79560704,
+          "max": 82182144
+        },
+        "median_seconds_by_position": {
+          "first": 1.416222625,
+          "second": 1.453168083
+        }
+      },
+      "after": {
+        "seconds": {
+          "median": 1.4926044585000002,
+          "min": 1.381596042,
+          "max": 1.879493458
+        },
+        "peak_rss": {
+          "median": 81469440.0,
+          "min": 80510976,
+          "max": 83525632
+        },
+        "median_seconds_by_position": {
+          "first": 1.5208340420000002,
+          "second": 1.405428667
+        }
+      },
+      "median_time_change_percent": 3.667716674447119,
+      "median_peak_rss_change_bytes": -114688.0
+    }
+  ],
+  "runs": [
+    {"round": 0, "warmup": true, "scenario": "ascii", "variant": "before", "seconds": 2.829425, "peak_rss": 305512448, "metrics": {"mode": "native", "seconds": 2.829425, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 305512448, "initial_rss": 42680320, "finalization_rss": 305315840, "peak_rss_at_finalization": 305315840, "finished_rss": 305512448, "finalization_seconds": 0.600871, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 0, "warmup": true, "scenario": "ascii", "variant": "after", "seconds": 1.268073, "peak_rss": 310345728, "metrics": {"mode": "native", "seconds": 1.268073, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 310345728, "initial_rss": 42811392, "finalization_rss": 310181888, "peak_rss_at_finalization": 310181888, "finished_rss": 310345728, "finalization_seconds": 0.628912, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 0, "warmup": true, "scenario": "unicode", "variant": "before", "seconds": 6.495516, "peak_rss": 809091072, "metrics": {"mode": "native", "seconds": 6.495516, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 215, "warnings": 0, "peak_rss": 809091072, "initial_rss": 42729472, "finalization_rss": 808861696, "peak_rss_at_finalization": 808861696, "finished_rss": 809091072, "finalization_seconds": 1.415185, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 0, "warmup": true, "scenario": "unicode", "variant": "after", "seconds": 6.246646, "peak_rss": 811073536, "metrics": {"mode": "native", "seconds": 6.246646, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 215, "warnings": 0, "peak_rss": 811073536, "initial_rss": 42827776, "finalization_rss": 810713088, "peak_rss_at_finalization": 810713088, "finished_rss": 811073536, "finalization_seconds": 1.439387, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 0, "warmup": true, "scenario": "branching", "variant": "before", "seconds": 0.632836, "peak_rss": 316735488, "metrics": {"mode": "native", "seconds": 0.632836, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 316735488, "initial_rss": 42647552, "finalization_rss": 282312704, "peak_rss_at_finalization": 282345472, "finished_rss": 316735488, "finalization_seconds": 0.33774, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 0, "warmup": true, "scenario": "branching", "variant": "after", "seconds": 0.557474, "peak_rss": 319258624, "metrics": {"mode": "native", "seconds": 0.557474, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 319258624, "initial_rss": 42680320, "finalization_rss": 283607040, "peak_rss_at_finalization": 283607040, "finished_rss": 319258624, "finalization_seconds": 0.335105, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 0, "warmup": true, "scenario": "applications", "variant": "before", "seconds": 1.528022333, "peak_rss": 78430208, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 78430208, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 78430208, "peakRSSIncreaseBytes": 36192256, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42237952, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 6.419366, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 1.9773969999999998, "wallSeconds": 1.528022333, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 0, "warmup": true, "scenario": "applications", "variant": "after", "seconds": 1.374036125, "peak_rss": 83361792, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 83361792, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 83361792, "peakRSSIncreaseBytes": 41025536, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42336256, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 6.461733000000001, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.053356, "wallSeconds": 1.374036125, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 1, "warmup": false, "scenario": "ascii", "variant": "before", "seconds": 3.080957, "peak_rss": 310853632, "metrics": {"mode": "native", "seconds": 3.080957, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 310853632, "initial_rss": 42647552, "finalization_rss": 308805632, "peak_rss_at_finalization": 308822016, "finished_rss": 310853632, "finalization_seconds": 0.611871, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 1, "warmup": false, "scenario": "ascii", "variant": "after", "seconds": 1.260323, "peak_rss": 309280768, "metrics": {"mode": "native", "seconds": 1.260323, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 309280768, "initial_rss": 42729472, "finalization_rss": 309051392, "peak_rss_at_finalization": 309051392, "finished_rss": 309280768, "finalization_seconds": 0.607307, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 1, "warmup": false, "scenario": "unicode", "variant": "before", "seconds": 6.766252, "peak_rss": 810352640, "metrics": {"mode": "native", "seconds": 6.766252, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 216, "warnings": 0, "peak_rss": 810352640, "initial_rss": 42713088, "finalization_rss": 809779200, "peak_rss_at_finalization": 809779200, "finished_rss": 810352640, "finalization_seconds": 1.465705, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 1, "warmup": false, "scenario": "unicode", "variant": "after", "seconds": 6.151365, "peak_rss": 810876928, "metrics": {"mode": "native", "seconds": 6.151365, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 215, "warnings": 0, "peak_rss": 810876928, "initial_rss": 42811392, "finalization_rss": 810582016, "peak_rss_at_finalization": 810582016, "finished_rss": 810876928, "finalization_seconds": 1.445411, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 1, "warmup": false, "scenario": "branching", "variant": "before", "seconds": 0.64757, "peak_rss": 316473344, "metrics": {"mode": "native", "seconds": 0.64757, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 207, "warnings": 0, "peak_rss": 316473344, "initial_rss": 42647552, "finalization_rss": 282099712, "peak_rss_at_finalization": 282116096, "finished_rss": 316473344, "finalization_seconds": 0.336753, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 1, "warmup": false, "scenario": "branching", "variant": "after", "seconds": 0.573326, "peak_rss": 316801024, "metrics": {"mode": "native", "seconds": 0.573326, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 316801024, "initial_rss": 42729472, "finalization_rss": 281493504, "peak_rss_at_finalization": 281509888, "finished_rss": 316801024, "finalization_seconds": 0.337258, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 1, "warmup": false, "scenario": "applications", "variant": "before", "seconds": 1.416222625, "peak_rss": 80265216, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 80265216, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 80265216, "peakRSSIncreaseBytes": 37978112, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42287104, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 5.472813, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.0172239999999997, "wallSeconds": 1.416222625, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 1, "warmup": false, "scenario": "applications", "variant": "after", "seconds": 1.405428667, "peak_rss": 82575360, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 82575360, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 82575360, "peakRSSIncreaseBytes": 40255488, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42319872, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 6.3699129999999995, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.117132, "wallSeconds": 1.405428667, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 2, "warmup": false, "scenario": "ascii", "variant": "after", "seconds": 3.007749, "peak_rss": 307822592, "metrics": {"mode": "native", "seconds": 3.007749, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 307822592, "initial_rss": 42729472, "finalization_rss": 307625984, "peak_rss_at_finalization": 307625984, "finished_rss": 307822592, "finalization_seconds": 0.595581, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 2, "warmup": false, "scenario": "ascii", "variant": "before", "seconds": 1.249243, "peak_rss": 307314688, "metrics": {"mode": "native", "seconds": 1.249243, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 307314688, "initial_rss": 42663936, "finalization_rss": 307085312, "peak_rss_at_finalization": 307085312, "finished_rss": 307314688, "finalization_seconds": 0.610918, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 2, "warmup": false, "scenario": "unicode", "variant": "after", "seconds": 6.868961, "peak_rss": 812892160, "metrics": {"mode": "native", "seconds": 6.868961, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 216, "warnings": 0, "peak_rss": 812892160, "initial_rss": 42795008, "finalization_rss": 812711936, "peak_rss_at_finalization": 812711936, "finished_rss": 812892160, "finalization_seconds": 1.415047, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 2, "warmup": false, "scenario": "unicode", "variant": "before", "seconds": 6.33865, "peak_rss": 810041344, "metrics": {"mode": "native", "seconds": 6.33865, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 216, "warnings": 0, "peak_rss": 810041344, "initial_rss": 42713088, "finalization_rss": 809828352, "peak_rss_at_finalization": 809828352, "finished_rss": 810041344, "finalization_seconds": 1.404592, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 2, "warmup": false, "scenario": "branching", "variant": "after", "seconds": 0.736228, "peak_rss": 317374464, "metrics": {"mode": "native", "seconds": 0.736228, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 207, "warnings": 0, "peak_rss": 317374464, "initial_rss": 42663936, "finalization_rss": 281264128, "peak_rss_at_finalization": 281280512, "finished_rss": 317374464, "finalization_seconds": 0.351677, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 2, "warmup": false, "scenario": "branching", "variant": "before", "seconds": 0.577751, "peak_rss": 317210624, "metrics": {"mode": "native", "seconds": 0.577751, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 317210624, "initial_rss": 42663936, "finalization_rss": 281772032, "peak_rss_at_finalization": 281788416, "finished_rss": 317210624, "finalization_seconds": 0.340549, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 2, "warmup": false, "scenario": "applications", "variant": "after", "seconds": 1.464374875, "peak_rss": 80510976, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 80510976, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 80510976, "peakRSSIncreaseBytes": 38174720, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42336256, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 5.865329, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.06457, "wallSeconds": 1.464374875, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 2, "warmup": false, "scenario": "applications", "variant": "before", "seconds": 1.4264255000000001, "peak_rss": 81788928, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 81788928, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 81788928, "peakRSSIncreaseBytes": 39501824, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42287104, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 6.471083, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.128806, "wallSeconds": 1.4264255000000001, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 3, "warmup": false, "scenario": "ascii", "variant": "before", "seconds": 3.087879, "peak_rss": 310083584, "metrics": {"mode": "native", "seconds": 3.087879, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 310083584, "initial_rss": 42696704, "finalization_rss": 309854208, "peak_rss_at_finalization": 309870592, "finished_rss": 310083584, "finalization_seconds": 0.633882, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 3, "warmup": false, "scenario": "ascii", "variant": "after", "seconds": 1.391888, "peak_rss": 308084736, "metrics": {"mode": "native", "seconds": 1.391888, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 308084736, "initial_rss": 42713088, "finalization_rss": 307691520, "peak_rss_at_finalization": 307691520, "finished_rss": 308084736, "finalization_seconds": 0.686964, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 3, "warmup": false, "scenario": "unicode", "variant": "before", "seconds": 6.95917, "peak_rss": 808288256, "metrics": {"mode": "native", "seconds": 6.95917, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 218, "warnings": 0, "peak_rss": 808288256, "initial_rss": 42729472, "finalization_rss": 808058880, "peak_rss_at_finalization": 808058880, "finished_rss": 808288256, "finalization_seconds": 1.386499, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 3, "warmup": false, "scenario": "unicode", "variant": "after", "seconds": 6.154042, "peak_rss": 810958848, "metrics": {"mode": "native", "seconds": 6.154042, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 215, "warnings": 0, "peak_rss": 810958848, "initial_rss": 42795008, "finalization_rss": 810762240, "peak_rss_at_finalization": 810762240, "finished_rss": 810958848, "finalization_seconds": 1.44983, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 3, "warmup": false, "scenario": "branching", "variant": "before", "seconds": 0.715774, "peak_rss": 316358656, "metrics": {"mode": "native", "seconds": 0.715774, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 207, "warnings": 0, "peak_rss": 316358656, "initial_rss": 42647552, "finalization_rss": 281886720, "peak_rss_at_finalization": 281903104, "finished_rss": 316358656, "finalization_seconds": 0.343159, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 3, "warmup": false, "scenario": "branching", "variant": "after", "seconds": 0.59646, "peak_rss": 318996480, "metrics": {"mode": "native", "seconds": 0.59646, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 318996480, "initial_rss": 42729472, "finalization_rss": 283328512, "peak_rss_at_finalization": 283361280, "finished_rss": 318996480, "finalization_seconds": 0.346847, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 3, "warmup": false, "scenario": "applications", "variant": "before", "seconds": 1.404362333, "peak_rss": 79560704, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 79560704, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 79560704, "peakRSSIncreaseBytes": 37289984, "progressEvents": 59, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42270720, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 4.732031, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 1.813123, "wallSeconds": 1.404362333, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 3, "warmup": false, "scenario": "applications", "variant": "after", "seconds": 1.381596042, "peak_rss": 81346560, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 81346560, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 81346560, "peakRSSIncreaseBytes": 39026688, "progressEvents": 57, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42319872, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 5.389316, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 1.955177, "wallSeconds": 1.381596042, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 4, "warmup": false, "scenario": "ascii", "variant": "after", "seconds": 3.128258, "peak_rss": 308330496, "metrics": {"mode": "native", "seconds": 3.128258, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 308330496, "initial_rss": 42729472, "finalization_rss": 307937280, "peak_rss_at_finalization": 307937280, "finished_rss": 308330496, "finalization_seconds": 0.682201, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 4, "warmup": false, "scenario": "ascii", "variant": "before", "seconds": 1.349287, "peak_rss": 305512448, "metrics": {"mode": "native", "seconds": 1.349287, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 305512448, "initial_rss": 42663936, "finalization_rss": 305283072, "peak_rss_at_finalization": 305283072, "finished_rss": 305512448, "finalization_seconds": 0.660371, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 4, "warmup": false, "scenario": "unicode", "variant": "after", "seconds": 6.71413, "peak_rss": 810450944, "metrics": {"mode": "native", "seconds": 6.71413, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 216, "warnings": 0, "peak_rss": 810450944, "initial_rss": 42778624, "finalization_rss": 810270720, "peak_rss_at_finalization": 810270720, "finished_rss": 810450944, "finalization_seconds": 1.421188, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 4, "warmup": false, "scenario": "unicode", "variant": "before", "seconds": 6.448666, "peak_rss": 809484288, "metrics": {"mode": "native", "seconds": 6.448666, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 217, "warnings": 0, "peak_rss": 809484288, "initial_rss": 42729472, "finalization_rss": 809418752, "peak_rss_at_finalization": 809418752, "finished_rss": 805060608, "finalization_seconds": 1.506785, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 4, "warmup": false, "scenario": "branching", "variant": "after", "seconds": 0.685229, "peak_rss": 316276736, "metrics": {"mode": "native", "seconds": 0.685229, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 207, "warnings": 0, "peak_rss": 316276736, "initial_rss": 42696704, "finalization_rss": 281837568, "peak_rss_at_finalization": 281870336, "finished_rss": 316276736, "finalization_seconds": 0.334868, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 4, "warmup": false, "scenario": "branching", "variant": "before", "seconds": 0.587887, "peak_rss": 317489152, "metrics": {"mode": "native", "seconds": 0.587887, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 317489152, "initial_rss": 42647552, "finalization_rss": 282181632, "peak_rss_at_finalization": 282181632, "finished_rss": 317489152, "finalization_seconds": 0.339204, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 4, "warmup": false, "scenario": "applications", "variant": "after", "seconds": 1.5208340420000002, "peak_rss": 81592320, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 81592320, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 81592320, "peakRSSIncreaseBytes": 39272448, "progressEvents": 59, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42319872, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 4.976205, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 1.9481479999999998, "wallSeconds": 1.5208340420000002, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 4, "warmup": false, "scenario": "applications", "variant": "before", "seconds": 1.573782292, "peak_rss": 81920000, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 81920000, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 81920000, "peakRSSIncreaseBytes": 39665664, "progressEvents": 59, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42254336, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 5.419656000000001, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.0265720000000003, "wallSeconds": 1.573782292, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 5, "warmup": false, "scenario": "ascii", "variant": "before", "seconds": 3.179702, "peak_rss": 304414720, "metrics": {"mode": "native", "seconds": 3.179702, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 304414720, "initial_rss": 42663936, "finalization_rss": 304185344, "peak_rss_at_finalization": 304201728, "finished_rss": 304414720, "finalization_seconds": 0.712529, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 5, "warmup": false, "scenario": "ascii", "variant": "after", "seconds": 1.615876, "peak_rss": 308019200, "metrics": {"mode": "native", "seconds": 1.615876, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 308019200, "initial_rss": 42696704, "finalization_rss": 307757056, "peak_rss_at_finalization": 307773440, "finished_rss": 308019200, "finalization_seconds": 0.667441, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 5, "warmup": false, "scenario": "unicode", "variant": "before", "seconds": 7.560596, "peak_rss": 809730048, "metrics": {"mode": "native", "seconds": 7.560596, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 219, "warnings": 0, "peak_rss": 809730048, "initial_rss": 42795008, "finalization_rss": 809320448, "peak_rss_at_finalization": 809320448, "finished_rss": 809730048, "finalization_seconds": 1.40295, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 5, "warmup": false, "scenario": "unicode", "variant": "after", "seconds": 6.588673, "peak_rss": 812630016, "metrics": {"mode": "native", "seconds": 6.588673, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 216, "warnings": 0, "peak_rss": 812630016, "initial_rss": 42778624, "finalization_rss": 811859968, "peak_rss_at_finalization": 811859968, "finished_rss": 812630016, "finalization_seconds": 1.399243, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 5, "warmup": false, "scenario": "branching", "variant": "before", "seconds": 0.690955, "peak_rss": 316440576, "metrics": {"mode": "native", "seconds": 0.690955, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 207, "warnings": 0, "peak_rss": 316440576, "initial_rss": 42663936, "finalization_rss": 281919488, "peak_rss_at_finalization": 281952256, "finished_rss": 316440576, "finalization_seconds": 0.338318, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 5, "warmup": false, "scenario": "branching", "variant": "after", "seconds": 0.604553, "peak_rss": 317767680, "metrics": {"mode": "native", "seconds": 0.604553, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 317767680, "initial_rss": 42713088, "finalization_rss": 283295744, "peak_rss_at_finalization": 283295744, "finished_rss": 317767680, "finalization_seconds": 0.345161, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 5, "warmup": false, "scenario": "applications", "variant": "before", "seconds": 1.8838971249999998, "peak_rss": 81379328, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 81379328, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 81379328, "peakRSSIncreaseBytes": 39108608, "progressEvents": 60, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42270720, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 6.7172909999999995, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.463023, "wallSeconds": 1.8838971249999998, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 5, "warmup": false, "scenario": "applications", "variant": "after", "seconds": 1.879493458, "peak_rss": 83525632, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 83525632, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 83525632, "peakRSSIncreaseBytes": 41205760, "progressEvents": 60, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42319872, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 7.300318, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 2.559578, "wallSeconds": 1.879493458, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 6, "warmup": false, "scenario": "ascii", "variant": "after", "seconds": 2.996383, "peak_rss": 308510720, "metrics": {"mode": "native", "seconds": 2.996383, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 308510720, "initial_rss": 42729472, "finalization_rss": 308281344, "peak_rss_at_finalization": 308281344, "finished_rss": 308510720, "finalization_seconds": 0.612295, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 6, "warmup": false, "scenario": "ascii", "variant": "before", "seconds": 1.338592, "peak_rss": 306757632, "metrics": {"mode": "native", "seconds": 1.338592, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 206, "warnings": 0, "peak_rss": 306757632, "initial_rss": 42680320, "finalization_rss": 306495488, "peak_rss_at_finalization": 306495488, "finished_rss": 306757632, "finalization_seconds": 0.611143, "allocated": 0, "logical": 0, "fingerprint": "4df1c567127d7f32"}},
+    {"round": 6, "warmup": false, "scenario": "unicode", "variant": "after", "seconds": 7.023043, "peak_rss": 792854528, "metrics": {"mode": "native", "seconds": 7.023043, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 216, "warnings": 0, "peak_rss": 792854528, "initial_rss": 42795008, "finalization_rss": 792248320, "peak_rss_at_finalization": 792248320, "finished_rss": 792887296, "finalization_seconds": 1.416123, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 6, "warmup": false, "scenario": "unicode", "variant": "before", "seconds": 6.103204, "peak_rss": 807124992, "metrics": {"mode": "native", "seconds": 6.103204, "files": 200000, "folders": 1, "nodes": 200001, "progress_events": 215, "warnings": 0, "peak_rss": 807124992, "initial_rss": 42713088, "finalization_rss": 806928384, "peak_rss_at_finalization": 806928384, "finished_rss": 807124992, "finalization_seconds": 1.403967, "allocated": 0, "logical": 0, "fingerprint": "08b141141b1a96d1"}},
+    {"round": 6, "warmup": false, "scenario": "branching", "variant": "after", "seconds": 0.686884, "peak_rss": 316014592, "metrics": {"mode": "native", "seconds": 0.686884, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 207, "warnings": 0, "peak_rss": 316014592, "initial_rss": 42696704, "finalization_rss": 281608192, "peak_rss_at_finalization": 281640960, "finished_rss": 316014592, "finalization_seconds": 0.339394, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 6, "warmup": false, "scenario": "branching", "variant": "before", "seconds": 0.621268, "peak_rss": 316309504, "metrics": {"mode": "native", "seconds": 0.621268, "files": 200000, "folders": 2001, "nodes": 202001, "progress_events": 206, "warnings": 0, "peak_rss": 316309504, "initial_rss": 42631168, "finalization_rss": 280969216, "peak_rss_at_finalization": 280985600, "finished_rss": 316309504, "finalization_seconds": 0.341781, "allocated": 0, "logical": 0, "fingerprint": "242ddcfeaf68e17f"}},
+    {"round": 6, "warmup": false, "scenario": "applications", "variant": "after", "seconds": 1.551014541, "peak_rss": 80658432, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 80658432, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 80658432, "peakRSSIncreaseBytes": 38371328, "progressEvents": 59, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42287104, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 4.824013, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 1.851324, "wallSeconds": 1.551014541, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}},
+    {"round": 6, "warmup": false, "scenario": "applications", "variant": "before", "seconds": 1.453168083, "peak_rss": 82182144, "metrics": {"aggregateDirectories": 54, "aggregateFiles": 355884, "allocatedBytes": 39302651904, "autoSummarizedNodes": 0, "automaticSummarization": true, "currentRSSBytes": 82182144, "directoriesVisited": 54, "enumeratedItems": 424432, "exclusionPatternCount": 0, "exclusionProfile": "none", "filesVisited": 355884, "logicalBytes": 46666175683, "metadataWorkItems": 355938, "ordinaryCompletedItems": 65, "ordinaryDirectoryEnumerations": 5, "ordinaryDiscoveredItems": 65, "packageNodes": 49, "packagesExpanded": false, "path": "/Applications", "peakRSSBytes": 82182144, "peakRSSIncreaseBytes": 39878656, "progressEvents": 58, "retainedNodes": 65, "scenario": "collapsed-auto-none", "semanticFingerprint": "50a5718481341c5b", "startRSSBytes": 42303488, "summarizedDescendantFiles": 355874, "summaryAdditionalVisitedItems": 424367, "systemCPUSeconds": 5.348077, "treeFingerprint": "63f1736094669bf2", "userCPUSeconds": 1.9902790000000001, "wallSeconds": 1.453168083, "warningEvents": 0, "warningFingerprint": "a8c7f832281a39c5", "warningOrderFingerprint": "a8c7f832281a39c5", "warnings": 0}}
+  ]
+}

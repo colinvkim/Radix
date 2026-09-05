@@ -1,0 +1,127 @@
+diff --git a/Radix/Services/AtomicDirectorySummaryModels.swift b/Radix/Services/AtomicDirectorySummaryModels.swift
+index 439a030..be643ae 100644
+--- a/Radix/Services/AtomicDirectorySummaryModels.swift
++++ b/Radix/Services/AtomicDirectorySummaryModels.swift
+@@ -20,19 +20,23 @@ nonisolated struct DirectoryEntry: Sendable {
+     /// Exact validated child-name bytes for native descriptor-relative work and
+     /// Unicode names. Ordinary ASCII leaves and Foundation entries omit them.
+     let nativeName: BulkDirectoryEnumerator.NativeName?
++    /// Native files and symlinks retain their decoded component for node naming.
++    let decodedName: String?
+
+     init(
+         url: URL,
+         metadata: NodeMetadata?,
+         localizedEnumerationError: Error? = nil,
+         isDirectoryHint: Bool? = nil,
+-        nativeName: BulkDirectoryEnumerator.NativeName? = nil
++        nativeName: BulkDirectoryEnumerator.NativeName? = nil,
++        decodedName: String? = nil
+     ) {
+         self.url = url
+         self.metadata = metadata
+         self.localizedEnumerationError = localizedEnumerationError
+         self.isDirectoryHint = isDirectoryHint
+         self.nativeName = nativeName
++        self.decodedName = decodedName
+     }
+ }
+
+diff --git a/Radix/Services/BulkDirectoryEnumerator.swift b/Radix/Services/BulkDirectoryEnumerator.swift
+index 562bccb..c734359 100644
+--- a/Radix/Services/BulkDirectoryEnumerator.swift
++++ b/Radix/Services/BulkDirectoryEnumerator.swift
+@@ -799,7 +799,8 @@ nonisolated enum BulkDirectoryEnumerator {
+         return DirectoryEntry(
+             url: url,
+             metadata: classifiedMetadata,
+-            nativeName: nativeName
++            nativeName: nativeName,
++            decodedName: !parsed.isDirectory || metadata.isSymbolicLink ? parsed.decodedName : nil
+         )
+     }
+
+diff --git a/Radix/Services/ScanEngine.swift b/Radix/Services/ScanEngine.swift
+index c36f1ce..e38a64f 100644
+--- a/Radix/Services/ScanEngine.swift
++++ b/Radix/Services/ScanEngine.swift
+@@ -1981,7 +1981,8 @@ actor ScanEngine {
+
+                         let childNode = makeFileNode(
+                             url: childEntry.url,
+-                            metadata: childMetadata
++                            metadata: childMetadata,
++                            knownName: childEntry.decodedName
+                         )
+                         let preparedItem = PreparedOrdinaryLeafItem(
+                             weight: item.weight / totalWeightUnits,
+@@ -2309,7 +2310,7 @@ actor ScanEngine {
+                   !metadata.isDirectory || metadata.isSymbolicLink else {
+                 continue
+             }
+-            let node = makeFileNode(url: entry.url, metadata: metadata)
++            let node = makeFileNode(url: entry.url, metadata: metadata, knownName: entry.decodedName)
+             items.append(PreparedOrdinaryLeafItem(
+                 weight: request.parentWeight / request.totalWeightUnits,
+                 node: node,
+@@ -2939,13 +2940,14 @@ actor ScanEngine {
+
+     nonisolated func makeFileNode(
+         url: URL,
+-        metadata: NodeMetadata
++        metadata: NodeMetadata,
++        knownName: String? = nil
+     ) -> FileNodeRecord {
+         let path = url.path
+         return FileNodeRecord(
+             id: path,
+             url: url,
+-            name: ScanTarget.displayName(for: url, knownPath: path),
++            name: knownName ?? ScanTarget.displayName(for: url, knownPath: path),
+             isDirectory: metadata.isDirectory,
+             isSymbolicLink: metadata.isSymbolicLink,
+             allocatedSize: metadata.allocatedSize,
+diff --git a/RadixCoreTests/BulkDirectoryEnumeratorDescriptorTests.swift b/RadixCoreTests/BulkDirectoryEnumeratorDescriptorTests.swift
+index 0566e68..cc1a04e 100644
+--- a/RadixCoreTests/BulkDirectoryEnumeratorDescriptorTests.swift
++++ b/RadixCoreTests/BulkDirectoryEnumeratorDescriptorTests.swift
+@@ -172,9 +172,16 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
+             if nativeMetadata.isDirectory || nativeMetadata.isSymbolicLink {
+                 XCTAssertNotNil(nativeEntries[name]?.nativeName, name)
+             } else {
+-                // ASCII regular files, including hard links, need only the URL.
++                // ASCII regular files, including hard links, omit native bytes.
+                 XCTAssertNil(nativeEntries[name]?.nativeName, name)
+             }
++            if !nativeMetadata.isDirectory || nativeMetadata.isSymbolicLink {
++                XCTAssertEqual(nativeEntries[name]?.decodedName, name)
++                XCTAssertEqual(pathEntries[name]?.decodedName, name)
++            } else {
++                XCTAssertNil(nativeEntries[name]?.decodedName, name)
++                XCTAssertNil(pathEntries[name]?.decodedName, name)
++            }
+             XCTAssertEqual(nativeMetadata.isDirectory, pathMetadata.isDirectory, name)
+             XCTAssertEqual(nativeMetadata.isPackage, pathMetadata.isPackage, name)
+             XCTAssertEqual(nativeMetadata.isSymbolicLink, pathMetadata.isSymbolicLink, name)
+diff --git a/RadixCoreTests/ScanEngineTests.swift b/RadixCoreTests/ScanEngineTests.swift
+index b947b43..4007738 100644
+--- a/RadixCoreTests/ScanEngineTests.swift
++++ b/RadixCoreTests/ScanEngineTests.swift
+@@ -1365,6 +1365,9 @@ final class ScanEngineTests: XCTestCase {
+         try sparseHandle.truncate(atOffset: 16 * 1_024 * 1_024)
+         try sparseHandle.close()
+         try Data([0x11]).write(to: unicodeDirectoryURL.appending(path: ".hidden"))
++        for name in ["cafe\u{301}-100% #?.dat", "literal-%2F-%25.txt"] {
++            try Data([0x12]).write(to: unicodeDirectoryURL.appending(path: name))
++        }
+
+         let ownerURL = ownerDirectoryURL.appending(path: "shared.dat")
+         let linkedURL = linkDirectoryURL.appending(path: "shared.dat")
+@@ -1448,6 +1451,7 @@ final class ScanEngineTests: XCTestCase {
+             let foundationNode = try XCTUnwrap(foundation.treeStore.node(id: nodeID))
+             XCTAssertEqual(optimizedNode, legacy.treeStore.node(id: nodeID), nodeID)
+             XCTAssertEqual(optimizedNode.name, foundationNode.name, nodeID)
++            XCTAssertTrue(optimizedNode.name.utf8.elementsEqual(foundationNode.name.utf8), nodeID)
+             XCTAssertEqual(optimizedNode.isDirectory, foundationNode.isDirectory, nodeID)
+             XCTAssertEqual(optimizedNode.isSymbolicLink, foundationNode.isSymbolicLink, nodeID)
+             XCTAssertEqual(optimizedNode.allocatedSize, foundationNode.allocatedSize, nodeID)
