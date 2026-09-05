@@ -84,14 +84,60 @@ actor FileSearchService: FileSearching {
         sortOrder: [FileNodeTableComparator]
     ) async throws -> [FileNodeRecord] {
         guard query.isActive else { return [] }
-        let preparedQuery = query.prepared()
+        try Task.checkCancellation()
+        let matchedNodes = try matchingNodes(
+            snapshotID: snapshotID,
+            treeStore: treeStore,
+            preparedQuery: query.prepared()
+        )
+        let sortedNodes = try FileBrowserResults.sorted(
+            matchedNodes,
+            sortOrder: sortOrder,
+            fileTreeStore: treeStore,
+            cancellationCheck: {
+                try Task.checkCancellation()
+            }
+        )
+        try Task.checkCancellation()
+        return sortedNodes
+    }
 
+    private func matchingNodes(
+        snapshotID: UUID,
+        treeStore: FileTreeStore,
+        preparedQuery: PreparedFileBrowserQuery
+    ) throws -> [FileNodeRecord] {
         let indexKey = FileSearchIndexKey(
             snapshotID: snapshotID,
             treeContentID: treeStore.contentID
         )
         if cachedIndex?.key != indexKey {
             cachedIndex = nil
+        }
+        var matchedNodes: [FileNodeRecord] = []
+        matchedNodes.reserveCapacity(min(treeStore.nodeCount, 256))
+
+        // Reuse a valid text index, but do not build one just to filter metadata.
+        if !preparedQuery.hasText, cachedIndex == nil {
+            for (offset, nodeIndex) in treeStore.indexedNodeIndices().enumerated() {
+                if offset.isMultiple(of: 256) {
+                    try Task.checkCancellation()
+                }
+                // Match the text index's membership rules, including scoped roots.
+                guard treeStore.parentIndex(of: nodeIndex) != nil,
+                      let node = treeStore.node(at: nodeIndex) else { continue }
+                if preparedQuery.matchesMetadata(
+                    allocatedSize: node.allocatedSize,
+                    itemKind: FileBrowserItemKindFilter.classification(for: node)
+                ) {
+                    matchedNodes.append(node)
+                }
+            }
+            try Task.checkCancellation()
+            return matchedNodes
+        }
+
+        if cachedIndex == nil {
             let index = try makeIndex(treeStore: treeStore)
             cachedIndex = CachedFileSearchIndex(
                 key: indexKey,
@@ -113,9 +159,6 @@ actor FileSearchService: FileSearching {
             )
         var unresolvedParentOffsets: [Int] = []
         unresolvedParentOffsets.reserveCapacity(min(index.parentGroups.count, 64))
-
-        var matchedNodes: [FileNodeRecord] = []
-        matchedNodes.reserveCapacity(min(entries.count, 256))
 
         for (offset, entry) in entries.enumerated() {
             if offset.isMultiple(of: 256) {
@@ -166,16 +209,7 @@ actor FileSearchService: FileSearching {
             }
         }
         try Task.checkCancellation()
-        let sortedNodes = try FileBrowserResults.sorted(
-            matchedNodes,
-            sortOrder: sortOrder,
-            fileTreeStore: treeStore,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
-        )
-        try Task.checkCancellation()
-        return sortedNodes
+        return matchedNodes
     }
 
     func pruneIndexes(keeping snapshotID: UUID?) {

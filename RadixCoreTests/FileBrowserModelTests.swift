@@ -195,6 +195,12 @@ final class FileBrowserModelTests: XCTestCase {
         let service = await FileSearchService()
         let snapshotID = UUID()
 
+        let metadataResults = try await service.search(
+            snapshotID: snapshotID,
+            treeStore: scope,
+            query: FileBrowserQuery(allocatedSize: .init(relation: .atLeast, bytes: 0)),
+            sortOrder: []
+        )
         let visibleResults = try await service.search(
             snapshotID: snapshotID,
             treeStore: scope,
@@ -208,6 +214,7 @@ final class FileBrowserModelTests: XCTestCase {
             sortOrder: []
         )
 
+        XCTAssertEqual(metadataResults.map(\.id), [visible.id])
         XCTAssertEqual(visibleResults.map(\.id), [visible.id])
         XCTAssertTrue(siblingResults.isEmpty)
         XCTAssertNil(scope.node(id: outside.id))
@@ -270,6 +277,55 @@ final class FileBrowserModelTests: XCTestCase {
 
         XCTAssertEqual(currentContentsResults.map(\.id), [largeTarget.id])
         XCTAssertEqual(entireScanResults.map(\.id), [largeTarget.id])
+    }
+
+    func testMetadataSearchPreservesKindsSizesAndOrderBeforeAndAfterTextSearch() async throws {
+        let file = makeTestFileNode(id: "/root/a.txt", name: "a.txt", size: 10)
+        let nested = makeTestFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 20)
+        let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
+        let payload = makeTestFileNode(id: "/root/app/c.txt", name: "c.txt", size: 30)
+        let package = makeTestDirectoryNode(id: "/root/app", name: "app", children: [payload], isPackage: true)
+        let link = makeTestFileNode(id: "/root/link", name: "link", size: 20, isSymbolicLink: true)
+        let synthetic = makeTestFileNode(id: "/root/other", name: "other", size: 20, isSynthetic: true)
+        let children = [file, folder, package, link, synthetic]
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
+        let store = FileTreeStore(root: root, childrenByID: [
+            root.id: children,
+            folder.id: [nested],
+            package.id: [payload],
+        ])
+        let service = await FileSearchService()
+        let snapshotID = UUID()
+        let cases: [(query: FileBrowserQuery, expected: [String])] = [
+            (FileBrowserQuery(text: " \n ", itemKind: .file), [payload.id, nested.id, file.id]),
+            (FileBrowserQuery(itemKind: .folder), [folder.id]),
+            (FileBrowserQuery(itemKind: .package), [package.id]),
+            (FileBrowserQuery(allocatedSize: .init(relation: .atLeast, bytes: 20)),
+             [package.id, payload.id, folder.id, nested.id, link.id, synthetic.id]),
+            (FileBrowserQuery(itemKind: .file, allocatedSize: .init(relation: .greaterThan, bytes: 20)),
+             [payload.id]),
+        ]
+
+        for hasTextIndex in [false, true] {
+            if hasTextIndex {
+                let textMatches = try await service.search(
+                    snapshotID: snapshotID,
+                    treeStore: store,
+                    query: FileBrowserQuery(text: "/folder/b"),
+                    sortOrder: []
+                )
+                XCTAssertEqual(textMatches.map(\.id), [nested.id])
+            }
+            for searchCase in cases {
+                let results = try await service.search(
+                    snapshotID: snapshotID,
+                    treeStore: store,
+                    query: searchCase.query,
+                    sortOrder: []
+                )
+                XCTAssertEqual(results.map(\.id), searchCase.expected)
+            }
+        }
     }
 
     func testAllocatedSizeRelationsHandleExactBoundary() {
@@ -1107,6 +1163,12 @@ final class FileBrowserModelTests: XCTestCase {
             query: FileBrowserQuery(text: "/old/alpha"),
             sortOrder: []
         )
+        let replacementMetadataMatches = try await service.search(
+            snapshotID: snapshotID,
+            treeStore: replacementStore,
+            query: FileBrowserQuery(itemKind: .file),
+            sortOrder: []
+        )
         let replacementMatches = try await service.search(
             snapshotID: snapshotID,
             treeStore: replacementStore,
@@ -1127,6 +1189,7 @@ final class FileBrowserModelTests: XCTestCase {
         )
 
         XCTAssertEqual(originalMatches.map(\.name), ["alpha.txt"])
+        XCTAssertEqual(replacementMetadataMatches.map(\.name), ["beta.txt"])
         XCTAssertEqual(replacementMatches.map(\.name), ["beta.txt"])
         XCTAssertTrue(stalePathMatches.isEmpty)
         XCTAssertEqual(restoredOriginalMatches.map(\.name), ["alpha.txt"])
@@ -1169,47 +1232,48 @@ final class FileBrowserModelTests: XCTestCase {
         let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt")
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
-        let service = await FileSearchService()
-        let snapshotID = UUID()
-        let query = FileBrowserQuery(text: "target")
+        for query in [FileBrowserQuery(text: "target"), FileBrowserQuery(itemKind: .file)] {
+            let service = await FileSearchService()
+            let snapshotID = UUID()
 
-        let cancelledColdSearch = Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            return try await service.search(
+            let cancelledColdSearch = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try await service.search(
+                    snapshotID: snapshotID,
+                    treeStore: store,
+                    query: query,
+                    sortOrder: []
+                )
+            }
+            await assertCancellation(of: cancelledColdSearch)
+
+            let warmedResults = try await service.search(
                 snapshotID: snapshotID,
                 treeStore: store,
                 query: query,
                 sortOrder: []
             )
-        }
-        await assertCancellation(of: cancelledColdSearch)
+            XCTAssertEqual(warmedResults.map(\.id), [target.id])
 
-        let warmedResults = try await service.search(
-            snapshotID: snapshotID,
-            treeStore: store,
-            query: query,
-            sortOrder: []
-        )
-        XCTAssertEqual(warmedResults.map(\.id), [target.id])
+            let cancelledWarmSearch = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try await service.search(
+                    snapshotID: snapshotID,
+                    treeStore: store,
+                    query: query,
+                    sortOrder: []
+                )
+            }
+            await assertCancellation(of: cancelledWarmSearch)
 
-        let cancelledWarmSearch = Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            return try await service.search(
+            let repeatedResults = try await service.search(
                 snapshotID: snapshotID,
                 treeStore: store,
                 query: query,
                 sortOrder: []
             )
+            XCTAssertEqual(repeatedResults, warmedResults)
         }
-        await assertCancellation(of: cancelledWarmSearch)
-
-        let repeatedResults = try await service.search(
-            snapshotID: snapshotID,
-            treeStore: store,
-            query: query,
-            sortOrder: []
-        )
-        XCTAssertEqual(repeatedResults, warmedResults)
     }
 
     func testSearchServicePathMatchingHasExactNodeMatcherParityForExceptionalURLs() async throws {

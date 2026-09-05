@@ -4,6 +4,77 @@ import XCTest
 @testable import RadixCore
 
 final class FileBrowserBenchmarkTests: XCTestCase {
+    func testColdMetadataSearchBenchmark() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RADIX_BENCH_METADATA_SEARCH"] == "1" else {
+            throw XCTSkip("Set RADIX_BENCH_METADATA_SEARCH=1 to benchmark cold metadata searches.")
+        }
+        let fixture = Self.makeWideFixture(directoryCount: 1_000, filesPerDirectory: 1_000)
+        let noMatches = environment["RADIX_BENCH_METADATA_MATCHES"] == "none"
+        let scenario = noMatches ? "no-matches" : "all-files"
+        let metadataQuery = FileBrowserQuery(
+            itemKind: .file,
+            allocatedSize: noMatches
+                ? FileBrowserAllocatedSizeFilter(relation: .greaterThan, bytes: .max)
+                : nil
+        )
+        let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
+        let service = await FileSearchService()
+        let snapshotID = UUID()
+        let expectedCount = noMatches ? 0 : fixture.fileCount
+        let phases: [(name: String, query: FileBrowserQuery, order: [FileNodeTableComparator], count: Int)] = [
+            ("metadata_cold", metadataQuery, sortOrder, expectedCount),
+            ("metadata_repeat", metadataQuery, sortOrder, expectedCount),
+            ("text_after_metadata", FileBrowserQuery(text: "__radix_no_match__"), [], 0),
+            ("text_warm", FileBrowserQuery(text: "needle"), [], fixture.expectedTextQueryCount),
+            ("metadata_after_text", metadataQuery, sortOrder, expectedCount),
+        ]
+        for phase in phases {
+            let measurement = try await Self.measureAsyncWithMemory {
+                try await service.search(
+                    snapshotID: snapshotID,
+                    treeStore: fixture.store,
+                    query: phase.query,
+                    sortOrder: phase.order
+                )
+            }
+            XCTAssertEqual(measurement.value.count, phase.count)
+            if !phase.order.isEmpty, measurement.value.count > 1 {
+                Self.assertSorted(measurement.value, using: phase.order, fileTreeStore: fixture.store)
+            }
+            Self.report(
+                phase: phase.name,
+                seconds: measurement.seconds,
+                count: measurement.value.count,
+                peakRSS: BenchmarkSupport.peakResidentBytes(),
+                extra: Self.phaseMemoryReportExtra(
+                    shape: fixture.shape,
+                    startRSS: measurement.startRSS,
+                    endRSS: measurement.endRSS,
+                    phasePeakRSS: measurement.peakRSS,
+                    extra: "scenario=\(scenario) fingerprint=\(Self.fingerprint(measurement.value))"
+                )
+            )
+        }
+
+        let cancellation = try await Self.measureColdSearchCancellation(
+            store: fixture.store,
+            query: metadataQuery
+        )
+        XCTAssertTrue(
+            cancellation.wasCancelled || cancellation.completedBeforeCancellation,
+            "Metadata search returned normally after cancellation was requested."
+        )
+        Self.report(
+            phase: "cancel_cold_metadata",
+            seconds: cancellation.seconds,
+            count: fixture.store.nodeCount - 1,
+            peakRSS: BenchmarkSupport.peakResidentBytes(),
+            extra: "scenario=\(scenario) cancelled=\(cancellation.wasCancelled) " +
+                "completed_before_cancel=\(cancellation.completedBeforeCancellation)"
+        )
+    }
+
     func testMillionNodeFileBrowserBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RADIX_BENCH_FILE_BROWSER"] == "1" else {
