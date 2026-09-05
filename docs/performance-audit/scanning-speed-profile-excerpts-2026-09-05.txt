@@ -1,0 +1,145 @@
+Source: .build/scanning-speed-audit/wide-workers-5-round-1-profile.sample.txt
+Analysis of sampling xctest (pid 61343) every 1 millisecond
+Process:         xctest [61343]
+Path:            /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/xctest
+Load Address:    0x1002a0000
+Identifier:      xctest
+Version:         16.0 (24904)
+Build Info:      IDEApplication-24959000000000000~2 (17F113)
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  rtk [61342]
+Target Type:     live task
+
+Date/Time:       2026-09-05 11:38:05.980 -0700
+Launch Time:     2026-09-05 11:38:05.758 -0700
+OS Version:      macOS 26.6.2 (25G83)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+----
+
+
+Lines 143-166:
+    + 898 completeTaskWithClosure(swift::AsyncContext*, swift::SwiftError*)  (in libswift_Concurrency.dylib) + 1  [0x29386fec5]
+    + ! 882 partial apply for specialized thunk for @escaping @isolated(any) @callee_guaranteed @async () -> (@out A)  (in RadixCorePackageTests) + 1  [0x10e339cfd]
+    + ! : 882 specialized thunk for @escaping @isolated(any) @callee_guaranteed @async () -> (@out A)  (in RadixCorePackageTests) + 1  [0x10e339d0d]
+    + ! :   882 partial apply for closure #1 in closure #1 in ScanEngine.scan(target:options:preservingBehaviorOf:)  (in RadixCorePackageTests) + 1  [0x10e538d41]  /<compiler-generated>:0
+    + ! :     882 closure #1 in closure #1 in ScanEngine.scan(target:options:preservingBehaviorOf:)  (in RadixCorePackageTests) + 1  [0x10e512fd9]  ScanEngine.swift:908
+    + ! :       882 ScanEngine.performScan(target:scanTarget:options:continuation:)  (in RadixCorePackageTests) + 1  [0x10e514ed9]  ScanEngine.swift:1089
+    + ! :         764 ScanEngine.scanDirectory(target:includeVolumeDetails:options:behavior:exclusionMatcher:metrics:warnings:continuation:emissionState:diagnostics:)  (in RadixCorePackageTests) + 2852  [0x10e5186c0]  ScanEngine.swift:2134
+    + ! :         | 764 specialized MutableCollection<>.sort(by:)  (in RadixCorePackageTests) + 224  [0x10e42b7e8]  /<compiler-generated>:0
+    + ! :         |   331 specialized closure #1 in UnsafeMutableBufferPointer._stableSortImpl(by:)  (in RadixCorePackageTests) + 500  [0x10e42edb4]  /<compiler-generated>:0
+    + ! :         |   + 331 specialized UnsafeMutableBufferPointer._mergeTopRuns(_:buffer:by:)  (in RadixCorePackageTests) + 424  [0x10e42f6c8]  /<compiler-generated>:0
+    + ! :         |   +   329 specialized _merge<A>(low:mid:high:buffer:by:)  (in RadixCorePackageTests) + 452  [0x10e42ffa4]  /<compiler-generated>:0
+    + ! :         |   +   ! 328 partial apply for specialized closure #1 in static CancellableSort.sort<A>(_:cancellationCheck:by:)  (in RadixCorePackageTests) + 24  [0x10e537360]  /<compiler-generated>:0
+    + ! :         |   +   ! : 327 specialized closure #1 in static CancellableSort.sort<A>(_:cancellationCheck:by:)  (in RadixCorePackageTests) + 76  [0x10e53068c]  /<compiler-generated>:0
+    + ! :         |   +   ! : | 208 closure #4 in ScanEngine.scanDirectory(target:includeVolumeDetails:options:behavior:exclusionMatcher:metrics:warnings:continuation:emissionState:diagnostics:)  (in RadixCorePackageTests) + 316  [0x10e52b238]  ScanEngine.swift:2138
+    + ! :         |   +   ! : | + 162 StringProtocol.localizedStandardCompare<A>(_:)  (in Foundation) + 116  [0x1903bde34]
+    + ! :         |   +   ! : | + ! 68 CFStringCompareWithOptionsAndLocale  (in CoreFoundation) + 7460,1100,...  [0x18e1ac2f4,0x18e1aaa1c,...]
+    + ! :         |   +   ! : | + ! 22 -[NSString localizedStandardCompare:]  (in Foundation) + 48  [0x18fa721e8]
+    + ! :         |   +   ! : | + ! : 8 @objc static NSLocale._current.getter  (in Foundation) + 44  [0x190118e34]
+    + ! :         |   +   ! : | + ! : | 4 LocaleCache.currentNSLocale()  (in Foundation) + 24  [0x18ff456cc]
+    + ! :         |   +   ! : | + ! : | 2 LocaleCache.currentNSLocale()  (in Foundation) + 80  [0x18ff45704]
+    + ! :         |   +   ! : | + ! : | + 2 DYLD-STUB$$os_unfair_lock_unlock  (in Foundation) + 12  [0x1905f6250]
+    + ! :         |   +   ! : | + ! : | 1 LocaleCache.currentNSLocale()  (in Foundation) + 52  [0x18ff456e8]
+    + ! :         |   +   ! : | + ! : | + 1 DYLD-STUB$$os_unfair_lock_lock  (in Foundation) + 12  [0x1905f6230]
+    + ! :         |   +   ! : | + ! : | 1 LocaleCache.currentNSLocale()  (in Foundation) + 68  [0x18ff456f8]
+
+Lines 268-291:
+    + ! :         |   +   ! : | + 3 StringProtocol.localizedStandardCompare<A>(_:)  (in Foundation) + 128  [0x1903bde40]
+    + ! :         |   +   ! : | + ! 2 swift_release  (in libswiftCore.dylib) + 32,36  [0x1a18ab110,0x1a18ab114]
+    + ! :         |   +   ! : | + ! 1 swift_unknownObjectRelease  (in libswiftCore.dylib) + 72  [0x1a18ab3b8]
+    + ! :         |   +   ! : | + 1 String._bridgeToObjectiveCImpl()  (in libswiftCore.dylib) + 312  [0x1a1aacc98]
+    + ! :         |   +   ! : | 29 closure #4 in ScanEngine.scanDirectory(target:includeVolumeDetails:options:behavior:exclusionMatcher:metrics:warnings:continuation:emissionState:diagnostics:)  (in RadixCorePackageTests) + 256  [0x10e52b1fc]  ScanEngine.swift:2136
+    + ! :         |   +   ! : | + 22 outlined init with copy of NodeMetadata  (in RadixCorePackageTests) + 52  [0x10e534ac8]
+    + ! :         |   +   ! : | + ! 10 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 92  [0x10e3a8040]  /<compiler-generated>:0
+    + ! :         |   +   ! : | + ! : 4 swift_cvw_initWithCopyImpl(swift::OpaqueValue*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*)  (in libswiftCore.dylib) + 116,24,...  [0x1a18f7354,0x1a18f72f8,...]
+    + ! :         |   +   ! : | + ! : 3 swift_cvw_initWithCopyImpl(swift::OpaqueValue*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*)  (in libswiftCore.dylib) + 280  [0x1a18f73f8]
+    + ! :         |   +   ! : | + ! : | 3 swift_retain  (in libswiftCore.dylib) + 4,32  [0x1a18ab008,0x1a18ab024]
+    + ! :         |   +   ! : | + ! : 2 swift_cvw_initWithCopyImpl(swift::OpaqueValue*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*)  (in libswiftCore.dylib) + 424  [0x1a18f7488]
+    + ! :         |   +   ! : | + ! : | 1 DYLD-STUB$$memcpy  (in libswiftCore.dylib) + 12  [0x1a1d436d8]
+    + ! :         |   +   ! : | + ! : | 1 _platform_memmove  (in libsystem_platform.dylib) + 460  [0x18e15d52c]
+    + ! :         |   +   ! : | + ! : 1 swift_cvw_initWithCopy  (in libswiftCore.dylib) + 4  [0x1a18f6034]
+    + ! :         |   +   ! : | + ! 5 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 0,44,...  [0x10e3a7fe4,0x10e3a8010,...]  /<compiler-generated>:0
+    + ! :         |   +   ! : | + ! 2 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 56  [0x10e3a801c]  /<compiler-generated>:0
+    + ! :         |   +   ! : | + ! : 2 DYLD-STUB$$type metadata accessor for URL  (in RadixCorePackageTests) + 0,4  [0x10eaf6d84,0x10eaf6d88]
+    + ! :         |   +   ! : | + ! 2 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 212  [0x10e3a80b8]  /<compiler-generated>:0
+    + ! :         |   +   ! : | + ! : 2 swift_retain  (in libswiftCore.dylib) + 32,56  [0x1a18ab024,0x1a18ab03c]
+    + ! :         |   +   ! : | + ! 1 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 76  [0x10e3a8030]  /<compiler-generated>:0
+    + ! :         |   +   ! : | + ! : 1 swift_retain  (in libswiftCore.dylib) + 4  [0x1a18ab008]
+    + ! :         |   +   ! : | + ! 1 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 192  [0x10e3a80a4]  /<compiler-generated>:0
+    + ! :         |   +   ! : | + ! : 1 type metadata accessor for Date  (in Foundation) + 0  [0x1902f1648]
+    + ! :         |   +   ! : | + ! 1 initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests) + 364  [0x10e3a8150]  /<compiler-generated>:0
+
+Lines 2477-2500:
+        5       specialized thunk for @escaping @isolated(any) @callee_guaranteed @async () -> (@out A)  (in RadixCorePackageTests) + 1  [0x10e339d0d]
+        5       static _SetStorage.allocate(scale:age:seed:)  (in libswiftCore.dylib) + 176  [0x1a18b2228]
+        5       swift::GenericCacheEntry::tryInitialize(swift::TargetMetadata<swift::InProcess>*, swift::PrivateMetadataState, swift::PrivateMetadataCompletionContext*)  (in libswiftCore.dylib) + 768  [0x1a192c8e0]
+        5       swift::StackAllocator<984ul, &swift::TaskAllocatorSlabMetadata, swift::TaskAllocatorConfiguration>::alloc(unsigned long)  (in libswift_Concurrency.dylib) + 0  [0x293870dc0]
+        5       type metadata accessor for Date  (in Foundation) + 0  [0x1902f1648]
+
+Sort by top of stack, same collapsed (when >= 5):
+        __workq_kernreturn  (in libsystem_kernel.dylib)        6566
+        mach_msg2_trap  (in libsystem_kernel.dylib)        1400
+        CFStringCompareWithOptionsAndLocale  (in CoreFoundation)        154
+        getattrlistbulk  (in libsystem_kernel.dylib)        104
+        swift_release  (in libswiftCore.dylib)        64
+        initializeWithCopy for FileNodeRecord  (in RadixCorePackageTests)        56
+        StableScanResultFingerprint.append(_:)  (in RadixCorePackageTests)        55
+        swift_retain  (in libswiftCore.dylib)        53
+        objc_msgSend  (in libobjc.A.dylib)        36
+        swift_cvw_destroyImpl(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*)  (in libswiftCore.dylib)        34
+        __CF_IS_OBJC  (in CoreFoundation)        30
+        _platform_memmove  (in libsystem_platform.dylib)        30
+        swift_cvw_initWithCopyImpl(swift::OpaqueValue*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*)  (in libswiftCore.dylib)        30
+        StringProtocol._ephemeralString.getter  (in libswiftCore.dylib)        25
+        _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib)        25
+        outlined init with copy of NodeMetadata  (in RadixCorePackageTests)        22
+        swift_bridgeObjectRetain  (in libswiftCore.dylib)        21
+
+Source: .build/scanning-speed-audit/applications-sandbox-stall.sample.txt
+Analysis of sampling xctest (pid 61672) every 1 millisecond
+Process:         xctest [61672]
+Path:            /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/xctest
+Load Address:    0x104b08000
+Identifier:      xctest
+Version:         16.0 (24904)
+Build Info:      IDEApplication-24959000000000000~2 (17F113)
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  rtk [61671]
+Target Type:     live task
+
+Date/Time:       2026-09-05 11:44:30.580 -0700
+Launch Time:     2026-09-05 11:42:57.591 -0700
+OS Version:      macOS 26.6.2 (25G83)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         10.3M
+
+Lines 118-141:
+    +                         850 URL.resourceValues(forKeys:)  (in Foundation) + 240  [0x1902432e4]
+    +                           850 -[NSURL resourceValuesForKeys:error:]  (in CoreFoundation) + 96  [0x18e21385c]
+    +                             850 CFURLCopyResourcePropertiesForKeys  (in CoreFoundation) + 100  [0x18e21392c]
+    +                               850 _FSURLCopyResourcePropertiesForKeysInternal(__CFURL const*, __CFArray const*, void*, __CFError**, unsigned char)  (in CoreServicesInternal) + 1492  [0x19243d064]
+    +                                 850 prepareValuesForBitmap(__CFURL const*, __FileCache*, _FilePropertyBitmap*, __CFError**)  (in CoreServicesInternal) + 444  [0x192434964]
+    +                                   850 LaunchServices::URLPropertyProvider::prepareValues(__CFURL const*, __FileCache*, __CFString const* const*, void const**, long, void const*, __CFError**)  (in LaunchServices) + 584  [0x18e700200]
+    +                                     850 LaunchServices::URLPropertyProvider::prepareIsPackageValue(LaunchServices::Database::Context&, id<FSNodePropertyProviding>, __FileCache*, __CFString const*, LaunchServices::URLPropertyProvider::State*, NSError* __autoreleasing*)  (in LaunchServices) + 84  [0x18e8eca80]
+    +                                       850 LaunchServices::Database::Context::_get(_LSDServiceDomain*, unsigned long)  (in LaunchServices) + 108  [0x18e750190]
+    +                                         850 _LSContextInitCommon(LSContext*, _LSDServiceDomain*, unsigned long, NSError* __autoreleasing*)  (in LaunchServices) + 460  [0x18e7e498c]
+    +                                           850 _os_unfair_lock_lock_slow  (in libsystem_platform.dylib) + 172  [0x18e15b3c0]
+    +                                             850 __ulock_wait2  (in libsystem_kernel.dylib) + 8  [0x18e11dc98]
+    850 Thread_2833298   DispatchQueue_18: com.apple.root.user-initiated-qos.cooperative  (concurrent)
+    + 850 completeTaskWithClosure(swift::AsyncContext*, swift::SwiftError*)  (in libswift_Concurrency.dylib) + 1  [0x29386fec5]
+    +   850 partial apply for closure #1 in closure #2 in ScanEngine.scanDirectory(target:includeVolumeDetails:options:behavior:exclusionMatcher:metrics:warnings:continuation:emissionState:diagnostics:)  (in RadixCorePackageTests) + 1  [0x112d53461]
+    +     850 closure #1 in closure #2 in ScanEngine.scanDirectory(target:includeVolumeDetails:options:behavior:exclusionMatcher:metrics:warnings:continuation:emissionState:diagnostics:)  (in RadixCorePackageTests) + 1  [0x112d2d3bd]  ScanEngine.swift:1455
+    +       850 static ScanEngine.directoryEntries(of:includeHiddenFiles:behavior:exclusionMatcher:resourceKeys:metadataLoader:directoryContents:usesBulkDirectoryEnumeration:usesDeferredBulkEntryFiltering:directoryNamespaceResolver:directoryDescriptorPool:parentDirectoryLease:nativeName:expectedIdentity:classificationWorkerLimit:preloadedListing:cancellationCheck:)  (in RadixCorePackageTests) + 2272  [0x112d181ac]  ScanEngine.swift:2661
+    +         850 BulkDirectoryEnumerator.Cursor.nextBatch(cancellationCheck:)  (in RadixCorePackageTests) + 2340  [0x112b48314]  BulkDirectoryEnumerator.swift:252
+    +           850 PackageClassifier.classification(for:hasFinderPackageFlag:)  (in RadixCorePackageTests) + 52  [0x112c34fe4]  PackageClassifier.swift:0
+    +             850 implicit closure #1 in default argument 1 of PackageClassifier.init(extensionDispositionProvider:foundationPackageProvider:)  (in RadixCorePackageTests) + 200  [0x112c34e3c]  PackageClassifier.swift:63
+    +               850 URL.resourceValues(forKeys:)  (in Foundation) + 240  [0x1902432e4]
+    +                 850 -[NSURL resourceValuesForKeys:error:]  (in CoreFoundation) + 96  [0x18e21385c]
+    +                   850 CFURLCopyResourcePropertiesForKeys  (in CoreFoundation) + 100  [0x18e21392c]
+    +                     850 _FSURLCopyResourcePropertiesForKeysInternal(__CFURL const*, __CFArray const*, void*, __CFError**, unsigned char)  (in CoreServicesInternal) + 1492  [0x19243d064]
+    +                       850 prepareValuesForBitmap(__CFURL const*, __FileCache*, _FilePropertyBitmap*, __CFError**)  (in CoreServicesInternal) + 444  [0x192434964]

@@ -3379,18 +3379,20 @@ final class ScanEngineTests: XCTestCase {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let alpha = rootURL.appending(path: "alpha.txt")
-        let zeta = rootURL.appending(path: "zeta.txt")
-
-        try Data(repeating: 0x41, count: 16).write(to: zeta)
-        try Data(repeating: 0x42, count: 16).write(to: alpha)
+        for (index, name) in ["zeta.txt", "file-10.txt", "file-2.txt", "alpha.txt"].enumerated() {
+            try Data(repeating: UInt8(index), count: 16).write(to: rootURL.appending(path: name))
+        }
+        try Data(repeating: 0x42, count: 16_384).write(to: rootURL.appending(path: "large.bin"))
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["alpha.txt", "zeta.txt"])
+        XCTAssertEqual(
+            rootChildren(in: snapshot).map(\.name),
+            ["large.bin", "alpha.txt", "file-2.txt", "file-10.txt", "zeta.txt"]
+        )
     }
 
     func testParallelDirectoryClassificationMatchesSerialClassification() async throws {

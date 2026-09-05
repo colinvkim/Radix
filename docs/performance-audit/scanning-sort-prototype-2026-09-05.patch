@@ -1,0 +1,22 @@
+--- a/Radix/Services/ScanEngine.swift
++++ b/Radix/Services/ScanEngine.swift
+@@ -2132,12 +2132,14 @@
+                 // Duplicate paths are rejected before keys are assigned in phase 1,
+                 // so children are already unique here.
+                 try CancellableSort.sort(&sortedChildKeys, cancellationCheck: Task.checkCancellation) { lhsKey, rhsKey in
+-                    let lhs = nodes[nextKey - lhsKey - 1]
+-                    let rhs = nodes[nextKey - rhsKey - 1]
+-                    if lhs.allocatedSize == rhs.allocatedSize {
+-                        return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
++                    let lhsOffset = nextKey - lhsKey - 1
++                    let rhsOffset = nextKey - rhsKey - 1
++                    let lhsSize = nodes[lhsOffset].allocatedSize
++                    let rhsSize = nodes[rhsOffset].allocatedSize
++                    if lhsSize == rhsSize {
++                        return nodes[lhsOffset].name.localizedStandardCompare(nodes[rhsOffset].name) == .orderedAscending
+                     }
+-                    return lhs.allocatedSize > rhs.allocatedSize
++                    return lhsSize > rhsSize
+                 }
+                 try Task.checkCancellation()
+                 let directoryID = url.path
