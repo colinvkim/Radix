@@ -128,24 +128,6 @@ nonisolated struct DiskMapTreeStore: DiskMapTreeReading {
         return [root] + base.path(to: id)
     }
 
-    func removingSubtrees(
-        rootedAt nodeIDs: [String],
-        cancellationCheck: () throws -> Void
-    ) throws -> DiskMapTreeStore {
-        let filteredBase = try base.removingSubtrees(
-            rootedAt: nodeIDs,
-            cancellationCheck: cancellationCheck
-        )
-        guard let volumeCapacityOverlay else {
-            return DiskMapTreeStore(filteredBase)
-        }
-        return DiskMapTreeStore(
-            base: filteredBase,
-            visualRootID: volumeCapacityOverlay.visualRootID,
-            freeSpaceNode: volumeCapacityOverlay.freeSpaceNode
-        )
-    }
-
     private func visualRoot(id: String, freeSpaceNode: FileNodeRecord) -> FileNodeRecord {
         let baseRoot = base.root
         return FileNodeRecord.directory(
