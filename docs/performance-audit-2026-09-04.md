@@ -21,7 +21,7 @@ Counting the nine prioritized findings below, four retain unfinished work after 
 | 1. Selection resolution | Complete | Empty/single selection fast paths validated. |
 | 2. Metadata reads | Partial | Capability-cache path probes removed; sharing status/identity/allocation reads within a metadata load remains. |
 | 3. Large sorts | Partial | Browser index sorting and cancellation validated; scanner finalization sorting and cancellation still need focused profiling. |
-| 4. Main-actor navigation/publication | Partial | Unchanged refreshes and cache releases improved; changed-directory row projection and browser-owned buffer release remain. |
+| 4. Main-actor navigation/publication | Partial | Unchanged refreshes, cache releases, and [large-directory loading](/Users/colin/Programming/Radix/docs/performance-audit/directory-loading-2026-09-05.md) improved; large navigation/browser buffer release remains. |
 | 5. Metadata-only search | Complete | Text indexing is deferred until needed. |
 | 6. Scanning allocations/queues | Partial | Queue retention measured and a scheduling limit deferred; per-entry native-name allocations and other frontier shapes remain follow-ups. |
 | 7. Completed-scan cache | Complete | Full backing accounting, eviction, and bounded background cleanup validated. |

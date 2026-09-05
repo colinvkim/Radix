@@ -6,6 +6,94 @@ import XCTest
 /// Opt-in measurements for the performance audit; elapsed times are never test assertions.
 final class PerformanceAuditBenchmarkTests: XCTestCase {
     @MainActor
+    func testLargeDirectoryPublicationBenchmark() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RADIX_BENCH_DIRECTORY_PUBLICATION"] == "1" else {
+            throw XCTSkip("Set RADIX_BENCH_DIRECTORY_PUBLICATION=1 to measure directory publication.")
+        }
+        let count = environment["RADIX_BENCH_DIRECTORY_FILES"].flatMap(Int.init) ?? 1_000_000
+        let dense = Self.makeFlatSnapshot(fileCount: count, rootID: "/navigation/dense")
+        let root = makeTestDirectoryNode(id: "/navigation", name: "navigation", children: [dense.root])
+        let store = try FileTreeStore.combining(
+            root: root,
+            childSubtrees: [try XCTUnwrap(FileTreeStore.SubtreeSource(store: dense.treeStore, rootedAt: dense.root.id))],
+            cancellationCheck: {}
+        )
+        let snapshot = makeTestSnapshot(root: root, store: store)
+
+        func sample(_ phase: String, operation: () -> Void, ready: () -> Bool) async throws {
+            let heartbeat = Task { @MainActor in
+                var previous = ContinuousClock.now
+                var longestGap = 0.0
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .milliseconds(1)) } catch { break }
+                    let now = ContinuousClock.now
+                    longestGap = max(longestGap, BenchmarkSupport.durationSeconds(previous.duration(to: now)))
+                    previous = now
+                }
+                return longestGap
+            }
+            defer { heartbeat.cancel() }
+            try await Task.sleep(for: .milliseconds(2))
+            let startedAt = ContinuousClock.now
+            let submission = BenchmarkSupport.measure(operation)
+            while !ready() {
+                guard startedAt.duration(to: .now) < .seconds(60) else {
+                    XCTFail("Directory publication timed out: \(phase)")
+                    return
+                }
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            let completedSeconds = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
+            try await Task.sleep(for: .milliseconds(2))
+            heartbeat.cancel()
+            let longestGap = await heartbeat.value
+            Self.report(
+                phase: phase, count: count, seconds: completedSeconds,
+                extra: "main_actor_submit=\(BenchmarkSupport.format(submission.seconds)) "
+                    + "main_actor_longest_gap=\(BenchmarkSupport.format(longestGap))"
+            )
+        }
+
+        let navigation = WorkspaceNavigationModel()
+        navigation.updateScanContext(snapshot: snapshot)
+        for iteration in 1...3 {
+            try await sample("directory_enter_\(iteration)") {
+                navigation.focus(nodeID: dense.root.id)
+            } ready: { navigation.tableNodes.count == count }
+            XCTAssertEqual(navigation.tableNodes.first?.name, "item-0.dat")
+            XCTAssertEqual(navigation.tableNodes.last?.name, "item-\(count - 1).dat")
+            try await sample("directory_exit_\(iteration)") {
+                navigation.navigateToParent()
+            } ready: { navigation.tableNodes.count == 1 }
+        }
+
+        let browser = FileBrowserModel(searchDebounceDuration: .zero)
+        browser.updateContent(
+            nodes: store.children(of: dense.root.id), contentID: dense.root.id,
+            snapshot: snapshot, fileTreeStore: store
+        )
+        try await waitUntil(timeout: 60) { !browser.isRefreshingCurrentContents }
+        XCTAssertEqual(browser.displayedNodes.count, count)
+        for iteration in 1...3 {
+            try await sample("browser_filter_clear_\(iteration)") {
+                browser.setActiveQuery(FileBrowserQuery(itemKind: .folder))
+            } ready: { !browser.isRefreshingCurrentContents }
+            XCTAssertTrue(browser.displayedNodes.isEmpty)
+            browser.setActiveQuery(FileBrowserQuery())
+            try await waitUntil(timeout: 60) { !browser.isRefreshingCurrentContents }
+            XCTAssertEqual(browser.displayedNodes.count, count)
+        }
+        try await sample("browser_content_clear") {
+            browser.updateContent(nodes: [], contentID: "empty", snapshot: nil, fileTreeStore: nil)
+        } ready: { !browser.isRefreshingCurrentContents }
+        XCTAssertTrue(browser.displayedNodes.isEmpty)
+        browser.cleanup()
+        withExtendedLifetime(dense) {}
+        withExtendedLifetime(snapshot) {}
+    }
+
+    @MainActor
     func testComparisonPreparationBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RADIX_BENCH_COMPARISON"] == "1" else {
@@ -126,7 +214,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
     }
 
     @MainActor
-    func testNavigationAuditBenchmark() throws {
+    func testNavigationAuditBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RADIX_BENCH_AUDIT"] == "1" else {
             throw XCTSkip("Set RADIX_BENCH_AUDIT=1 to run the navigation audit benchmark.")
@@ -168,6 +256,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             let installation = BenchmarkSupport.measure {
                 model.updateScanContext(snapshot: snapshot)
             }
+            try await waitUntil(timeout: 60) { model.tableNodes.count == count }
             XCTAssertEqual(model.tableNodes.count, count)
             Self.report(
                 phase: "install_scan_context_main_actor",

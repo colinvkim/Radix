@@ -95,11 +95,11 @@ struct FileBrowserTableView: View {
     }
 
     private var showsTableChrome: Bool {
-        !nodes.isEmpty || model.isShowingEntireScanResults
+        navigation.isLoadingTableNodes || !nodes.isEmpty || model.isShowingEntireScanResults
     }
 
     private var isSearchBarLoading: Bool {
-        model.isRefreshingCurrentContents || model.isSearchingEntireScan
+        navigation.isLoadingTableNodes || model.isRefreshingCurrentContents || model.isSearchingEntireScan
     }
 
     private var nodes: [FileNodeRecord] {
@@ -178,7 +178,8 @@ struct FileBrowserTableView: View {
 
     @ViewBuilder
     private var tableContent: some View {
-        if model.isRefreshingCurrentContents && !model.isDisplayingCurrentResults {
+        if navigation.isLoadingTableNodes ||
+            (model.isRefreshingCurrentContents && !model.isDisplayingCurrentResults) {
             loadingContent(String(localized: "Loading Contents…", comment: "Progress message while the current directory contents load."))
         } else if model.isShowingEntireScanResults &&
             model.isSearchingEntireScan &&

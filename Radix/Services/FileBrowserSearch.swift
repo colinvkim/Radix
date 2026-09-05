@@ -22,6 +22,10 @@ extension FileSearching {
 }
 
 actor FileBrowserDisplayService {
+    func children(in treeStore: FileTreeStore, directoryID: String) throws -> [FileNodeRecord] {
+        try treeStore.children(of: directoryID, cancellationCheck: { try Task.checkCancellation() })
+    }
+
     func currentContentsProjection(
         _ nodes: [FileNodeRecord],
         query: FileBrowserQuery,

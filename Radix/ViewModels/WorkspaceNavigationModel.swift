@@ -9,7 +9,7 @@ import Foundation
 struct WorkspaceNavigationState: Equatable {
     static let emptyTableContentID = "no-snapshot|no-focus"
 
-    private struct TableSource: Equatable {
+    fileprivate struct TableSource: Equatable, Sendable {
         let treeContentID: UUID
         let directoryID: FileNodeRecord.ID
     }
@@ -25,8 +25,9 @@ struct WorkspaceNavigationState: Equatable {
     var tableContentID: String
     var tableContentRevision: Int
     var selectedAncestorIDs: Set<FileNodeRecord.ID>
-    // A nil source means the current table contents have not been materialized.
-    private var tableSource: TableSource?
+    // Identifies loaded or pending contents. Nil also preserves explicitly deferred loading.
+    fileprivate var tableSource: TableSource?
+    fileprivate var isLoadingTableNodes = false
 
     static let empty = WorkspaceNavigationState(
         snapshotID: nil,
@@ -53,6 +54,7 @@ struct WorkspaceNavigationState: Equatable {
             lhs.tableContentID == rhs.tableContentID &&
             lhs.tableContentRevision == rhs.tableContentRevision &&
             lhs.tableSource == rhs.tableSource &&
+            lhs.isLoadingTableNodes == rhs.isLoadingTableNodes &&
             lhs.selectedAncestorIDs == rhs.selectedAncestorIDs
     }
 }
@@ -375,6 +377,7 @@ private extension WorkspaceNavigationState {
               let focusNode,
               let directory = focusNode.isDirectory ? focusNode : fileTreeStore.parent(of: focusNode.id) else {
             next.tableSource = nil
+            next.isLoadingTableNodes = false
             next.replaceTableNodes([])
             return next
         }
@@ -383,7 +386,8 @@ private extension WorkspaceNavigationState {
         guard tableSource != source else { return next }
 
         next.tableSource = source
-        next.replaceTableNodes(fileTreeStore.children(of: directory.id))
+        next.isLoadingTableNodes = fileTreeStore.childCount(of: directory.id) > 512
+        next.replaceTableNodes(next.isLoadingTableNodes ? [] : fileTreeStore.children(of: directory.id))
         return next
     }
 
@@ -404,6 +408,22 @@ final class WorkspaceNavigationModel: ObservableObject {
     nonisolated static let emptyTableContentID = "no-snapshot|no-focus"
 
     @Published private(set) var state = WorkspaceNavigationState.empty
+
+    typealias TableLoader = @Sendable (FileTreeStore, String) async throws -> [FileNodeRecord]
+    private let tableLoader: TableLoader
+    private var tableLoadTask: Task<Void, Never>?
+    private var tableLoadSource: WorkspaceNavigationState.TableSource?
+
+    init(tableLoader: TableLoader? = nil) {
+        let service = FileBrowserDisplayService()
+        self.tableLoader = tableLoader ?? { store, directoryID in
+            try await service.children(in: store, directoryID: directoryID)
+        }
+    }
+
+    deinit { tableLoadTask?.cancel() }
+
+    var isLoadingTableNodes: Bool { state.isLoadingTableNodes }
 
     var selectedNodeID: String? {
         state.selectedNodeID
@@ -582,6 +602,33 @@ final class WorkspaceNavigationModel: ObservableObject {
 
         if oldSelectionID != nextState.selectedNodeID || oldSelectionIDs != nextState.selectedNodeIDs {
             onSelectionChanged?()
+        }
+        refreshPendingTableLoad()
+    }
+
+    private func refreshPendingTableLoad() {
+        let source = state.isLoadingTableNodes ? state.tableSource : nil
+        guard source != tableLoadSource else { return }
+        tableLoadTask?.cancel()
+        tableLoadTask = nil
+        tableLoadSource = source
+        guard let source, let store = state.fileTreeStore else { return }
+        tableLoadTask = Task { [weak self, tableLoader] in
+            do {
+                let nodes = try await tableLoader(store, source.directoryID)
+                try Task.checkCancellation()
+                guard let self, state.tableSource == source, state.isLoadingTableNodes else { return }
+                var next = state
+                next.isLoadingTableNodes = false
+                next.replaceTableNodes(nodes)
+                publish(next)
+            } catch {
+                guard !Task.isCancelled, let self, state.tableSource == source else { return }
+                var next = state
+                next.tableSource = nil
+                next.isLoadingTableNodes = false
+                publish(next)
+            }
         }
     }
 }

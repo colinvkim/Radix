@@ -2,7 +2,71 @@ import Combine
 import XCTest
 @testable import RadixCore
 
+private actor NavigationTableLoadGate {
+    private var continuations: [Int: CheckedContinuation<Void, Never>] = [:]
+    private(set) var requestCount = 0
+
+    func load(store: FileTreeStore, id: String) async -> [FileNodeRecord] {
+        let index = requestCount
+        requestCount += 1
+        await withCheckedContinuation { continuations[index] = $0 }
+        return store.children(of: id)
+    }
+
+    func resume(at index: Int) { continuations.removeValue(forKey: index)?.resume() }
+}
+
 final class WorkspaceNavigationModelTests: XCTestCase {
+    @MainActor
+    func testLargeDirectoryLoadsInBackgroundAndIgnoresSupersededResult() async throws {
+        let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }
+        let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
+        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: files]))
+        let gate = NavigationTableLoadGate()
+        let model = WorkspaceNavigationModel(tableLoader: { store, id in
+            await gate.load(store: store, id: id)
+        })
+        model.updateScanContext(snapshot: snapshot)
+        XCTAssertTrue(model.isLoadingTableNodes)
+        XCTAssertTrue(model.tableNodes.isEmpty)
+        try await waitUntil { await gate.requestCount == 1 }
+        // Selection and same-context refreshes must not restart pending work.
+        model.select(nodeID: files[0].id)
+        model.refreshTableNodesForCurrentContext()
+        await Task.yield()
+        let requests = await gate.requestCount
+        XCTAssertEqual(requests, 1)
+
+        model.reset()
+        await gate.resume(at: 0)
+        await Task.yield()
+        XCTAssertFalse(model.isLoadingTableNodes)
+        XCTAssertTrue(model.tableNodes.isEmpty)
+
+        model.updateScanContext(snapshot: snapshot)
+        try await waitUntil { await gate.requestCount == 2 }
+        let revision = model.tableContentRevision
+        await gate.resume(at: 1)
+        try await waitUntil { !model.isLoadingTableNodes }
+        XCTAssertEqual(model.tableNodes, files)
+        XCTAssertEqual(model.tableContentRevision, revision + 1)
+    }
+
+    @MainActor
+    func testExplicitlyDeferredLargeDirectoryWaitsForRefresh() async throws {
+        let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }
+        let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
+        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: files]))
+        let model = WorkspaceNavigationModel()
+        model.updateScanContext(snapshot: snapshot, loadTableNodesImmediately: false)
+        await Task.yield()
+        XCTAssertFalse(model.isLoadingTableNodes)
+        XCTAssertTrue(model.tableNodes.isEmpty)
+        model.refreshTableNodesForCurrentContext()
+        try await waitUntil { !model.isLoadingTableNodes }
+        XCTAssertEqual(model.tableNodes, files)
+    }
+
     @MainActor
     func testSelectingValidAndInvalidNodes() {
         let fixture = makeNavigationFixture()
