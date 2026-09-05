@@ -128,7 +128,6 @@ enum FileActionError: LocalizedError {
 final class AppModel: ObservableObject {
     typealias PendingTrashSelection = TrashFlowController.PendingTrashSelection
     typealias PendingCloudFileAction = TrashFlowController.PendingCloudFileAction
-    typealias PostTrashRemovalRequest = TrashFlowController.PostTrashRemovalRequest
 
     private enum NavigationAction: Sendable {
         case select(FileNodeRecord.ID?)
@@ -222,21 +221,6 @@ final class AppModel: ObservableObject {
 
     private var optimisticTrashVisibility: TrashFlowController.OptimisticTrashVisibilityState {
         trashFlow.optimisticTrashVisibility
-    }
-
-    private var confirmedTrashMoveTask: Task<Void, Never>? {
-        get { trashFlow.confirmedTrashMoveTask }
-        set { trashFlow.confirmedTrashMoveTask = newValue }
-    }
-
-    private var postTrashRemovalTask: Task<Void, Never>? {
-        get { trashFlow.postTrashRemovalTask }
-        set { trashFlow.postTrashRemovalTask = newValue }
-    }
-
-    private var postTrashRemovalRequests: [TrashFlowController.PostTrashRemovalRequest] {
-        get { trashFlow.postTrashRemovalRequests }
-        set { trashFlow.postTrashRemovalRequests = newValue }
     }
 
     @Published private(set) var usageStats = AppUsageStats.empty
@@ -368,8 +352,8 @@ final class AppModel: ObservableObject {
         cancelDeferredVisualizationModeUpdate()
         cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
-        cancelPostTrashSnapshotRemoval()
-        cancelConfirmedTrashMove()
+        trashFlow.cancelPostTrashSnapshotRemoval()
+        trashFlow.cancelConfirmedTrashMoves()
         sidebarScanCacheController.resetTransientState()
         fullDiskAccessRefreshTask?.cancel()
         fullDiskAccessRefreshTask = nil
@@ -402,8 +386,8 @@ final class AppModel: ObservableObject {
         cancelDeferredVisualizationModeUpdate()
         cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
-        cancelPostTrashSnapshotRemoval()
-        cancelConfirmedTrashMove()
+        trashFlow.cancelPostTrashSnapshotRemoval()
+        trashFlow.cancelConfirmedTrashMoves()
         sidebarScanCacheController.clearActiveScanTracking()
         if scanCoordinator.canStopScan {
             scanCoordinator.stopScan()
@@ -1484,7 +1468,7 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationContextUpdate()
         cancelDeferredDiscardPileAdd()
-        cancelPostTrashSnapshotRemoval()
+        trashFlow.cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
         scheduleDeferredViewUpdate(
@@ -1543,14 +1527,6 @@ final class AppModel: ObservableObject {
             model.deferredNavigationContextSnapshotID = nil
             model.navigationModel.refreshTableNodesForCurrentContext()
         }
-    }
-
-    private func cancelPostTrashSnapshotRemoval() {
-        trashFlow.cancelPostTrashSnapshotRemoval()
-    }
-
-    private func cancelConfirmedTrashMove() {
-        trashFlow.cancelConfirmedTrashMove()
     }
 
     private func clearOptimisticTrashVisibility() {
@@ -1698,7 +1674,7 @@ final class AppModel: ObservableObject {
         cancelDeferredNavigationAction()
         cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
-        cancelPostTrashSnapshotRemoval()
+        trashFlow.cancelPostTrashSnapshotRemoval()
         clearOptimisticTrashVisibility()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
@@ -1875,7 +1851,7 @@ final class AppModel: ObservableObject {
         }
 
         if scanCoordinator.selectedTarget?.id != target.id {
-            cancelPostTrashSnapshotRemoval()
+            trashFlow.cancelPostTrashSnapshotRemoval()
         }
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarModel.setActiveTargetID(target.id)
@@ -2269,42 +2245,35 @@ final class AppModel: ObservableObject {
     private func performConfirmedTrashMove(_ nodes: [FileNodeRecord]) {
         let originalSnapshotID = scanCoordinator.snapshot?.id
         let statsFileTreeStore = scanCoordinator.fileTreeStore
-        let actions = dependencies.systemActions
 
-        confirmedTrashMoveTask = Task { @MainActor [weak self] in
-            await self?.trashFlow.runConfirmedMove(
-                nodes,
-                originalSnapshotID: originalSnapshotID,
-                statsFileTreeStore: statsFileTreeStore,
-                actions: actions,
-                beginMove: { snapshotID, _ in
-                    guard let self else { return }
-                    let activeFileTreeStore = self.scanCoordinator.fileTreeStore
-                    let didHide = self.trashFlow.hideTrashNodesDuringMove(
-                        nodes,
-                        snapshotID: snapshotID,
-                        activeSnapshotID: self.scanCoordinator.snapshot?.id,
-                        activeFileTreeStore: activeFileTreeStore
-                    )
-                    if didHide, let activeFileTreeStore {
-                        self.reconcileNavigationForHiddenNodes(
-                            hiddenNodeIDs: self.hiddenNodeIDs(for: snapshotID),
-                            fileTreeStore: activeFileTreeStore
-                        )
-                    }
-                },
-                onFinish: { requested, moved, actionError, wasCancelled in
-                    self?.finishConfirmedTrashMove(
-                        requestedNodes: requested,
-                        movedNodes: moved,
-                        actionError: actionError,
-                        originalSnapshotID: originalSnapshotID,
-                        statsFileTreeStore: statsFileTreeStore,
-                        wasCancelled: wasCancelled
+        trashFlow.startConfirmedMove(
+            nodes,
+            moveToTrash: dependencies.systemActions.moveToTrash,
+            beginMove: {
+                let didHide = trashFlow.hideTrashNodesDuringMove(
+                    nodes,
+                    snapshotID: originalSnapshotID,
+                    activeSnapshotID: scanCoordinator.snapshot?.id,
+                    activeFileTreeStore: statsFileTreeStore
+                )
+                if didHide, let statsFileTreeStore {
+                    reconcileNavigationForHiddenNodes(
+                        hiddenNodeIDs: hiddenNodeIDs(for: originalSnapshotID),
+                        fileTreeStore: statsFileTreeStore
                     )
                 }
-            )
-        }
+            },
+            onFinish: { [weak self] requested, moved, actionError, wasCancelled in
+                self?.finishConfirmedTrashMove(
+                    requestedNodes: requested,
+                    movedNodes: moved,
+                    actionError: actionError,
+                    originalSnapshotID: originalSnapshotID,
+                    statsFileTreeStore: statsFileTreeStore,
+                    wasCancelled: wasCancelled
+                )
+            }
+        )
     }
 
     private func finishConfirmedTrashMove(
@@ -2366,7 +2335,7 @@ final class AppModel: ObservableObject {
         }
 
         if shouldClearActiveScan {
-            cancelPostTrashSnapshotRemoval()
+            trashFlow.cancelPostTrashSnapshotRemoval()
             scanCoordinator.clearScan()
             navigationModel.reset()
             sidebarModel.setActiveTargetID(nil)
@@ -2411,41 +2380,18 @@ final class AppModel: ObservableObject {
         nodeIDs: [FileNodeRecord.ID],
         fallbackFocusID: FileNodeRecord.ID?
     ) {
-        postTrashRemovalRequests.append(PostTrashRemovalRequest(
-            nodeIDs: nodeIDs,
-            fallbackFocusID: fallbackFocusID
-        ))
-        startPostTrashSnapshotRemovalIfNeeded()
-    }
+        let snapshotID = scanCoordinator.snapshot?.id
+        trashFlow.enqueuePostTrashSnapshotRemoval { [weak self, scanCoordinator] in
+            guard scanCoordinator.snapshot?.id == snapshotID else { return }
+            let didRemove = await scanCoordinator.removeNodesFromCurrentSnapshot(ids: nodeIDs)
+            guard !Task.isCancelled, let self else { return }
 
-    private func startPostTrashSnapshotRemovalIfNeeded() {
-        guard postTrashRemovalTask == nil else { return }
-
-        postTrashRemovalTask = Task { @MainActor [weak self] in
-            while let self, !self.postTrashRemovalRequests.isEmpty {
-                if Task.isCancelled {
-                    self.postTrashRemovalRequests.removeAll()
-                    self.postTrashRemovalTask = nil
-                    return
-                }
-
-                let request = self.postTrashRemovalRequests.removeFirst()
-                let didRemove = await self.scanCoordinator.removeNodesFromCurrentSnapshot(ids: request.nodeIDs)
-                guard !Task.isCancelled else {
-                    self.postTrashRemovalRequests.removeAll()
-                    self.postTrashRemovalTask = nil
-                    return
-                }
-
-                if didRemove,
-                   let fallbackFocusID = request.fallbackFocusID,
-                   self.scanCoordinator.fileTreeStore?.node(id: fallbackFocusID) != nil {
-                    self.navigationModel.setFocusedNodeID(fallbackFocusID)
-                }
-                self.navigationModel.reconcileAfterSnapshotApplied(self.scanCoordinator.snapshot)
+            if didRemove,
+               let fallbackFocusID,
+               scanCoordinator.fileTreeStore?.node(id: fallbackFocusID) != nil {
+                navigationModel.setFocusedNodeID(fallbackFocusID)
             }
-
-            self?.postTrashRemovalTask = nil
+            navigationModel.reconcileAfterSnapshotApplied(scanCoordinator.snapshot)
         }
     }
 
@@ -2831,7 +2777,7 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelDeferredNavigationContextUpdate()
-        cancelPostTrashSnapshotRemoval()
+        trashFlow.cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarScanCacheController.clearActiveScanTracking()
         sidebarScanCacheController.clearDisplayedSnapshot()
