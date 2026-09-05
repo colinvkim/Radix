@@ -49,7 +49,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         )
 
         let diskMapStore = DiskMapTreeStore(fixture.store)
-        var largeLayoutSamples: [LayoutSample] = []
+        var largeLayoutSamples: [ChartBenchmarkSupport.LayoutSample] = []
         largeLayoutSamples.reserveCapacity(sampleCount)
         for _ in 0..<sampleCount {
             let measurement = try BenchmarkSupport.measure {
@@ -61,7 +61,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                     cancellationCheck: {}
                 )
             }
-            largeLayoutSamples.append(LayoutSample(
+            largeLayoutSamples.append(ChartBenchmarkSupport.LayoutSample(
                 seconds: measurement.seconds,
                 segmentCount: measurement.value.count,
                 fingerprint: Self.segmentFingerprint(measurement.value)
@@ -150,19 +150,20 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         )
 
         let hitTestMeasurement = BenchmarkSupport.measure {
-            Self.runHitTests(
-                model: publicationModel,
+            ChartBenchmarkSupport.runHitTests(
                 size: largeLayoutSize,
                 iterationCount: hitTestIterationCount
-            )
+            ) { point in
+                publicationModel.segment(at: point, in: largeLayoutSize)?.id
+            }
         }
-        XCTAssertGreaterThan(hitTestMeasurement.value.hitCount, 0)
+        XCTAssertGreaterThan(hitTestMeasurement.value.selectionCount, 0)
         Self.report(
             phase: "hit_testing",
             seconds: hitTestMeasurement.seconds,
             count: hitTestIterationCount,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "hits=\(hitTestMeasurement.value.hitCount) "
+            extra: "hits=\(hitTestMeasurement.value.selectionCount) "
                 + "fingerprint=\(hitTestMeasurement.value.fingerprint)"
         )
 
@@ -200,12 +201,17 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 + "fingerprint=\(tallKeyboardMeasurement.value.fingerprint)"
         )
 
-        let cancellationMeasurement = try await Self.measureLayoutCancellation(
-            store: diskMapStore,
-            rootID: fixture.store.rootID,
-            size: largeLayoutSize,
+        let cancellationMeasurement = try await ChartBenchmarkSupport.measureLayoutCancellation(
             baselineLayoutSeconds: largeLayoutMedian
-        )
+        ) {
+            _ = try TreemapLayout.segments(
+                in: diskMapStore,
+                rootID: fixture.store.rootID,
+                depthLimit: 3,
+                size: largeLayoutSize,
+                cancellationCheck: Task.checkCancellation
+            )
+        }
         XCTAssertTrue(
             cancellationMeasurement.wasCancelled
                 || cancellationMeasurement.completedBeforeCancellation,
@@ -277,7 +283,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         fixture: TreemapBenchmarkFixture,
         diskMapStore: DiskMapTreeStore,
         baseSize: CGSize
-    ) async throws -> RequestSequenceMeasurement {
+    ) async throws -> ChartBenchmarkSupport.RequestSequenceMeasurement {
         let sizes = (0..<6).map { offset in
             CGSize(
                 width: baseSize.width + CGFloat(offset * 24),
@@ -302,7 +308,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         fixture: TreemapBenchmarkFixture,
         diskMapStore: DiskMapTreeStore,
         size: CGSize
-    ) async throws -> RequestSequenceMeasurement {
+    ) async throws -> ChartBenchmarkSupport.RequestSequenceMeasurement {
         let requests = [
             TreemapBenchmarkRequest(
                 rootID: fixture.store.rootID,
@@ -338,20 +344,15 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
     private static func measureRequestSequence(
         _ requests: [TreemapBenchmarkRequest],
         diskMapStore: DiskMapTreeStore
-    ) async throws -> RequestSequenceMeasurement {
-        let probe = TreemapBenchmarkLayoutProbe()
+    ) async throws -> ChartBenchmarkSupport.RequestSequenceMeasurement {
+        let probe = ChartBenchmarkSupport.LayoutProbe()
         let service = InstrumentedTreemapLayoutService(probe: probe)
         let model = TreemapChartModel(layoutService: service)
-        var tasks: [Task<Bool, Never>] = []
-        tasks.reserveCapacity(requests.count)
-        let sequenceStartedAt = ContinuousClock.now
-        var latestRequestStartedAt = sequenceStartedAt
-
-        for (index, request) in requests.enumerated() {
-            if index == requests.count - 1 {
-                latestRequestStartedAt = ContinuousClock.now
-            }
-            tasks.append(Task { @MainActor in
+        return try await ChartBenchmarkSupport.measureRequestSequence(
+            requests,
+            probe: probe,
+            chartName: "Treemap",
+            loadLayout: { request in
                 await model.loadLayout(
                     treeStore: diskMapStore,
                     rootID: request.rootID,
@@ -359,116 +360,14 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                     size: request.size,
                     layoutID: request.layoutID
                 )
-            })
-            try await Self.waitForStartedRequestCount(index + 1, probe: probe)
-        }
-
-        let latestDidApply = await tasks[tasks.count - 1].value
-        let latestCompletedAt = ContinuousClock.now
-        var results: [Bool] = []
-        results.reserveCapacity(tasks.count)
-        for task in tasks {
-            results.append(await task.value)
-        }
-        let probeSnapshot = await probe.snapshot()
-
-        XCTAssertTrue(latestDidApply)
-        XCTAssertEqual(probeSnapshot.startedCount, requests.count)
-        return RequestSequenceMeasurement(
-            requestCount: requests.count,
-            appliedCount: results.filter { $0 }.count,
-            completedCount: probeSnapshot.completedCount,
-            cancelledCount: probeSnapshot.cancelledCount,
-            latestRequestSeconds: BenchmarkSupport.durationSeconds(
-                latestRequestStartedAt.duration(to: latestCompletedAt)
-            ),
-            totalSeconds: BenchmarkSupport.durationSeconds(sequenceStartedAt.duration(to: latestCompletedAt)),
-            renderedLayoutID: model.layoutReadiness.renderedLayoutID,
-            segmentCount: model.renderedSegments.count,
-            fingerprint: Self.segmentFingerprint(model.renderedSegments)
-        )
-    }
-
-    private static func waitForStartedRequestCount(
-        _ expectedCount: Int,
-        probe: TreemapBenchmarkLayoutProbe
-    ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
-        while await probe.startedCount < expectedCount,
-              ContinuousClock.now < deadline {
-            try await Task.sleep(for: .microseconds(100))
-        }
-        guard await probe.startedCount >= expectedCount else {
-            throw TreemapBenchmarkTimeoutError(
-                message: "Timed out waiting for Treemap layout request \(expectedCount) to start."
-            )
-        }
-    }
-
-    private static func measureLayoutCancellation(
-        store: DiskMapTreeStore,
-        rootID: String,
-        size: CGSize,
-        baselineLayoutSeconds: Double
-    ) async throws -> CancellationMeasurement {
-        let task = Task.detached {
-            _ = try TreemapLayout.segments(
-                in: store,
-                rootID: rootID,
-                depthLimit: 3,
-                size: size,
-                cancellationCheck: Task.checkCancellation
-            )
-            return ContinuousClock.now
-        }
-        let delaySeconds = min(max(baselineLayoutSeconds * 0.25, 0.002), 0.05)
-        try await Task.sleep(for: .seconds(delaySeconds))
-
-        let cancellationRequestedAt = ContinuousClock.now
-        task.cancel()
-        do {
-            let completedAt = try await task.value
-            return CancellationMeasurement(
-                seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
-                wasCancelled: false,
-                completedBeforeCancellation: completedAt <= cancellationRequestedAt
-            )
-        } catch is CancellationError {
-            return CancellationMeasurement(
-                seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
-                wasCancelled: true,
-                completedBeforeCancellation: false
-            )
-        }
-    }
-
-    private static func runHitTests(
-        model: TreemapChartModel,
-        size: CGSize,
-        iterationCount: Int
-    ) -> InteractionMeasurement {
-        var state = UInt64(0x9e3779b97f4a7c15)
-        var fingerprint = ChartBenchmarkSupport.fnvOffsetBasis
-        var hitCount = 0
-        for _ in 0..<iterationCount {
-            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            let xUnit = Double(UInt32(truncatingIfNeeded: state)) / Double(UInt32.max)
-            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            let yUnit = Double(UInt32(truncatingIfNeeded: state)) / Double(UInt32.max)
-            let point = CGPoint(
-                x: CGFloat(xUnit) * size.width,
-                y: CGFloat(yUnit) * size.height
-            )
-            if let segment = model.segment(at: point, in: size) {
-                hitCount += 1
-                ChartBenchmarkSupport.hash(segment.id, into: &fingerprint)
-            } else {
-                ChartBenchmarkSupport.hash(UInt64.max, into: &fingerprint)
+            },
+            renderedLayout: {
+                (
+                    model.layoutReadiness.renderedLayoutID,
+                    model.renderedSegments.count,
+                    Self.segmentFingerprint(model.renderedSegments)
+                )
             }
-        }
-        return InteractionMeasurement(
-            selectionCount: hitCount,
-            fingerprint: String(fingerprint, radix: 16)
         )
     }
 
@@ -476,7 +375,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         model: TreemapChartModel,
         size: CGSize,
         iterationCount: Int
-    ) -> InteractionMeasurement {
+    ) -> ChartBenchmarkSupport.InteractionMeasurement {
         let directions: [ChartSpatialSelectionDirection] = [.right, .down, .left, .up]
         var selectedNodeID: String?
         var selectionCount = 0
@@ -496,7 +395,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 ChartBenchmarkSupport.hash(UInt64.max, into: &fingerprint)
             }
         }
-        return InteractionMeasurement(
+        return ChartBenchmarkSupport.InteractionMeasurement(
             selectionCount: selectionCount,
             fingerprint: String(fingerprint, radix: 16)
         )
@@ -616,7 +515,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         fileCount: Int,
         size: CGSize,
         sampleCount: Int
-    ) throws -> [LayoutSample] {
+    ) throws -> [ChartBenchmarkSupport.LayoutSample] {
         let rootID = "/treemap-flat-benchmark"
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
         var nodes = [ChartBenchmarkSupport.node(
@@ -671,7 +570,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             )
         )
         let diskMapStore = DiskMapTreeStore(store)
-        var samples: [LayoutSample] = []
+        var samples: [ChartBenchmarkSupport.LayoutSample] = []
         samples.reserveCapacity(sampleCount)
         for _ in 0..<sampleCount {
             let measurement = try BenchmarkSupport.measure {
@@ -690,7 +589,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             XCTAssertNil(aggregate.nodeID)
             XCTAssertEqual(aggregate.groupedItemCount, fileCount)
             XCTAssertEqual(aggregate.totalSize, Int64(fileCount))
-            samples.append(LayoutSample(
+            samples.append(ChartBenchmarkSupport.LayoutSample(
                 seconds: measurement.seconds,
                 segmentCount: segments.count,
                 fingerprint: Self.segmentFingerprint(segments)
@@ -757,9 +656,9 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
 }
 
 private actor InstrumentedTreemapLayoutService: TreemapLayouting {
-    let probe: TreemapBenchmarkLayoutProbe
+    let probe: ChartBenchmarkSupport.LayoutProbe
 
-    init(probe: TreemapBenchmarkLayoutProbe) {
+    init(probe: ChartBenchmarkSupport.LayoutProbe) {
         self.probe = probe
     }
 
@@ -787,32 +686,6 @@ private actor InstrumentedTreemapLayoutService: TreemapLayouting {
     }
 }
 
-private actor TreemapBenchmarkLayoutProbe {
-    private(set) var startedCount = 0
-    private var completedCount = 0
-    private var cancelledCount = 0
-
-    func recordStarted() {
-        startedCount += 1
-    }
-
-    func recordCompleted() {
-        completedCount += 1
-    }
-
-    func recordCancelled() {
-        cancelledCount += 1
-    }
-
-    func snapshot() -> TreemapBenchmarkLayoutProbeSnapshot {
-        TreemapBenchmarkLayoutProbeSnapshot(
-            startedCount: startedCount,
-            completedCount: completedCount,
-            cancelledCount: cancelledCount
-        )
-    }
-}
-
 private struct PrecomputedTreemapLayoutService: TreemapLayouting {
     let segments: [TreemapSegment]
 
@@ -836,47 +709,4 @@ private struct TreemapBenchmarkRequest {
     let depthLimit: Int
     let size: CGSize
     let layoutID: String
-}
-
-private struct TreemapBenchmarkLayoutProbeSnapshot {
-    let startedCount: Int
-    let completedCount: Int
-    let cancelledCount: Int
-}
-
-private struct LayoutSample {
-    let seconds: Double
-    let segmentCount: Int
-    let fingerprint: String
-}
-
-private struct InteractionMeasurement {
-    let selectionCount: Int
-    let fingerprint: String
-
-    var hitCount: Int { selectionCount }
-}
-
-private struct CancellationMeasurement {
-    let seconds: Double
-    let wasCancelled: Bool
-    let completedBeforeCancellation: Bool
-}
-
-private struct RequestSequenceMeasurement {
-    let requestCount: Int
-    let appliedCount: Int
-    let completedCount: Int
-    let cancelledCount: Int
-    let latestRequestSeconds: Double
-    let totalSeconds: Double
-    let renderedLayoutID: String?
-    let segmentCount: Int
-    let fingerprint: String
-}
-
-private struct TreemapBenchmarkTimeoutError: LocalizedError {
-    let message: String
-
-    var errorDescription: String? { message }
 }

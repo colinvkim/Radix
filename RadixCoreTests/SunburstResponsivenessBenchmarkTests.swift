@@ -38,7 +38,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         )
 
         let denseDiskMapStore = DiskMapTreeStore(denseFixture.store)
-        var largeLayoutSamples: [LayoutSample] = []
+        var largeLayoutSamples: [ChartBenchmarkSupport.LayoutSample] = []
         largeLayoutSamples.reserveCapacity(sampleCount)
         for _ in 0..<sampleCount {
             let measurement = try BenchmarkSupport.measure {
@@ -49,7 +49,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                     cancellationCheck: {}
                 )
             }
-            largeLayoutSamples.append(LayoutSample(
+            largeLayoutSamples.append(ChartBenchmarkSupport.LayoutSample(
                 seconds: measurement.seconds,
                 segmentCount: measurement.value.count,
                 fingerprint: Self.segmentFingerprint(measurement.value)
@@ -141,11 +141,12 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         )
 
         let hitTestMeasurement = BenchmarkSupport.measure {
-            Self.runHitTests(
-                model: publicationModel,
+            ChartBenchmarkSupport.runHitTests(
                 size: chartSize,
                 iterationCount: hitTestIterationCount
-            )
+            ) { point in
+                publicationModel.segment(at: point, in: chartSize)?.id
+            }
         }
         XCTAssertGreaterThan(hitTestMeasurement.value.selectionCount, 0)
         Self.report(
@@ -218,11 +219,16 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 + "fingerprint=\(keyboardMeasurement.value.fingerprint)"
         )
 
-        let cancellationMeasurement = try await Self.measureLayoutCancellation(
-            store: denseDiskMapStore,
-            rootID: denseFixture.denseDirectoryID,
+        let cancellationMeasurement = try await ChartBenchmarkSupport.measureLayoutCancellation(
             baselineLayoutSeconds: denseLayoutMeasurement.seconds
-        )
+        ) {
+            _ = try SunburstLayout.segments(
+                in: denseDiskMapStore,
+                rootID: denseFixture.denseDirectoryID,
+                depthLimit: 1,
+                cancellationCheck: Task.checkCancellation
+            )
+        }
         XCTAssertTrue(
             cancellationMeasurement.wasCancelled
                 || cancellationMeasurement.completedBeforeCancellation,
@@ -273,7 +279,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
     private static func measureRapidRootAndDepthChanges(
         fixture: SunburstDenseBenchmarkFixture,
         diskMapStore: DiskMapTreeStore
-    ) async throws -> RequestSequenceMeasurement {
+    ) async throws -> ChartBenchmarkSupport.RequestSequenceMeasurement {
         let requests = [
             SunburstBenchmarkRequest(
                 rootID: fixture.store.rootID,
@@ -296,137 +302,31 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 layoutID: "root-depth-final"
             ),
         ]
-        let probe = SunburstBenchmarkLayoutProbe()
+        let probe = ChartBenchmarkSupport.LayoutProbe()
         let service = InstrumentedSunburstLayoutService(
             probe: probe,
             suspendedRequestCount: requests.count - 1
         )
         let model = SunburstChartModel(layoutService: service)
-        var tasks: [Task<Bool, Never>] = []
-        tasks.reserveCapacity(requests.count)
-        let sequenceStartedAt = ContinuousClock.now
-        var latestRequestStartedAt = sequenceStartedAt
-
-        for (index, request) in requests.enumerated() {
-            if index == requests.count - 1 {
-                latestRequestStartedAt = ContinuousClock.now
-            }
-            tasks.append(Task { @MainActor in
+        return try await ChartBenchmarkSupport.measureRequestSequence(
+            requests,
+            probe: probe,
+            chartName: "Sunburst",
+            loadLayout: { request in
                 await model.loadLayout(
                     treeStore: diskMapStore,
                     rootID: request.rootID,
                     depthLimit: request.depthLimit,
                     layoutID: request.layoutID
                 )
-            })
-            try await waitForStartedRequestCount(index + 1, probe: probe)
-        }
-
-        let latestDidApply = await tasks[tasks.count - 1].value
-        let latestCompletedAt = ContinuousClock.now
-        var results: [Bool] = []
-        results.reserveCapacity(tasks.count)
-        for task in tasks {
-            results.append(await task.value)
-        }
-        let probeSnapshot = await probe.snapshot()
-
-        XCTAssertTrue(latestDidApply)
-        XCTAssertEqual(probeSnapshot.startedCount, requests.count)
-        return RequestSequenceMeasurement(
-            requestCount: requests.count,
-            appliedCount: results.filter { $0 }.count,
-            completedCount: probeSnapshot.completedCount,
-            cancelledCount: probeSnapshot.cancelledCount,
-            latestRequestSeconds: BenchmarkSupport.durationSeconds(
-                latestRequestStartedAt.duration(to: latestCompletedAt)
-            ),
-            totalSeconds: BenchmarkSupport.durationSeconds(sequenceStartedAt.duration(to: latestCompletedAt)),
-            renderedLayoutID: model.layoutReadiness.renderedLayoutID,
-            segmentCount: model.renderedSegments.count,
-            fingerprint: segmentFingerprint(model.renderedSegments)
-        )
-    }
-
-    private static func waitForStartedRequestCount(
-        _ expectedCount: Int,
-        probe: SunburstBenchmarkLayoutProbe
-    ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
-        while await probe.startedCount < expectedCount,
-              ContinuousClock.now < deadline {
-            try await Task.sleep(for: .microseconds(100))
-        }
-        guard await probe.startedCount >= expectedCount else {
-            throw SunburstBenchmarkTimeoutError(
-                message: "Timed out waiting for Sunburst layout request \(expectedCount) to start."
-            )
-        }
-    }
-
-    private static func measureLayoutCancellation(
-        store: DiskMapTreeStore,
-        rootID: String,
-        baselineLayoutSeconds: Double
-    ) async throws -> CancellationMeasurement {
-        let task = Task.detached {
-            _ = try SunburstLayout.segments(
-                in: store,
-                rootID: rootID,
-                depthLimit: 1,
-                cancellationCheck: Task.checkCancellation
-            )
-            return ContinuousClock.now
-        }
-        let delaySeconds = min(max(baselineLayoutSeconds * 0.25, 0.002), 0.05)
-        try await Task.sleep(for: .seconds(delaySeconds))
-
-        let cancellationRequestedAt = ContinuousClock.now
-        task.cancel()
-        do {
-            let completedAt = try await task.value
-            return CancellationMeasurement(
-                seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
-                wasCancelled: false,
-                completedBeforeCancellation: completedAt <= cancellationRequestedAt
-            )
-        } catch is CancellationError {
-            return CancellationMeasurement(
-                seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
-                wasCancelled: true,
-                completedBeforeCancellation: false
-            )
-        }
-    }
-
-    private static func runHitTests(
-        model: SunburstChartModel,
-        size: CGSize,
-        iterationCount: Int
-    ) -> InteractionMeasurement {
-        var state = UInt64(0x9e3779b97f4a7c15)
-        var fingerprint = ChartBenchmarkSupport.fnvOffsetBasis
-        var hitCount = 0
-
-        for _ in 0..<iterationCount {
-            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            let xUnit = Double(UInt32(truncatingIfNeeded: state)) / Double(UInt32.max)
-            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            let yUnit = Double(UInt32(truncatingIfNeeded: state)) / Double(UInt32.max)
-            let point = CGPoint(
-                x: CGFloat(xUnit) * size.width,
-                y: CGFloat(yUnit) * size.height
-            )
-            if let segment = model.segment(at: point, in: size) {
-                hitCount += 1
-                ChartBenchmarkSupport.hash(segment.id, into: &fingerprint)
-            } else {
-                ChartBenchmarkSupport.hash(UInt64.max, into: &fingerprint)
+            },
+            renderedLayout: {
+                (
+                    model.layoutReadiness.renderedLayoutID,
+                    model.renderedSegments.count,
+                    Self.segmentFingerprint(model.renderedSegments)
+                )
             }
-        }
-        return InteractionMeasurement(
-            selectionCount: hitCount,
-            fingerprint: String(fingerprint, radix: 16)
         )
     }
 
@@ -434,7 +334,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         model: SunburstChartModel,
         inputs: [OverlayInput],
         iterationCount: Int
-    ) -> InteractionMeasurement {
+    ) -> ChartBenchmarkSupport.InteractionMeasurement {
         var fingerprint = ChartBenchmarkSupport.fnvOffsetBasis
         var segmentCount = 0
 
@@ -455,7 +355,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 }
             }
         }
-        return InteractionMeasurement(
+        return ChartBenchmarkSupport.InteractionMeasurement(
             selectionCount: segmentCount,
             fingerprint: String(fingerprint, radix: 16)
         )
@@ -464,7 +364,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
     private static func runKeyboardSelection(
         model: SunburstChartModel,
         iterationCount: Int
-    ) -> InteractionMeasurement {
+    ) -> ChartBenchmarkSupport.InteractionMeasurement {
         let directions: [ChartSpatialSelectionDirection] = [.right, .down, .left, .up]
         var selectedNodeID: String?
         var selectionCount = 0
@@ -483,7 +383,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 ChartBenchmarkSupport.hash(UInt64.max, into: &fingerprint)
             }
         }
-        return InteractionMeasurement(
+        return ChartBenchmarkSupport.InteractionMeasurement(
             selectionCount: selectionCount,
             fingerprint: String(fingerprint, radix: 16)
         )
@@ -720,11 +620,11 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
 }
 
 private actor InstrumentedSunburstLayoutService: SunburstLayouting {
-    let probe: SunburstBenchmarkLayoutProbe
+    let probe: ChartBenchmarkSupport.LayoutProbe
     let suspendedRequestCount: Int
 
     init(
-        probe: SunburstBenchmarkLayoutProbe,
+        probe: ChartBenchmarkSupport.LayoutProbe,
         suspendedRequestCount: Int
     ) {
         self.probe = probe
@@ -740,7 +640,7 @@ private actor InstrumentedSunburstLayoutService: SunburstLayouting {
         do {
             if requestNumber <= suspendedRequestCount {
                 try await Task.sleep(for: .seconds(5))
-                throw SunburstBenchmarkTimeoutError(
+                throw ChartBenchmarkSupport.TimeoutError(
                     message: "Expected Sunburst request \(requestNumber) to be superseded."
                 )
             }
@@ -756,33 +656,6 @@ private actor InstrumentedSunburstLayoutService: SunburstLayouting {
             await probe.recordCancelled()
             throw CancellationError()
         }
-    }
-}
-
-private actor SunburstBenchmarkLayoutProbe {
-    private(set) var startedCount = 0
-    private var completedCount = 0
-    private var cancelledCount = 0
-
-    func recordStarted() -> Int {
-        startedCount += 1
-        return startedCount
-    }
-
-    func recordCompleted() {
-        completedCount += 1
-    }
-
-    func recordCancelled() {
-        cancelledCount += 1
-    }
-
-    func snapshot() -> SunburstBenchmarkLayoutProbeSnapshot {
-        SunburstBenchmarkLayoutProbeSnapshot(
-            startedCount: startedCount,
-            completedCount: completedCount,
-            cancelledCount: cancelledCount
-        )
     }
 }
 
@@ -813,48 +686,7 @@ private struct SunburstBenchmarkRequest {
     let layoutID: String
 }
 
-private struct SunburstBenchmarkLayoutProbeSnapshot {
-    let startedCount: Int
-    let completedCount: Int
-    let cancelledCount: Int
-}
-
 private struct OverlayInput {
     let selectedNodeID: String
     let ancestorIDs: Set<String>
-}
-
-private struct LayoutSample {
-    let seconds: Double
-    let segmentCount: Int
-    let fingerprint: String
-}
-
-private struct InteractionMeasurement {
-    let selectionCount: Int
-    let fingerprint: String
-}
-
-private struct CancellationMeasurement {
-    let seconds: Double
-    let wasCancelled: Bool
-    let completedBeforeCancellation: Bool
-}
-
-private struct RequestSequenceMeasurement {
-    let requestCount: Int
-    let appliedCount: Int
-    let completedCount: Int
-    let cancelledCount: Int
-    let latestRequestSeconds: Double
-    let totalSeconds: Double
-    let renderedLayoutID: String?
-    let segmentCount: Int
-    let fingerprint: String
-}
-
-private struct SunburstBenchmarkTimeoutError: LocalizedError {
-    let message: String
-
-    var errorDescription: String? { message }
 }
