@@ -1671,10 +1671,22 @@ actor ScanEngine {
                       let request = pendingOrdinaryLeafRequests.popLast() {
                     activeOrdinaryLeafTasks += 1
                     group.addTask {
-                        .ordinaryLeaves(try self.prepareOrdinaryLeaves(
+                        #if DEBUG
+                        let preparationStart = diagnostics?.start()
+                        #endif
+                        let batch = try self.prepareOrdinaryLeaves(
                             request,
                             cancellationCheck: cancellationCheck
-                        ))
+                        )
+                        #if DEBUG
+                        diagnostics?.record(
+                            operation: "leaf.prepare",
+                            url: request.entries[request.range.lowerBound].url,
+                            startedAt: preparationStart,
+                            itemCount: batch.items.count
+                        )
+                        #endif
+                        return .ordinaryLeaves(batch)
                     }
                 }
 
