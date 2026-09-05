@@ -4,6 +4,31 @@
 //
 
 nonisolated enum CancellableSort {
+    /// Avoids moving large values through the chunk and merge buffers.
+    static func sortedByIndex<Element>(
+        _ elements: [Element],
+        cancellationCheck: () throws -> Void,
+        by areInIncreasingOrder: (Element, Element) -> Bool
+    ) rethrows -> [Element] {
+        var indices: [Int] = []
+        indices.reserveCapacity(elements.count)
+        for offset in elements.indices {
+            if offset.isMultiple(of: 256) { try cancellationCheck() }
+            indices.append(offset)
+        }
+        let sortedIndices = try sorted(&indices, cancellationCheck: cancellationCheck) {
+            areInIncreasingOrder(elements[$0], elements[$1])
+        }
+        var result: [Element] = []
+        result.reserveCapacity(elements.count)
+        for (offset, index) in sortedIndices.enumerated() {
+            if offset.isMultiple(of: 256) { try cancellationCheck() }
+            result.append(elements[index])
+        }
+        try cancellationCheck()
+        return result
+    }
+
     private static let chunkSize = 16_384
 
     static func sorted<Element>(

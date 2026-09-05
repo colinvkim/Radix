@@ -17,21 +17,36 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
         coverageTarget: Double = 0.95,
         maximumNamedChildren: Int = 12
     ) -> ScanComparisonChangeTreeProjection {
+        significantProjection(
+            changeKinds: changeKinds, coverageTarget: coverageTarget,
+            maximumNamedChildren: maximumNamedChildren, cancellationCheck: {}
+        )
+    }
+
+    func significantProjection(
+        changeKinds: Set<ScanComparisonChangeKind>,
+        coverageTarget: Double = 0.95,
+        maximumNamedChildren: Int = 12,
+        cancellationCheck: () throws -> Void
+    ) rethrows -> ScanComparisonChangeTreeProjection {
+        try cancellationCheck()
         let target = min(max(coverageTarget, 0), 1)
         let maximum = max(1, maximumNamedChildren)
-        let rootSelection = significantSelection(
+        let rootSelection = try significantSelection(
             from: rootPaths,
             changeKinds: changeKinds,
             coverageTarget: target,
-            maximumNamedChildren: maximum
+            maximumNamedChildren: maximum,
+            cancellationCheck: cancellationCheck
         )
-        let roots = projectedNodes(
+        let roots = try projectedNodes(
             selectedPaths: rootSelection.selected,
             hiddenPaths: rootSelection.hidden,
             parentPath: nil,
             changeKinds: changeKinds,
             coverageTarget: target,
-            maximumNamedChildren: maximum
+            maximumNamedChildren: maximum,
+            cancellationCheck: cancellationCheck
         )
 
         return ScanComparisonChangeTreeProjection(
@@ -53,27 +68,27 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
         parentPath: String?,
         changeKinds: Set<ScanComparisonChangeKind>,
         coverageTarget: Double,
-        maximumNamedChildren: Int
-    ) -> [ScanComparisonChangeTreeNode] {
-        var projected = selectedPaths.compactMap { path -> ScanComparisonChangeTreeNode? in
+        maximumNamedChildren: Int,
+        cancellationCheck: () throws -> Void
+    ) rethrows -> [ScanComparisonChangeTreeNode] {
+        var projected = try selectedPaths.compactMap { path -> ScanComparisonChangeTreeNode? in
+            try cancellationCheck()
             guard let aggregate = nodesByPath[path] else { return nil }
-            let eligibleChildren = aggregate.childPaths.filter { childPath in
-                guard let child = nodesByPath[childPath] else { return false }
-                return child.includes(any: changeKinds)
-            }
-            let selection = significantSelection(
-                from: eligibleChildren,
+            let selection = try significantSelection(
+                from: aggregate.childPaths,
                 changeKinds: changeKinds,
                 coverageTarget: coverageTarget,
-                maximumNamedChildren: maximumNamedChildren
+                maximumNamedChildren: maximumNamedChildren,
+                cancellationCheck: cancellationCheck
             )
-            let children = projectedNodes(
+            let children = try projectedNodes(
                 selectedPaths: selection.selected,
                 hiddenPaths: selection.hidden,
                 parentPath: path,
                 changeKinds: changeKinds,
                 coverageTarget: coverageTarget,
-                maximumNamedChildren: maximumNamedChildren
+                maximumNamedChildren: maximumNamedChildren,
+                cancellationCheck: cancellationCheck
             )
             return ScanComparisonChangeTreeNode(
                 aggregate: aggregate,
@@ -83,11 +98,11 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
         }
 
         if !hiddenPaths.isEmpty {
-            let hiddenNodes = hiddenPaths.compactMap { nodesByPath[$0] }
-            projected.append(ScanComparisonChangeTreeNode.remainder(
+            projected.append(try ScanComparisonChangeTreeNode.remainder(
                 parentPath: parentPath,
                 changeKinds: changeKinds,
-                hiddenNodes: hiddenNodes
+                hiddenNodes: hiddenPaths.lazy.compactMap { nodesByPath[$0] },
+                cancellationCheck: cancellationCheck
             ))
         }
         return projected
@@ -97,11 +112,14 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
         from paths: [String],
         changeKinds: Set<ScanComparisonChangeKind>,
         coverageTarget: Double,
-        maximumNamedChildren: Int
-    ) -> SignificantSelection {
-        let eligible = paths.compactMap { path -> ScanComparisonAggregateChange? in
-            guard let node = nodesByPath[path], node.includes(any: changeKinds) else { return nil }
-            return node
+        maximumNamedChildren: Int,
+        cancellationCheck: () throws -> Void
+    ) rethrows -> SignificantSelection {
+        var eligible: [ScanComparisonAggregateChange] = []
+        for (offset, path) in paths.enumerated() {
+            if offset.isMultiple(of: 256) { try cancellationCheck() }
+            guard let node = nodesByPath[path], node.includes(any: changeKinds) else { continue }
+            eligible.append(node)
         }
         guard !eligible.isEmpty else {
             return SignificantSelection(selected: [], hidden: [], representedImpact: 0, totalImpact: 0)
@@ -109,41 +127,41 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
 
         var selectedIDs = Set<String>()
         for kind in changeKinds {
-            var selectedForKind = selectForCoverage(
+            var selectedForKind = try selectForCoverage(
                 eligible,
                 value: { $0.impact(for: kind) },
                 coverageTarget: coverageTarget,
-                maximumCount: maximumNamedChildren
+                maximumCount: maximumNamedChildren,
+                cancellationCheck: cancellationCheck
             )
             if selectedForKind.isEmpty {
-                selectedForKind = selectForCoverage(
+                selectedForKind = try selectForCoverage(
                     eligible,
                     value: { Int64($0.changeCount(for: kind)) },
                     coverageTarget: coverageTarget,
-                    maximumCount: maximumNamedChildren
+                    maximumCount: maximumNamedChildren,
+                    cancellationCheck: cancellationCheck
                 )
             }
             selectedIDs.formUnion(selectedForKind)
         }
 
-        let ranked = eligible.map { node in
-            RankedSignificantNode(
-                node: node,
-                impact: node.impact(for: changeKinds),
-                changeCount: Int64(changeKinds.reduce(0) { $0 + node.changeCount(for: $1) })
-            )
-        }
-
         var selectedEntries: [RankedSignificantNode] = []
         var hidden: [String] = []
-        let selectedCapacity = min(selectedIDs.count, ranked.count)
+        let selectedCapacity = min(selectedIDs.count, eligible.count)
         selectedEntries.reserveCapacity(selectedCapacity)
-        hidden.reserveCapacity(ranked.count - selectedCapacity)
+        hidden.reserveCapacity(eligible.count - selectedCapacity)
         var totalImpact: Int64 = 0
         var representedImpact: Int64 = 0
         var totalChangeCount: Int64 = 0
         var representedChangeCount: Int64 = 0
-        for entry in ranked {
+        for (offset, node) in eligible.enumerated() {
+            if offset.isMultiple(of: 256) { try cancellationCheck() }
+            let entry = RankedSignificantNode(
+                node: node,
+                impact: node.impact(for: changeKinds),
+                changeCount: Int64(changeKinds.reduce(0) { $0 + node.changeCount(for: $1) })
+            )
             let isSelected = selectedIDs.contains(entry.node.id)
             if isSelected {
                 selectedEntries.append(entry)
@@ -170,9 +188,14 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
             totalImpact = totalChangeCount
             representedImpact = representedChangeCount
         }
-        selectedEntries.sort(by: ranksBefore)
+        let sortedEntries = try CancellableSort.sorted(
+            &selectedEntries, cancellationCheck: cancellationCheck, by: ranksBefore
+        )
         return SignificantSelection(
-            selected: selectedEntries.map { $0.node.relativePath },
+            selected: try sortedEntries.map {
+                try cancellationCheck()
+                return $0.node.relativePath
+            },
             hidden: hidden,
             representedImpact: representedImpact,
             totalImpact: totalImpact
@@ -183,14 +206,16 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
         _ nodes: [ScanComparisonAggregateChange],
         value: (ScanComparisonAggregateChange) -> Int64,
         coverageTarget: Double,
-        maximumCount: Int
-    ) -> Set<String> {
+        maximumCount: Int,
+        cancellationCheck: () throws -> Void
+    ) rethrows -> Set<String> {
         guard maximumCount > 0 else { return [] }
 
         var total = Double(0)
         var leading: [CoverageCandidate] = []
         leading.reserveCapacity(min(maximumCount, nodes.count))
-        for node in nodes {
+        for (offset, node) in nodes.enumerated() {
+            if offset.isMultiple(of: 256) { try cancellationCheck() }
             let nodeValue = value(node)
             guard nodeValue > 0 else { continue }
             total += Double(nodeValue)
@@ -209,6 +234,7 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
         var represented = Double(0)
         var selected = Set<String>()
         for entry in leading {
+            try cancellationCheck()
             guard represented < target else { break }
             selected.insert(entry.node.id)
             represented += Double(entry.value)
@@ -321,14 +347,16 @@ nonisolated struct ScanComparisonChangeTreeNode: Identifiable, Equatable, Sendab
     static func remainder(
         parentPath: String?,
         changeKinds: Set<ScanComparisonChangeKind>,
-        hiddenNodes: [ScanComparisonAggregateChange]
-    ) -> ScanComparisonChangeTreeNode {
+        hiddenNodes: some Sequence<ScanComparisonAggregateChange>,
+        cancellationCheck: () throws -> Void
+    ) rethrows -> ScanComparisonChangeTreeNode {
         var affectedCount = 0
         var increasedAllocatedSize: Int64 = 0
         var reclaimedAllocatedSize: Int64 = 0
         var movedCount = 0
         let includesMoved = changeKinds.contains(.moved)
-        for node in hiddenNodes {
+        for (offset, node) in hiddenNodes.enumerated() {
+            if offset.isMultiple(of: 256) { try cancellationCheck() }
             for kind in changeKinds {
                 affectedCount += node.changeCount(for: kind)
                 increasedAllocatedSize = ScanComparisonIntegerMath.addingClamped(

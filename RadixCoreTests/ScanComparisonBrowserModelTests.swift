@@ -222,6 +222,45 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
         XCTAssertEqual(processedSearchTexts, ["", "second"])
     }
 
+    func testProjectionReuseRequiresCompletedMatchingDatasetAndKinds() async throws {
+        let recorder = ComparisonProcessorRecorder()
+        let model = ScanComparisonBrowserModel(
+            searchDebounceNanoseconds: 0,
+            processor: { try await recorder.process($0) }
+        )
+        let id = UUID()
+        let rows = [makeRow("first.txt")]
+        let requests: [(UUID, ScanComparisonRowQuery)] = [
+            (id, query("")),
+            (id, .init(searchText: "", sortOrder: [], pathPrefix: "folder")),
+            (id, .init(searchText: "", sortOrder: [.defaultOrder])),
+            (id, query("first")),
+            (id, query("first", changeKinds: [.added])),
+            (UUID(), query("first", changeKinds: [.added]))
+        ]
+        for (comparisonID, query) in requests {
+            model.refresh(comparisonID: comparisonID, rows: rows, changeTree: .empty, query: query)
+            try await waitUntil { !model.isRefreshing }
+        }
+        let reused = await recorder.reusedProjections
+        XCTAssertEqual(reused, [false, true, true, true, false, false])
+        model.cancel()
+        let last = try XCTUnwrap(requests.last)
+        model.refresh(comparisonID: last.0, rows: rows, changeTree: .empty, query: last.1)
+        try await waitUntil { !model.isRefreshing }
+        let reusedAfterCancel = await recorder.reusedProjections.last
+        XCTAssertEqual(reusedAfterCancel, false)
+    }
+
+    func testDefaultProcessorUsesSuppliedProjection() async throws {
+        let expected = ScanComparisonChangeTree.empty.significantProjection(changeKinds: [.added])
+        let output = try await ScanComparisonBrowserModel.process(.init(
+            rows: [], changeTree: .empty, query: query(""), searchIndex: nil,
+            projection: expected
+        ))
+        XCTAssertEqual(output.projection, expected)
+    }
+
     private func query(
         _ searchText: String,
         changeKinds: Set<ScanComparisonChangeKind> = Set(ScanComparisonChangeKind.allCases)
@@ -292,17 +331,19 @@ private actor ComparisonProcessorGate {
 
 private actor ComparisonProcessorRecorder {
     private(set) var searchTexts: [String] = []
+    private(set) var reusedProjections: [Bool] = []
 
     func process(
         _ input: ScanComparisonBrowserModel.WorkInput
     ) throws -> ScanComparisonBrowserModel.WorkOutput {
         searchTexts.append(input.query.searchText)
+        reusedProjections.append(input.projection != nil)
         return ScanComparisonBrowserModel.WorkOutput(
             rows: try input.query.applying(
                 to: input.rows,
                 cancellationCheck: {}
             ),
-            projection: input.changeTree.significantProjection(changeKinds: input.query.changeKinds)
+            projection: input.projection ?? input.changeTree.significantProjection(changeKinds: input.query.changeKinds)
         )
     }
 }

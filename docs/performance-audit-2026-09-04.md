@@ -14,7 +14,7 @@ The completed-scan cache now charges full backing trees once, evicts older indep
 
 **Follow-up status — 5 September 2026**
 
-Counting the nine prioritized findings below, five retain unfinished work after the chart fix: four are partly addressed and comparison work is open. Four findings are complete. This counts whole findings, including their secondary recommendations; completing a finding's largest fix does not close its remaining follow-ups.
+Counting the nine prioritized findings below, four retain unfinished work after the chart and comparison fixes; all four are partly addressed. Five findings are complete. This counts whole findings, including their secondary recommendations; completing a finding's largest fix does not close its remaining follow-ups.
 
 | Finding | Status | Remaining work |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ Counting the nine prioritized findings below, five retain unfinished work after 
 | 6. Scanning allocations/queues | Partial | Queue retention measured and a scheduling limit deferred; per-entry native-name allocations and other frontier shapes remain follow-ups. |
 | 7. Completed-scan cache | Complete | Full backing accounting, eviction, and bounded background cleanup validated. |
 | 8. Chart preparation | Complete | Shared selective color preparation, skipped unrenderable children, and cooperative cancellation implemented; see [chart validation](/Users/colin/Programming/Radix/docs/performance-audit/charts-2026-09-05.md). |
-| 9. Comparison projection/sorting | Open | Measure and reduce repeated projection; improve cancellation and sorting. |
+| 9. Comparison projection/sorting | Complete | Published projection reuse, reduced temporary arrays, offset sorting, and cancellation validated at 100k/1m rows; see [comparison validation](/Users/colin/Programming/Radix/docs/performance-audit/comparison-2026-09-05.md). |
 
 The queue-policy part of finding 6 is deferred because the measured workloads did not show sustained queue accumulation. The broader profiling opportunities under “Other investigated areas” are not included in this nine-finding count.
 

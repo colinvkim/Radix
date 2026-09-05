@@ -6,6 +6,59 @@ import XCTest
 /// Opt-in measurements for the performance audit; elapsed times are never test assertions.
 final class PerformanceAuditBenchmarkTests: XCTestCase {
     @MainActor
+    func testComparisonPreparationBenchmark() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RADIX_BENCH_COMPARISON"] == "1" else {
+            throw XCTSkip("Set RADIX_BENCH_COMPARISON=1 to measure comparison preparation.")
+        }
+        let count = environment["RADIX_BENCH_COMPARISON_FILES"].flatMap(Int.init) ?? 100_000
+        let before = Self.makeFlatSnapshot(fileCount: 0)
+        let after = Self.makeFlatSnapshot(fileCount: count)
+        let service = ScanComparisonService(profileReporter: { phase, duration in
+            BenchmarkSupport.report(
+                prefix: "RADIX_BENCH_AUDIT_RESULT", phase: "comparison_\(phase.rawValue)",
+                seconds: BenchmarkSupport.durationSeconds(duration), count: count,
+                peakRSS: BenchmarkSupport.peakResidentBytes()
+            )
+        })
+        let comparison = try await service.compare(before: before, after: after)
+        XCTAssertEqual(comparison.rows.count, count)
+        let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
+        let queries: [(String, ScanComparisonRowQuery)] = [
+            ("initial", .init(searchText: "", sortOrder: [])),
+            ("path", .init(searchText: "", sortOrder: [], pathPrefix: "item-0.dat")),
+            ("sort", .init(searchText: "", sortOrder: [.defaultOrder])),
+            ("search_cold", .init(searchText: "item-0.dat", sortOrder: [])),
+            ("search_warm", .init(searchText: "item-1.dat", sortOrder: []))
+        ]
+        for (phase, query) in queries {
+            let start = ContinuousClock.now
+            model.refresh(
+                comparisonID: comparison.id, rows: comparison.rows,
+                changeTree: comparison.changeTree, query: query
+            )
+            // Avoid spinning the main actor while its background request runs.
+            while model.isRefreshing { try await Task.sleep(for: .milliseconds(1)) }
+            let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
+            var fingerprint = ChartResponsivenessBenchmarkSupport.fnvOffsetBasis
+            for row in model.displayedRows {
+                ChartResponsivenessBenchmarkSupport.hash(row.relativePath, into: &fingerprint)
+            }
+            // Sets have process-dependent iteration order; hash ordered projection nodes and totals.
+            ChartResponsivenessBenchmarkSupport.hash(String(reflecting: model.projection.roots), into: &fingerprint)
+            ChartResponsivenessBenchmarkSupport.hash(
+                "\(model.projection.totalImpact):\(model.projection.representedImpact):\(model.projection.hiddenRootCount)",
+                into: &fingerprint
+            )
+            Self.report(
+                phase: "comparison_refresh_\(phase)", count: count, seconds: seconds,
+                extra: "rows=\(model.displayedRows.count) fingerprint=\(String(fingerprint, radix: 16))"
+            )
+        }
+        withExtendedLifetime(comparison) {}
+    }
+
+    @MainActor
     func testChartPreparationBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RADIX_BENCH_CHART_PREPARATION"] == "1" else {

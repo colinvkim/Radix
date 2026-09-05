@@ -1676,9 +1676,9 @@ final class ScanComparisonServiceTests: XCTestCase {
     func testRowQueryStopsBetweenLargeSortRuns() {
         let rows = makeComparisonRows(count: 20_000)
         let filteringCheckCount = (rows.count + 255) / 256
-        // Entry, filtering, post-filter, first sorted run, then cancellation
-        // before the second run starts.
-        let secondSortedRunCheck = 1 + filteringCheckCount + 1 + 2
+        // Entry, filtering, post-filter, offset preparation, first sorted run,
+        // then cancellation before the second run starts.
+        let secondSortedRunCheck = 1 + filteringCheckCount + 1 + filteringCheckCount + 2
         let probe = CancellationProbe(throwOnCheck: secondSortedRunCheck)
         let query = ScanComparisonRowQuery(
             searchText: "",
@@ -1696,6 +1696,29 @@ final class ScanComparisonServiceTests: XCTestCase {
             XCTAssertTrue(error is CancellationError)
         }
         XCTAssertEqual(probe.checkCount, secondSortedRunCheck)
+    }
+
+    func testSignificantProjectionCancelsDuringCoverageAndRemainderWork() async throws {
+        let files = (0..<600).map {
+            makeTestFileNode(id: "/root/file-\($0).bin", name: "file-\($0).bin", size: Int64($0))
+        }
+        let comparison = try await ScanComparisonService().compare(
+            before: cloneSnapshot([]), after: cloneSnapshot(files)
+        )
+        var checks = 0
+        let expected = comparison.changeTree.significantProjection(changeKinds: [.added])
+        let measured = try comparison.changeTree.significantProjection(
+            changeKinds: [.added], cancellationCheck: { checks += 1 }
+        )
+        XCTAssertEqual(measured, expected)
+        // Cancellation after eligibility preparation and near the end of remainder aggregation.
+        for limit in [6, checks - 1] {
+            let probe = CancellationProbe(throwOnCheck: limit)
+            XCTAssertThrowsError(try comparison.changeTree.significantProjection(
+                changeKinds: [.added], cancellationCheck: probe.check
+            )) { XCTAssertTrue($0 is CancellationError) }
+            XCTAssertEqual(probe.checkCount, limit)
+        }
     }
 
     private func resourceIdentity(fileID: UInt64, volumeToken: UInt64) -> FileIdentity {

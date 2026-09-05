@@ -371,12 +371,13 @@ nonisolated struct ScanComparisonAggregateChange: Identifiable, Equatable, Senda
     }
 
     func impact(for changeKinds: Set<ScanComparisonChangeKind>) -> Int64 {
-        let storageKinds = changeKinds.subtracting([.moved])
-        if !storageKinds.isEmpty {
-            return storageKinds.reduce(0) {
-                ScanComparisonIntegerMath.addingClamped($0, impact(for: $1))
-            }
+        var storageImpact: Int64 = 0
+        var hasStorageKind = false
+        for kind in changeKinds where kind != .moved {
+            hasStorageKind = true
+            storageImpact = ScanComparisonIntegerMath.addingClamped(storageImpact, impact(for: kind))
         }
+        if hasStorageKind { return storageImpact }
         return changeKinds.contains(.moved) ? Int64(movedCount) : 0
     }
 }
@@ -693,7 +694,7 @@ nonisolated struct ScanComparisonService: Sendable {
         let coveredRemovedPaths = Set(visibleRemovedPaths.filter { relativePath in
             !warningBoundaryIndex.overlaps(relativePath)
         })
-        let movedPathPairs = Self.movedPathPairs(
+        let movedPathPairs = try Self.movedPathPairs(
             beforeNodes: beforeNodes,
             afterNodes: afterNodes,
             removedPaths: coveredRemovedPaths,
@@ -787,13 +788,10 @@ nonisolated struct ScanComparisonService: Sendable {
 
         try Task.checkCancellation()
         let rowSortingStartedAt = profileStart()
-        let sortedRows = rows.sorted { lhs, rhs in
-            ScanComparisonRowComparator.sortsBefore(
-                lhs,
-                rhs,
-                using: ScanComparisonRowComparator.defaultSortOrder
-            )
-        }
+        let sortedRows = try ScanComparisonRowComparator.sorted(
+            rows, using: ScanComparisonRowComparator.defaultSortOrder,
+            cancellationCheck: { try Task.checkCancellation() }
+        )
         finishProfile(.sortRows, startedAt: rowSortingStartedAt)
 
         let changeTreeStartedAt = profileStart()
@@ -805,7 +803,7 @@ nonisolated struct ScanComparisonService: Sendable {
         finishProfile(.buildChangeTree, startedAt: changeTreeStartedAt)
 
         let topLevelChangesStartedAt = profileStart()
-        let topLevelChanges = Self.topLevelChanges(
+        let topLevelChanges = try Self.topLevelChanges(
             from: changeTreeBuild.topLevelAggregates,
             beforeNodes: beforeNodes,
             afterNodes: afterNodes
@@ -1004,19 +1002,20 @@ nonisolated struct ScanComparisonService: Sendable {
         addedPaths: Set<String>,
         beforeVolumeToken: UInt64?,
         afterVolumeToken: UInt64?
-    ) -> [MovedPathPair] {
-        let removedCandidates = moveCandidateOccurrences(
+    ) throws -> [MovedPathPair] {
+        let removedCandidates = try moveCandidateOccurrences(
             in: beforeNodes,
             paths: removedPaths,
             volumeToken: beforeVolumeToken
         )
-        let addedCandidates = moveCandidateOccurrences(
+        let addedCandidates = try moveCandidateOccurrences(
             in: afterNodes,
             paths: addedPaths,
             volumeToken: afterVolumeToken
         )
 
-        return removedCandidates.compactMap { identity, removedOccurrence in
+        var pairs = try removedCandidates.compactMap { identity, removedOccurrence -> MovedPathPair? in
+            try Task.checkCancellation()
             guard removedOccurrence.count == 1,
                   let addedOccurrence = addedCandidates[identity],
                   addedOccurrence.count == 1 else {
@@ -1027,7 +1026,9 @@ nonisolated struct ScanComparisonService: Sendable {
                 afterRelativePath: addedOccurrence.firstRelativePath
             )
         }
-        .sorted { lhs, rhs in
+        return try CancellableSort.sorted(
+            &pairs, cancellationCheck: { try Task.checkCancellation() }
+        ) { lhs, rhs in
             lhs.afterRelativePath.localizedStandardCompare(rhs.afterRelativePath) == .orderedAscending
         }
     }
@@ -1036,10 +1037,11 @@ nonisolated struct ScanComparisonService: Sendable {
         in nodes: [String: FileNodeRecord],
         paths: Set<String>,
         volumeToken: UInt64?
-    ) -> [ComparableMoveIdentity: MoveCandidateOccurrence] {
+    ) throws -> [ComparableMoveIdentity: MoveCandidateOccurrence] {
         var occurrences: [ComparableMoveIdentity: MoveCandidateOccurrence] = [:]
         occurrences.reserveCapacity(paths.count)
         for relativePath in paths {
+            try Task.checkCancellation()
             guard let node = nodes[relativePath],
                   let identity = moveIdentity(for: node, volumeToken: volumeToken) else {
                 continue
@@ -1292,9 +1294,14 @@ nonisolated struct ScanComparisonService: Sendable {
             let accumulator = accumulators[nodeIndex]
             guard accumulator.representativeRelativePath != nil else { continue }
             let displayNode = afterNodes[path] ?? beforeNodes[path]
-            let childPaths = pathInterner.childIndices(of: nodeIndex)
-                .sorted(by: nodeSort)
-                .map(pathInterner.path)
+            var childIndices = Array(pathInterner.childIndices(of: nodeIndex))
+            let sortedChildren = try CancellableSort.sorted(
+                &childIndices, cancellationCheck: { try Task.checkCancellation() }, by: nodeSort
+            )
+            let childPaths = try sortedChildren.map { index in
+                try Task.checkCancellation()
+                return pathInterner.path(at: index)
+            }
             nodesByPath[path] = ScanComparisonAggregateChange(
                 id: path,
                 relativePath: path,
@@ -1316,9 +1323,16 @@ nonisolated struct ScanComparisonService: Sendable {
             )
         }
 
-        let rootIndices = pathInterner.rootChildIndices.sorted(by: nodeSort)
-        let rootPaths = rootIndices.map(pathInterner.path)
-        let topLevelAggregates = rootIndices.compactMap { rootIndex -> TopLevelAggregate? in
+        var unsortedRoots = Array(pathInterner.rootChildIndices)
+        let rootIndices = try CancellableSort.sorted(
+            &unsortedRoots, cancellationCheck: { try Task.checkCancellation() }, by: nodeSort
+        )
+        let rootPaths = try rootIndices.map { index in
+            try Task.checkCancellation()
+            return pathInterner.path(at: index)
+        }
+        let topLevelAggregates = try rootIndices.compactMap { rootIndex -> TopLevelAggregate? in
+            try Task.checkCancellation()
             let accumulator = accumulators[rootIndex]
             guard let representativeRelativePath = accumulator.representativeRelativePath else {
                 return nil
@@ -1347,8 +1361,9 @@ nonisolated struct ScanComparisonService: Sendable {
         from aggregates: [TopLevelAggregate],
         beforeNodes: [String: FileNodeRecord],
         afterNodes: [String: FileNodeRecord]
-    ) -> [ScanComparisonLocationChange] {
-        aggregates.map { aggregate in
+    ) throws -> [ScanComparisonLocationChange] {
+        let changes = try aggregates.map { aggregate in
+            try Task.checkCancellation()
             let relativePath = aggregate.relativePath
             let beforeNode = beforeNodes[relativePath]
             let afterNode = afterNodes[relativePath]
@@ -1370,7 +1385,9 @@ nonisolated struct ScanComparisonService: Sendable {
                 afterNode: afterNode
             )
         }
-        .sorted { lhs, rhs in
+        return try CancellableSort.sortedByIndex(
+            changes, cancellationCheck: { try Task.checkCancellation() }
+        ) { lhs, rhs in
             if lhs.grossChangedAllocatedSize != rhs.grossChangedAllocatedSize {
                 return lhs.grossChangedAllocatedSize > rhs.grossChangedAllocatedSize
             }

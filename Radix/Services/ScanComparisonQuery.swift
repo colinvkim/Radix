@@ -49,6 +49,17 @@ nonisolated struct ScanComparisonRowComparator: Equatable, SortComparator, Senda
     static let defaultOrder = ScanComparisonRowComparator(field: .absoluteAllocatedDelta, order: .reverse)
     static let defaultSortOrder = [defaultOrder]
 
+    static func sorted(
+        _ rows: [ScanComparisonRow],
+        using comparators: [ScanComparisonRowComparator],
+        cancellationCheck: () throws -> Void
+    ) rethrows -> [ScanComparisonRow] {
+        guard !comparators.isEmpty else { return rows }
+        return try CancellableSort.sortedByIndex(rows, cancellationCheck: cancellationCheck) {
+            sortsBefore($0, $1, using: comparators)
+        }
+    }
+
     let field: Field
     var order: SortOrder = .forward
 
@@ -162,12 +173,10 @@ nonisolated struct ScanComparisonRowQuery: Equatable, Sendable {
 
         try cancellationCheck()
         guard !sortOrder.isEmpty else { return filteredRows }
-        let sortedRows = try CancellableSort.sorted(
-            &filteredRows,
+        let sortedRows = try ScanComparisonRowComparator.sorted(
+            filteredRows, using: sortOrder,
             cancellationCheck: cancellationCheck
-        ) { lhs, rhs in
-            ScanComparisonRowComparator.sortsBefore(lhs, rhs, using: sortOrder)
-        }
+        )
         try cancellationCheck()
         return sortedRows
     }
