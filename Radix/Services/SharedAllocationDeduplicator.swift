@@ -230,8 +230,7 @@ nonisolated struct SharedAllocationDeduplicator {
                 fileIdentity: node.fileIdentity,
                 linkCount: node.linkCount,
                 isPackage: node.isPackage,
-                isAccessible: node.isSelfAccessible,
-                childrenAreSorted: true
+                isAccessible: node.isSelfAccessible
             )
             childIDsByID[nodeID] = sortedChildren.map(\.id)
         }

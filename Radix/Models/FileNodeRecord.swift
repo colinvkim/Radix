@@ -118,15 +118,13 @@ nonisolated struct FileNodeRecord: Equatable, Identifiable, Sendable {
         fileIdentity: FileIdentity? = nil,
         linkCount: UInt64 = 1,
         isPackage: Bool,
-        isAccessible: Bool,
-        childrenAreSorted: Bool = false
+        isAccessible: Bool
     ) -> FileNodeRecord {
-        let sortedChildren = childrenAreSorted ? children : FileTreeStore.sortedChildren(children)
         var allocatedSize: Int64 = 0
         var logicalSize: Int64 = 0
         var descendantFileCount = 0
         var childrenAreAccessible = true
-        for child in sortedChildren {
+        for child in children {
             allocatedSize += child.allocatedSize
             logicalSize += child.logicalSize
             childrenAreAccessible = childrenAreAccessible && child.isAccessible

@@ -2,6 +2,32 @@ import XCTest
 @testable import RadixCore
 
 final class FileNodeRecordTests: XCTestCase {
+    func testDirectoryAggregatesMixedChildrenRegardlessOfOrder() {
+        let file = makeTestFileNode(id: "/root/file", name: "file", size: 3)
+            .replacingAllocatedSize(2)
+        let directory = makeTestSummarizedDirectoryNode(
+            id: "/root/directory", name: "directory", size: 7, descendantFileCount: 5
+        )
+        let symbolicLink = makeTestFileNode(
+            id: "/root/link", name: "link", size: 11,
+            isSymbolicLink: true, isAccessible: false
+        )
+        let synthetic = makeTestFileNode(
+            id: "/root/synthetic", name: "synthetic", size: 13, isSynthetic: true
+        )
+        let children = [file, symbolicLink, directory, synthetic]
+
+        for orderedChildren in [children, Array(children.reversed())] {
+            let root = makeTestDirectoryNode(id: "/root", name: "root", children: orderedChildren)
+
+            XCTAssertEqual(root.allocatedSize, 33)
+            XCTAssertEqual(root.logicalSize, 34)
+            XCTAssertEqual(root.descendantFileCount, 6)
+            XCTAssertFalse(root.isAccessible)
+            XCTAssertTrue(root.isSelfAccessible)
+        }
+    }
+
     func testVolumeRootUsesVolumeKindWhileOrdinaryDirectoriesRemainFolders() {
         let volumeRoot = makeTestDirectoryNode(id: "/", name: "Macintosh HD", children: [])
         let volumeTarget = ScanTarget(url: volumeRoot.url, kind: .volume)

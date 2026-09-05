@@ -152,11 +152,10 @@ nonisolated struct DiskMapTreeStore: DiskMapTreeReading {
             id: id,
             url: baseRoot.url,
             name: baseRoot.name,
-            children: FileTreeStore.sortedChildren([baseRoot, freeSpaceNode]),
+            children: [baseRoot, freeSpaceNode],
             lastModified: baseRoot.lastModified,
             isPackage: baseRoot.isPackage,
-            isAccessible: baseRoot.isSelfAccessible,
-            childrenAreSorted: true
+            isAccessible: baseRoot.isSelfAccessible
         )
     }
 }

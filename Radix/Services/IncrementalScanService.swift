@@ -522,8 +522,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             fileIdentity: listing.directoryMetadata.fileIdentity,
             linkCount: listing.directoryMetadata.linkCount,
             isPackage: listing.directoryMetadata.isPackage,
-            isAccessible: listing.directoryMetadata.isReadable,
-            childrenAreSorted: true
+            isAccessible: listing.directoryMetadata.isReadable
         )
         replacementWarnings.append(contentsOf: baseline.scanWarnings.filter { warning in
             preservedSubtreeIDs.contains { subtreeID in

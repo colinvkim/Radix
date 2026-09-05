@@ -211,8 +211,7 @@ nonisolated enum VolumeCapacityAccounting {
             fileIdentity: root.fileIdentity,
             linkCount: root.linkCount,
             isPackage: root.isPackage,
-            isAccessible: root.isSelfAccessible,
-            childrenAreSorted: false
+            isAccessible: root.isSelfAccessible
         )
     }
 }
