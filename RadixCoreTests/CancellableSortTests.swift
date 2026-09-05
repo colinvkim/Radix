@@ -2,6 +2,27 @@ import XCTest
 @testable import RadixCore
 
 final class CancellableSortTests: XCTestCase {
+    func testChunkedSortChecksCancellationWithinSmallInputsAndRuns() {
+        for count in [4_096, 40_000] {
+            var values = Array((0..<count).reversed())
+            var comparisons = 0
+            XCTAssertThrowsError(try CancellableSort.sorted(&values, cancellationCheck: {
+                if comparisons > 0 { throw CancellationError() }
+            }, by: {
+                comparisons += 1
+                return $0 < $1
+            })) { XCTAssertTrue($0 is CancellationError) }
+            XCTAssertLessThan(comparisons, 1_024)
+        }
+    }
+
+    func testChunkedSortPreservesStableOrderAcrossRunBoundaries() throws {
+        let input = (0..<50_000).map { (key: $0 % 7, position: $0) }
+        var values = input
+        let sorted = try CancellableSort.sorted(&values, cancellationCheck: Task.checkCancellation) { $0.key < $1.key }
+        XCTAssertEqual(sorted.map(\.position), input.sorted { $0.key < $1.key }.map(\.position))
+    }
+
     func testOwnedBufferSortPreservesStableTieOrder() throws {
         let input = (0..<20_000).map { (key: $0 % 7, position: $0) }
         var values = input

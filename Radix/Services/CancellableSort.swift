@@ -54,7 +54,8 @@ nonisolated enum CancellableSort {
         by areInIncreasingOrder: (Element, Element) -> Bool
     ) rethrows -> [Element] {
         guard elements.count > chunkSize else {
-            return elements.sorted(by: areInIncreasingOrder)
+            try sort(&elements, cancellationCheck: cancellationCheck, by: areInIncreasingOrder)
+            return elements
         }
 
         var source: [Element] = []
@@ -63,7 +64,9 @@ nonisolated enum CancellableSort {
         for start in stride(from: 0, to: elements.count, by: chunkSize) {
             try cancellationCheck()
             let end = min(start + chunkSize, elements.count)
-            source.append(contentsOf: elements[start..<end].sorted(by: areInIncreasingOrder))
+            var chunk = Array(elements[start..<end])
+            try sort(&chunk, cancellationCheck: cancellationCheck, by: areInIncreasingOrder)
+            source.append(contentsOf: chunk)
         }
         elements.removeAll(keepingCapacity: false)
         try cancellationCheck()
