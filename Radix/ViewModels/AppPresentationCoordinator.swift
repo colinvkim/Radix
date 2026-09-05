@@ -65,7 +65,7 @@ final class AppPresentationCoordinator: ObservableObject {
         case queued
     }
 
-    fileprivate enum DestinationKind: Hashable {
+    enum DestinationKind: Hashable {
         case onboarding
         case discardPileReview
         case importPreview
@@ -121,8 +121,15 @@ final class AppPresentationCoordinator: ObservableObject {
     /// Removes a presentation whether it is active or still waiting. If removing
     /// the active presentation exposes a deferred archive open, its URL is returned
     /// to the owner so it can begin reading the preview.
-    func cancel(_ destination: Destination) -> URL? {
-        cancel(kind: destination.kind)
+    func cancel(kind: DestinationKind) -> URL? {
+        queue.removeAll { entry in
+            guard case .destination(let destination) = entry else { return false }
+            return destination.kind == kind
+        }
+
+        guard activeDestination?.kind == kind else { return nil }
+        activeDestination = nil
+        return advance()
     }
 
     func requestArchiveImport(_ url: URL) -> ArchiveImportDisposition {
@@ -137,17 +144,6 @@ final class AppPresentationCoordinator: ObservableObject {
     func reset() {
         queue.removeAll(keepingCapacity: false)
         activeDestination = nil
-    }
-
-    private func cancel(kind: DestinationKind) -> URL? {
-        queue.removeAll { entry in
-            guard case .destination(let destination) = entry else { return false }
-            return destination.kind == kind
-        }
-
-        guard activeDestination?.kind == kind else { return nil }
-        activeDestination = nil
-        return advance()
     }
 
     private func advance() -> URL? {

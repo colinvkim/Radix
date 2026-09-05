@@ -549,7 +549,7 @@ final class AppModel: ObservableObject {
             presentationCoordinator.present(.sheet(.onboarding))
         } else {
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.sheet(.onboarding))
+                presentationCoordinator.cancel(kind: .onboarding)
             )
         }
     }
@@ -559,7 +559,7 @@ final class AppModel: ObservableObject {
             presentationCoordinator.present(.sheet(.discardPileReview))
         } else {
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.sheet(.discardPileReview))
+                presentationCoordinator.cancel(kind: .discardPileReview)
             )
         }
     }
@@ -568,10 +568,8 @@ final class AppModel: ObservableObject {
         if let pendingImportPreview {
             presentationCoordinator.present(.sheet(.importPreview(pendingImportPreview.id)))
         } else {
-            // The payload identity is irrelevant when cancelling; cancellation
-            // matches presentation kinds and removes a queued stale preview too.
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.sheet(.importPreview(URL(filePath: "/"))))
+                presentationCoordinator.cancel(kind: .importPreview)
             )
         }
     }
@@ -581,7 +579,7 @@ final class AppModel: ObservableObject {
             presentationCoordinator.present(.sheet(.comparisonSetup(pendingComparisonSetup.id)))
         } else {
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.sheet(.comparisonSetup(UUID())))
+                presentationCoordinator.cancel(kind: .comparisonSetup)
             )
         }
     }
@@ -591,7 +589,7 @@ final class AppModel: ObservableObject {
             presentationCoordinator.present(.dialog(.error))
         } else {
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.dialog(.error))
+                presentationCoordinator.cancel(kind: .error)
             )
         }
     }
@@ -601,7 +599,7 @@ final class AppModel: ObservableObject {
             presentationCoordinator.present(.dialog(.trashConfirmation))
         } else {
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.dialog(.trashConfirmation))
+                presentationCoordinator.cancel(kind: .trashConfirmation)
             )
         }
     }
@@ -611,7 +609,7 @@ final class AppModel: ObservableObject {
             presentationCoordinator.present(.dialog(.cloudFileConfirmation))
         } else {
             resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(.dialog(.cloudFileConfirmation))
+                presentationCoordinator.cancel(kind: .cloudFileConfirmation)
             )
         }
     }

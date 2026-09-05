@@ -12,7 +12,7 @@ final class AppPresentationCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.requestArchiveImport(archiveURL), .queued)
         XCTAssertEqual(coordinator.activeSheet, .onboarding)
 
-        let resumedURL = coordinator.cancel(.sheet(.onboarding))
+        let resumedURL = coordinator.cancel(kind: .onboarding)
 
         XCTAssertEqual(resumedURL, archiveURL)
         XCTAssertNil(coordinator.activeDestination)
@@ -26,11 +26,11 @@ final class AppPresentationCoordinatorTests: XCTestCase {
         coordinator.present(.sheet(.discardPileReview))
         coordinator.present(.dialog(.trashConfirmation))
 
-        XCTAssertNil(coordinator.cancel(.sheet(.onboarding)))
+        XCTAssertNil(coordinator.cancel(kind: .onboarding))
         XCTAssertEqual(coordinator.activeSheet, .discardPileReview)
         XCTAssertNil(coordinator.activeDialog)
 
-        XCTAssertNil(coordinator.cancel(.sheet(.discardPileReview)))
+        XCTAssertNil(coordinator.cancel(kind: .discardPileReview))
         XCTAssertEqual(coordinator.activeDialog, .trashConfirmation)
         XCTAssertNil(coordinator.activeSheet)
     }
@@ -41,8 +41,10 @@ final class AppPresentationCoordinatorTests: XCTestCase {
         )
 
         coordinator.present(.dialog(.error))
-        XCTAssertNil(coordinator.cancel(.dialog(.error)))
-        XCTAssertNil(coordinator.cancel(.sheet(.onboarding)))
+        coordinator.present(.sheet(.comparisonSetup(UUID())))
+        XCTAssertNil(coordinator.cancel(kind: .error))
+        XCTAssertNil(coordinator.cancel(kind: .comparisonSetup))
+        XCTAssertNil(coordinator.cancel(kind: .onboarding))
 
         XCTAssertNil(coordinator.activeDestination)
     }
@@ -56,7 +58,7 @@ final class AppPresentationCoordinatorTests: XCTestCase {
 
         coordinator.present(.sheet(.comparisonSetup(firstID)))
         coordinator.present(.sheet(.comparisonSetup(latestID)))
-        XCTAssertNil(coordinator.cancel(.sheet(.onboarding)))
+        XCTAssertNil(coordinator.cancel(kind: .onboarding))
 
         XCTAssertEqual(coordinator.activeSheet, .comparisonSetup(latestID))
     }
@@ -70,10 +72,10 @@ final class AppPresentationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.requestArchiveImport(firstURL), .queued)
         XCTAssertEqual(coordinator.requestArchiveImport(secondURL), .queued)
-        XCTAssertEqual(coordinator.cancel(.sheet(.onboarding)), firstURL)
+        XCTAssertEqual(coordinator.cancel(kind: .onboarding), firstURL)
 
         coordinator.present(.sheet(.importPreview(firstURL)))
-        XCTAssertEqual(coordinator.cancel(.sheet(.importPreview(firstURL))), secondURL)
+        XCTAssertEqual(coordinator.cancel(kind: .importPreview), secondURL)
         XCTAssertNil(coordinator.activeDestination)
     }
 }
