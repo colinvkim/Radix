@@ -197,6 +197,15 @@ struct TreemapChartView: View {
                 .allowsHitTesting(layoutPresentation.canUseRenderedLayout)
 
             }
+            .overlay {
+                // Anchor inside the full-width map so the popover has room on the right.
+                Color.clear
+                    .frame(width: 2, height: 2)
+                    .workspaceTourAnchor(.diskMap)
+                    .position(x: baseChartFrame.midX, y: baseChartFrame.midY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .clipped()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Treemap disk usage chart")

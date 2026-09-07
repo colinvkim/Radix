@@ -18,8 +18,11 @@ struct ContentView: View {
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
     @State private var showsInspector = false
     @State private var prefersInspectorPresented = true
+    @State private var inspectorPreferenceBeforeTour: Bool?
+    @State private var sidebarVisibilityBeforeTour: NavigationSplitViewVisibility?
     @State private var discardPileDragIsActive = false
     @State private var discardPileDragMonitorTask: Task<Void, Never>?
+    @StateObject private var tourPresentation = WorkspaceTourPresentation()
     @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
 
     var body: some View {
@@ -62,8 +65,24 @@ struct ContentView: View {
                 comparisonRowActions: comparisonRowActions,
                 actions: workspaceActions
             )
+            .id(appModel.workspaceTourSessionID)
+            .overlay(alignment: .topTrailing) {
+                WorkspaceTourCard(tour: appModel.workspaceTour, presentation: tourPresentation)
+            }
         }
         .navigationSplitViewStyle(.balanced)
+        .background {
+            WorkspaceTourHost(
+                tour: appModel.workspaceTour,
+                navigation: appModel.navigation,
+                presentation: tourPresentation,
+                canPresent: appModel.presentationCoordinator.activeSheet == nil
+                    && appModel.presentationCoordinator.activeDialog == nil
+                    && appModel.scanComparison == nil
+            )
+        }
+        .environmentObject(appModel.workspaceTour)
+        .environmentObject(tourPresentation)
         .focusedSceneValue(\.workspaceFocusAction) { target in
             guard appModel.scanComparison == nil else { return }
             if target == .sidebar {
@@ -85,6 +104,28 @@ struct ContentView: View {
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
         }
         .focusedSceneValue(\.inspectorVisibility, inspectorPresentation)
+        .onChange(of: appModel.workspaceTourSessionID) { _, sessionID in
+            if sessionID != nil {
+                inspectorPreferenceBeforeTour = prefersInspectorPresented
+                sidebarVisibilityBeforeTour = splitViewVisibility
+                splitViewVisibility = .all
+            } else {
+                if let preference = inspectorPreferenceBeforeTour {
+                    inspectorPreferenceBeforeTour = nil
+                    prefersInspectorPresented = preference
+                    setInspectorPresented(preference && canPresentInspector)
+                }
+                if let visibility = sidebarVisibilityBeforeTour {
+                    sidebarVisibilityBeforeTour = nil
+                    splitViewVisibility = visibility
+                }
+            }
+        }
+        .onReceive(appModel.workspaceTour.$step) { step in
+            if step == .markForReview || step == .review {
+                splitViewVisibility = .all
+            }
+        }
         .onReceive(appModel.scanState.$snapshot) { snapshot in
             updateInspectorPresentation(hasSnapshot: snapshot != nil)
         }
@@ -159,6 +200,7 @@ struct ContentView: View {
                         }
                     )
                 )
+                .environmentObject(appModel.workspaceTour)
             case .importPreview:
                 if let preview = appModel.pendingImportPreview {
                     ImportSnapshotPreviewSheet(
@@ -779,6 +821,7 @@ private extension ContentView {
 
     var workspaceActions: WorkspaceActions {
         WorkspaceActions(
+            makeFileBrowserModel: { appModel.makeFileBrowserModel() },
             chooseFolder: { appModel.presentOpenPanelAndScan() },
             startScan: { appModel.startScan($0) },
             stopScan: { appModel.stopScan() },

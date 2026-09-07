@@ -140,6 +140,7 @@ private struct DiscardPileSidebarButton: View {
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .workspaceTourAnchor(.discardPile)
         .shadow(
             color: isDropTargeted ? Color.accentColor.opacity(0.22) : Color.clear,
             radius: isDropTargeted ? 8 : 0,

@@ -33,6 +33,7 @@ struct FileBrowserSearchFilterBar: View {
             TextField(prompt, text: $query.text)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
+                .workspaceTourAnchor(.search)
 
             if isLoading {
                 ProgressView()

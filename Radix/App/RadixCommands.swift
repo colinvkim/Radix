@@ -4,6 +4,7 @@ struct RadixCommands: Commands {
     @ObservedObject var appModel: AppModel
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
+    @ObservedObject var workspaceTour: WorkspaceTourController
     @FocusedValue(\.fileListFilterAction) private var fileListFilterAction
     @FocusedValue(\.inspectorVisibility) private var inspectorVisibility
     @FocusedValue(\.workspaceFocusAction) private var workspaceFocusAction
@@ -18,6 +19,18 @@ struct RadixCommands: Commands {
         )
 
         SidebarCommands()
+
+        CommandGroup(after: .help) {
+            Button("Take a Quick Tour") {
+                appModel.startWorkspaceTour()
+            }
+            .disabled(!appModel.canStartWorkspaceTour)
+
+            Button("Stop Tour") {
+                workspaceTour.stop()
+            }
+            .disabled(!workspaceTour.isActive)
+        }
 
         CommandGroup(after: .toolbar) {
             Button("Focus Sidebar", systemImage: "sidebar.left") {

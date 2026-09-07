@@ -37,6 +37,7 @@ nonisolated struct AppScanPreferences: Equatable {
 nonisolated struct AppPreferences: Equatable {
     var scan: AppScanPreferences
     var didCompleteOnboarding: Bool
+    var onboardingPage: OnboardingPage = .welcome
 
     static let defaults = AppPreferences(
         scan: .defaults,
@@ -49,11 +50,13 @@ protocol AppPreferencesPersisting: AnyObject {
     func saveScanPreferences(_ preferences: AppScanPreferences)
     func markOnboardingComplete()
     func markOnboardingIncomplete()
+    func saveOnboardingPage(_ page: OnboardingPage)
 }
 
 final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
     private enum Key {
         static let didCompleteOnboarding = "didCompleteOnboarding"
+        static let onboardingPage = "onboardingPage"
         static let showHiddenFiles = "showHiddenFiles"
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
         static let maxRenderedDepth = "maxRenderedDepth"
@@ -123,7 +126,9 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
                 useScanExclusions: useScanExclusions,
                 exclusionPatterns: exclusionPatterns
             ),
-            didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding)
+            didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding),
+            onboardingPage: defaults.string(forKey: Key.onboardingPage)
+                .flatMap(OnboardingPage.init(rawValue:)) ?? .welcome
         )
     }
 
@@ -144,5 +149,9 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
 
     func markOnboardingIncomplete() {
         defaults.set(false, forKey: Key.didCompleteOnboarding)
+    }
+
+    func saveOnboardingPage(_ page: OnboardingPage) {
+        defaults.set(page.rawValue, forKey: Key.onboardingPage)
     }
 }

@@ -9,6 +9,7 @@ struct BreadcrumbBar: View {
             HStack(spacing: 6) {
                 ForEach(Array(nodes.enumerated()), id: \.element.id) { element in
                     breadcrumbButton(node: element.element, isCurrent: element.offset == nodes.count - 1)
+                        .workspaceTourAnchor(.folderPath, enabled: element.offset == 0)
 
                     if element.offset < nodes.count - 1 {
                         Image(systemName: "chevron.right")

@@ -34,6 +34,7 @@ let package = Package(
                 "Models/FileNodeActions.swift",
                 "Models/FileNodeRecord.swift",
                 "Models/FileTreeStore.swift",
+                "Models/OnboardingPage.swift",
                 "Models/ScanProgress.swift",
                 "Models/ScanSnapshot.swift",
                 "Models/ScanTarget.swift",
@@ -100,6 +101,7 @@ let package = Package(
                 "Services/TreemapGeometry.swift",
                 "Services/TreemapTooltipContent.swift",
                 "Services/TreemapTooltipPlacement.swift",
+                "Services/TourPracticeDirectory.swift",
                 "Services/VolumeCapacityAccounting.swift",
                 "ViewModels/AppQuickLookController.swift",
                 "ViewModels/ArchiveWorkflowCoordinator.swift",
@@ -112,7 +114,9 @@ let package = Package(
                 "ViewModels/SidebarScanCacheController.swift",
                 "ViewModels/SidebarModel.swift",
                 "ViewModels/TrashFlowController.swift",
-                "ViewModels/WorkspaceNavigationModel.swift"
+                "ViewModels/WorkspaceNavigationModel.swift",
+                "ViewModels/WorkspaceTourController.swift",
+                "ViewModels/WorkspaceTourSessionController.swift"
             ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),

@@ -14,6 +14,7 @@ struct DiscardPileDragPayload: Codable, Hashable, Transferable {
 }
 
 struct WorkspaceActions {
+    let makeFileBrowserModel: () -> FileBrowserModel
     let chooseFolder: () -> Void
     let startScan: (ScanTarget) -> Void
     let stopScan: () -> Void
@@ -184,6 +185,7 @@ struct WorkspaceView: View {
                     }
                     .disabled(!actions.canRescanCurrentFolder())
                     .help(rescanButtonTitle)
+                    .workspaceTourAnchor(.rescan)
 
                     Button {
                         actions.compareScans()
@@ -208,6 +210,7 @@ struct WorkspaceView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help(inspectorToggleTitle)
+                    .workspaceTourAnchor(.inspector)
                 }
             }
         }
@@ -243,6 +246,7 @@ private extension WorkspaceView {
         .labelsHidden()
         .help("Disk Map Style")
         .accessibilityLabel("Disk map style")
+        .workspaceTourAnchor(.visualization)
     }
 
     var inspectorToggleTitle: String {

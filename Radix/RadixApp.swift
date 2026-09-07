@@ -71,7 +71,8 @@ struct RadixApp: App {
             RadixCommands(
                 appModel: appModel,
                 scanState: appModel.scanState,
-                navigation: appModel.navigation
+                navigation: appModel.navigation,
+                workspaceTour: appModel.workspaceTour
             )
 
             CommandGroup(after: .appInfo) {

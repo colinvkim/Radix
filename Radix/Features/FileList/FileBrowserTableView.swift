@@ -23,6 +23,8 @@ private struct FileBrowserContentRefreshID: Hashable {
 }
 
 struct FileBrowserTableView: View {
+    @EnvironmentObject private var tour: WorkspaceTourController
+    @EnvironmentObject private var tourPresentation: WorkspaceTourPresentation
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
@@ -199,6 +201,9 @@ struct FileBrowserTableView: View {
 
     private var contentsTable: some View {
         let dragContext = discardPileTableDragContext
+        let tourFolderID = tourFolder?.id
+        let tour = self.tour
+        let tourPresentation = self.tourPresentation
 
         return Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
@@ -209,6 +214,10 @@ struct FileBrowserTableView: View {
                     expandAction: { expandSummarizedNode(node) },
                     presentedSharedStorageNodeID: $presentedSharedStorageNodeID
                 )
+                .workspaceTourAnchor(.folder, enabled: node.id == tourFolderID)
+                // Table drag previews host cells outside the workspace hierarchy.
+                .environmentObject(tour)
+                .environmentObject(tourPresentation)
             }
             .width(min: 260, ideal: 360)
 
@@ -255,6 +264,15 @@ struct FileBrowserTableView: View {
             performPrimaryAction(for: selectedIDs)
         }
         .focused($focusedWorkspaceTarget, equals: .contents)
+    }
+
+    private var tourFolder: FileNodeRecord? {
+        guard tour.isActive else { return nil }
+        if let selected = navigation.selectedNode,
+           model.displayedNode(id: selected.id) != nil, canZoomInto(node: selected) {
+            return selected
+        }
+        return model.displayedNodes.first { canZoomInto(node: $0) }
     }
 
     private func loadingContent(_ title: String) -> some View {

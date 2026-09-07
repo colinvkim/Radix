@@ -270,6 +270,14 @@ struct SunburstChartView: View {
                 .allowsHitTesting(layoutPresentation.canUseRenderedLayout)
 
             }
+            .overlay {
+                Color.clear
+                    .frame(width: chartFrame.width, height: chartFrame.height)
+                    .workspaceTourAnchor(.diskMap)
+                    .position(x: chartFrame.midX, y: chartFrame.midY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .clipped()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Disk usage chart")

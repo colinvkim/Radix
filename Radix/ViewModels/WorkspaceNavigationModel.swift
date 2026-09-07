@@ -543,6 +543,10 @@ final class WorkspaceNavigationModel: ObservableObject {
         publish(.empty)
     }
 
+    func restore(_ savedState: WorkspaceNavigationState) {
+        publish(savedState.refreshedTableState())
+    }
+
     func select(nodeID: String?) {
         publish(state.selecting(nodeID))
     }

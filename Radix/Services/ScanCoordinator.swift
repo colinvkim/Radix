@@ -49,6 +49,13 @@ nonisolated enum ScanCompletionNotice: Equatable, Sendable {
     case noChanges
     case fullFallback(IncrementalRescanFallbackReason)
     case folderUpdated(name: String)
+
+    var automaticallyDismisses: Bool {
+        switch self {
+        case .incrementalUpdated, .noChanges, .folderUpdated: true
+        case .fullFallback: false
+        }
+    }
 }
 
 nonisolated struct FolderRescanState: Equatable, Sendable {
@@ -76,6 +83,17 @@ final class ScanProgressState: ObservableObject {
 
 @MainActor
 final class ScanCoordinator: ObservableObject {
+    struct WorkspaceState {
+        let snapshot: ScanSnapshot?
+        let completedSnapshot: ScanSnapshot?
+        let target: ScanTarget?
+        let phase: AppModelPhase
+        let metrics: ScanMetrics
+        let executionMode: ScanExecutionMode?
+        let errorMessage: String?
+        let completionNotice: ScanCompletionNotice?
+    }
+
     @Published var phase: AppModelPhase = .idle
     @Published private(set) var snapshot: ScanSnapshot?
     @Published var selectedTarget: ScanTarget?
@@ -296,6 +314,28 @@ final class ScanCoordinator: ObservableObject {
         scanMetrics = ScanMetrics()
         progress.executionMode = nil
         phase = .idle
+    }
+
+    func captureWorkspace() -> WorkspaceState {
+        WorkspaceState(
+            snapshot: snapshot, completedSnapshot: completedScanSnapshot,
+            target: selectedTarget, phase: phase, metrics: scanMetrics,
+            executionMode: progress.executionMode, errorMessage: scanErrorMessage,
+            completionNotice: scanCompletionNotice
+        )
+    }
+
+    func restoreWorkspace(_ state: WorkspaceState) {
+        stopScan(resetState: false)
+        dismissScanCompletionNotice()
+        selectedTarget = state.target
+        publishSnapshot(state.snapshot, startsNewContext: true)
+        completedScanSnapshot = state.completedSnapshot
+        scanMetrics = state.metrics
+        progress.executionMode = state.executionMode
+        scanErrorMessage = state.errorMessage
+        publishCompletionNotice(state.completionNotice)
+        phase = state.phase
     }
 
     func replaceCurrentSnapshot(_ snapshot: ScanSnapshot?) {
@@ -738,33 +778,25 @@ final class ScanCoordinator: ObservableObject {
 
     private func publishCompletionNotice(for mode: ScanExecutionMode?) {
         let notice: ScanCompletionNotice?
-        let automaticallyDismisses: Bool
         switch mode {
         case .incremental:
             notice = .incrementalUpdated
-            automaticallyDismisses = true
         case .incrementalNoChanges:
             notice = .noChanges
-            automaticallyDismisses = true
         case .fullFallback(let reason):
             notice = .fullFallback(reason)
-            automaticallyDismisses = false
         case .full, .preparingIncremental, .none:
             notice = nil
-            automaticallyDismisses = false
         }
 
-        publishCompletionNotice(notice, automaticallyDismisses: automaticallyDismisses)
+        publishCompletionNotice(notice)
     }
 
-    private func publishCompletionNotice(
-        _ notice: ScanCompletionNotice?,
-        automaticallyDismisses: Bool
-    ) {
+    private func publishCompletionNotice(_ notice: ScanCompletionNotice?) {
         completionNoticeDismissTask?.cancel()
         completionNoticeDismissTask = nil
         scanCompletionNotice = notice
-        guard automaticallyDismisses, notice != nil else { return }
+        guard notice?.automaticallyDismisses == true else { return }
 
         completionNoticeDismissTask = Task { @MainActor [weak self] in
             do {
@@ -841,7 +873,7 @@ final class ScanCoordinator: ObservableObject {
         scanTask = nil
         folderRescanState = nil
         phase = .displaying
-        publishCompletionNotice(.folderUpdated(name: nodeName), automaticallyDismisses: true)
+        publishCompletionNotice(.folderUpdated(name: nodeName))
     }
 
     private func completeFolderRescanAsCancelled(id rescanID: UUID) {

@@ -126,7 +126,8 @@ struct ActiveWorkspaceView: View {
                 navigation: navigation,
                 focusedWorkspaceTarget: $focusedWorkspaceTarget,
                 hiddenNodeIDs: workspaceHiddenNodeIDs,
-                actions: fileBrowserActions
+                actions: fileBrowserActions,
+                model: actions.makeFileBrowserModel()
             )
 
             if showsWarningFooter {

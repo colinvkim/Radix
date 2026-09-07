@@ -70,6 +70,8 @@ final class TrashFlowController {
     private var postTrashRemovalTask: Task<Void, Never>?
     private var postTrashRemovalRequests: [@MainActor () async -> Void] = []
 
+    var isMovingFiles: Bool { !confirmedTrashMoveTasks.isEmpty || postTrashRemovalTask != nil }
+
     init(
         pendingTrashSelection: PendingTrashSelection? = nil,
         pendingCloudFileAction: PendingCloudFileAction? = nil,

@@ -92,6 +92,10 @@ final class TestAppPreferencesStore: AppPreferencesPersisting {
     func markOnboardingIncomplete() {
         preferences.didCompleteOnboarding = false
     }
+
+    func saveOnboardingPage(_ page: OnboardingPage) {
+        preferences.onboardingPage = page
+    }
 }
 
 final class TestRecentTargetPersistence: RecentTargetPersisting {

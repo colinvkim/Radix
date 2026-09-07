@@ -8,6 +8,7 @@ struct DiscardPileReviewActions {
 }
 
 struct DiscardPileReviewSheet: View {
+    @EnvironmentObject private var tour: WorkspaceTourController
     private let rows: [DiscardPileReviewRow]
     private let rowIDs: Set<FileNodeRecord.ID>
     private let summary: DiscardPileSummary
@@ -35,6 +36,14 @@ struct DiscardPileReviewSheet: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let step = tour.step, step == .removeMark || step == .finished {
+                WorkspaceTourPromptView(
+                    step: step, showsCompletionButton: false, stop: tour.stop, advance: tour.advance
+                )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
+
             listAndStatusBar
 
             Text("Sizes show attributed allocated storage, not guaranteed space reclaimed.")
@@ -59,12 +68,13 @@ struct DiscardPileReviewSheet: View {
                 Button(moveButtonTitle, role: .destructive) {
                     actions.moveToTrash()
                 }
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(showsTourGuidance ? nil : .defaultAction)
                 .disabled(rows.isEmpty)
             }
         }
         .padding(20)
-        .frame(width: 720, height: 420)
+        .frame(width: 720, height: showsTourGuidance ? 560 : 420)
+        .onAppear { tour.reviewOpened() }
         .confirmationDialog(
             "Clear Discard Pile?",
             isPresented: $isConfirmingClear,
@@ -122,6 +132,14 @@ struct DiscardPileReviewSheet: View {
                 }
 
                 Spacer()
+
+                Button("Remove from Discard Pile", systemImage: "minus.circle") {
+                    remove(selection)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("Remove from Discard Pile")
+                .disabled(selectedRowCount == 0)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -180,6 +198,10 @@ struct DiscardPileReviewSheet: View {
     private var summaryText: String {
         let size = RadixFormatters.size(summary.totalAllocatedSize)
         return String(localized: "\(summary.itemCount) items • \(size)", comment: "Discard Pile status showing the marked item count and total allocated size. The item count controls pluralization.")
+    }
+
+    private var showsTourGuidance: Bool {
+        tour.step == .removeMark || tour.step == .finished
     }
 
     private func selectedText(for selectedRowCount: Int) -> String {

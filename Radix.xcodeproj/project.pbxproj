@@ -8,10 +8,23 @@
 
 /* Begin PBXBuildFile section */
 		3BBA11332F80739B009EFB1C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 3BBA11322F80739B009EFB1C /* Sparkle */; };
+		C0DEBA5E000000000000000C /* OnboardingFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBA5E000000000000000B /* OnboardingFlowView.swift */; };
+		C0DEBA5E000000000000000E /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C0DEBA5E000000000000000D /* Localizable.xcstrings */; };
+		C0DEBA5E0000000000000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C0DEBA5E000000000000000F /* Assets.xcassets */; };
+		C0DEBA5E0000000000000012 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C0DEBA5E0000000000000011 /* AppIcon.icon */; };
+		C0DEBA5E0000000000000014 /* SignatureMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBA5E0000000000000013 /* SignatureMapView.swift */; };
+		C0DEBA5E0000000000000016 /* OnboardingPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBA5E0000000000000015 /* OnboardingPage.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		3BF007FE2F7E285500DA9E45 /* Radix.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Radix.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEBA5E0000000000000002 /* Radix Onboarding Planning.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Radix Onboarding Planning.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DEBA5E000000000000000B /* OnboardingFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnboardingFlowView.swift; path = Radix/Features/Onboarding/OnboardingFlowView.swift; sourceTree = SOURCE_ROOT; };
+		C0DEBA5E000000000000000D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = Radix/Localizable.xcstrings; sourceTree = SOURCE_ROOT; };
+		C0DEBA5E000000000000000F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Radix/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		C0DEBA5E0000000000000011 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer; name = AppIcon.icon; path = Radix/AppIcon.icon; sourceTree = SOURCE_ROOT; };
+		C0DEBA5E0000000000000013 /* SignatureMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SignatureMapView.swift; path = Radix/Features/Onboarding/SignatureMapView.swift; sourceTree = SOURCE_ROOT; };
+		C0DEBA5E0000000000000015 /* OnboardingPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnboardingPage.swift; path = Radix/Models/OnboardingPage.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -33,6 +46,11 @@
 			path = Radix;
 			sourceTree = "<group>";
 		};
+		C0DEBA5E0000000000000009 /* OnboardingPlanning */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = OnboardingPlanning;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,6 +60,11 @@
 				3BBA11332F80739B009EFB1C /* Sparkle in Frameworks */,
 			);
 		};
+		C0DEBA5E0000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -49,6 +72,8 @@
 			isa = PBXGroup;
 			children = (
 				3BF008002F7E285500DA9E45 /* Radix */,
+				C0DEBA5E0000000000000009 /* OnboardingPlanning */,
+				C0DEBA5E000000000000000A /* Shared Onboarding */,
 				3BF007FF2F7E285500DA9E45 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -57,8 +82,22 @@
 			isa = PBXGroup;
 			children = (
 				3BF007FE2F7E285500DA9E45 /* Radix.app */,
+				C0DEBA5E0000000000000002 /* Radix Onboarding Planning.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C0DEBA5E000000000000000A /* Shared Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				C0DEBA5E000000000000000B /* OnboardingFlowView.swift */,
+				C0DEBA5E0000000000000015 /* OnboardingPage.swift */,
+				C0DEBA5E0000000000000013 /* SignatureMapView.swift */,
+				C0DEBA5E000000000000000D /* Localizable.xcstrings */,
+				C0DEBA5E000000000000000F /* Assets.xcassets */,
+				C0DEBA5E0000000000000011 /* AppIcon.icon */,
+			);
+			name = "Shared Onboarding";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -83,6 +122,24 @@
 			);
 			productName = Radix;
 			productReference = 3BF007FE2F7E285500DA9E45 /* Radix.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C0DEBA5E0000000000000001 /* RadixOnboardingPlanning */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DEBA5E0000000000000006 /* Build configuration list for PBXNativeTarget "RadixOnboardingPlanning" */;
+			buildPhases = (
+				C0DEBA5E0000000000000003 /* Sources */,
+				C0DEBA5E0000000000000004 /* Frameworks */,
+				C0DEBA5E0000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				C0DEBA5E0000000000000009 /* OnboardingPlanning */,
+			);
+			name = RadixOnboardingPlanning;
+			productName = "Radix Onboarding Planning";
+			productReference = C0DEBA5E0000000000000002 /* Radix Onboarding Planning.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -123,6 +180,7 @@
 			projectRoot = "";
 			targets = (
 				3BF007FD2F7E285500DA9E45 /* Radix */,
+				C0DEBA5E0000000000000001 /* RadixOnboardingPlanning */,
 			);
 		};
 /* End PBXProject section */
@@ -133,12 +191,28 @@
 			files = (
 			);
 		};
+		C0DEBA5E0000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+				C0DEBA5E000000000000000E /* Localizable.xcstrings in Resources */,
+				C0DEBA5E0000000000000010 /* Assets.xcassets in Resources */,
+				C0DEBA5E0000000000000012 /* AppIcon.icon in Resources */,
+			);
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		3BF007FA2F7E285500DA9E45 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
+			);
+		};
+		C0DEBA5E0000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+				C0DEBA5E000000000000000C /* OnboardingFlowView.swift in Sources */,
+				C0DEBA5E0000000000000016 /* OnboardingPage.swift in Sources */,
+				C0DEBA5E0000000000000014 /* SignatureMapView.swift in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */
@@ -347,6 +421,62 @@
 			};
 			name = Release;
 		};
+		C0DEBA5E0000000000000007 /* Debug configuration for PBXNativeTarget "RadixOnboardingPlanning" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Radix Onboarding Planning";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.colinkim.Radix.OnboardingPlanning;
+				PRODUCT_NAME = "Radix Onboarding Planning";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		C0DEBA5E0000000000000008 /* Release configuration for PBXNativeTarget "RadixOnboardingPlanning" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Radix Onboarding Planning";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.colinkim.Radix.OnboardingPlanning;
+				PRODUCT_NAME = "Radix Onboarding Planning";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -363,6 +493,14 @@
 			buildConfigurations = (
 				3BF0080A2F7E285600DA9E45 /* Debug configuration for PBXNativeTarget "Radix" */,
 				3BF0080B2F7E285600DA9E45 /* Release configuration for PBXNativeTarget "Radix" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		C0DEBA5E0000000000000006 /* Build configuration list for PBXNativeTarget "RadixOnboardingPlanning" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DEBA5E0000000000000007 /* Debug configuration for PBXNativeTarget "RadixOnboardingPlanning" */,
+				C0DEBA5E0000000000000008 /* Release configuration for PBXNativeTarget "RadixOnboardingPlanning" */,
 			);
 			defaultConfigurationName = Release;
 		};

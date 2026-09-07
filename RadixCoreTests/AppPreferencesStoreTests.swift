@@ -60,6 +60,20 @@ final class AppPreferencesStoreTests: XCTestCase {
         XCTAssertTrue(preferences.useScanExclusions)
         XCTAssertEqual(preferences.exclusionPatterns, [".DS_Store"])
     }
+
+    func testOnboardingPageSurvivesRelaunchAndUnknownValuesFallBackToWelcome() {
+        let defaults = makeIsolatedDefaults()
+        let store = UserDefaultsAppPreferencesStore(defaults: defaults)
+        store.saveOnboardingPage(.access)
+        store.markOnboardingIncomplete()
+
+        let restored = UserDefaultsAppPreferencesStore(defaults: defaults).loadPreferences()
+        XCTAssertEqual(restored.onboardingPage, .access)
+        XCTAssertFalse(restored.didCompleteOnboarding)
+
+        defaults.set("unrecognized", forKey: "onboardingPage")
+        XCTAssertEqual(store.loadPreferences().onboardingPage, .welcome)
+    }
 }
 
 private func makeIsolatedDefaults(

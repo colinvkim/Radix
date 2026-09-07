@@ -5,6 +5,71 @@ import XCTest
 
 final class AppModelDependencyTests: XCTestCase {
     @MainActor
+    func testOnboardingResumesAtAccessAndTourChoiceControlsTheWorkspaceHandoff() {
+        let preferences = SpyAppPreferencesStore(
+            preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: false, onboardingPage: .access)
+        )
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        defer { model.cleanup() }
+        XCTAssertTrue(model.showsOnboarding)
+        XCTAssertEqual(model.onboardingPage, .access)
+
+        model.onboardingPage = .tour
+        XCTAssertEqual(preferences.preferences.onboardingPage, .tour)
+        model.completeOnboarding(startsTour: false)
+        XCTAssertTrue(preferences.preferences.didCompleteOnboarding)
+        XCTAssertFalse(model.workspaceTour.isActive)
+
+        model.presentOnboarding()
+        XCTAssertEqual(model.onboardingPage, .welcome)
+        model.completeOnboarding(startsTour: true)
+        XCTAssertFalse(model.showsOnboarding)
+        XCTAssertEqual(model.workspaceTour.step, .scan)
+        XCTAssertNil(model.scanState.snapshot)
+        XCTAssertFalse(model.scanState.isScanning)
+    }
+
+    @MainActor
+    func testTourObservesCommittedMarksAndPreservesPreexistingPileItems() async throws {
+        let existing = makeTestFileNode(id: "/tour/existing.txt", name: "existing.txt", size: 20)
+        let practice = makeTestFileNode(id: "/tour/practice.txt", name: "practice.txt", size: 10)
+        let root = makeTestDirectoryNode(id: "/tour", name: "tour", children: [existing, practice])
+        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [existing, practice]]))
+        var trashCalls = 0
+        var actions = AppSystemActions.inert
+        actions.moveToTrash = { _ in
+            trashCalls += 1
+            return .matches
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+        model.dismissOnboarding()
+        model.scanState.restoreCompletedSnapshot(snapshot)
+        try await waitUntil("restored scan") { model.navigation.state.snapshotID == snapshot.id }
+        XCTAssertTrue(model.addNodesToDiscardPile([existing]))
+
+        model.workspaceTour.start(snapshotID: snapshot.id, isReady: true)
+        for _ in 0..<6 { model.workspaceTour.advance() }
+        XCTAssertEqual(model.workspaceTour.step, .markForReview)
+        XCTAssertFalse(model.addNodeIDsToDiscardPile([practice.id], snapshotID: UUID()))
+        XCTAssertEqual(model.workspaceTour.step, .markForReview)
+        model.dismissErrorPresentation()
+        XCTAssertTrue(model.addNodeIDsToDiscardPile([practice.id], snapshotID: snapshot.id))
+        XCTAssertEqual(model.workspaceTour.step, .review)
+        model.workspaceTour.reviewOpened()
+        model.removeDiscardPileNodes(ids: [practice.id])
+
+        XCTAssertEqual(Set(model.discardPile.nodeIDs), [existing.id])
+        XCTAssertEqual(model.workspaceTour.step, .removeMark)
+        XCTAssertNotNil(model.scanState.fileTreeStore?.node(id: practice.id))
+        XCTAssertEqual(trashCalls, 0)
+        model.workspaceTour.advance()
+        XCTAssertEqual(model.workspaceTour.step, .finished)
+        model.workspaceTour.stop()
+        XCTAssertEqual(Set(model.discardPile.nodeIDs), [existing.id])
+    }
+
+    @MainActor
     func testProductionAndDefaultDependenciesUseIncrementalScanning() {
         let defaultDependencies = AppDependencies(
             preferences: SpyAppPreferencesStore(preferences: .defaults),
@@ -3679,6 +3744,10 @@ private final class SpyAppPreferencesStore: AppPreferencesPersisting {
     func markOnboardingIncomplete() {
         preferences.didCompleteOnboarding = false
         markOnboardingIncompleteCount += 1
+    }
+
+    func saveOnboardingPage(_ page: OnboardingPage) {
+        preferences.onboardingPage = page
     }
 }
 

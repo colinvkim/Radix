@@ -170,6 +170,12 @@ final class AppModel: ObservableObject {
             synchronizeOnboardingPresentation()
         }
     }
+    @Published var onboardingPage: OnboardingPage {
+        didSet {
+            guard onboardingPage != oldValue else { return }
+            dependencies.preferences.saveOnboardingPage(onboardingPage)
+        }
+    }
     @Published private(set) var showsDiscardPileReview = false {
         didSet {
             synchronizeDiscardPileReviewPresentation()
@@ -188,6 +194,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var exportConfirmation: ExportConfirmationState?
     let trashFlow = TrashFlowController()
     let comparisonFlow = ComparisonFlowController()
+    let workspaceTour = WorkspaceTourController()
+    private let tourSession = WorkspaceTourSessionController()
+
+    var workspaceTourSessionID: UUID? { tourSession.sessionID }
+
+    func makeFileBrowserModel() -> FileBrowserModel {
+        tourSession.makeFileBrowser(snapshotID: scanCoordinator.snapshot?.id)
+    }
 
     private(set) var scanComparison: ScanComparison? {
         get { comparisonFlow.scanComparison }
@@ -303,6 +317,7 @@ final class AppModel: ObservableObject {
             initialDestination: shouldShowOnboarding ? .sheet(.onboarding) : nil
         )
         showsOnboarding = shouldShowOnboarding
+        onboardingPage = preferences.onboardingPage
         usageStats = dependencies.usageStats.loadUsageStats()
         fullDiskAccessStatus = .unknown
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
@@ -333,6 +348,18 @@ final class AppModel: ObservableObject {
             self.synchronizeComparisonSetupPresentation()
             self.objectWillChange.send()
         }
+        tourSession.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        tourSession.onPrepared = { [weak self] target in
+            self?.startScanNow(target, intent: .scan)
+        }
+        tourSession.onFailure = { [weak self] error in
+            self?.workspaceTour.stop()
+            self?.presentError(error)
+        }
+        workspaceTour.onStop = { [weak self] in self?.finishWorkspaceTour() }
+        Task.detached(priority: .utility) { TourPracticeDirectory.removeAbandonedDirectories() }
         observeNavigationModel()
         observeScanCoordinator()
         observeMountedVolumes()
@@ -345,6 +372,8 @@ final class AppModel: ObservableObject {
     }
 
     func cleanup() {
+        workspaceTour.stop()
+        finishWorkspaceTour()
         flushPendingScanPreferences()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
@@ -380,6 +409,7 @@ final class AppModel: ObservableObject {
     }
 
     func suspendMainWindowActivity() {
+        workspaceTour.stop()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
@@ -494,7 +524,65 @@ final class AppModel: ObservableObject {
     }
 
     func presentOnboarding() {
+        workspaceTour.stop()
+        onboardingPage = .welcome
         showsOnboarding = true
+    }
+
+    func completeOnboarding(startsTour: Bool) {
+        dismissOnboarding()
+        if startsTour { startWorkspaceTour() }
+    }
+
+    func startWorkspaceTour() {
+        guard canStartWorkspaceTour else { return }
+        cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
+        cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
+        cancelDeferredDiscardPileAdd()
+        cancelDeferredVisualizationModeUpdate()
+        sidebarScanCacheController.cancelPendingSidebarTargetRestore()
+        quickLookController.closePreview()
+        tourSession.begin(returningTo: .init(
+            scan: scanCoordinator.captureWorkspace(),
+            navigation: navigationModel.state,
+            discardPile: discardPile,
+            sidebarTargetID: sidebarModel.activeTargetID,
+            visualization: scanVisualizationMode
+        ))
+        workspaceTour.start(snapshotID: nil, isReady: false)
+    }
+
+    var canStartWorkspaceTour: Bool {
+        !workspaceTour.isActive && canUseWorkspaceCommands
+            && !scanCoordinator.isScanOperationInProgress && scanCoordinator.expandingNodeID == nil
+            && !isArchiveOperationInProgress && !isExportPanelPresented
+            && !trashFlow.isMovingFiles
+            && presentationCoordinator.activeSheet == nil && presentationCoordinator.activeDialog == nil
+    }
+
+    private func finishWorkspaceTour() {
+        guard let saved = tourSession.savedWorkspace else { return }
+        cancelDeferredScanStart()
+        cancelDeferredSidebarSelection()
+        cancelDeferredNavigationAction()
+        cancelDeferredNavigationContextUpdate()
+        cancelDeferredDiscardPileAdd()
+        cancelDeferredVisualizationModeUpdate()
+        trashFlow.cancelConfirmedTrashMoves()
+        trashFlow.cancelPostTrashSnapshotRemoval()
+        pendingTrashSelection = nil
+        pendingCloudFileAction = nil
+        showsDiscardPileReview = false
+        clearOptimisticTrashVisibility()
+        quickLookController.closePreview()
+        scanCoordinator.restoreWorkspace(saved.scan)
+        navigationModel.restore(saved.navigation)
+        discardPile = saved.discardPile
+        sidebarModel.setActiveTargetID(saved.sidebarTargetID)
+        scanVisualizationMode = saved.visualization
+        tourSession.finish()
     }
 
     func presentDiscardPileReview() {
@@ -502,6 +590,7 @@ final class AppModel: ObservableObject {
     }
 
     func dismissDiscardPileReview() {
+        workspaceTour.reviewClosed()
         showsDiscardPileReview = false
     }
 
@@ -693,14 +782,14 @@ final class AppModel: ObservableObject {
     }
 
     var canExportCurrentScan: Bool {
-        scanCoordinator.snapshot?.isComplete == true &&
+        !tourSession.isActive && scanCoordinator.snapshot?.isComplete == true &&
             !scanCoordinator.isScanOperationInProgress &&
             !isExportPanelPresented &&
             !isArchiveOperationInProgress
     }
 
     private var canPresentScanSnapshotPanel: Bool {
-        !scanCoordinator.isScanOperationInProgress &&
+        !tourSession.isActive && !scanCoordinator.isScanOperationInProgress &&
             !isExportPanelPresented &&
             !isArchiveOperationInProgress &&
             pendingComparisonSetup == nil &&
@@ -1457,6 +1546,7 @@ final class AppModel: ObservableObject {
     }
 
     func startScan(_ target: ScanTarget) {
+        if tourSession.isActive && !tourSession.contains(target) { workspaceTour.stop() }
         scheduleScanStart(target, intent: .scan)
     }
 
@@ -1578,7 +1668,9 @@ final class AppModel: ObservableObject {
         case .rescan:
             baseline = scanCoordinator.snapshot
         }
-        sidebarScanCacheController.prepareForScanStart(target: target, options: options)
+        if !tourSession.contains(target) {
+            sidebarScanCacheController.prepareForScanStart(target: target, options: options)
+        }
         scanCoordinator.startScan(
             target,
             options: options,
@@ -1669,6 +1761,10 @@ final class AppModel: ObservableObject {
     }
 
     func stopScan(resetState: Bool = true) {
+        if tourSession.isActive {
+            workspaceTour.stop()
+            return
+        }
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
@@ -1849,6 +1945,8 @@ final class AppModel: ObservableObject {
               let target = sidebarTarget(id: id) else {
             return
         }
+
+        workspaceTour.stop()
 
         if scanCoordinator.selectedTarget?.id != target.id {
             trashFlow.cancelPostTrashSnapshotRemoval()
@@ -2206,10 +2304,15 @@ final class AppModel: ObservableObject {
               let fileTreeStore = scanCoordinator.fileTreeStore else {
             throw FileActionError.unsupported
         }
+        let previousIDs = Set(discardPile.nodeIDs)
         addDiscardPileNodes(
             nodes,
             snapshot: snapshot,
             fileTreeStore: fileTreeStore
+        )
+        workspaceTour.didAddMarks(
+            Set(discardPile.nodeIDs).subtracting(previousIDs),
+            snapshotID: snapshot.id
         )
     }
 
@@ -2766,13 +2869,16 @@ final class AppModel: ObservableObject {
         pendingCloudFileAction = nil
         discardPile = DiscardPileState()
         clearOptimisticTrashVisibility()
-        sidebarModel.setActiveTargetID(target.id)
+        sidebarModel.setActiveTargetID(tourSession.contains(target) ? nil : target.id)
 
-        registerRecentTarget(target)
-        refreshAvailableTargets()
+        if !tourSession.contains(target) {
+            registerRecentTarget(target)
+            refreshAvailableTargets()
+        }
     }
 
     private func restoreImportedSnapshot(_ snapshot: ScanSnapshot) {
+        workspaceTour.stop()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
@@ -2808,6 +2914,9 @@ final class AppModel: ObservableObject {
         autoSummarizeDirectories: Bool? = nil,
         preferredExclusionRootPath: String? = nil
     ) -> ScanOptions {
+        if tourSession.contains(target) {
+            return ScanOptions(autoSummarizeDirectories: false)
+        }
         let exclusionPatterns = activeExclusionPatterns
         return ScanOptions(
             includeHiddenFiles: showHiddenFiles || target.kind == .volume,
@@ -2870,6 +2979,25 @@ final class AppModel: ObservableObject {
     }
 
     private func observeScanCoordinator() {
+        let snapshotIDs = scanCoordinator.$snapshot.map { $0?.id }.removeDuplicates()
+        scanCoordinator.$phase.combineLatest(snapshotIDs)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] state in
+                guard let self,
+                      state.1 == scanCoordinator.snapshot?.id,
+                      state.0 == scanCoordinator.phase else { return }
+                guard tourSession.contains(scanCoordinator.selectedTarget) else { return }
+                if state.0 == .failed {
+                    workspaceTour.stop()
+                    return
+                }
+                workspaceTour.updateScan(
+                    snapshotID: state.1,
+                    isReady: state.0 == .displaying
+                )
+            }
+            .store(in: &cancellables)
+
         scanCoordinator.onScanFinished = { [weak self] snapshot in
             self?.recordCompletedScan(snapshot)
         }
@@ -2900,7 +3028,9 @@ final class AppModel: ObservableObject {
         scanCoordinator.$scanErrorMessage
             .compactMap { $0 }
             .sink { [weak self] message in
-                self?.presentErrorMessage(message)
+                guard let self,
+                      !tourSession.isActive || tourSession.contains(scanCoordinator.selectedTarget) else { return }
+                presentErrorMessage(message)
             }
             .store(in: &cancellables)
     }
@@ -2922,6 +3052,7 @@ final class AppModel: ObservableObject {
     }
 
     private func updateUsageStats(_ update: (inout AppUsageStats) -> Void) {
+        guard !tourSession.isActive else { return }
         var updatedStats = usageStats
         update(&updatedStats)
         guard updatedStats != usageStats else { return }
@@ -3082,7 +3213,7 @@ final class AppModel: ObservableObject {
     }
 
     private func persistScanPreferences(_ preferences: AppScanPreferences) {
-        guard lastPersistedScanPreferences != preferences else { return }
+        guard !tourSession.isActive, lastPersistedScanPreferences != preferences else { return }
         dependencies.preferences.saveScanPreferences(preferences)
         lastPersistedScanPreferences = preferences
     }
