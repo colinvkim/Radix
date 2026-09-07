@@ -3,9 +3,6 @@ import SwiftUI
 struct OnboardingFlowView: View {
     @Binding var step: OnboardingPage
     let status: FullDiskAccessStatus
-    let animates: Bool
-    let replay: Int
-    let usesDefaultAction: Bool
     let openSettings: () -> Void
     let finish: (_ startsTour: Bool) -> Void
 
@@ -45,7 +42,7 @@ struct OnboardingFlowView: View {
 
     private var welcome: some View {
         VStack(spacing: 20) {
-            SignatureMapView(animates: animates, replay: replay, showsCenterIcon: false)
+            SignatureMapView()
                 .frame(height: 232)
             heading("Make space\nfor what matters.", description: "Explore your files visually, find the large ones, and decide what to keep.")
             primaryAction
@@ -134,7 +131,7 @@ struct OnboardingFlowView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .keyboardShortcut(usesDefaultAction ? .defaultAction : nil)
+        .keyboardShortcut(.defaultAction)
     }
 
     private var primaryTitle: LocalizedStringKey {

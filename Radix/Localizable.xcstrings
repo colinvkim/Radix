@@ -2395,108 +2395,6 @@
         }
       }
     },
-    "1. Open Privacy & Security > Full Disk Access." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. Öffnen Sie „Datenschutz & Sicherheit“ > „Festplattenvollzugriff“."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. Abre Privacidad y seguridad > Acceso total al disco."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. Ouvrez Confidentialité et sécurité > Accès complet au disque."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. Apri Privacy e sicurezza > Accesso completo al disco."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. 打开“隐私与安全性”>“完全磁盘访问权限”。"
-          }
-        }
-      }
-    },
-    "2. Turn on Radix." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. Aktivieren Sie Radix."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. Activa Radix."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. Activez Radix."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. Attiva Radix."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. 打开 Radix。"
-          }
-        }
-      }
-    },
-    "3. Choose Quit & Reopen when macOS asks." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. Wählen Sie „Beenden & erneut öffnen“, wenn macOS Sie dazu auffordert."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. Elige Salir y volver a abrir cuando macOS lo solicite."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. Choisissez Quitter et rouvrir lorsque macOS vous le demande."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. Scegli Esci e riapri quando macOS lo richiede."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. macOS 提示时选择“退出并重新打开”。"
-          }
-        }
-      }
-    },
     "A duplicate filesystem path was collapsed in the scan results." : {
       "comment" : "Warning shown when duplicate filesystem paths are collapsed.",
       "localizations" : {
@@ -7705,40 +7603,6 @@
         }
       }
     },
-    "Explore the disk map" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Datenträgerkarte erkunden"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Explora el mapa de disco"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Explorez la carte du disque"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esplora la mappa del disco"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "探索磁盘图"
-          }
-        }
-      }
-    },
     "Export" : {
       "comment" : "Save panel action button for exporting a scan snapshot.",
       "localizations" : {
@@ -8922,40 +8786,6 @@
         }
       }
     },
-    "Full Disk Access %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Festplattenvollzugriff %@"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Acceso total al disco %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Accès complet au disque %@"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Accesso completo al disco %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "完全磁盘访问权限 %@"
-          }
-        }
-      }
-    },
     "Full Disk Access could not be verified." : {
       "comment" : "Full Disk Access settings summary when permission cannot be determined.",
       "localizations" : {
@@ -9402,40 +9232,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "个人文件夹"
-          }
-        }
-      }
-    },
-    "Hover over segments to inspect them. Double-click a folder segment or table row to drill down." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bewegen Sie den Zeiger über Segmente, um sie zu untersuchen. Doppelklicken Sie auf ein Ordnersegment oder eine Tabellenzeile, um tiefer zu navigieren."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pasa el puntero sobre los segmentos para inspeccionarlos. Haz doble clic en un segmento de carpeta o una fila de la tabla para profundizar."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Survolez les segments pour les inspecter. Double-cliquez sur un segment de dossier ou une ligne du tableau pour explorer."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Passa il mouse sui segmenti per ispezionarli. Fai doppio clic su un segmento di cartella o su una riga della tabella per esplorare in dettaglio."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将鼠标悬停在分区上以查看详情。双击文件夹分区或表格行以深入查看。"
           }
         }
       }
@@ -14099,41 +13895,6 @@
         }
       }
     },
-    "Radix can currently read protected locations. You can start a complete scan now." : {
-      "comment" : "Onboarding status shown when Full Disk Access is granted.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix kann derzeit geschützte Standorte lesen. Sie können jetzt einen vollständigen Scan starten."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix puede leer ubicaciones protegidas. Puedes iniciar un análisis completo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix peut actuellement lire les emplacements protégés. Vous pouvez commencer une analyse complète."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix è attualmente in grado di leggere le posizioni protette. È possibile avviare una scansione completa ora."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix 当前可以读取受保护的位置。现在可以开始完整扫描。"
-          }
-        }
-      }
-    },
     "Radix can scan ordinary folders immediately. For protected macOS locations such as Mail, Safari, Messages, and Library content, grant Full Disk Access in System Settings." : {
       "localizations" : {
         "de" : {
@@ -14483,41 +14244,6 @@
         }
       }
     },
-    "Radix could not verify Full Disk Access on this Mac. You can still scan ordinary folders." : {
-      "comment" : "Onboarding status shown when Full Disk Access cannot be determined.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix konnte den Festplattenvollzugriff auf diesem Mac nicht überprüfen. Sie können weiterhin gewöhnliche Ordner scannen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix no pudo verificar el Acceso total al disco en este Mac. Aún puedes analizar carpetas normales."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix n’a pas pu vérifier l’accès complet au disque sur ce Mac. Vous pouvez toujours analyser les dossiers ordinaires."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix non ha potuto verificare l'Accesso completo al disco su questo Mac. È comunque possibile scansionare le cartelle normali."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix 无法验证这台 Mac 的完全磁盘访问权限。你仍可扫描普通文件夹。"
-          }
-        }
-      }
-    },
     "Radix could not verify the current identity for %@: %@" : {
       "comment" : "Safety error shown when the current file identity cannot be verified.",
       "localizations" : {
@@ -14624,41 +14350,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Radix 无法安全地应用最近的更改。"
-          }
-        }
-      }
-    },
-    "Radix does not currently have Full Disk Access. Normal scans still work; protected folders may be skipped." : {
-      "comment" : "Onboarding status shown when Full Disk Access is not granted.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix verfügt derzeit nicht über den Festplattenvollzugriff. Normale Scans funktionieren weiterhin; geschützte Ordner werden möglicherweise übersprungen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix no tiene Acceso total al disco. Los análisis normales siguen funcionando; es posible que se omitan las carpetas protegidas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix ne dispose pas actuellement de l’accès complet au disque. Les analyses normales fonctionnent toujours ; les dossiers protégés peuvent être ignorés."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix non dispone attualmente dell'Accesso completo al disco. Le scansioni normali funzionano comunque; le cartelle protette potrebbero essere saltate."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radix 当前没有完全磁盘访问权限。普通扫描仍可运行，但可能跳过受保护的文件夹。"
           }
         }
       }
@@ -16735,40 +16426,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "扫描文件夹…"
-          }
-        }
-      }
-    },
-    "Scan folders and disks to see where space is going. Radix stays read-only until you choose a file action." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scannen Sie Ordner und Datenträger, um zu sehen, wohin der Speicherplatz geht. Radix bleibt schreibgeschützt, bis Sie eine Dateiaktion auswählen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Analiza carpetas y discos para ver dónde se utiliza el espacio. Radix permanece en modo de solo lectura hasta que eliges una acción de archivo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Analysez les dossiers et les disques pour voir où va l’espace. Radix reste en lecture seule jusqu’à ce que vous choisissiez une action sur un fichier."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scansiona cartelle e dischi per vedere come viene utilizzato lo spazio. Radix rimane in sola lettura finché non scegli un'azione per i file."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "扫描文件夹和磁盘以查看空间使用情况。在你选择文件操作前，Radix 始终保持只读。"
           }
         }
       }
@@ -20773,40 +20430,6 @@
         }
       }
     },
-    "To enable it:" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "So aktivieren Sie es:"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para activarlo:"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pour l’activer :"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Per abilitarlo:"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用方法："
-          }
-        }
-      }
-    },
     "Too much changed for a quick rescan." : {
       "localizations" : {
         "de" : {
@@ -21737,40 +21360,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "警告部分失败：%@"
-          }
-        }
-      }
-    },
-    "Welcome to Radix" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Willkommen bei Radix"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Te damos la bienvenida a Radix"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bienvenue dans Radix"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Benvenuto in Radix"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "欢迎使用 Radix"
           }
         }
       }

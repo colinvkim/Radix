@@ -4,10 +4,6 @@ struct SignatureMapView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
-    let animates: Bool
-    let replay: Int
-    let showsCenterIcon: Bool
-
     var body: some View {
         let sectors = sectors
         ZStack {
@@ -29,30 +25,24 @@ struct SignatureMapView: View {
                 .rotationEffect(.degrees(appeared ? 0 : -18))
                 .opacity(appeared ? 1 : 0)
                 .animation(
-                    animates && !reduceMotion
+                    !reduceMotion
                         ? .easeOut(duration: 0.7).delay(Double(ring) * 0.1)
                         : nil,
                     value: appeared
                 )
             }
-
-            if showsCenterIcon {
-                Image(systemName: "scope")
-                    .font(.system(size: 25, weight: .ultraLight))
-                    .foregroundStyle(Color(red: 0.38, green: 0.58, blue: 0.82))
-            }
         }
         .frame(width: 246, height: 246)
         .accessibilityHidden(true)
-        .task(id: replay) {
-            guard animates && !reduceMotion else {
+        .task {
+            guard !reduceMotion else {
                 appeared = true
                 return
             }
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) { appeared = false }
-            // Separate the starting and final states so replay has a visible entrance.
+            // Separate the starting and final states for the entrance animation.
             try? await Task.sleep(for: .milliseconds(40))
             guard !Task.isCancelled else { return }
             appeared = true

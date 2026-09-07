@@ -1,7 +1,3 @@
-import Foundation
-
-nonisolated enum OnboardingPage: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum OnboardingPage: String, Sendable {
     case welcome, access, tour
-
-    var id: Self { self }
 }

@@ -7,9 +7,6 @@ struct OnboardingView: View {
         OnboardingFlowView(
             step: $appModel.onboardingPage,
             status: appModel.fullDiskAccessStatus,
-            animates: true,
-            replay: 0,
-            usesDefaultAction: true,
             openSettings: { appModel.prepareAndOpenFullDiskAccessSettingsFromOnboarding() },
             finish: { startsTour in appModel.completeOnboarding(startsTour: startsTour) }
         )
