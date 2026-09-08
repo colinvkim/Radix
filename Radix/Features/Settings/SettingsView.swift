@@ -8,7 +8,7 @@ struct SettingsView: View {
         TabView(selection: $selectedTab) {
             ScanningSettingsPane()
                 .tabItem {
-                    Label(String(localized: "Scanning", table: "Interface"), systemImage: "magnifyingglass")
+                    Label("Scanning", systemImage: "magnifyingglass")
                 }
                 .tag(SettingsTab.scanning)
 

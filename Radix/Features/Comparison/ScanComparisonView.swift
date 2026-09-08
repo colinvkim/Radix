@@ -428,7 +428,7 @@ struct ScanComparisonView: View {
                     name: node.name,
                     symbol: itemSymbol(for: node),
                     detail: node.isRemainder
-                        ? "Switch to All Changes to inspect every item"
+                        ? String(localized: "Switch to All Changes to inspect every item", comment: "Hint for inspecting items grouped in the comparison remainder.")
                         : itemLocation(for: node),
                     isRemainder: node.isRemainder
                 )

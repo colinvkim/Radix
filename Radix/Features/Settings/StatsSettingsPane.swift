@@ -19,7 +19,7 @@ struct StatsSettingsPane: View {
                     )
                 }
 
-                Section(String(localized: "Scanning", table: "Interface")) {
+                Section("Scanning") {
                     StatValueRow(
                         String(
                             localized: "Scans run",

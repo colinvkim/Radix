@@ -43,7 +43,7 @@ nonisolated struct TreemapTooltipContent: Equatable, Sendable {
 
         return TreemapTooltipContent(
             systemImageName: node.systemImageName,
-            title: node.name,
+            title: node.displayName,
             sizeAndSignificance: sizeAndSignificance(
                 size: node.allocatedSize,
                 rootNode: rootNode

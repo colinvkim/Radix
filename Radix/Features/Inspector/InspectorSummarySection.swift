@@ -15,7 +15,7 @@ struct InspectorSummarySection: View {
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(node.name)
+                    Text(node.displayName)
                         .font(.headline)
                         .lineLimit(2)
 

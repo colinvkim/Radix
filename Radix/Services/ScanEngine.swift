@@ -1113,7 +1113,7 @@ actor ScanEngine {
         ) {
             let warning = ScanWarning(
                 path: target.url.path,
-                message: "File allocations overlap by \(overlappingBytes) bytes; APFS clones or files changed during the scan may share physical storage.",
+                message: String(localized: "File allocations overlap by \(overlappingBytes) bytes; APFS clones or files changed during the scan may share physical storage.", comment: "Scan warning about overlapping allocated storage."),
                 category: .fileSystem
             )
             warnings.append(warning)

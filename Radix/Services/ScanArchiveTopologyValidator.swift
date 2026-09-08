@@ -74,7 +74,7 @@ extension ScanArchiveService {
                         phase: .validatingTopology,
                         completedUnitCount: visited.count,
                         totalUnitCount: nodesByID.count,
-                        message: "Validating topology"
+                        message: String(localized: "Validating topology", comment: "Progress message during scan archive processing.")
                     ))
                     await Task.yield()
                 }

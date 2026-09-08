@@ -297,7 +297,7 @@ struct FileBrowserTableView: View {
 
     private func subtitle(for node: FileNodeRecord) -> String? {
         if packageContentsAreHidden(for: node) {
-            var subtitleParts = ["Package contents hidden"]
+            var subtitleParts = [String(localized: "Package Contents Hidden")]
             if let secondaryStatusText = node.secondaryStatusText {
                 subtitleParts.append(secondaryStatusText)
             }

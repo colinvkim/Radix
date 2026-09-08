@@ -78,10 +78,10 @@ nonisolated enum FileBrowserSizeUnit: CaseIterable, Hashable, Identifiable, Send
 
     var title: String {
         switch self {
-        case .kilobytes: "KB"
-        case .megabytes: "MB"
-        case .gigabytes: "GB"
-        case .terabytes: "TB"
+        case .kilobytes: String(localized: "KB", comment: "Decimal file-size unit in the search filter.")
+        case .megabytes: String(localized: "MB", comment: "Decimal file-size unit in the search filter.")
+        case .gigabytes: String(localized: "GB", comment: "Decimal file-size unit in the search filter.")
+        case .terabytes: String(localized: "TB", comment: "Decimal file-size unit in the search filter.")
         }
     }
 

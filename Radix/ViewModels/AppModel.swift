@@ -111,7 +111,7 @@ enum FileActionError: LocalizedError {
             if settingEnabled {
                 return String(localized: "Radix scanned this package before package contents were expanded. Rescan this location to zoom into it.", comment: "Error shown when a package needs to be rescanned after enabling package expansion.")
             }
-            return String(localized: "Radix scanned this package as a single item. To zoom into it, turn on “Treat app bundles and packages as folders” in Settings, then rescan this location.", comment: "Error explaining how to enable package expansion before zooming into a package.")
+            return String(localized: "Radix scanned this package as a single item. To zoom into it, turn on “Expand packages” in Settings, then rescan this location.", comment: "Error explaining how to enable package expansion before zooming into a package.")
         case .folderRequiredForDrop:
             return String(localized: "Drop a folder or mounted volume to start a scan.", comment: "Error shown when a dropped item is not a folder or volume.")
         case .fullDiskAccessSettingsUnavailable:
@@ -3249,7 +3249,7 @@ final class AppModel: ObservableObject {
             .union(.controlCharacters)
         let components = name.components(separatedBy: invalidCharacters)
         let sanitizedName = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
-        return sanitizedName.isEmpty ? "Radix Scan" : sanitizedName
+        return sanitizedName.isEmpty ? String(localized: "Radix Scan", comment: "Fallback filename for an exported scan.") : sanitizedName
     }
 
     private static func currentAppVersion() -> String {

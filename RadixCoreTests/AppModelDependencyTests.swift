@@ -860,7 +860,7 @@ final class AppModelDependencyTests: XCTestCase {
         XCTAssertEqual(model.errorAlertTitle, "Package Contents Hidden")
         XCTAssertEqual(
             model.lastErrorMessage,
-            "Radix scanned this package as a single item. To zoom into it, turn on “Treat app bundles and packages as folders” in Settings, then rescan this location."
+            "Radix scanned this package as a single item. To zoom into it, turn on “Expand packages” in Settings, then rescan this location."
         )
         XCTAssertEqual(model.navigation.currentFocusNode?.id, root.id)
     }

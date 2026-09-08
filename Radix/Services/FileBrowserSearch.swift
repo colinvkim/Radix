@@ -382,7 +382,7 @@ enum SearchNormalizer {
     }
 
     nonisolated static func normalizedNameKindHaystack(for node: FileNodeRecord) -> String {
-        normalize([node.name, node.itemKind].joined(separator: "\n"))
+        normalize([node.displayName, node.itemKind].joined(separator: "\n"))
     }
 }
 

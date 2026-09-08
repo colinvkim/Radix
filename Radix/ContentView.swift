@@ -532,7 +532,7 @@ private struct ImportSnapshotDetailsPopover: View {
         .frame(minWidth: 260)
     }
 
-    private func detailRow(_ title: String, _ value: String) -> some View {
+    private func detailRow(_ title: LocalizedStringKey, _ value: String) -> some View {
         GridRow {
             Text(title)
                 .foregroundStyle(.secondary)
@@ -545,7 +545,7 @@ private struct ImportSnapshotDetailsPopover: View {
 }
 
 private struct ImportSnapshotStatCard: View {
-    let title: String
+    let title: LocalizedStringKey
     let value: String
 
     var body: some View {
@@ -918,7 +918,9 @@ private extension ContentView {
         }
         let shownPaths = nodes.prefix(3).map(\.url.path).joined(separator: "\n")
         let remainingCount = nodes.count - 3
-        let remainingText = remainingCount > 0 ? "\n+\(remainingCount) more" : ""
+        let remainingText = remainingCount > 0
+            ? "\n" + String(localized: "+\(remainingCount) more", comment: "Additional selected paths omitted from the Trash confirmation list.")
+            : ""
         return String(localized: "Radix will ask macOS to move \(nodes.count) selected items to the Trash:\n\(shownPaths)\(remainingText)", comment: "Confirmation message listing multiple selected items that will be moved to the Trash.")
     }
 

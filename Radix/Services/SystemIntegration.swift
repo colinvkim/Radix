@@ -517,7 +517,7 @@ enum SystemIntegration {
         do {
             let values = try url.resourceValues(forKeys: [.fileResourceIdentifierKey])
             guard let identifierData = values.fileResourceIdentifier as? Data else {
-                return .failure(.metadataUnavailable("file resource identifier unavailable"))
+                return .failure(.metadataUnavailable(String(localized: "file resource identifier unavailable", comment: "Reason the selected file identity could not be verified.")))
             }
             return .success(FileIdentity(resourceIdentifier: identifierData))
         } catch {
@@ -775,7 +775,7 @@ enum SystemIntegration {
 
         let totalText = capacityText(Int64(totalCapacity))
         let availableText = capacityText(resolvedAvailableCapacity)
-        return "\(availableText) free of \(totalText)"
+        return String(localized: "\(availableText) free of \(totalText)", comment: "Available disk capacity followed by total disk capacity.")
     }
 
     private nonisolated static func resolvedAvailableCapacity(

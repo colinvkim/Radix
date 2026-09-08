@@ -465,7 +465,7 @@ struct SunburstChartView: View {
         let node = displayedNode ?? rootNode
         let status = discardPileOverlay.role(for: node.id)?.statusText
             ?? summaryStatus(for: node)
-        return String(localized: "\(node.name), \(RadixFormatters.size(node.allocatedSize)), \(status)", comment: "Accessibility value describing the selected sunburst segment.")
+        return String(localized: "\(node.displayName), \(RadixFormatters.size(node.allocatedSize)), \(status)", comment: "Accessibility value describing the selected sunburst segment.")
     }
 
     private var accessibilityHint: String {
@@ -568,7 +568,7 @@ struct SunburstChartView: View {
         if DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
             return ChartSummary(
                 status: summaryStatus(for: node),
-                title: node.name,
+                title: node.displayName,
                 value: RadixFormatters.size(node.allocatedSize),
                 detail: String(localized: "APFS available capacity", comment: "Chart detail describing free space on an APFS volume.")
             )
@@ -584,7 +584,7 @@ struct SunburstChartView: View {
 
         return ChartSummary(
             status: status ?? node.itemKind(activeTarget: activeTarget),
-            title: node.name,
+            title: node.displayName,
             value: RadixFormatters.size(node.allocatedSize),
             detail: detail
         )

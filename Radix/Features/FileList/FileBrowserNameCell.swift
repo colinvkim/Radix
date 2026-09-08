@@ -25,7 +25,7 @@ struct FileBrowserNameCell: View {
                     .foregroundStyle(node.isDirectory || node.isSynthetic ? Color.accentColor : Color.secondary)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(node.name)
+                    Text(node.displayName)
                         .lineLimit(1)
 
                     if let statusText = subtitleOverride ?? node.secondaryStatusText {

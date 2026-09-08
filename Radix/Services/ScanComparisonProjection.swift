@@ -376,7 +376,7 @@ nonisolated struct ScanComparisonChangeTreeNode: Identifiable, Equatable, Sendab
         return ScanComparisonChangeTreeNode(
             id: "other:\(parentPath ?? "root"):\(filterID)",
             relativePath: parentPath ?? "",
-            name: "Other smaller changes",
+            name: String(localized: "Other smaller changes", comment: "Comparison group containing smaller storage changes."),
             increasedAllocatedSize: increasedAllocatedSize,
             reclaimedAllocatedSize: reclaimedAllocatedSize,
             affectedCount: affectedCount,

@@ -76,6 +76,19 @@ nonisolated struct FileNodeRecord: Equatable, Identifiable, Sendable {
         self.isAutoSummarized = isAutoSummarized
     }
 
+    /// Keep names used by archives and exclusion accounting stable, and localize only presentation.
+    var displayName: String {
+        guard isSynthetic else { return name }
+        switch name {
+        case "Excluded & Unattributed":
+            return String(localized: "Excluded & Unattributed", comment: "Storage excluded from the scan or not attributable to a file.")
+        case "System & Unattributed":
+            return String(localized: "System & Unattributed", comment: "System storage and other used space not attributable to a file.")
+        default:
+            return name
+        }
+    }
+
     var itemKind: String {
         if isSynthetic {
             return String(localized: "System Data", comment: "Kind label for storage that cannot be attributed to a regular file.")

@@ -357,7 +357,7 @@ struct TreemapChartView: View {
 
         let status = discardPileOverlay.role(for: displayedNode.id)?.statusText
             ?? summaryStatus(for: displayedNode)
-        return String(localized: "\(displayedNode.name), \(RadixFormatters.size(displayedNode.allocatedSize)), \(status)", comment: "Accessibility value describing the selected treemap tile.")
+        return String(localized: "\(displayedNode.displayName), \(RadixFormatters.size(displayedNode.allocatedSize)), \(status)", comment: "Accessibility value describing the selected treemap tile.")
     }
 
     private func chartFrame(in size: CGSize) -> CGRect {

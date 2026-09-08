@@ -103,7 +103,7 @@ struct SelectionInspectorView: View {
 
                 if !warnings.isEmpty {
                     InspectorWarningsSection(
-                        selectionName: node.name,
+                        selectionName: node.displayName,
                         warnings: warnings,
                         fullDiskAccessAdvice: fullDiskAccessAdvice(for: warnings),
                         openFullDiskAccessSettings: actions.openFullDiskAccessSettings

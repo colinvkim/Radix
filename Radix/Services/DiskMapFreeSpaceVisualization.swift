@@ -172,7 +172,7 @@ enum DiskMapFreeSpaceVisualization {
         let freeSpaceNode = FileNodeRecord(
             id: freeSpaceID,
             url: root.url,
-            name: "Free Space",
+            name: String(localized: "Free Space", comment: "Disk map category for available volume capacity."),
             isDirectory: false,
             isSymbolicLink: false,
             allocatedSize: availableCapacity,

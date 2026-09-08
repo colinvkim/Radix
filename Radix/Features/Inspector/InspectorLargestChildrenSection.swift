@@ -30,7 +30,7 @@ private struct InspectorLargestChildButton: View {
                     .foregroundStyle(node.isDirectory ? Color.accentColor : Color.secondary)
                     .frame(width: 18)
 
-                Text(node.name)
+                Text(node.displayName)
                     .lineLimit(1)
 
                 Spacer()

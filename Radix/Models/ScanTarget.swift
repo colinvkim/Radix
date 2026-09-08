@@ -90,9 +90,9 @@ nonisolated struct ScanTarget: Identifiable, Hashable, Sendable {
         if path == "/" {
             do {
                 let volumeName = try url.resourceValues(forKeys: [.volumeNameKey]).volumeName
-                return volumeName ?? "Startup Disk"
+                return volumeName ?? String(localized: "Startup Disk", comment: "Fallback name when the startup volume name cannot be read.")
             } catch {
-                return "Startup Disk"
+                return String(localized: "Startup Disk", comment: "Fallback name when the startup volume name cannot be read.")
             }
         }
 

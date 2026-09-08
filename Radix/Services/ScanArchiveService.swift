@@ -912,7 +912,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
                 data.append(chunk)
                 hasher.update(data: chunk)
                 guard data.count <= maximumByteCount else {
-                    throw mapError("section exceeds supported size")
+                    throw mapError(String(localized: "section exceeds supported size", comment: "Archive error for a section larger than the supported limit."))
                 }
             }
 
@@ -958,7 +958,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
                 }
                 data.append(chunk)
                 guard data.count <= maximumByteCount else {
-                    throw mapError("section exceeds supported size")
+                    throw mapError(String(localized: "section exceeds supported size", comment: "Archive error for a section larger than the supported limit."))
                 }
             }
         } catch is CancellationError {

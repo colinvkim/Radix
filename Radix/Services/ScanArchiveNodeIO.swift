@@ -163,7 +163,7 @@ extension ScanArchiveService {
                     phase: .writingNodes,
                     completedUnitCount: processedNodeCount,
                     totalUnitCount: totalNodeCount,
-                    message: "Writing node records"
+                    message: String(localized: "Writing node records", comment: "Progress message during scan archive processing.")
                 ))
                 await Task.yield()
             }
@@ -343,13 +343,17 @@ extension ScanArchiveService {
                     try Task.checkCancellation()
                 }
                 if childOrdinal == parentOrdinal {
-                    let subject = childOrdinal == topology.rootOrdinal ? "root node" : "node ordinal \(childOrdinal)"
-                    throw ScanArchiveError.topology(localized: "\(subject) references itself as a child")
+                    if childOrdinal == topology.rootOrdinal {
+                        throw ScanArchiveError.topology(localized: "root node references itself as a child")
+                    }
+                    throw ScanArchiveError.topology(localized: "node ordinal \(childOrdinal) references itself as a child")
                 }
                 let previousParent = parentRawIndices[childOrdinal]
                 guard previousParent == noParent else {
-                    let detail = previousParent == UInt32(parentOrdinal) ? "is duplicated" : "has multiple parents"
-                    throw ScanArchiveError.topology(localized: "child ordinal \(childOrdinal) \(detail)")
+                    if previousParent == UInt32(parentOrdinal) {
+                        throw ScanArchiveError.topology(localized: "child ordinal \(childOrdinal) is duplicated")
+                    }
+                    throw ScanArchiveError.topology(localized: "child ordinal \(childOrdinal) has multiple parents")
                 }
                 parentRawIndices[childOrdinal] = UInt32(parentOrdinal)
                 childIndices.append(FileTreeNodeIndex(rawValue: UInt32(childOrdinal)))
@@ -425,12 +429,16 @@ extension ScanArchiveService {
                 }
                 processedChildCount += 1
                 if childOrdinal == parentOrdinal {
-                    let subject = childOrdinal == rootOrdinal ? "root node" : "node ordinal \(childOrdinal)"
-                    throw ScanArchiveError.topology(localized: "\(subject) references itself as a child")
+                    if childOrdinal == rootOrdinal {
+                        throw ScanArchiveError.topology(localized: "root node references itself as a child")
+                    }
+                    throw ScanArchiveError.topology(localized: "node ordinal \(childOrdinal) references itself as a child")
                 }
                 if let existingParent = parentByChild.updateValue(parentOrdinal, forKey: childOrdinal) {
-                    let detail = existingParent == parentOrdinal ? "is duplicated" : "has multiple parents"
-                    throw ScanArchiveError.topology(localized: "child ordinal \(childOrdinal) \(detail)")
+                    if existingParent == parentOrdinal {
+                        throw ScanArchiveError.topology(localized: "child ordinal \(childOrdinal) is duplicated")
+                    }
+                    throw ScanArchiveError.topology(localized: "child ordinal \(childOrdinal) has multiple parents")
                 }
             }
         }
@@ -623,7 +631,7 @@ extension ScanArchiveService {
                     phase: .validatingTopology,
                     completedUnitCount: completedCount,
                     totalUnitCount: records.count,
-                    message: "Validating topology"
+                    message: String(localized: "Validating topology", comment: "Progress message during scan archive processing.")
                 ))
                 await Task.yield()
             }
@@ -849,7 +857,7 @@ extension ScanArchiveService {
                         phase: .readingNodes,
                         completedUnitCount: decodedNodeCount,
                         totalUnitCount: expectedNodeCount,
-                        message: "Reading node records"
+                        message: String(localized: "Reading node records", comment: "Progress message during scan archive processing.")
                     ))
                 }
                 return appendedBatch
@@ -932,7 +940,7 @@ extension ScanArchiveService {
             phase: .readingNodes,
             completedUnitCount: decodedNodeCount,
             totalUnitCount: expectedNodeCount,
-            message: "Reading node records"
+            message: String(localized: "Reading node records", comment: "Progress message during scan archive processing.")
         ))
 
         let actualChecksum = Data(hasher.finalize()).base64EncodedString()

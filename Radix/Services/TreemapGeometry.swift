@@ -237,7 +237,7 @@ nonisolated enum TreemapLayout {
             visible.append(Entry(
                 id: "treemap-aggregate-\(parentID)",
                 nodeID: nil,
-                label: "Smaller Items",
+                label: String(localized: "Smaller Items", comment: "Disk map group for items too small to display individually."),
                 totalSize: groupedSize,
                 isAggregate: true,
                 groupedItemCount: groupedCount,
@@ -445,7 +445,7 @@ nonisolated enum TreemapLayout {
         nonisolated init(node: FileNodeRecord) {
             id = node.id
             nodeID = node.id
-            label = node.name
+            label = node.displayName
             totalSize = max(node.allocatedSize, 0)
             isAggregate = false
             groupedItemCount = nil

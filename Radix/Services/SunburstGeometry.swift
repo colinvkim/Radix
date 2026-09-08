@@ -206,7 +206,7 @@ nonisolated enum SunburstLayout {
                 GroupEntry(
                     id: $0.id,
                     nodeID: $0.id,
-                    label: $0.name,
+                    label: $0.displayName,
                     totalSize: max($0.allocatedSize, 1),
                     isAggregate: false,
                     colorID: $0.id,
@@ -237,7 +237,7 @@ nonisolated enum SunburstLayout {
                     GroupEntry(
                         id: child.id,
                         nodeID: child.id,
-                        label: child.name,
+                        label: child.displayName,
                         totalSize: size,
                         isAggregate: false,
                         colorID: child.id,
@@ -252,7 +252,7 @@ nonisolated enum SunburstLayout {
                 GroupEntry(
                     id: "aggregate-\(children.first?.id ?? UUID().uuidString)",
                     nodeID: nil,
-                    label: "Smaller Items",
+                    label: String(localized: "Smaller Items", comment: "Disk map group for items too small to display individually."),
                     totalSize: groupedSize,
                     isAggregate: true,
                     colorID: "aggregate-\(children.first?.id ?? UUID().uuidString)",
@@ -264,7 +264,7 @@ nonisolated enum SunburstLayout {
                 GroupEntry(
                     id: onlyGroupedChild.id,
                     nodeID: onlyGroupedChild.id,
-                    label: onlyGroupedChild.name,
+                    label: onlyGroupedChild.displayName,
                     totalSize: max(onlyGroupedChild.allocatedSize, 1),
                     isAggregate: false,
                     colorID: onlyGroupedChild.id,
