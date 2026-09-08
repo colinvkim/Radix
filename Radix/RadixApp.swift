@@ -6,57 +6,25 @@
 //
 
 import AppKit
-import Combine
 import Sparkle
 import SwiftUI
-
-// This view model class publishes when new updates can be checked by the user
-@MainActor
-final class CheckForUpdatesViewModel: ObservableObject {
-    @Published var canCheckForUpdates = false
-
-    init(updater: SPUUpdater) {
-        updater.publisher(for: \.canCheckForUpdates)
-            .receive(on: RunLoop.main)
-            .assign(to: &$canCheckForUpdates)
-    }
-}
-
-// This is the view for the Check for Updates menu item
-// Note this intermediate view is necessary for the disabled state on the menu item to work properly before Monterey.
-// See https://stackoverflow.com/questions/68553092/menu-not-updating-swiftui-bug for more info
-struct CheckForUpdatesView: View {
-    @StateObject private var checkForUpdatesViewModel: CheckForUpdatesViewModel
-    private let updater: SPUUpdater
-    
-    init(updater: SPUUpdater) {
-        self.updater = updater
-        
-        // Create our view model for our CheckForUpdatesView
-        _checkForUpdatesViewModel = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater))
-    }
-    
-    var body: some View {
-        Button("Check for Updates…", systemImage: "arrow.triangle.2.circlepath") {
-            updater.checkForUpdates()
-        }
-            .disabled(!checkForUpdatesViewModel.canCheckForUpdates)
-    }
-}
 
 @main
 struct RadixApp: App {
     @StateObject private var appModel = AppModel()
+    @StateObject private var softwareUpdates: SoftwareUpdateModel
     private let updaterController: SPUStandardUpdaterController
     private let issueReportURL = URL(string: "https://github.com/colinvkim/Radix/issues/new/choose")
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
-        updaterController = SPUStandardUpdaterController(
+        let updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+        self.updaterController = updaterController
+        _softwareUpdates = StateObject(wrappedValue: SoftwareUpdateModel(updater: updaterController.updater))
     }
 
     var body: some Scene {
@@ -76,7 +44,7 @@ struct RadixApp: App {
             )
 
             CommandGroup(after: .appInfo) {
-                CheckForUpdatesView(updater: updaterController.updater)
+                CheckForUpdatesView(softwareUpdates: softwareUpdates)
             }
 
             CommandGroup(after: .help) {
@@ -89,7 +57,7 @@ struct RadixApp: App {
         }
 
         Settings {
-            SettingsView()
+            SettingsView(softwareUpdates: softwareUpdates)
                 .environmentObject(appModel)
         }
     }

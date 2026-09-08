@@ -181,6 +181,52 @@ final class AppModelDependencyTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoreDefaultPreferencesPreservesRecentScansStatsAndPermissions() async throws {
+        let preferences = SpyAppPreferencesStore(
+            preferences: AppPreferences(
+                scan: AppScanPreferences(
+                    showHiddenFiles: false, treatPackagesAsDirectories: true,
+                    maxRenderedDepth: 10, autoSummarizeDirectories: false,
+                    showFreeSpaceInDiskMaps: true, visualizationMode: .treemap,
+                    useScanExclusions: true, exclusionPatterns: ["custom/**"]
+                ),
+                didCompleteOnboarding: true,
+                onboardingPage: .access
+            )
+        )
+        let recent = makeTestTarget("/recent/kept")
+        let recentPersistence = SpyRecentTargetPersistence(targets: [recent])
+        var stats = AppUsageStats.empty
+        stats.recordSunburstSegmentClick()
+        let usageStats = SpyAppUsageStatsStore(stats: stats)
+        var actions = AppSystemActions.inert
+        actions.fullDiskAccessStatus = { .notGranted }
+        let model = AppModel(dependencies: makeDependencies(
+            preferences: preferences,
+            recentPersistence: recentPersistence,
+            availableRecentIDs: [recent.id],
+            systemActions: actions,
+            usageStats: usageStats
+        ))
+        defer { model.cleanup() }
+        try await waitUntil("initial permission status") { model.fullDiskAccessStatus == .notGranted }
+
+        model.restoreDefaultPreferences()
+
+        try await waitUntil("default preferences persisted") {
+            preferences.savedScanPreferences == [.defaults]
+        }
+        XCTAssertEqual(model.recentTargets, [recent])
+        XCTAssertFalse(recentPersistence.didClear)
+        XCTAssertEqual(model.usageStats, stats)
+        XCTAssertFalse(usageStats.didClear)
+        XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
+        XCTAssertTrue(preferences.preferences.didCompleteOnboarding)
+        XCTAssertEqual(preferences.preferences.onboardingPage, .access)
+        XCTAssertFalse(model.showsOnboarding)
+    }
+
+    @MainActor
     func testPreferenceChangesPersistThroughInjectedStore() async throws {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))

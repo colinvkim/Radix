@@ -1,700 +1,293 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @EnvironmentObject private var appModel: AppModel
-    @AppStorage("selectedSettingsTab") private var selectedTab = SettingsTab.general.rawValue
+    let softwareUpdates: SoftwareUpdateModel
+    @AppStorage("selectedSettingsTab") private var selectedTab = SettingsTab.scanning
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            GeneralSettingsPane()
+            ScanningSettingsPane()
                 .tabItem {
-                    Label("General", systemImage: "gearshape")
+                    Label(String(localized: "Scanning", table: "Interface"), systemImage: "magnifyingglass")
                 }
-                .tag(SettingsTab.general.rawValue)
+                .tag(SettingsTab.scanning)
 
-            PrivacySettingsPane(scanState: appModel.scanState)
-                .tabItem {
-                    Label("Privacy", systemImage: "hand.raised")
-                }
-                .tag(SettingsTab.privacy.rawValue)
+            DiskMapSettingsPane()
+                .tabItem { Label("Disk Maps", systemImage: "chart.pie") }
+                .tag(SettingsTab.diskMaps)
 
             StatsSettingsPane()
-                .tabItem {
-                    Label("Stats", systemImage: "chart.bar")
-                }
-                .tag(SettingsTab.stats.rawValue)
+                .tabItem { Label("Stats", systemImage: "chart.bar") }
+                .tag(SettingsTab.stats)
+
+            GeneralSettingsPane(softwareUpdates: softwareUpdates)
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
         }
         .scenePadding()
-        .frame(width: 560, height: 530)
+        .frame(width: 600, height: 580)
     }
 }
 
 private enum SettingsTab: String {
-    case general
-    case privacy
+    case scanning
+    case diskMaps
     case stats
+    case general
 }
 
-private struct GeneralSettingsPane: View {
+private struct ScanningSettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
 
     var body: some View {
         Form {
-            Section("Scanning") {
-                Toggle("Show hidden files while scanning", isOn: $appModel.showHiddenFiles)
-                Toggle("Treat app bundles and packages as folders", isOn: $appModel.treatPackagesAsDirectories)
-                Toggle("Automatically summarize folders with many small files", isOn: $appModel.autoSummarizeDirectories)
-
-                Text("Hidden files are included by default. Mounted volume scans always include them automatically.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("When enabled, directories with thousands of tiny files (like node_modules or caches) are summarized without expanding every file, dramatically improving scan speed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
+            Section("Scan Options") {
+                SettingsToggle(
+                    "Include hidden files",
+                    detail: "Include dotfiles and hidden folders. Volume scans always include them.",
+                    isOn: $appModel.showHiddenFiles
+                )
+                SettingsToggle(
+                    "Expand packages",
+                    detail: "Explore app bundles and other packages as folders.",
+                    isOn: $appModel.treatPackagesAsDirectories
+                )
+                SettingsToggle(
+                    "Summarize large folders",
+                    detail: "Group folders with thousands of tiny files.",
+                    isOn: $appModel.autoSummarizeDirectories
+                )
             }
 
             Section("Exclusions") {
-                Toggle("Use scan exclusions", isOn: $appModel.useScanExclusions)
+                SettingsToggle(
+                    "Use exclusions",
+                    detail: "Skip matching files and folders when scanning.",
+                    isOn: $appModel.useScanExclusions
+                )
                 ExclusionPatternsEditor(patterns: $appModel.exclusionPatterns)
                     .disabled(!appModel.useScanExclusions)
             }
+        }
+        .formStyle(.grouped)
+    }
+}
 
-            Section("Visualization") {
-                Toggle("Show free space in disk maps", isOn: $appModel.showFreeSpaceInDiskMaps)
+private struct DiskMapSettingsPane: View {
+    @EnvironmentObject private var appModel: AppModel
 
-                Picker("Disk map depth", selection: $appModel.maxRenderedDepth) {
+    var body: some View {
+        Form {
+            Section("Display") {
+                Picker("Detail depth", selection: $appModel.maxRenderedDepth) {
                     ForEach(3...10, id: \.self) { depth in
-                        Text("\(depth) levels")
-                            .tag(depth)
+                        Text("\(depth) levels").tag(depth)
                     }
                 }
                 .pickerStyle(.menu)
 
-                Text("Changes apply immediately to the current disk map.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("Free space appears only for mounted volume scans and uses macOS available capacity, which can include purgeable APFS space.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                SettingsToggle(
+                    "Show free space in volume scans",
+                    detail: "Uses macOS available capacity, which may include purgeable space.",
+                    isOn: $appModel.showFreeSpaceInDiskMaps
+                )
             }
 
-            Section("Workspace") {
-                Button("Show Welcome Screen") {
-                    appModel.presentOnboarding()
-                }
-
-                Button("Restore Defaults") {
-                    appModel.restoreDefaultPreferences()
-                }
+            Section("Live Preview") {
+                SettingsDiskMapPreview(
+                    mode: appModel.scanVisualizationMode,
+                    depthLimit: appModel.maxRenderedDepth,
+                    showFreeSpace: appModel.showFreeSpaceInDiskMaps
+                )
             }
         }
         .formStyle(.grouped)
     }
 }
 
-private struct ExclusionPatternsEditor: View {
-    @Binding private var patterns: [String]
-    @State private var rows: [ExclusionPatternRow]
-    @State private var selectedPatternID: ExclusionPatternRow.ID?
-    @State private var patternIDToReveal: ExclusionPatternRow.ID?
-    @FocusState private var focusedPatternID: ExclusionPatternRow.ID?
-
-    init(patterns: Binding<[String]>) {
-        _patterns = patterns
-        _rows = State(initialValue: Self.rows(from: patterns.wrappedValue))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ScrollViewReader { proxy in
-                List(selection: $selectedPatternID) {
-                    ForEach(rows) { row in
-                        patternField(for: row)
-                    }
-                }
-                .frame(minHeight: 120)
-                .onChange(of: patternIDToReveal) { _, id in
-                    guard let id else { return }
-                    withAnimation {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                    patternIDToReveal = nil
-                }
-            }
-
-            HStack {
-                ControlGroup {
-                    Button(action: addPattern) {
-                        Label("Add Pattern", systemImage: "plus")
-                    }
-                    .help("Add Pattern")
-
-                    Button(action: deleteSelectedPattern) {
-                        Label("Remove Pattern", systemImage: "minus")
-                    }
-                    .disabled(!canDeleteSelectedPattern)
-                    .help("Remove Pattern")
-                }
-                .labelStyle(.iconOnly)
-                .controlSize(.small)
-                .fixedSize(horizontal: true, vertical: false)
-
-                Spacer()
-
-                Menu("Add Preset") {
-                    ForEach(ScanExclusionMatcher.commonPresetPatterns, id: \.self) { pattern in
-                        Button(pattern) {
-                            addPreset(pattern)
-                        }
-                        .disabled(rows.containsPattern(pattern))
-                    }
-                }
-                .menuStyle(.button)
-                .controlSize(.small)
-                .fixedSize(horizontal: true, vertical: false)
-            }
-        }
-        .onChange(of: patterns) { _, newPatterns in
-            syncRows(with: newPatterns)
-        }
-        .onChange(of: focusedPatternID) { oldID, newID in
-            if oldID != nil, oldID != newID {
-                commitRows(preservingDraftIDs: [oldID, newID].compactMap(\.self))
-            }
-
-            if let newID, rows.contains(where: { $0.id == newID }) {
-                selectedPatternID = newID
-            }
-        }
-        .onDisappear {
-            commitRows()
-        }
-        .onDeleteCommand(perform: deleteSelectedPattern)
-    }
-
-    private var canDeleteSelectedPattern: Bool {
-        guard let selectedPatternID else { return false }
-        return rows.contains { $0.id == selectedPatternID }
-    }
-
-    private func patternField(for row: ExclusionPatternRow) -> some View {
-        let id = row.id
-
-        return TextField("Pattern", text: patternBinding(for: id))
-            .textFieldStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .focused($focusedPatternID, equals: id)
-            .onSubmit {
-                commitRows(preservingDraftIDs: [id])
-                focusedPatternID = nil
-            }
-            .id(id)
-    }
-
-    private func patternBinding(for id: ExclusionPatternRow.ID) -> Binding<String> {
-        Binding {
-            rows.first { $0.id == id }?.pattern ?? ""
-        } set: { newValue in
-            guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
-            rows[index].pattern = newValue
-            publishCommittedPatterns()
-        }
-    }
-
-    /// Keeps scan configuration current while a field remains focused. Without
-    /// this, starting a scan from another window can use the value from before
-    /// editing began because `commitRows` only runs on submit or focus loss.
-    private func publishCommittedPatterns() {
-        let updatedPatterns = rows.committedPatterns
-        guard patterns != updatedPatterns else { return }
-        patterns = updatedPatterns
-    }
-
-    private func addPattern() {
-        if let existingDraft = rows.first(where: \.isBlank) {
-            reveal(existingDraft, focus: true)
-            return
-        }
-
-        let row = ExclusionPatternRow(pattern: "")
-        rows.append(row)
-        reveal(row, focus: true)
-    }
-
-    private func addPreset(_ pattern: String) {
-        commitRows(preservingDraftIDs: focusedDraftIDs)
-        guard !rows.containsPattern(pattern) else { return }
-        let row = ExclusionPatternRow(pattern: pattern)
-        rows.append(row)
-        reveal(row, focus: false)
-        commitRows(preservingDraftIDs: focusedDraftIDs)
-    }
-
-    private func deleteSelectedPattern() {
-        guard let selectedPatternID else { return }
-
-        clearInteractionState(for: [selectedPatternID])
-        rows.removeAll { $0.id == selectedPatternID }
-        commitRows()
-    }
-
-    private var focusedDraftIDs: [ExclusionPatternRow.ID] {
-        focusedPatternID.map { [$0] } ?? []
-    }
-
-    private func reveal(_ row: ExclusionPatternRow, focus: Bool) {
-        selectedPatternID = row.id
-        patternIDToReveal = row.id
-        if focus {
-            focusedPatternID = row.id
-        }
-    }
-
-    private func clearInteractionState(for ids: some Sequence<ExclusionPatternRow.ID>) {
-        let ids = Set(ids)
-        if selectedPatternID.map(ids.contains) == true {
-            selectedPatternID = nil
-        }
-        if focusedPatternID.map(ids.contains) == true {
-            focusedPatternID = nil
-        }
-    }
-
-    private func commitRows(preservingDraftIDs draftIDs: some Sequence<ExclusionPatternRow.ID> = []) {
-        let draftIDs = Set(draftIDs)
-        var seenPatterns = Set<String>()
-        let committedRows = rows.compactMap { row -> ExclusionPatternRow? in
-            let committedPattern = row.committedPattern
-            guard !committedPattern.isEmpty else {
-                return draftIDs.contains(row.id) ? row : nil
-            }
-
-            guard seenPatterns.insert(committedPattern).inserted || draftIDs.contains(row.id) else {
-                return nil
-            }
-
-            var committedRow = row
-            committedRow.pattern = committedPattern
-            return committedRow
-        }
-
-        if rows != committedRows {
-            rows = committedRows
-        }
-
-        let updatedPatterns = committedRows.committedPatterns
-
-        if let selectedPatternID,
-           !committedRows.contains(where: { $0.id == selectedPatternID }) {
-            self.selectedPatternID = nil
-        }
-
-        if let focusedPatternID,
-           !committedRows.contains(where: { $0.id == focusedPatternID }) {
-            self.focusedPatternID = nil
-        }
-
-        guard patterns != updatedPatterns else { return }
-        patterns = updatedPatterns
-    }
-
-    private func syncRows(with patterns: [String]) {
-        let incomingRows = Self.rows(from: patterns)
-        guard rows.committedPatterns != incomingRows.map(\.pattern) else { return }
-
-        var reusableRows = rows
-        rows = incomingRows.map { incomingRow in
-            let pattern = incomingRow.pattern
-            if let existingIndex = reusableRows.firstIndex(where: { $0.committedPattern == pattern }) {
-                var existingRow = reusableRows.remove(at: existingIndex)
-                existingRow.pattern = pattern
-                return existingRow
-            }
-
-            return incomingRow
-        }
-
-        if let selectedPatternID,
-           !rows.contains(where: { $0.id == selectedPatternID }) {
-            self.selectedPatternID = nil
-        }
-
-        if let focusedPatternID,
-           !rows.contains(where: { $0.id == focusedPatternID }) {
-            self.focusedPatternID = nil
-        }
-    }
-
-    private static func rows(from patterns: [String]) -> [ExclusionPatternRow] {
-        ScanExclusionMatcher.normalizedPatterns(patterns).map { pattern in
-            ExclusionPatternRow(pattern: pattern)
-        }
-    }
-}
-
-private struct ExclusionPatternRow: Identifiable, Hashable {
-    let id: UUID
-    var pattern: String
-
-    init(id: UUID = UUID(), pattern: String) {
-        self.id = id
-        self.pattern = pattern
-    }
-
-    var isBlank: Bool {
-        committedPattern.isEmpty
-    }
-
-    var committedPattern: String {
-        ScanExclusionMatcher.normalizedPatterns([pattern]).first ?? ""
-    }
-}
-
-private extension [ExclusionPatternRow] {
-    func containsPattern(_ pattern: String) -> Bool {
-        guard let committedPattern = ScanExclusionMatcher.normalizedPatterns([pattern]).first else {
-            return false
-        }
-
-        return contains { $0.committedPattern == committedPattern }
-    }
-
-    var committedPatterns: [String] {
-        ScanExclusionMatcher.normalizedPatterns(map(\.pattern))
-    }
-}
-
-private struct PrivacySettingsPane: View {
+private struct GeneralSettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
-    @ObservedObject var scanState: ScanCoordinator
-    @State private var isConfirmingStatsReset = false
+    @ObservedObject var softwareUpdates: SoftwareUpdateModel
+    @State private var resetAction = SettingsResetAction.settings
+    @State private var confirmsReset = false
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
+    private var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+    }
 
     var body: some View {
         Form {
-            Section("Full Disk Access") {
-                Text("Radix can scan ordinary folders immediately. For protected macOS locations such as Mail, Safari, Messages, and Library content, grant Full Disk Access in System Settings.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Section("Software Updates") {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.tint)
+                        .accessibilityHidden(true)
 
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Radix").font(.headline)
+                        Text("Version \(version) (\(build))").foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    CheckForUpdatesView(softwareUpdates: softwareUpdates)
+                }
+                .padding(.vertical, 5)
+
+                SettingsToggle(
+                    "Automatically check for updates",
+                    detail: "Check for new versions periodically.",
+                    isOn: Binding(
+                        get: { softwareUpdates.automaticallyChecksForUpdates },
+                        set: { softwareUpdates.setAutomaticallyChecksForUpdates($0) }
+                    )
+                )
+
+                Group {
+                    if let lastCheck = softwareUpdates.lastUpdateCheckDate {
+                        Text("Last checked \(lastCheck.formatted(date: .abbreviated, time: .shortened))")
+                    } else {
+                        Text("No update checks yet.")
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+
+            Section("Full Disk Access") {
                 Label(
                     appModel.fullDiskAccessStatus.fullDiskAccessSettingsSummary,
                     systemImage: appModel.fullDiskAccessStatus.fullDiskAccessSystemImage
                 )
-                    .foregroundStyle(appModel.fullDiskAccessStatus.fullDiskAccessColor)
-                    .font(.callout)
+                .foregroundStyle(appModel.fullDiskAccessStatus.fullDiskAccessColor)
+                .font(.callout)
+
+                Text("Allow Radix to scan protected locations such as Mail, Messages, and Safari data.")
+                    .foregroundStyle(.secondary)
 
                 HStack {
-                    Button("Open Full Disk Access Settings") {
+                    Button("Open System Settings…") {
                         appModel.prepareAndOpenFullDiskAccessSettings()
                     }
-
                     Button("Recheck") {
                         appModel.refreshFullDiskAccessStatus()
                     }
                 }
+            }
 
-                if PermissionAdvisor.shouldSuggestFullDiskAccess(
-                    for: scanState.snapshot,
-                    fullDiskAccessStatus: appModel.fullDiskAccessStatus
-                ) {
-                    Label("Recent scan results suggest that protected folders were skipped.", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.callout)
-                } else {
-                    Label("No protected-folder warning is active for the current scan.", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
+            Section("Welcome") {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Get to know Radix")
+                        Text("Revisit the welcome screen and guided tour.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Show Welcome Screen") {
+                        appModel.presentOnboarding()
+                    }
                 }
             }
 
-            Section("File Actions") {
-                Text("Reveal, Open, Copy Path, and Move to Trash always act on the current visible selection. Radix stays read-only unless you explicitly choose a file action.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Section("Recent Scans") {
-                Text("Recent scan locations are stored locally so they can appear in the sidebar.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button("Clear Recent Scans", role: .destructive) {
-                    appModel.clearRecentTargets()
+            Section("Reset") {
+                HStack {
+                    Button("Clear Recent Scans…", role: .destructive) { confirm(.recents) }
+                        .disabled(appModel.recentTargets.isEmpty)
+                    Spacer()
+                    Text("\(appModel.recentTargets.count) locations").foregroundStyle(.secondary)
                 }
-                .disabled(appModel.recentTargets.isEmpty)
-            }
-
-            Section("Usage Stats") {
-                Text("Stats are stored locally on this Mac. Radix records aggregate counts and sizes only.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button("Reset Stats", role: .destructive) {
-                    isConfirmingStatsReset = true
-                }
-                .disabled(appModel.usageStats.isEmpty)
+                Button("Reset Stats…", role: .destructive) { confirm(.stats) }
+                    .disabled(appModel.usageStats.isEmpty)
+                Button("Reset All Settings…", role: .destructive) { confirm(.settings) }
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog(
-            "Reset Stats?",
-            isPresented: $isConfirmingStatsReset,
-            titleVisibility: .visible
-        ) {
-            Button("Reset Stats", role: .destructive) {
-                appModel.clearUsageStats()
-            }
-
+        .alert(resetAction.title, isPresented: $confirmsReset) {
             Button("Cancel", role: .cancel) {}
+            Button(resetAction.buttonTitle, role: .destructive) { performReset() }
         } message: {
-            Text("This clears locally stored aggregate usage stats on this Mac.")
+            Text(resetAction.message)
+        }
+    }
+
+    private func confirm(_ action: SettingsResetAction) {
+        resetAction = action
+        confirmsReset = true
+    }
+
+    private func performReset() {
+        switch resetAction {
+        case .settings:
+            appModel.restoreDefaultPreferences()
+            softwareUpdates.restoreDefaultPreferences()
+        case .stats:
+            appModel.clearUsageStats()
+        case .recents:
+            appModel.clearRecentTargets()
         }
     }
 }
 
-private struct StatsSettingsPane: View {
-    private static let emptyValueText = "—"
+private enum SettingsResetAction {
+    case settings
+    case stats
+    case recents
 
-    @EnvironmentObject private var appModel: AppModel
-
-    var body: some View {
-        Form {
-            if appModel.usageStats.totalScansRun == 0 {
-                StatsEmptyState {
-                    appModel.presentOpenPanelAndScan()
-                }
-            } else {
-                Section {
-                    SpaceExploredHero(
-                        bytes: appModel.usageStats.totalBytesScanned,
-                        emptyValueText: Self.emptyValueText
-                    )
-                }
-
-                Section("Scanning") {
-                    StatValueRow(
-                        String(
-                            localized: "Scans run",
-                            comment: "Stats pane label for the total number of scans run."
-                        ),
-                        value: countText(appModel.usageStats.totalScansRun)
-                    )
-                    StatValueRow(
-                        String(
-                            localized: "Largest scan",
-                            comment: "Stats pane label for the largest scan by size."
-                        ),
-                        value: sizeText(appModel.usageStats.largestScanBytes)
-                    )
-                    StatValueRow(
-                        String(
-                            localized: "Average scan speed",
-                            comment: "Stats pane label for the average scan throughput."
-                        ),
-                        value: rateText(appModel.usageStats.averageScanBytesPerSecond)
-                    )
-                    StatValueRow(
-                        String(
-                            localized: "Fastest scan speed",
-                            comment: "Stats pane label for the fastest scan throughput."
-                        ),
-                        value: rateText(appModel.usageStats.fastestScanBytesPerSecond)
-                    )
-                }
-
-                Section("Interaction") {
-                    StatValueRow(
-                        String(
-                            localized: "Sunburst segments clicked",
-                            comment: "Stats pane label for how often sunburst segments were clicked."
-                        ),
-                        value: countText(appModel.usageStats.sunburstSegmentsClicked)
-                    )
-                }
-
-                Section("Trash") {
-                    StatValueRow(
-                        String(
-                            localized: "Files deleted",
-                            comment: "Stats pane label for the number of files moved to Trash."
-                        ),
-                        value: countText(appModel.usageStats.filesDeleted)
-                    )
-                    StatValueRow(
-                        String(
-                            localized: "Folders deleted",
-                            comment: "Stats pane label for the number of folders moved to Trash."
-                        ),
-                        value: countText(appModel.usageStats.foldersDeleted)
-                    )
-                    StatValueRow(
-                        String(
-                            localized: "Bytes moved to Trash",
-                            comment: "Stats pane label for the total bytes moved to Trash."
-                        ),
-                        value: sizeText(appModel.usageStats.bytesMovedToTrash)
-                    )
-                    StatValueRow(
-                        String(
-                            localized: "Largest trash move",
-                            comment: "Stats pane label for the largest single move to Trash."
-                        ),
-                        value: sizeText(appModel.usageStats.largestTrashMoveBytes)
-                    )
-                }
-            }
+    var title: LocalizedStringKey {
+        switch self {
+        case .settings: "Reset all settings?"
+        case .stats: "Reset stats?"
+        case .recents: "Clear recent scans?"
         }
-        .formStyle(.grouped)
     }
 
-    private func countText(_ value: Int) -> String {
-        guard value > 0 else { return Self.emptyValueText }
-        return value.formatted()
-    }
-
-    private func sizeText(_ bytes: Int64) -> String {
-        guard bytes > 0 else { return Self.emptyValueText }
-        return RadixFormatters.size(bytes)
-    }
-
-    private func rateText(_ bytesPerSecond: Double) -> String {
-        guard bytesPerSecond.isFinite, bytesPerSecond > 0 else {
-            return Self.emptyValueText
+    var buttonTitle: LocalizedStringKey {
+        switch self {
+        case .settings: "Reset All Settings"
+        case .stats: "Reset Stats"
+        case .recents: "Clear Recent Scans"
         }
-
-        return sizeText(Int64(bytesPerSecond.rounded())) + "/s"
     }
-}
 
-private struct StatsEmptyState: View {
-    let startScan: () -> Void
-
-    var body: some View {
-        Section {
-            VStack(spacing: 12) {
-                Image(systemName: "chart.bar.doc.horizontal")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-
-                VStack(spacing: 4) {
-                    Text("No Stats Yet")
-                        .font(.headline)
-
-                    Text("Run your first scan to start building local usage stats.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button("Start First Scan") {
-                    startScan()
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 28)
+    var message: LocalizedStringKey {
+        switch self {
+        case .settings:
+            "Restores scan, disk map, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
+        case .stats:
+            "Clears the aggregate usage stats stored on this Mac. Preferences and recent scans are kept."
+        case .recents:
+            "Removes recent locations from the sidebar. Your files and saved scan snapshots are kept."
         }
     }
 }
 
-private struct SpaceExploredHero: View {
-    let bytes: Int64
-    let emptyValueText: String
+private struct SettingsToggle: View {
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
+    @Binding var isOn: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var displayedBytes: Int64 = 0
-
-    private var valueText: String {
-        guard displayedBytes > 0 else { return emptyValueText }
-        return RadixFormatters.size(displayedBytes)
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "sparkles")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.tint)
-                .frame(width: 36, height: 36)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Space explored")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text(valueText)
-                    .font(.largeTitle.weight(.semibold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: Double(displayedBytes)))
-                    .animation(.easeOut(duration: 0.18), value: displayedBytes)
-                    .accessibilityLabel("Space explored")
-                    .accessibilityValue(valueText)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 8)
-        .task(id: bytes) {
-            await animateDisplayedBytes(to: bytes)
-        }
-    }
-
-    @MainActor
-    private func animateDisplayedBytes(to targetBytes: Int64) async {
-        let targetBytes = max(0, targetBytes)
-        guard !reduceMotion else {
-            displayedBytes = targetBytes
-            return
-        }
-
-        let startBytes = displayedBytes
-        guard startBytes != targetBytes else { return }
-        guard targetBytes > 0 else {
-            withAnimation(.easeOut(duration: 0.18)) {
-                displayedBytes = 0
-            }
-            return
-        }
-
-        let frameCount = 36
-        let frameDelay = Duration.milliseconds(18)
-        for frame in 1...frameCount {
-            do {
-                try await Task.sleep(for: frameDelay)
-            } catch {
-                return
-            }
-
-            guard !Task.isCancelled else { return }
-            let progress = Double(frame) / Double(frameCount)
-            let easedProgress = 1 - pow(1 - progress, 3)
-            let interpolatedBytes = Double(startBytes) + (Double(targetBytes - startBytes) * easedProgress)
-            withAnimation(.easeOut(duration: 0.18)) {
-                displayedBytes = max(0, Int64(interpolatedBytes.rounded()))
-            }
-        }
-
-        withAnimation(.easeOut(duration: 0.18)) {
-            displayedBytes = targetBytes
-        }
-    }
-}
-
-private struct StatValueRow: View {
-    private let title: String
-    private let value: String
-
-    init(_ title: String, value: String) {
+    init(_ title: LocalizedStringKey, detail: LocalizedStringKey, isOn: Binding<Bool>) {
         self.title = title
-        self.value = value
+        self.detail = detail
+        _isOn = isOn
     }
 
     var body: some View {
-        LabeledContent(title) {
-            Text(value)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+        Toggle(isOn: $isOn) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .accessibilityLabel(Text(title))
+        .accessibilityHint(Text(detail))
+        .padding(.vertical, 3)
     }
 }
