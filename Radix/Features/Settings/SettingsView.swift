@@ -75,6 +75,7 @@ private struct ScanningSettingsPane: View {
 
 private struct DiskMapSettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
+    @State private var previewMode = ScanVisualizationMode.sunburst
 
     var body: some View {
         Form {
@@ -94,11 +95,23 @@ private struct DiskMapSettingsPane: View {
             }
 
             Section("Live Preview") {
-                SettingsDiskMapPreview(
-                    mode: appModel.scanVisualizationMode,
-                    depthLimit: appModel.maxRenderedDepth,
-                    showFreeSpace: appModel.showFreeSpaceInDiskMaps
-                )
+                VStack(spacing: 0) {
+                    Picker("Disk map preview", selection: $previewMode) {
+                        Text("Sunburst").tag(ScanVisualizationMode.sunburst)
+                        Text("Treemap").tag(ScanVisualizationMode.treemap)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 240)
+                    .padding(.top, 8)
+
+                    SettingsDiskMapPreview(
+                        mode: previewMode,
+                        depthLimit: appModel.maxRenderedDepth,
+                        showFreeSpace: appModel.showFreeSpaceInDiskMaps
+                    )
+                }
+                .frame(maxWidth: .infinity)
             }
         }
         .formStyle(.grouped)
@@ -134,12 +147,12 @@ private struct GeneralSettingsPane: View {
                     }
                     Spacer()
                     CheckForUpdatesView(softwareUpdates: softwareUpdates)
+                        .labelStyle(.titleOnly)
                 }
                 .padding(.vertical, 5)
 
-                SettingsToggle(
+                Toggle(
                     "Automatically check for updates",
-                    detail: "Check for new versions periodically.",
                     isOn: Binding(
                         get: { softwareUpdates.automaticallyChecksForUpdates },
                         set: { softwareUpdates.setAutomaticallyChecksForUpdates($0) }
