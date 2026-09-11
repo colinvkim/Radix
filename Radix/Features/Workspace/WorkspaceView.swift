@@ -128,7 +128,7 @@ struct WorkspaceView: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) {
             if let folderRescanState = scanState.folderRescanState {
