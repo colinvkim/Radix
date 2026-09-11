@@ -295,7 +295,7 @@ private struct SidebarTargetRow: View {
             }
         } icon: {
             Image(systemName: target.sidebarSymbolName)
-                .foregroundStyle(target.kind == .volume ? Color.accentColor : Color.secondary)
+                .foregroundStyle(IconStyle(isVolume: target.kind == .volume))
         }
         .contextMenu {
             Button("Reveal in Finder", systemImage: FileNodeAction.revealInFinder.systemImageName) {
@@ -309,5 +309,17 @@ private struct SidebarTargetRow: View {
             }
         }
         .help(target.url.path)
+    }
+
+    private struct IconStyle: ShapeStyle {
+        let isVolume: Bool
+
+        func resolve(in environment: EnvironmentValues) -> some ShapeStyle {
+            if environment.backgroundProminence == .increased {
+                return AnyShapeStyle(.primary)
+            }
+
+            return AnyShapeStyle(isVolume ? Color.accentColor : Color.secondary)
+        }
     }
 }
