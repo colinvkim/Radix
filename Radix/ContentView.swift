@@ -101,7 +101,7 @@ struct ContentView: View {
                 discardPileRootNodeIDs: appModel.discardPileRootNodeIDs,
                 actions: selectionInspectorActions
             )
-                .inspectorColumnWidth(min: 260, ideal: 320, max: 380)
+                .inspectorColumnWidth(min: 300, ideal: 330, max: 380)
         }
         .focusedSceneValue(\.inspectorVisibility, inspectorPresentation)
         .onChange(of: appModel.workspaceTourSessionID) { _, sessionID in
