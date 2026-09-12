@@ -1,4 +1,5 @@
 import Foundation
+
 @testable import RadixCore
 
 func scanResultFingerprint(_ store: FileTreeStore) -> String {

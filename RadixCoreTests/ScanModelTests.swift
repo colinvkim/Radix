@@ -1,38 +1,37 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanModelTests: XCTestCase {
+struct ScanModelTests {
+    @Test
     func testScanMetricsCurrentItemNameIsNilForEmptyPath() {
         let metrics = ScanMetrics()
 
-        XCTAssertNil(metrics.currentItemName)
+        #expect(metrics.currentItemName == nil)
     }
 
+    @Test
     func testScanMetricsCurrentItemNameUsesLastPathComponent() {
         var metrics = ScanMetrics()
         metrics.currentPath = "/Users/example/Downloads/archive.zip"
 
-        XCTAssertEqual(metrics.currentItemName, "archive.zip")
+        #expect(metrics.currentItemName == "archive.zip")
     }
 
+    @Test
     func testScanTargetInfersMountedVolumeRoots() {
         let volumeURL = URL(filePath: "/Volumes/External Drive", directoryHint: .isDirectory)
         let folderURL = URL(filePath: "/Users/example/Documents", directoryHint: .isDirectory)
 
-        XCTAssertEqual(
-            ScanTarget.inferredKind(for: volumeURL, mountedVolumeURLs: [volumeURL]),
-            .volume
-        )
-        XCTAssertEqual(
-            ScanTarget.inferredKind(for: folderURL, mountedVolumeURLs: [volumeURL]),
-            .folder
-        )
-        XCTAssertEqual(
-            ScanTarget.inferredKind(for: URL(filePath: "/", directoryHint: .isDirectory), mountedVolumeURLs: nil),
-            .volume
-        )
+        #expect(ScanTarget.inferredKind(for: volumeURL, mountedVolumeURLs: [volumeURL]) == .volume)
+        #expect(ScanTarget.inferredKind(for: folderURL, mountedVolumeURLs: [volumeURL]) == .folder)
+        #expect(
+            ScanTarget.inferredKind(for: URL(filePath: "/", directoryHint: .isDirectory), mountedVolumeURLs: nil)
+                == .volume)
     }
 
+    @Test
     func testDisplayNameWithKnownPathPreservesRootAndLiteralComponents() throws {
         let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
         let volumeName = try rootURL.resourceValues(forKeys: [.volumeNameKey]).volumeName ?? "Startup Disk"
@@ -43,24 +42,28 @@ final class ScanModelTests: XCTestCase {
             (
                 URL(filePath: "/Users/example/alias/文件-cafe\u{301}-100% #?.dat", directoryHint: .notDirectory),
                 "文件-cafe\u{301}-100% #?.dat"
-            )
+            ),
         ]
         for (url, expected) in cases {
-            XCTAssertEqual(ScanTarget.displayName(for: url), expected)
-            XCTAssertEqual(ScanTarget.displayName(for: url, knownPath: url.path), expected)
+            #expect(ScanTarget.displayName(for: url) == expected)
+            #expect(ScanTarget.displayName(for: url, knownPath: url.path) == expected)
         }
     }
 
+    @Test
     func testSupportsMoveToTrashRejectsSyntheticNodesAndRootPath() {
         let rootNode = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let syntheticNode = makeNode(id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)
-        let folderNode = makeNode(id: "/Users/example/Documents", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let syntheticNode = makeNode(
+            id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)
+        let folderNode = makeNode(
+            id: "/Users/example/Documents", isDirectory: true, isSynthetic: false, isAccessible: true)
 
-        XCTAssertFalse(rootNode.supportsMoveToTrash)
-        XCTAssertFalse(syntheticNode.supportsMoveToTrash)
-        XCTAssertTrue(folderNode.supportsMoveToTrash)
+        #expect(!(rootNode.supportsMoveToTrash))
+        #expect(!(syntheticNode.supportsMoveToTrash))
+        #expect(folderNode.supportsMoveToTrash)
     }
 
+    @Test
     func testTrashSafetyPolicyRejectsProtectedRoots() {
         let policy = makeTrashSafetyPolicy()
         let protectedPaths = [
@@ -77,15 +80,16 @@ final class ScanModelTests: XCTestCase {
             "/ExampleFirmlink",
             "/System/Volumes/Data/ExampleFirmlink",
             "/System/Library/Caches",
-            "/System/Volumes/Data/System/Library/Caches"
+            "/System/Volumes/Data/System/Library/Caches",
         ]
 
         for path in protectedPaths {
             let reason = policy.blockReason(for: URL(filePath: path, directoryHint: .isDirectory))
-            XCTAssertEqual(reason?.path, standardizedTestPath(path), path)
+            #expect(reason?.path == standardizedTestPath(path), Comment(rawValue: path))
         }
     }
 
+    @Test
     func testTrashSafetyPolicyAllowsDescendantsOfProtectedRoots() {
         let policy = makeTrashSafetyPolicy()
         let allowedPaths = [
@@ -93,115 +97,125 @@ final class ScanModelTests: XCTestCase {
             "/Users/example/Downloads/file.dmg",
             "/Volumes/External/file.txt",
             "/ExampleFirmlink/child",
-            "/System/Volumes/Data/Applications/Example.app"
+            "/System/Volumes/Data/Applications/Example.app",
         ]
 
         for path in allowedPaths {
-            XCTAssertNil(
-                policy.blockReason(for: URL(filePath: path)),
-                path
-            )
+            #expect(policy.blockReason(for: URL(filePath: path)) == nil, Comment(rawValue: path))
         }
     }
 
+    @Test
     func testSupportsMoveToTrashRejectsTrashSafetyProtectedRoots() {
         let systemNode = makeNode(id: "/System", isDirectory: true, isSynthetic: false, isAccessible: true)
         let libraryNode = makeNode(id: "/Library", isDirectory: true, isSynthetic: false, isAccessible: true)
         let applicationsNode = makeNode(id: "/Applications", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let applicationsChildNode = makeNode(id: "/Applications/Example.app", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let applicationsChildNode = makeNode(
+            id: "/Applications/Example.app", isDirectory: true, isSynthetic: false, isAccessible: true)
 
-        XCTAssertFalse(systemNode.supportsMoveToTrash)
-        XCTAssertFalse(libraryNode.supportsMoveToTrash)
-        XCTAssertFalse(applicationsNode.supportsMoveToTrash)
-        XCTAssertTrue(applicationsChildNode.supportsMoveToTrash)
+        #expect(!(systemNode.supportsMoveToTrash))
+        #expect(!(libraryNode.supportsMoveToTrash))
+        #expect(!(applicationsNode.supportsMoveToTrash))
+        #expect(applicationsChildNode.supportsMoveToTrash)
     }
 
+    @Test
     func testSupportsMoveToTrashRejectsActiveVolumeRoot() {
         let volumeTarget = ScanTarget(
             url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
             kind: .volume
         )
         let volumeRootNode = makeNode(id: volumeTarget.id, isDirectory: true, isSynthetic: false, isAccessible: true)
-        let childNode = makeNode(id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let childNode = makeNode(
+            id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
 
-        XCTAssertFalse(volumeRootNode.supportsMoveToTrash(activeTarget: volumeTarget))
-        XCTAssertTrue(childNode.supportsMoveToTrash(activeTarget: volumeTarget))
+        #expect(!(volumeRootNode.supportsMoveToTrash(activeTarget: volumeTarget)))
+        #expect(childNode.supportsMoveToTrash(activeTarget: volumeTarget))
     }
 
+    @Test
     func testSupportsMoveToTrashUsesInjectedTrashSafetyPolicy() {
         let policy = makeTrashSafetyPolicy()
-        let mountedRootNode = makeNode(id: "/Volumes/External", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let mountedChildNode = makeNode(id: "/Volumes/External/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let mountedRootNode = makeNode(
+            id: "/Volumes/External", isDirectory: true, isSynthetic: false, isAccessible: true)
+        let mountedChildNode = makeNode(
+            id: "/Volumes/External/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
 
-        XCTAssertFalse(mountedRootNode.supportsMoveToTrash(trashSafetyPolicy: policy))
-        XCTAssertFalse(mountedRootNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy))
-        XCTAssertTrue(mountedChildNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy))
-        XCTAssertFalse(
-            FileNodeActionAvailability(
+        #expect(!(mountedRootNode.supportsMoveToTrash(trashSafetyPolicy: policy)))
+        #expect(!(mountedRootNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy)))
+        #expect(mountedChildNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy))
+        #expect(
+            !(FileNodeActionAvailability(
                 node: mountedRootNode,
                 activeTarget: nil,
                 trashSafetyPolicy: policy
-            ).canMoveToTrash
-        )
+            ).canMoveToTrash))
     }
 
+    @Test
     func testActionAvailabilityUsesSharedFileActionRules() {
         let volumeTarget = ScanTarget(
             url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
             kind: .volume
         )
         let volumeRootNode = makeNode(id: volumeTarget.id, isDirectory: true, isSynthetic: false, isAccessible: true)
-        let regularFile = makeNode(id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
-        let syntheticNode = makeNode(id: volumeTarget.id + "/system", isDirectory: false, isSynthetic: true, isAccessible: true)
+        let regularFile = makeNode(
+            id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let syntheticNode = makeNode(
+            id: volumeTarget.id + "/system", isDirectory: false, isSynthetic: true, isAccessible: true)
 
         let volumeRootAvailability = volumeRootNode.actionAvailability(activeTarget: volumeTarget)
-        XCTAssertTrue(volumeRootAvailability.canOpen)
-        XCTAssertTrue(volumeRootAvailability.canPreviewWithQuickLook)
-        XCTAssertTrue(volumeRootAvailability.canRevealInFinder)
-        XCTAssertTrue(volumeRootAvailability.canCopyPath)
-        XCTAssertFalse(volumeRootAvailability.canMoveToTrash)
+        #expect(volumeRootAvailability.canOpen)
+        #expect(volumeRootAvailability.canPreviewWithQuickLook)
+        #expect(volumeRootAvailability.canRevealInFinder)
+        #expect(volumeRootAvailability.canCopyPath)
+        #expect(!(volumeRootAvailability.canMoveToTrash))
 
         let regularFileAvailability = regularFile.actionAvailability(activeTarget: volumeTarget)
-        XCTAssertTrue(regularFileAvailability.canOpen)
-        XCTAssertTrue(regularFileAvailability.canMoveToTrash)
+        #expect(regularFileAvailability.canOpen)
+        #expect(regularFileAvailability.canMoveToTrash)
 
         let syntheticAvailability = syntheticNode.actionAvailability(activeTarget: volumeTarget)
-        XCTAssertFalse(syntheticAvailability.canOpen)
-        XCTAssertFalse(syntheticAvailability.canPreviewWithQuickLook)
-        XCTAssertFalse(syntheticAvailability.canRevealInFinder)
-        XCTAssertFalse(syntheticAvailability.canCopyPath)
-        XCTAssertFalse(syntheticAvailability.canMoveToTrash)
+        #expect(!(syntheticAvailability.canOpen))
+        #expect(!(syntheticAvailability.canPreviewWithQuickLook))
+        #expect(!(syntheticAvailability.canRevealInFinder))
+        #expect(!(syntheticAvailability.canCopyPath))
+        #expect(!(syntheticAvailability.canMoveToTrash))
 
-        XCTAssertEqual(
-            FileNodeActionAvailability(node: nil, activeTarget: volumeTarget),
-            FileNodeActionAvailability(
-                canOpen: false,
-                canPreviewWithQuickLook: false,
-                canRevealInFinder: false,
-                canCopyPath: false,
-                canMoveToTrash: false
-            )
-        )
+        #expect(
+            FileNodeActionAvailability(node: nil, activeTarget: volumeTarget)
+                == FileNodeActionAvailability(
+                    canOpen: false,
+                    canPreviewWithQuickLook: false,
+                    canRevealInFinder: false,
+                    canCopyPath: false,
+                    canMoveToTrash: false
+                ))
     }
 
+    @Test
     func testMultiNodeActionAvailabilityAllowsOnlyBulkSafeActions() {
-        let first = makeNode(id: "/Users/example/Downloads/first.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
-        let second = makeNode(id: "/Users/example/Downloads/second.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
-        let syntheticNode = makeNode(id: "/Users/example/Downloads/system", isDirectory: false, isSynthetic: true, isAccessible: true)
+        let first = makeNode(
+            id: "/Users/example/Downloads/first.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let second = makeNode(
+            id: "/Users/example/Downloads/second.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let syntheticNode = makeNode(
+            id: "/Users/example/Downloads/system", isDirectory: false, isSynthetic: true, isAccessible: true)
 
         let availability = FileNodeActionAvailability(nodes: [first, second], activeTarget: nil)
-        XCTAssertFalse(availability.canOpen)
-        XCTAssertFalse(availability.canPreviewWithQuickLook)
-        XCTAssertTrue(availability.canRevealInFinder)
-        XCTAssertTrue(availability.canCopyPath)
-        XCTAssertTrue(availability.canMoveToTrash)
+        #expect(!(availability.canOpen))
+        #expect(!(availability.canPreviewWithQuickLook))
+        #expect(availability.canRevealInFinder)
+        #expect(availability.canCopyPath)
+        #expect(availability.canMoveToTrash)
 
         let mixedAvailability = FileNodeActionAvailability(nodes: [first, syntheticNode], activeTarget: nil)
-        XCTAssertFalse(mixedAvailability.canRevealInFinder)
-        XCTAssertFalse(mixedAvailability.canCopyPath)
-        XCTAssertFalse(mixedAvailability.canMoveToTrash)
+        #expect(!(mixedAvailability.canRevealInFinder))
+        #expect(!(mixedAvailability.canCopyPath))
+        #expect(!(mixedAvailability.canMoveToTrash))
     }
 
+    @Test
     func testFileNodeActionsDescribePresentationAndAvailability() {
         let availability = FileNodeActionAvailability(
             canOpen: true,
@@ -211,29 +225,30 @@ final class ScanModelTests: XCTestCase {
             canMoveToTrash: true
         )
 
-        XCTAssertEqual(
-            FileNodeAction.allCases.map(\.title),
-            ["Quick Look", "Reveal in Finder", "Open", "Open in Terminal", "Copy Path", "Move to Trash"]
-        )
-        XCTAssertEqual(FileNodeAction.open.systemImageName, "arrow.up.forward.app")
-        XCTAssertEqual(FileNodeAction.openInTerminal.systemImageName, "terminal")
-        XCTAssertEqual(FileNodeAction.moveToTrash.systemImageName, "trash")
-        XCTAssertFalse(FileNodeAction.quickLook.isEnabled(in: availability))
-        XCTAssertTrue(FileNodeAction.revealInFinder.isEnabled(in: availability))
-        XCTAssertTrue(FileNodeAction.open.isEnabled(in: availability))
-        XCTAssertTrue(FileNodeAction.openInTerminal.isEnabled(in: availability))
-        XCTAssertFalse(FileNodeAction.copyPath.isEnabled(in: availability))
-        XCTAssertTrue(FileNodeAction.moveToTrash.isEnabled(in: availability))
+        #expect(
+            FileNodeAction.allCases.map(\.title) == [
+                "Quick Look", "Reveal in Finder", "Open", "Open in Terminal", "Copy Path", "Move to Trash",
+            ])
+        #expect(FileNodeAction.open.systemImageName == "arrow.up.forward.app")
+        #expect(FileNodeAction.openInTerminal.systemImageName == "terminal")
+        #expect(FileNodeAction.moveToTrash.systemImageName == "trash")
+        #expect(!(FileNodeAction.quickLook.isEnabled(in: availability)))
+        #expect(FileNodeAction.revealInFinder.isEnabled(in: availability))
+        #expect(FileNodeAction.open.isEnabled(in: availability))
+        #expect(FileNodeAction.openInTerminal.isEnabled(in: availability))
+        #expect(!(FileNodeAction.copyPath.isEnabled(in: availability)))
+        #expect(FileNodeAction.moveToTrash.isEnabled(in: availability))
 
         if #available(macOS 15.0, *) {
-            XCTAssertEqual(FileNodeAction.quickLook.systemImageName, "document.viewfinder")
-            XCTAssertEqual(FileNodeAction.copyPath.systemImageName, "document.on.document")
+            #expect(FileNodeAction.quickLook.systemImageName == "document.viewfinder")
+            #expect(FileNodeAction.copyPath.systemImageName == "document.on.document")
         } else {
-            XCTAssertEqual(FileNodeAction.quickLook.systemImageName, "doc.viewfinder")
-            XCTAssertEqual(FileNodeAction.copyPath.systemImageName, "doc.on.doc")
+            #expect(FileNodeAction.quickLook.systemImageName == "doc.viewfinder")
+            #expect(FileNodeAction.copyPath.systemImageName == "doc.on.doc")
         }
     }
 
+    @Test
     func testTerminalActionTargetsFoldersAndContainingFolders() {
         let folder = makeNode(
             id: "/Users/example/Downloads",
@@ -262,36 +277,37 @@ final class ScanModelTests: XCTestCase {
             isAccessible: true
         )
 
-        XCTAssertEqual(folder.terminalDirectoryURL, folder.url)
-        XCTAssertEqual(FileNodeAction.openInTerminal.title(for: folder), "Open in Terminal")
+        #expect(folder.terminalDirectoryURL == folder.url)
+        #expect(FileNodeAction.openInTerminal.title(for: folder) == "Open in Terminal")
 
         for node in [file, package, symbolicLink] {
-            XCTAssertEqual(
-                node.terminalDirectoryURL,
-                URL(filePath: "/Users/example/Downloads", directoryHint: .isDirectory)
-            )
-            XCTAssertEqual(
-                FileNodeAction.openInTerminal.title(for: node),
-                "Open Containing Folder in Terminal"
-            )
+            #expect(node.terminalDirectoryURL == URL(filePath: "/Users/example/Downloads", directoryHint: .isDirectory))
+            #expect(FileNodeAction.openInTerminal.title(for: node) == "Open Containing Folder in Terminal")
         }
     }
 
+    @Test
     func testSecondaryStatusTextReflectsAccessibilityAndSyntheticState() {
-        let readableNode = makeNode(id: "/Users/example/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
-        let limitedNode = makeNode(id: "/Users/example/private", isDirectory: true, isSynthetic: false, isAccessible: false)
-        let syntheticNode = makeNode(id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)
+        let readableNode = makeNode(
+            id: "/Users/example/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let limitedNode = makeNode(
+            id: "/Users/example/private", isDirectory: true, isSynthetic: false, isAccessible: false)
+        let syntheticNode = makeNode(
+            id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)
 
-        XCTAssertNil(readableNode.secondaryStatusText)
+        #expect(readableNode.secondaryStatusText == nil)
 
-        XCTAssertEqual(limitedNode.secondaryStatusText, "Limited access")
+        #expect(limitedNode.secondaryStatusText == "Limited access")
 
-        XCTAssertEqual(syntheticNode.secondaryStatusText, "Estimated from volume usage")
+        #expect(syntheticNode.secondaryStatusText == "Estimated from volume usage")
     }
 
+    @Test
     func testDirectoryBuilderAppliesCoreTreeInvariants() {
-        let small = makeNode(id: "/root/a.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 10)
-        let largeInaccessible = makeNode(id: "/root/z.txt", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 20)
+        let small = makeNode(
+            id: "/root/a.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 10)
+        let largeInaccessible = makeNode(
+            id: "/root/z.txt", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 20)
         let symlink = makeNode(
             id: "/root/link",
             isDirectory: false,
@@ -312,16 +328,18 @@ final class ScanModelTests: XCTestCase {
             isAccessible: true
         )
 
-        XCTAssertEqual(FileTreeStore.sortedChildren(children).map(\.name), ["z.txt", "a.txt", "link"])
-        XCTAssertEqual(directory.allocatedSize, 35)
-        XCTAssertEqual(directory.logicalSize, 35)
-        XCTAssertEqual(directory.descendantFileCount, 2)
-        XCTAssertFalse(directory.isAccessible)
-        XCTAssertFalse(directory.isAutoSummarized)
+        #expect(FileTreeStore.sortedChildren(children).map(\.name) == ["z.txt", "a.txt", "link"])
+        #expect(directory.allocatedSize == 35)
+        #expect(directory.logicalSize == 35)
+        #expect(directory.descendantFileCount == 2)
+        #expect(!(directory.isAccessible))
+        #expect(!(directory.isAutoSummarized))
     }
 
+    @Test
     func testSnapshotReplacingNodeRebuildsAncestorsAndReplacesStaleWarnings() throws {
-        let staleLeaf = makeNode(id: "/root/folder/stale.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 5)
+        let staleLeaf = makeNode(
+            id: "/root/folder/stale.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 5)
         let summarizedFolder = makeNode(
             id: "/root/folder",
             isDirectory: true,
@@ -331,7 +349,8 @@ final class ScanModelTests: XCTestCase {
             descendantFileCount: 42,
             isAutoSummarized: true
         )
-        let sibling = makeNode(id: "/root/sibling.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 8)
+        let sibling = makeNode(
+            id: "/root/sibling.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 8)
         let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
@@ -369,31 +388,33 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
-        let expandedStore = FileTreeStore(root: expandedFolder, childrenByID: [
-            expandedFolder.id: [accessibleExpandedLeaf, inaccessibleExpandedLeaf],
-        ])
+        let expandedStore = FileTreeStore(
+            root: expandedFolder,
+            childrenByID: [
+                expandedFolder.id: [accessibleExpandedLeaf, inaccessibleExpandedLeaf]
+            ])
         let expansionWarning = ScanWarning(path: "/root/folder/z.txt", message: "expanded", category: .permissionDenied)
 
-        let updatedSnapshot = try XCTUnwrap(
+        let updatedSnapshot = try #require(
             snapshot.replacingNode(
                 id: summarizedFolder.id,
                 with: expandedStore,
                 additionalWarnings: [expansionWarning]
-            )
-        )
+            ))
 
-        let updatedFolder = try XCTUnwrap(updatedSnapshot.treeStore.node(id: summarizedFolder.id))
+        let updatedFolder = try #require(updatedSnapshot.treeStore.node(id: summarizedFolder.id))
         let updatedChildren = updatedSnapshot.treeStore.children(of: updatedFolder.id)
-        XCTAssertFalse(updatedFolder.isAutoSummarized)
-        XCTAssertEqual(updatedChildren.map(\.name), ["z.txt", "a.txt"])
-        XCTAssertEqual(updatedFolder.descendantFileCount, 2)
-        XCTAssertFalse(updatedFolder.isAccessible)
-        XCTAssertEqual(updatedSnapshot.aggregateStats.fileCount, 3)
-        XCTAssertFalse(updatedSnapshot.root.isAccessible)
-        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [expansionWarning.path])
-        XCTAssertNotEqual(staleLeaf.id, updatedChildren.first?.id)
+        #expect(!(updatedFolder.isAutoSummarized))
+        #expect(updatedChildren.map(\.name) == ["z.txt", "a.txt"])
+        #expect(updatedFolder.descendantFileCount == 2)
+        #expect(!(updatedFolder.isAccessible))
+        #expect(updatedSnapshot.aggregateStats.fileCount == 3)
+        #expect(!(updatedSnapshot.root.isAccessible))
+        #expect(updatedSnapshot.scanWarnings.map(\.path) == [expansionWarning.path])
+        #expect(staleLeaf.id != updatedChildren.first?.id)
     }
 
+    @Test
     func testSnapshotReplacingMissingNodeReturnsNil() {
         let root = FileNodeRecord.directory(
             id: "/root",
@@ -407,9 +428,10 @@ final class ScanModelTests: XCTestCase {
         let treeStore = FileTreeStore(root: root)
         let snapshot = makeSnapshot(root: root, treeStore: treeStore)
 
-        XCTAssertNil(snapshot.replacingNode(id: "/root/missing", with: treeStore))
+        #expect(snapshot.replacingNode(id: "/root/missing", with: treeStore) == nil)
     }
 
+    @Test
     func testSubtreeUpdateRefreshesAPFSCapacityWithoutReconcilingItIntoTree() {
         let target = ScanTarget(
             url: URL(filePath: "/volume", directoryHint: .isDirectory),
@@ -453,11 +475,12 @@ final class ScanModelTests: XCTestCase {
             reconcilesVolumeCapacity: false
         )
 
-        XCTAssertEqual(updated.volumeCapacity, refreshedCapacity)
-        XCTAssertEqual(updated.root.allocatedSize, 40)
-        XCTAssertEqual(updated.treeStore.children(of: root.id).map(\.id), [file.id])
+        #expect(updated.volumeCapacity == refreshedCapacity)
+        #expect(updated.root.allocatedSize == 40)
+        #expect(updated.treeStore.children(of: root.id).map(\.id) == [file.id])
     }
 
+    @Test
     func testSnapshotRemovingNodeRemovesSubtreeAndRebuildsAncestors() throws {
         let removedLeaf = makeNode(
             id: "/root/folder/removed.bin",
@@ -498,10 +521,12 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
-        let treeStore = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder, sibling],
-            folder.id: [removedLeaf, keptLeaf],
-        ])
+        let treeStore = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder, sibling],
+                folder.id: [removedLeaf, keptLeaf],
+            ])
         let removedWarning = ScanWarning(path: removedLeaf.id, message: "removed", category: .fileSystem)
         let retainedWarning = ScanWarning(path: keptLeaf.id, message: "kept", category: .fileSystem)
         let snapshot = makeSnapshot(
@@ -510,24 +535,25 @@ final class ScanModelTests: XCTestCase {
             warnings: [removedWarning, retainedWarning]
         )
 
-        let updatedSnapshot = try XCTUnwrap(snapshot.removingNode(id: removedLeaf.id))
+        let updatedSnapshot = try #require(snapshot.removingNode(id: removedLeaf.id))
 
-        XCTAssertEqual(updatedSnapshot.id, snapshot.id)
-        let updatedFolder = try XCTUnwrap(updatedSnapshot.treeStore.node(id: folder.id))
-        XCTAssertNil(updatedSnapshot.treeStore.node(id: removedLeaf.id))
-        XCTAssertEqual(updatedSnapshot.treeStore.children(of: folder.id).map(\.id), [keptLeaf.id])
-        XCTAssertEqual(updatedFolder.allocatedSize, 5)
-        XCTAssertEqual(updatedFolder.logicalSize, 5)
-        XCTAssertEqual(updatedFolder.descendantFileCount, 1)
-        XCTAssertEqual(updatedSnapshot.root.allocatedSize, 25)
-        XCTAssertEqual(updatedSnapshot.root.descendantFileCount, 2)
-        XCTAssertEqual(updatedSnapshot.treeStore.children(of: root.id).map(\.id), [sibling.id, folder.id])
-        XCTAssertEqual(updatedSnapshot.aggregateStats.totalAllocatedSize, 25)
-        XCTAssertEqual(updatedSnapshot.aggregateStats.fileCount, 2)
-        XCTAssertEqual(updatedSnapshot.aggregateStats.directoryCount, 2)
-        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [retainedWarning.path])
+        #expect(updatedSnapshot.id == snapshot.id)
+        let updatedFolder = try #require(updatedSnapshot.treeStore.node(id: folder.id))
+        #expect(updatedSnapshot.treeStore.node(id: removedLeaf.id) == nil)
+        #expect(updatedSnapshot.treeStore.children(of: folder.id).map(\.id) == [keptLeaf.id])
+        #expect(updatedFolder.allocatedSize == 5)
+        #expect(updatedFolder.logicalSize == 5)
+        #expect(updatedFolder.descendantFileCount == 1)
+        #expect(updatedSnapshot.root.allocatedSize == 25)
+        #expect(updatedSnapshot.root.descendantFileCount == 2)
+        #expect(updatedSnapshot.treeStore.children(of: root.id).map(\.id) == [sibling.id, folder.id])
+        #expect(updatedSnapshot.aggregateStats.totalAllocatedSize == 25)
+        #expect(updatedSnapshot.aggregateStats.fileCount == 2)
+        #expect(updatedSnapshot.aggregateStats.directoryCount == 2)
+        #expect(updatedSnapshot.scanWarnings.map(\.path) == [retainedWarning.path])
     }
 
+    @Test
     func testSnapshotRemovingMissingOrRootNodeReturnsNil() {
         let root = FileNodeRecord.directory(
             id: "/root",
@@ -541,10 +567,11 @@ final class ScanModelTests: XCTestCase {
         let treeStore = FileTreeStore(root: root)
         let snapshot = makeSnapshot(root: root, treeStore: treeStore)
 
-        XCTAssertNil(snapshot.removingNode(id: "/root/missing"))
-        XCTAssertNil(snapshot.removingNode(id: root.id))
+        #expect(snapshot.removingNode(id: "/root/missing") == nil)
+        #expect(snapshot.removingNode(id: root.id) == nil)
     }
 
+    @Test
     func testSnapshotRemovesMultipleSubtreesAndTheirWarningsTogether() throws {
         let first = makeNode(id: "/root/first/file.bin", isDirectory: false, isSynthetic: false, isAccessible: true)
         let firstDirectory = FileNodeRecord.directory(
@@ -567,10 +594,12 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [firstDirectory, second, retained],
-            firstDirectory.id: [first],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [firstDirectory, second, retained],
+                firstDirectory.id: [first],
+            ])
         let removedWarnings = [
             ScanWarning(path: first.id, message: "first", category: .fileSystem),
             ScanWarning(path: second.id, message: "second", category: .fileSystem),
@@ -587,22 +616,25 @@ final class ScanModelTests: XCTestCase {
             warnings: removedWarnings + [retainedWarning, prefixSiblingWarning]
         )
 
-        let updated = try XCTUnwrap(snapshot.removingNodes(ids: [firstDirectory.id, first.id, second.id]))
+        let updated = try #require(snapshot.removingNodes(ids: [firstDirectory.id, first.id, second.id]))
 
-        XCTAssertNil(updated.treeStore.node(id: firstDirectory.id))
-        XCTAssertNil(updated.treeStore.node(id: first.id))
-        XCTAssertNil(updated.treeStore.node(id: second.id))
-        XCTAssertNotNil(updated.treeStore.node(id: retained.id))
-        XCTAssertEqual(updated.scanWarnings.map(\.path), [retained.id, prefixSiblingWarning.path])
-        XCTAssertEqual(updated.aggregateStats.fileCount, 1)
-        XCTAssertNil(snapshot.removingNodes(ids: []))
-        XCTAssertNil(snapshot.removingNodes(ids: ["/root/missing"]))
-        XCTAssertNil(snapshot.removingNodes(ids: [root.id, second.id]))
+        #expect(updated.treeStore.node(id: firstDirectory.id) == nil)
+        #expect(updated.treeStore.node(id: first.id) == nil)
+        #expect(updated.treeStore.node(id: second.id) == nil)
+        #expect(updated.treeStore.node(id: retained.id) != nil)
+        #expect(updated.scanWarnings.map(\.path) == [retained.id, prefixSiblingWarning.path])
+        #expect(updated.aggregateStats.fileCount == 1)
+        #expect(snapshot.removingNodes(ids: []) == nil)
+        #expect(snapshot.removingNodes(ids: ["/root/missing"]) == nil)
+        #expect(snapshot.removingNodes(ids: [root.id, second.id]) == nil)
     }
 
+    @Test
     func testSnapshotScopedToDescendantUsesLogicalScopeAndFiltersWarnings() throws {
-        let docsFile = makeNode(id: "/root/Documents/report.pdf", isDirectory: false, isSynthetic: false, isAccessible: true)
-        let cacheFile = makeNode(id: "/root/Library/cache.db", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let docsFile = makeNode(
+            id: "/root/Documents/report.pdf", isDirectory: false, isSynthetic: false, isAccessible: true)
+        let cacheFile = makeNode(
+            id: "/root/Library/cache.db", isDirectory: false, isSynthetic: false, isAccessible: true)
         let docs = FileNodeRecord.directory(
             id: "/root/Documents",
             url: URL(filePath: "/root/Documents", directoryHint: .isDirectory),
@@ -630,30 +662,33 @@ final class ScanModelTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
-        let treeStore = FileTreeStore(root: root, childrenByID: [
-            root.id: [docs, library],
-            docs.id: [docsFile],
-            library.id: [cacheFile],
-        ])
+        let treeStore = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [docs, library],
+                docs.id: [docsFile],
+                library.id: [cacheFile],
+            ])
         let docsWarning = ScanWarning(path: "/root/Documents/private", message: "docs", category: .permissionDenied)
         let libraryWarning = ScanWarning(path: "/root/Library/private", message: "library", category: .permissionDenied)
         let snapshot = makeSnapshot(root: root, treeStore: treeStore, warnings: [docsWarning, libraryWarning])
         let docsTarget = ScanTarget(url: docs.url)
 
-        let scopedSnapshot = try XCTUnwrap(snapshot.scoped(to: docsTarget))
+        let scopedSnapshot = try #require(snapshot.scoped(to: docsTarget))
 
-        XCTAssertEqual(scopedSnapshot.target, docsTarget)
-        XCTAssertEqual(scopedSnapshot.root.id, docs.id)
-        XCTAssertNotEqual(scopedSnapshot.treeStore.contentID, snapshot.treeStore.contentID)
-        XCTAssertEqual(scopedSnapshot.treeStore.nodeCount, 2)
-        XCTAssertNil(scopedSnapshot.treeStore.parent(of: docs.id))
-        XCTAssertEqual(scopedSnapshot.treeStore.children(of: docs.id).map(\.id), [docsFile.id])
-        XCTAssertNil(scopedSnapshot.treeStore.node(id: library.id))
-        XCTAssertEqual(scopedSnapshot.aggregateStats.totalAllocatedSize, docs.allocatedSize)
-        XCTAssertEqual(scopedSnapshot.aggregateStats.fileCount, 1)
-        XCTAssertEqual(scopedSnapshot.scanWarnings.map(\.path), [docsWarning.path])
+        #expect(scopedSnapshot.target == docsTarget)
+        #expect(scopedSnapshot.root.id == docs.id)
+        #expect(scopedSnapshot.treeStore.contentID != snapshot.treeStore.contentID)
+        #expect(scopedSnapshot.treeStore.nodeCount == 2)
+        #expect(scopedSnapshot.treeStore.parent(of: docs.id) == nil)
+        #expect(scopedSnapshot.treeStore.children(of: docs.id).map(\.id) == [docsFile.id])
+        #expect(scopedSnapshot.treeStore.node(id: library.id) == nil)
+        #expect(scopedSnapshot.aggregateStats.totalAllocatedSize == docs.allocatedSize)
+        #expect(scopedSnapshot.aggregateStats.fileCount == 1)
+        #expect(scopedSnapshot.scanWarnings.map(\.path) == [docsWarning.path])
     }
 
+    @Test
     func testSnapshotScopedToMissingTargetReturnsNil() {
         let root = FileNodeRecord.directory(
             id: "/root",
@@ -667,24 +702,22 @@ final class ScanModelTests: XCTestCase {
         let treeStore = FileTreeStore(root: root)
         let snapshot = makeSnapshot(root: root, treeStore: treeStore)
 
-        XCTAssertNil(snapshot.scoped(to: ScanTarget(url: URL(filePath: "/root/Missing", directoryHint: .isDirectory))))
+        #expect(
+            snapshot.scoped(to: ScanTarget(url: URL(filePath: "/root/Missing", directoryHint: .isDirectory))) == nil)
     }
 
+    @Test
     func testPostTrashActionMatchesCurrentSelectionPolicy() {
-        XCTAssertEqual(
-            ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root"),
-            .clearActiveScan
-        )
-        XCTAssertEqual(
-            ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root/file.txt"),
-            .removeFromActiveScan
-        )
-        XCTAssertEqual(
-            ScanPostTrashAction.afterRemovingNode(activeTargetID: nil, removedNodeID: "/scan/root"),
-            .none
-        )
+        #expect(
+            ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root")
+                == .clearActiveScan)
+        #expect(
+            ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root/file.txt")
+                == .removeFromActiveScan)
+        #expect(ScanPostTrashAction.afterRemovingNode(activeTargetID: nil, removedNodeID: "/scan/root") == .none)
     }
 
+    @Test
     func testSnapshotReplacingNodeDeduplicatesWarningsByContent() throws {
         let child = makeNode(id: "/root/folder", isDirectory: true, isSynthetic: false, isAccessible: true)
         let root = FileNodeRecord.directory(
@@ -725,30 +758,35 @@ final class ScanModelTests: XCTestCase {
             isAccessible: true
         )
 
-        let updatedSnapshot = try XCTUnwrap(
+        let updatedSnapshot = try #require(
             snapshot.replacingNode(
                 id: child.id,
                 with: FileTreeStore(root: replacement),
                 additionalWarnings: [duplicateWarning, duplicateWarning, distinctWarning]
-            )
-        )
+            ))
 
-        XCTAssertEqual(updatedSnapshot.id, snapshot.id)
-        XCTAssertEqual(updatedSnapshot.scanWarnings.count, 2)
-        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [
-            duplicateWarning.path,
-            distinctWarning.path
-        ])
-        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.message), [
-            duplicateWarning.message,
-            distinctWarning.message
-        ])
+        #expect(updatedSnapshot.id == snapshot.id)
+        #expect(updatedSnapshot.scanWarnings.count == 2)
+        #expect(
+            updatedSnapshot.scanWarnings.map(\.path) == [
+                duplicateWarning.path,
+                distinctWarning.path,
+            ])
+        #expect(
+            updatedSnapshot.scanWarnings.map(\.message) == [
+                duplicateWarning.message,
+                distinctWarning.message,
+            ])
     }
 
+    @Test
     func testSnapshotReplacingSubtreesPrunesStaleWarningsAndMergesReplacementWarnings() throws {
-        let oldA = makeNode(id: "/root/A", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 5)
-        let oldB = makeNode(id: "/root/B", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 7)
-        let kept = makeNode(id: "/root/kept.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 3)
+        let oldA = makeNode(
+            id: "/root/A", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 5)
+        let oldB = makeNode(
+            id: "/root/B", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 7)
+        let kept = makeNode(
+            id: "/root/kept.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 3)
         let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
@@ -767,22 +805,25 @@ final class ScanModelTests: XCTestCase {
         let newA = makeNode(id: oldA.id, isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 11)
         let newB = makeNode(id: oldB.id, isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 13)
         let newWarning = ScanWarning(path: "/root/B/new-child", message: "new", category: .fileSystem)
-        let duplicateNewWarning = ScanWarning(path: newWarning.path, message: newWarning.message, category: newWarning.category)
+        let duplicateNewWarning = ScanWarning(
+            path: newWarning.path, message: newWarning.message, category: newWarning.category)
 
-        let updated = try XCTUnwrap(try snapshot.replacingSubtrees(
-            [
-                oldA.id: FileTreeStore(root: newA),
-                oldB.id: FileTreeStore(root: newB),
-            ],
-            additionalWarnings: [newWarning, duplicateNewWarning],
-            cancellationCheck: {}
-        ))
+        let updated = try #require(
+            try snapshot.replacingSubtrees(
+                [
+                    oldA.id: FileTreeStore(root: newA),
+                    oldB.id: FileTreeStore(root: newB),
+                ],
+                additionalWarnings: [newWarning, duplicateNewWarning],
+                cancellationCheck: {}
+            ))
 
-        XCTAssertEqual(updated.root.allocatedSize, 27)
-        XCTAssertEqual(updated.scanWarnings.map(\.path), [retained.path, newWarning.path])
-        XCTAssertEqual(updated.scanWarnings.map(\.message), [retained.message, newWarning.message])
+        #expect(updated.root.allocatedSize == 27)
+        #expect(updated.scanWarnings.map(\.path) == [retained.path, newWarning.path])
+        #expect(updated.scanWarnings.map(\.message) == [retained.message, newWarning.message])
     }
 
+    @Test
     func testSnapshotTransformServiceReplacesSubtrees() async throws {
         let oldA = makeNode(id: "/root/A", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 5)
         let oldB = makeNode(id: "/root/B", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 7)
@@ -807,12 +848,13 @@ final class ScanModelTests: XCTestCase {
                 oldB.id: FileTreeStore(root: newB),
             ]
         )
-        let updated = try XCTUnwrap(transformed)
+        let updated = try #require(transformed)
 
-        XCTAssertEqual(updated.root.allocatedSize, 30)
-        XCTAssertEqual(Set(updated.treeStore.children(of: root.id).map(\.id)), Set([oldA.id, oldB.id]))
+        #expect(updated.root.allocatedSize == 30)
+        #expect(Set(updated.treeStore.children(of: root.id).map(\.id)) == Set([oldA.id, oldB.id]))
     }
 
+    @Test
     func testPermissionAdvisorSuppressesSuggestionWhenFullDiskAccessGranted() {
         let exampleHome = URL(filePath: "/Users/example", directoryHint: .isDirectory)
         let root = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
@@ -829,29 +871,27 @@ final class ScanModelTests: XCTestCase {
         )
 
         // FDA-unlockable warning present, but access is already granted: no nag.
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+        #expect(
+            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: snapshot,
                 fullDiskAccessStatus: .granted,
                 homeDirectory: exampleHome
-            )
-        )
-        XCTAssertTrue(
+            )))
+        #expect(
             PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: snapshot,
                 fullDiskAccessStatus: .notGranted,
                 homeDirectory: exampleHome
-            )
-        )
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+            ))
+        #expect(
+            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: snapshot,
                 fullDiskAccessStatus: .unknown,
                 homeDirectory: exampleHome
-            )
-        )
+            )))
     }
 
+    @Test
     func testPermissionAdvisorIgnoresSystemPathsFullDiskAccessCannotUnlock() {
         let root = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
         // Paths that stay unreadable even with FDA granted. These must never
@@ -869,18 +909,15 @@ final class ScanModelTests: XCTestCase {
                     path: "/Library/Application Support/com.apple.TCC",
                     message: "Permission denied",
                     category: .permissionDenied
-                )
+                ),
             ]
         )
 
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .notGranted)
-        )
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .unknown)
-        )
+        #expect(!(PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .notGranted)))
+        #expect(!(PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .unknown)))
     }
 
+    @Test
     func testPermissionAdvisorCanEvaluateSelectionScopedWarnings() {
         let exampleHome = URL(filePath: "/Users/example", directoryHint: .isDirectory)
         let unlockableWarning = ScanWarning(
@@ -894,29 +931,26 @@ final class ScanModelTests: XCTestCase {
             category: .permissionDenied
         )
 
-        XCTAssertTrue(
+        #expect(
             PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: [unlockableWarning],
                 fullDiskAccessStatus: .notGranted,
                 homeDirectory: exampleHome
-            )
-        )
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+            ))
+        #expect(
+            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: [permanentlyProtectedWarning],
                 fullDiskAccessStatus: .notGranted,
                 homeDirectory: exampleHome
-            )
-        )
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+            )))
+        #expect(
+            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: [unlockableWarning],
                 fullDiskAccessStatus: .granted,
                 homeDirectory: exampleHome
-            )
-        )
-        XCTAssertFalse(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+            )))
+        #expect(
+            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: [
                     ScanWarning(
                         path: "/Users/example/Library/MailBackup",
@@ -926,14 +960,13 @@ final class ScanModelTests: XCTestCase {
                 ],
                 fullDiskAccessStatus: .notGranted,
                 homeDirectory: exampleHome
-            )
-        )
+            )))
         for unrelatedPath in [
             "/tmp/Library/Mail",
             "/Users/other/Library/Mail",
         ] {
-            XCTAssertFalse(
-                PermissionAdvisor.shouldSuggestFullDiskAccess(
+            #expect(
+                !(PermissionAdvisor.shouldSuggestFullDiskAccess(
                     for: [
                         ScanWarning(
                             path: unrelatedPath,
@@ -943,10 +976,9 @@ final class ScanModelTests: XCTestCase {
                     ],
                     fullDiskAccessStatus: .notGranted,
                     homeDirectory: exampleHome
-                )
-            )
+                )))
         }
-        XCTAssertTrue(
+        #expect(
             PermissionAdvisor.shouldSuggestFullDiskAccess(
                 for: [
                     ScanWarning(
@@ -957,10 +989,10 @@ final class ScanModelTests: XCTestCase {
                 ],
                 fullDiskAccessStatus: .notGranted,
                 homeDirectory: exampleHome
-            )
-        )
+            ))
     }
 
+    @Test
     func testPermissionAdvisorPreservesAdviceForLiveAndSavedScans() {
         let exampleHome = URL(filePath: "/Users/example", directoryHint: .isDirectory)
         let warnings = [
@@ -978,44 +1010,37 @@ final class ScanModelTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(
+        #expect(
             PermissionAdvisor.fullDiskAccessAdvice(
                 for: warnings,
                 fullDiskAccessStatus: .notGranted,
                 snapshotSource: .live,
                 homeDirectory: exampleHome
-            ),
-            .openSettings
-        )
-        XCTAssertEqual(
+            ) == .openSettings)
+        #expect(
             PermissionAdvisor.fullDiskAccessAdvice(
                 for: warnings,
                 fullDiskAccessStatus: .granted,
                 snapshotSource: .live,
                 homeDirectory: exampleHome
-            ),
-            .rescanMayBeNeeded
-        )
-        XCTAssertEqual(
+            ) == .rescanMayBeNeeded)
+        #expect(
             PermissionAdvisor.fullDiskAccessAdvice(
                 for: warnings,
                 fullDiskAccessStatus: .unknown,
                 snapshotSource: .live,
                 homeDirectory: exampleHome
-            ),
-            .none
-        )
-        XCTAssertEqual(
+            ) == .none)
+        #expect(
             PermissionAdvisor.fullDiskAccessAdvice(
                 for: warnings,
                 fullDiskAccessStatus: .notGranted,
                 snapshotSource: importedSource,
                 homeDirectory: exampleHome
-            ),
-            .savedScanIsHistorical
-        )
+            ) == .savedScanIsHistorical)
     }
 
+    @Test
     func testPermissionAdvisorClassifiesOnlyVerifiedExpectedMacOSProtection() {
         let expectedWarnings = [
             ScanWarning(
@@ -1040,11 +1065,12 @@ final class ScanModelTests: XCTestCase {
             category: .permissionDenied
         )
 
-        XCTAssertTrue(expectedWarnings.allSatisfy(PermissionAdvisor.isExpectedMacOSProtection))
-        XCTAssertFalse(PermissionAdvisor.isExpectedMacOSProtection(arbitraryPermissionFailure))
-        XCTAssertFalse(PermissionAdvisor.isExpectedMacOSProtection(historicalFullDiskAccessPath))
+        #expect(expectedWarnings.allSatisfy(PermissionAdvisor.isExpectedMacOSProtection))
+        #expect(!(PermissionAdvisor.isExpectedMacOSProtection(arbitraryPermissionFailure)))
+        #expect(!(PermissionAdvisor.isExpectedMacOSProtection(historicalFullDiskAccessPath)))
     }
 
+    @Test
     func testPermissionAdvisorExcludesExpectedProtectionFromWarningsRequiringAttention() {
         let expectedProtection = ScanWarning(
             path: "/Library/Application Support/com.apple.TCC",
@@ -1068,10 +1094,7 @@ final class ScanModelTests: XCTestCase {
             fileSystemFailure,
         ])
 
-        XCTAssertEqual(
-            warnings.map(\.path),
-            [arbitraryPermissionFailure.path, fileSystemFailure.path]
-        )
+        #expect(warnings.map(\.path) == [arbitraryPermissionFailure.path, fileSystemFailure.path])
     }
 
     private func makeSnapshot(
@@ -1136,7 +1159,7 @@ final class ScanModelTests: XCTestCase {
                 TrashSafetyPolicy.FirmlinkEntry(
                     visiblePath: "/System/Library/Caches",
                     dataRelativePath: "System/Library/Caches"
-                )
+                ),
             ]
         )
     }

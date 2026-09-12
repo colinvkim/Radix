@@ -1,0 +1,25 @@
+{
+  "configurations": [
+    {
+      "id": "38E811D7-A518-4DA6-B931-060CC26C102F",
+      "name": "Default",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": true,
+    "testTimeoutsEnabled": true,
+    "defaultTestExecutionTimeAllowance": 60,
+    "maximumTestExecutionTimeAllowance": 120
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:Radix.xcodeproj",
+        "identifier": "A10000000000000000000001",
+        "name": "RadixCoreTests"
+      }
+    }
+  ],
+  "version": 1
+}

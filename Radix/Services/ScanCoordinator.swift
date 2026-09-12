@@ -110,7 +110,8 @@ final class ScanCoordinator: ObservableObject {
     private let snapshotTransformService: any ScanSnapshotTransforming
     private let volumeCapacityProvider: @Sendable (URL) async -> VolumeCapacityRefresh
     private let progressThrottleDuration: Duration
-    private let progressClock = ContinuousClock()
+    private let progressNow: () -> ContinuousClock.Instant
+    private let sleepForProgress: (Duration) async throws -> Void
 
     private var scanTask: Task<Void, Never>?
     private var expandTask: Task<Void, Never>?
@@ -144,6 +145,8 @@ final class ScanCoordinator: ObservableObject {
             }.value
         },
         progressThrottleDuration: Duration = .milliseconds(100),
+        progressNow: @escaping () -> ContinuousClock.Instant = { .now },
+        sleepForProgress: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         progress: ScanProgressState = ScanProgressState(),
         trashSafetyPolicy: TrashSafetyPolicy = .live()
     ) {
@@ -151,6 +154,8 @@ final class ScanCoordinator: ObservableObject {
         self.snapshotTransformService = snapshotTransformService
         self.volumeCapacityProvider = volumeCapacityProvider
         self.progressThrottleDuration = progressThrottleDuration
+        self.progressNow = progressNow
+        self.sleepForProgress = sleepForProgress
         self.progress = progress
         self.trashSafetyPolicy = trashSafetyPolicy
     }
@@ -706,7 +711,7 @@ final class ScanCoordinator: ObservableObject {
         guard progressThrottleDuration > .zero else { return true }
         guard let lastProgressPublishTime else { return true }
 
-        return lastProgressPublishTime.duration(to: progressClock.now) >= progressThrottleDuration
+        return lastProgressPublishTime.duration(to: progressNow()) >= progressThrottleDuration
     }
 
     private func schedulePendingProgressPublish(operationID: UUID) {
@@ -714,15 +719,15 @@ final class ScanCoordinator: ObservableObject {
 
         let delay: Duration
         if let lastProgressPublishTime {
-            let elapsed = lastProgressPublishTime.duration(to: progressClock.now)
+            let elapsed = lastProgressPublishTime.duration(to: progressNow())
             delay = elapsed >= progressThrottleDuration ? .zero : progressThrottleDuration - elapsed
         } else {
             delay = .zero
         }
 
-        progressPublishTask = Task { [weak self] in
+        progressPublishTask = Task { [weak self, sleepForProgress] in
             do {
-                try await Task.sleep(for: delay)
+                try await sleepForProgress(delay)
             } catch {
                 return
             }
@@ -742,7 +747,7 @@ final class ScanCoordinator: ObservableObject {
         progressPublishTask?.cancel()
         progressPublishTask = nil
         pendingProgressMetrics = nil
-        lastProgressPublishTime = progressClock.now
+        lastProgressPublishTime = progressNow()
         var publishedMetrics = metrics
         publishedMetrics.progressFraction = max(
             publishedMetrics.progressFraction,

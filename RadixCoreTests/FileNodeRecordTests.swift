@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class FileNodeRecordTests: XCTestCase {
+struct FileNodeRecordTests {
+    @Test
     func testDirectoryAggregatesMixedChildrenRegardlessOfOrder() {
         let file = makeTestFileNode(id: "/root/file", name: "file", size: 3)
             .replacingAllocatedSize(2)
@@ -20,24 +23,26 @@ final class FileNodeRecordTests: XCTestCase {
         for orderedChildren in [children, Array(children.reversed())] {
             let root = makeTestDirectoryNode(id: "/root", name: "root", children: orderedChildren)
 
-            XCTAssertEqual(root.allocatedSize, 33)
-            XCTAssertEqual(root.logicalSize, 34)
-            XCTAssertEqual(root.descendantFileCount, 6)
-            XCTAssertFalse(root.isAccessible)
-            XCTAssertTrue(root.isSelfAccessible)
+            #expect(root.allocatedSize == 33)
+            #expect(root.logicalSize == 34)
+            #expect(root.descendantFileCount == 6)
+            #expect(!(root.isAccessible))
+            #expect(root.isSelfAccessible)
         }
     }
 
+    @Test
     func testVolumeRootUsesVolumeKindWhileOrdinaryDirectoriesRemainFolders() {
         let volumeRoot = makeTestDirectoryNode(id: "/", name: "Macintosh HD", children: [])
         let volumeTarget = ScanTarget(url: volumeRoot.url, kind: .volume)
         let ordinaryFolder = makeTestDirectoryNode(id: "/Users", name: "Users", children: [])
 
-        XCTAssertEqual(volumeRoot.itemKind(activeTarget: volumeTarget), "Volume")
-        XCTAssertEqual(ordinaryFolder.itemKind(activeTarget: volumeTarget), "Folder")
-        XCTAssertEqual(volumeRoot.itemKind(activeTarget: ScanTarget(url: volumeRoot.url, kind: .folder)), "Folder")
+        #expect(volumeRoot.itemKind(activeTarget: volumeTarget) == "Volume")
+        #expect(ordinaryFolder.itemKind(activeTarget: volumeTarget) == "Folder")
+        #expect(volumeRoot.itemKind(activeTarget: ScanTarget(url: volumeRoot.url, kind: .folder)) == "Folder")
     }
 
+    @Test
     func testSyntheticVolumeVisualizationRootUsesVolumeKind() {
         let target = ScanTarget(url: URL(filePath: "/", directoryHint: .isDirectory), kind: .volume)
         let visualizationRoot = FileNodeRecord.directory(
@@ -50,9 +55,10 @@ final class FileNodeRecordTests: XCTestCase {
             isAccessible: true
         )
 
-        XCTAssertEqual(visualizationRoot.itemKind(activeTarget: target), "Volume")
+        #expect(visualizationRoot.itemKind(activeTarget: target) == "Volume")
     }
 
+    @Test
     func testSharedAPFSStorageStatusDistinguishesFullAndPartialClones() {
         let fullClone = makeTestFileNode(
             id: "/full.bin",
@@ -67,22 +73,23 @@ final class FileNodeRecordTests: XCTestCase {
         )
         let regularFile = makeTestFileNode(id: "/regular.bin", name: "regular.bin")
 
-        XCTAssertEqual(fullClone.secondaryStatusText, "APFS clone · shared storage")
-        XCTAssertEqual(partialClone.secondaryStatusText, "May share APFS storage")
-        XCTAssertEqual(fullClone.sharedStorageStatusText, "APFS clone · shared storage")
-        XCTAssertEqual(partialClone.sharedStorageStatusText, "May share APFS storage")
-        XCTAssertEqual(
-            fullClone.sharedStorageDescription,
-            "APFS lets files share storage, but Finder may show the full file size for every clone. Radix counts shared bytes once, so one file carries the allocated size and the others may show zero. That file is only an accounting representative, not an original. Deleting one clone may not free the displayed amount."
+        #expect(fullClone.secondaryStatusText == "APFS clone · shared storage")
+        #expect(partialClone.secondaryStatusText == "May share APFS storage")
+        #expect(fullClone.sharedStorageStatusText == "APFS clone · shared storage")
+        #expect(partialClone.sharedStorageStatusText == "May share APFS storage")
+        #expect(
+            fullClone.sharedStorageDescription
+                == "APFS lets files share storage, but Finder may show the full file size for every clone. Radix counts shared bytes once, so one file carries the allocated size and the others may show zero. That file is only an accounting representative, not an original. Deleting one clone may not free the displayed amount."
         )
-        XCTAssertEqual(
-            partialClone.sharedStorageDescription,
-            "Parts of this file may share APFS storage. macOS does not expose enough information for Radix to calculate exact shared or reclaimable bytes."
+        #expect(
+            partialClone.sharedStorageDescription
+                == "Parts of this file may share APFS storage. macOS does not expose enough information for Radix to calculate exact shared or reclaimable bytes."
         )
-        XCTAssertNil(regularFile.sharedStorageStatusText)
-        XCTAssertNil(regularFile.sharedStorageDescription)
+        #expect(regularFile.sharedStorageStatusText == nil)
+        #expect(regularFile.sharedStorageDescription == nil)
     }
 
+    @Test
     func testSharedStorageStatusRemainsAvailableWhenAccessStatusTakesPrecedence() {
         let inaccessibleClone = makeTestFileNode(
             id: "/inaccessible-clone.bin",
@@ -92,8 +99,8 @@ final class FileNodeRecordTests: XCTestCase {
             isAccessible: false
         )
 
-        XCTAssertEqual(inaccessibleClone.secondaryStatusText, "Limited access")
-        XCTAssertEqual(inaccessibleClone.sharedStorageStatusText, "APFS clone · shared storage")
-        XCTAssertNotNil(inaccessibleClone.sharedStorageDescription)
+        #expect(inaccessibleClone.secondaryStatusText == "Limited access")
+        #expect(inaccessibleClone.sharedStorageStatusText == "APFS clone · shared storage")
+        #expect(inaccessibleClone.sharedStorageDescription != nil)
     }
 }

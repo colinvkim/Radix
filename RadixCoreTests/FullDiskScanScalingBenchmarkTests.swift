@@ -1,22 +1,26 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
-final class FullDiskScanScalingBenchmarkTests: XCTestCase {
+struct FullDiskScanScalingBenchmarkTests {
+    @Test
     func testScenarioMatrixCoversCartesianProduct() throws {
         let scenarios = try BenchmarkScenario.allNames.map {
-            try XCTUnwrap(BenchmarkScenario(rawValue: $0))
+            try #require(BenchmarkScenario(rawValue: $0))
         }
-        let combinations = Set(scenarios.map {
-            "\($0.packagesExpanded)-\($0.automaticSummarization)-\($0.exclusionProfile.rawValue)"
-        })
+        let combinations = Set(
+            scenarios.map {
+                "\($0.packagesExpanded)-\($0.automaticSummarization)-\($0.exclusionProfile.rawValue)"
+            })
 
-        XCTAssertEqual(scenarios.count, 12)
-        XCTAssertEqual(combinations.count, 12)
-        XCTAssertNil(BenchmarkScenario(rawValue: "collapsed-auto-unknown"))
+        #expect(scenarios.count == 12)
+        #expect(combinations.count == 12)
+        #expect(BenchmarkScenario(rawValue: "collapsed-auto-unknown") == nil)
     }
 
+    @Test
     func testRootScanRequiresExplicitAuthorization() throws {
         let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
         let rootSymlinkURL = FileManager.default.temporaryDirectory.appending(
@@ -28,67 +32,68 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
             withDestinationURL: rootURL
         )
         defer { try? FileManager.default.removeItem(at: rootSymlinkURL) }
-        let collapsedScenario = try XCTUnwrap(
-            BenchmarkScenario(rawValue: "collapsed-auto-none")
-        )
-        let expandedScenario = try XCTUnwrap(
-            BenchmarkScenario(rawValue: "expanded-auto-none")
-        )
+        let collapsedScenario = try #require(BenchmarkScenario(rawValue: "collapsed-auto-none"))
+        let expandedScenario = try #require(BenchmarkScenario(rawValue: "expanded-auto-none"))
 
-        XCTAssertNotNil(BenchmarkSafetyPolicy.refusalReason(
-            targetURL: rootURL,
-            scenario: collapsedScenario,
-            environment: [:]
-        ))
-        XCTAssertNotNil(BenchmarkSafetyPolicy.refusalReason(
-            targetURL: rootSymlinkURL,
-            scenario: collapsedScenario,
-            environment: [:]
-        ))
-        XCTAssertNil(BenchmarkSafetyPolicy.refusalReason(
-            targetURL: rootURL,
-            scenario: collapsedScenario,
-            environment: ["RADIX_BENCH_FULL_SCAN_ALLOW_ROOT": "1"]
-        ))
-        XCTAssertNotNil(BenchmarkSafetyPolicy.refusalReason(
-            targetURL: rootURL,
-            scenario: expandedScenario,
-            environment: ["RADIX_BENCH_FULL_SCAN_ALLOW_ROOT": "1"]
-        ))
-        XCTAssertNil(BenchmarkSafetyPolicy.refusalReason(
-            targetURL: rootURL,
-            scenario: expandedScenario,
-            environment: [
-                "RADIX_BENCH_FULL_SCAN_ALLOW_ROOT": "1",
-                "RADIX_BENCH_FULL_SCAN_ALLOW_EXPANDED_ROOT": "1",
-            ]
-        ))
+        #expect(
+            BenchmarkSafetyPolicy.refusalReason(
+                targetURL: rootURL,
+                scenario: collapsedScenario,
+                environment: [:]
+            ) != nil)
+        #expect(
+            BenchmarkSafetyPolicy.refusalReason(
+                targetURL: rootSymlinkURL,
+                scenario: collapsedScenario,
+                environment: [:]
+            ) != nil)
+        #expect(
+            BenchmarkSafetyPolicy.refusalReason(
+                targetURL: rootURL,
+                scenario: collapsedScenario,
+                environment: ["RADIX_BENCH_FULL_SCAN_ALLOW_ROOT": "1"]
+            ) == nil)
+        #expect(
+            BenchmarkSafetyPolicy.refusalReason(
+                targetURL: rootURL,
+                scenario: expandedScenario,
+                environment: ["RADIX_BENCH_FULL_SCAN_ALLOW_ROOT": "1"]
+            ) != nil)
+        #expect(
+            BenchmarkSafetyPolicy.refusalReason(
+                targetURL: rootURL,
+                scenario: expandedScenario,
+                environment: [
+                    "RADIX_BENCH_FULL_SCAN_ALLOW_ROOT": "1",
+                    "RADIX_BENCH_FULL_SCAN_ALLOW_EXPANDED_ROOT": "1",
+                ]
+            ) == nil)
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_FULL_SCAN_SCALING"] == "1",
+            "Set RADIX_BENCH_FULL_SCAN_SCALING=1 to run the full-disk scaling benchmark."))
     func testFullDiskScanScalingBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_FULL_SCAN_SCALING"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_BENCH_FULL_SCAN_SCALING=1 to run the full-disk scaling benchmark."
-            )
-        }
-
-        let scenarioName = environment["RADIX_BENCH_FULL_SCAN_SCENARIO"]
+        let scenarioName =
+            environment["RADIX_BENCH_FULL_SCAN_SCENARIO"]
             ?? "collapsed-auto-none"
-        let scenario = try XCTUnwrap(BenchmarkScenario(rawValue: scenarioName))
+        let scenario = try #require(BenchmarkScenario(rawValue: scenarioName))
         let targetURL = URL(
             filePath: environment["RADIX_BENCH_FULL_SCAN_PATH"] ?? "/Applications",
             directoryHint: .isDirectory
         ).resolvingSymlinksInPath().standardizedFileURL
         guard FileManager.default.fileExists(atPath: targetURL.path) else {
-            throw XCTSkip("Benchmark path does not exist: \(targetURL.path)")
+            throw TestFixtureError("Benchmark path does not exist: \(targetURL.path)")
         }
         if let refusalReason = BenchmarkSafetyPolicy.refusalReason(
             targetURL: targetURL,
             scenario: scenario,
             environment: environment
         ) {
-            throw XCTSkip(refusalReason)
+            throw TestFixtureError(refusalReason)
         }
 
         let options = scenario.makeOptions()
@@ -107,18 +112,19 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
                 targetURL: targetURL,
                 options: options,
                 delayMilliseconds: cancellationDelayMilliseconds,
-                finalizationFraction: environment["RADIX_BENCH_FULL_SCAN_CANCEL_FINALIZATION_FRACTION"].flatMap(Double.init)
+                finalizationFraction: environment["RADIX_BENCH_FULL_SCAN_CANCEL_FINALIZATION_FRACTION"].flatMap(
+                    Double.init)
             )
         } else {
             cancellation = nil
         }
 
         if let cancellation {
-            XCTAssertTrue(cancellation.streamTerminated)
-            XCTAssertTrue(cancellation.poolShutdown)
-            XCTAssertTrue(cancellation.workersQuiescent)
-            XCTAssertFalse(cancellation.emittedFinished)
-            XCTAssertNil(cancellation.unexpectedError)
+            #expect(cancellation.streamTerminated)
+            #expect(cancellation.poolShutdown)
+            #expect(cancellation.workersQuiescent)
+            #expect(!(cancellation.emittedFinished))
+            #expect(cancellation.unexpectedError == nil)
         }
 
         let record = BenchmarkRecord(
@@ -221,7 +227,7 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
         _ = await samplerTask.result
         sampler.sample()
         let currentRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
-        let snapshot = try XCTUnwrap(finalSnapshot)
+        let snapshot = try #require(finalSnapshot)
         let representation = representationStats(snapshot.treeStore)
         let ordinaryDiscoveredItems = max(finalMetrics.discoveredItems, 0)
         let summaryAdditionalVisitedItems = max(
@@ -278,11 +284,12 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
     ) async -> CancellationMeasurement {
         let observation = CancellationObservation()
         let workerActivity = BenchmarkWorkerActivity()
-        let engine = ScanEngine(atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
-            didStart: { _, _ in workerActivity.didStart() },
-            didFinish: { _, _ in workerActivity.didFinish() },
-            didShutdown: { workerActivity.didShutdown() }
-        ))
+        let engine = ScanEngine(
+            atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
+                didStart: { _, _ in workerActivity.didStart() },
+                didFinish: { _, _ in workerActivity.didFinish() },
+                didShutdown: { workerActivity.didShutdown() }
+            ))
         let consumer = Task {
             var emittedFinished = false
             var unexpectedError: String?
@@ -313,11 +320,12 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
         if let finalizationFraction {
             let deadline = ContinuousClock.now.advanced(by: .seconds(60))
             while await observation.observedFinalizationFraction() < finalizationFraction,
-                  await observation.outcome() == nil, ContinuousClock.now < deadline {
+                await observation.outcome() == nil, ContinuousClock.now < deadline
+            {
                 try? await Task.sleep(for: .milliseconds(1))
             }
             let observed = await observation.observedFinalizationFraction()
-            XCTAssertGreaterThanOrEqual(observed, finalizationFraction)
+            #expect(observed >= finalizationFraction)
             print("RADIX_BENCH_FINALIZATION_CANCEL observed_fraction=\(observed) delay_ms=\(delayMilliseconds)")
         }
         try? await Task.sleep(for: .milliseconds(delayMilliseconds))
@@ -325,8 +333,9 @@ final class FullDiskScanScalingBenchmarkTests: XCTestCase {
         let cancellationStartedAt = clock.now
         consumer.cancel()
         let deadline = clock.now.advanced(by: .seconds(5))
-        while (await observation.outcome() == nil || !workerActivity.hasShutdown),
-              clock.now < deadline {
+        while await observation.outcome() == nil || !workerActivity.hasShutdown,
+            clock.now < deadline
+        {
             try? await Task.sleep(for: .milliseconds(1))
         }
         let outcome = await observation.outcome()

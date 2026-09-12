@@ -1,17 +1,23 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class AppPreferencesStoreTests: XCTestCase {
-    func testLoadPreferencesUsesAppDefaultsWhenValuesAreMissing() {
-        let defaults = makeIsolatedDefaults()
+struct AppPreferencesStoreTests {
+    private let temporaryDefaults = TemporaryTestDefaults()
+
+    @Test
+    func testLoadPreferencesUsesAppDefaultsWhenValuesAreMissing() throws {
+        let defaults = try temporaryDefaults.make()
         let store = UserDefaultsAppPreferencesStore(defaults: defaults)
 
-        XCTAssertEqual(store.loadPreferences(), .defaults)
+        #expect(store.loadPreferences() == .defaults)
     }
 
-    func testSaveAndReloadScanPreferencesRoundTripsValues() {
-        let defaults = makeIsolatedDefaults()
+    @Test
+    func testSaveAndReloadScanPreferencesRoundTripsValues() throws {
+        let defaults = try temporaryDefaults.make()
         let store = UserDefaultsAppPreferencesStore(defaults: defaults)
         let preferences = AppScanPreferences(
             showHiddenFiles: false,
@@ -26,20 +32,21 @@ final class AppPreferencesStoreTests: XCTestCase {
 
         store.saveScanPreferences(preferences)
 
-        XCTAssertEqual(store.loadPreferences().scan, preferences)
-        XCTAssertFalse(store.loadPreferences().didCompleteOnboarding)
+        #expect(store.loadPreferences().scan == preferences)
+        #expect(!(store.loadPreferences().didCompleteOnboarding))
 
         store.markOnboardingComplete()
 
-        XCTAssertTrue(store.loadPreferences().didCompleteOnboarding)
+        #expect(store.loadPreferences().didCompleteOnboarding)
 
         store.markOnboardingIncomplete()
 
-        XCTAssertFalse(store.loadPreferences().didCompleteOnboarding)
+        #expect(!(store.loadPreferences().didCompleteOnboarding))
     }
 
-    func testLoadPreferencesClampsInvalidDepthAndPreservesExplicitFalseValues() {
-        let defaults = makeIsolatedDefaults()
+    @Test
+    func testLoadPreferencesClampsInvalidDepthAndPreservesExplicitFalseValues() throws {
+        let defaults = try temporaryDefaults.make()
         defaults.set(false, forKey: "showHiddenFiles")
         defaults.set(true, forKey: "treatPackagesAsDirectories")
         defaults.set(42, forKey: "maxRenderedDepth")
@@ -51,41 +58,28 @@ final class AppPreferencesStoreTests: XCTestCase {
 
         let preferences = UserDefaultsAppPreferencesStore(defaults: defaults).loadPreferences().scan
 
-        XCTAssertFalse(preferences.showHiddenFiles)
-        XCTAssertTrue(preferences.treatPackagesAsDirectories)
-        XCTAssertEqual(preferences.maxRenderedDepth, AppScanPreferences.defaults.maxRenderedDepth)
-        XCTAssertFalse(preferences.autoSummarizeDirectories)
-        XCTAssertTrue(preferences.showFreeSpaceInDiskMaps)
-        XCTAssertEqual(preferences.visualizationMode, .treemap)
-        XCTAssertTrue(preferences.useScanExclusions)
-        XCTAssertEqual(preferences.exclusionPatterns, [".DS_Store"])
+        #expect(!(preferences.showHiddenFiles))
+        #expect(preferences.treatPackagesAsDirectories)
+        #expect(preferences.maxRenderedDepth == AppScanPreferences.defaults.maxRenderedDepth)
+        #expect(!(preferences.autoSummarizeDirectories))
+        #expect(preferences.showFreeSpaceInDiskMaps)
+        #expect(preferences.visualizationMode == .treemap)
+        #expect(preferences.useScanExclusions)
+        #expect(preferences.exclusionPatterns == [".DS_Store"])
     }
 
-    func testOnboardingPageSurvivesRelaunchAndUnknownValuesFallBackToWelcome() {
-        let defaults = makeIsolatedDefaults()
+    @Test
+    func testOnboardingPageSurvivesRelaunchAndUnknownValuesFallBackToWelcome() throws {
+        let defaults = try temporaryDefaults.make()
         let store = UserDefaultsAppPreferencesStore(defaults: defaults)
         store.saveOnboardingPage(.access)
         store.markOnboardingIncomplete()
 
         let restored = UserDefaultsAppPreferencesStore(defaults: defaults).loadPreferences()
-        XCTAssertEqual(restored.onboardingPage, .access)
-        XCTAssertFalse(restored.didCompleteOnboarding)
+        #expect(restored.onboardingPage == .access)
+        #expect(!(restored.didCompleteOnboarding))
 
         defaults.set("unrecognized", forKey: "onboardingPage")
-        XCTAssertEqual(store.loadPreferences().onboardingPage, .welcome)
+        #expect(store.loadPreferences().onboardingPage == .welcome)
     }
-}
-
-private func makeIsolatedDefaults(
-    file: StaticString = #filePath,
-    line: UInt = #line
-) -> UserDefaults {
-    let suiteName = "RadixTests.\(UUID().uuidString)"
-    guard let defaults = UserDefaults(suiteName: suiteName) else {
-        XCTFail("Could not create isolated UserDefaults suite.", file: file, line: line)
-        return .standard
-    }
-
-    defaults.removePersistentDomain(forName: suiteName)
-    return defaults
 }

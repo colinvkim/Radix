@@ -6,12 +6,19 @@
 	objectVersion = 100;
 	objects = {
 
+/* Begin XCLocalSwiftPackageReference section */
+		A10000000000000000000018 /* RadixCore */ = {isa = XCLocalSwiftPackageReference; relativePath = .; };
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin PBXBuildFile section */
 		3BBA11332F80739B009EFB1C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 3BBA11322F80739B009EFB1C /* Sparkle */; };
+		A10000000000000000000008 /* RadixCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000009 /* RadixCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		3BF007FE2F7E285500DA9E45 /* Radix.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Radix.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000003 /* RadixCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = RadixCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000005 /* Radix.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Radix.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -33,6 +40,7 @@
 			path = Radix;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000006 /* RadixCoreTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = RadixCoreTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,6 +50,7 @@
 				3BBA11332F80739B009EFB1C /* Sparkle in Frameworks */,
 			);
 		};
+		A1000000000000000000000A = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000008,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -50,6 +59,8 @@
 			children = (
 				3BF008002F7E285500DA9E45 /* Radix */,
 				3BF007FF2F7E285500DA9E45 /* Products */,
+				A10000000000000000000006 /* RadixCoreTests */,
+				A10000000000000000000005 /* Radix.xctestplan */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,6 +68,7 @@
 			isa = PBXGroup;
 			children = (
 				3BF007FE2F7E285500DA9E45 /* Radix.app */,
+				A10000000000000000000003 /* RadixCoreTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -85,6 +97,19 @@
 			productReference = 3BF007FE2F7E285500DA9E45 /* Radix.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10000000000000000000001 /* RadixCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000010;
+			buildPhases = (A1000000000000000000000C, A1000000000000000000000A, A1000000000000000000000E);
+			buildRules = ();
+			dependencies = ();
+			fileSystemSynchronizedGroups = (A10000000000000000000006);
+			name = RadixCoreTests;
+			packageProductDependencies = (A10000000000000000000009,);
+			productName = RadixCoreTests;
+			productReference = A10000000000000000000003;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -95,6 +120,7 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					A10000000000000000000001 = {CreatedOnToolsVersion = 26.6; };
 					3BF007FD2F7E285500DA9E45 = {
 						CreatedOnToolsVersion = 26.4;
 					};
@@ -115,6 +141,7 @@
 			mainGroup = 3BF007F52F7E285500DA9E45;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A10000000000000000000018 /* RadixCore */,
 				3BBA11312F80739B009EFB1C /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 100;
@@ -122,6 +149,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				A10000000000000000000001 /* RadixCoreTests */,
 				3BF007FD2F7E285500DA9E45 /* Radix */,
 			);
 		};
@@ -133,6 +161,7 @@
 			files = (
 			);
 		};
+		A1000000000000000000000E = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -141,6 +170,7 @@
 			files = (
 			);
 		};
+		A1000000000000000000000C = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -347,6 +377,36 @@
 			};
 			name = Release;
 		};
+		A10000000000000000000012 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.colinkim.RadixCoreTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks");
+			};
+			name = Debug;
+		};
+		A10000000000000000000013 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.colinkim.RadixCoreTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks");
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -366,6 +426,7 @@
 			);
 			defaultConfigurationName = Release;
 		};
+		A10000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000012, A10000000000000000000013); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -385,6 +446,7 @@
 			package = 3BBA11312F80739B009EFB1C /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
 		};
+		A10000000000000000000009 /* RadixCore */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000018; productName = RadixCore; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3BF007F62F7E285500DA9E45 /* Project object */;

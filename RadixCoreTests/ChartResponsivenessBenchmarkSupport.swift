@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
 enum ChartResponsivenessBenchmarkSupport {
@@ -73,8 +74,7 @@ enum ChartResponsivenessBenchmarkSupport {
         chartName: String,
         loadLayout: @escaping @MainActor (Request) async -> Bool,
         renderedLayout: () -> (id: String?, segmentCount: Int, fingerprint: String),
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) async throws -> RequestSequenceMeasurement {
         var tasks: [Task<Bool, Never>] = []
         tasks.reserveCapacity(requests.count)
@@ -90,7 +90,7 @@ enum ChartResponsivenessBenchmarkSupport {
             try await waitForStartedRequestCount(index + 1, probe: probe, chartName: chartName)
         }
 
-        let latestTask = try XCTUnwrap(tasks.last, file: file, line: line)
+        let latestTask = try #require(tasks.last, sourceLocation: sourceLocation)
         let latestDidApply = await latestTask.value
         let latestCompletedAt = ContinuousClock.now
         var appliedCount = 0
@@ -99,8 +99,8 @@ enum ChartResponsivenessBenchmarkSupport {
         }
         let probeSnapshot = await probe.snapshot()
 
-        XCTAssertTrue(latestDidApply, file: file, line: line)
-        XCTAssertEqual(probeSnapshot.startedCount, requests.count, file: file, line: line)
+        #expect(latestDidApply, sourceLocation: sourceLocation)
+        #expect(probeSnapshot.startedCount == requests.count, sourceLocation: sourceLocation)
         let layout = renderedLayout()
         return RequestSequenceMeasurement(
             requestCount: requests.count,
@@ -125,7 +125,8 @@ enum ChartResponsivenessBenchmarkSupport {
     ) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while await probe.startedCount < expectedCount,
-              ContinuousClock.now < deadline {
+            ContinuousClock.now < deadline
+        {
             try await Task.sleep(for: .microseconds(100))
         }
         guard await probe.startedCount >= expectedCount else {
@@ -172,7 +173,7 @@ enum ChartResponsivenessBenchmarkSupport {
         iterationCount: Int,
         hitTest: (CGPoint) -> String?
     ) -> InteractionMeasurement {
-        var state = UInt64(0x9e3779b97f4a7c15)
+        var state = UInt64(0x9e37_79b9_7f4a_7c15)
         var fingerprint = fnvOffsetBasis
         var hitCount = 0
 

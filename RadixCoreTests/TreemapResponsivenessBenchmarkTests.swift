@@ -1,20 +1,19 @@
 import CoreGraphics
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
 private typealias ChartBenchmarkSupport = ChartResponsivenessBenchmarkSupport
 
 @MainActor
-final class TreemapResponsivenessBenchmarkTests: XCTestCase {
+struct TreemapResponsivenessBenchmarkTests {
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_TREEMAP"] == "1",
+            "Set RADIX_BENCH_TREEMAP=1 to run the large-scan Treemap benchmark."))
     func testLargeScanTreemapResponsivenessBenchmark() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_TREEMAP"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_BENCH_TREEMAP=1 to run the large-scan Treemap benchmark."
-            )
-        }
-
         let directoryCount = 200
         let filesPerDirectory = 5_000
         let denseFileCount = 8_000
@@ -36,10 +35,8 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         let fixture = fixtureMeasurement.value
         let fixturePeakRSS = BenchmarkSupport.peakResidentBytes()
 
-        XCTAssertEqual(
-            fixture.store.nodeCount,
-            1 + directoryCount + (directoryCount * filesPerDirectory) + 1 + denseFileCount
-        )
+        #expect(
+            fixture.store.nodeCount == 1 + directoryCount + (directoryCount * filesPerDirectory) + 1 + denseFileCount)
         Self.report(
             phase: "fixture",
             seconds: fixtureMeasurement.seconds,
@@ -61,21 +58,21 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                     cancellationCheck: {}
                 )
             }
-            largeLayoutSamples.append(ChartBenchmarkSupport.LayoutSample(
-                seconds: measurement.seconds,
-                segmentCount: measurement.value.count,
-                fingerprint: Self.segmentFingerprint(measurement.value)
-            ))
+            largeLayoutSamples.append(
+                ChartBenchmarkSupport.LayoutSample(
+                    seconds: measurement.seconds,
+                    segmentCount: measurement.value.count,
+                    fingerprint: Self.segmentFingerprint(measurement.value)
+                ))
         }
-        let expectedLargeSegmentCount = try XCTUnwrap(largeLayoutSamples.first?.segmentCount)
-        let expectedLargeFingerprint = try XCTUnwrap(largeLayoutSamples.first?.fingerprint)
-        XCTAssertTrue(largeLayoutSamples.allSatisfy {
-            $0.segmentCount == expectedLargeSegmentCount
-                && $0.fingerprint == expectedLargeFingerprint
-        })
-        let largeLayoutMedian = try XCTUnwrap(
-            BenchmarkSupport.median(largeLayoutSamples.map(\.seconds))
-        )
+        let expectedLargeSegmentCount = try #require(largeLayoutSamples.first?.segmentCount)
+        let expectedLargeFingerprint = try #require(largeLayoutSamples.first?.fingerprint)
+        #expect(
+            largeLayoutSamples.allSatisfy {
+                $0.segmentCount == expectedLargeSegmentCount
+                    && $0.fingerprint == expectedLargeFingerprint
+            })
+        let largeLayoutMedian = try #require(BenchmarkSupport.median(largeLayoutSamples.map(\.seconds)))
         Self.report(
             phase: "layout_large_scan",
             seconds: largeLayoutMedian,
@@ -95,7 +92,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             )
         }
         let denseSegments = denseLayoutMeasurement.value
-        XCTAssertEqual(denseSegments.count, denseFileCount)
+        #expect(denseSegments.count == denseFileCount)
         let denseFingerprint = Self.segmentFingerprint(denseSegments)
         Self.report(
             phase: "layout_dense_folder",
@@ -110,17 +107,16 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             size: largeLayoutSize,
             sampleCount: sampleCount
         )
-        let expectedFlatSegmentCount = try XCTUnwrap(flatLayoutSamples.first?.segmentCount)
-        let expectedFlatFingerprint = try XCTUnwrap(flatLayoutSamples.first?.fingerprint)
-        XCTAssertTrue(flatLayoutSamples.allSatisfy {
-            $0.segmentCount == expectedFlatSegmentCount
-                && $0.fingerprint == expectedFlatFingerprint
-        })
+        let expectedFlatSegmentCount = try #require(flatLayoutSamples.first?.segmentCount)
+        let expectedFlatFingerprint = try #require(flatLayoutSamples.first?.fingerprint)
+        #expect(
+            flatLayoutSamples.allSatisfy {
+                $0.segmentCount == expectedFlatSegmentCount
+                    && $0.fingerprint == expectedFlatFingerprint
+            })
         Self.report(
             phase: "layout_flat_high_fanout",
-            seconds: try XCTUnwrap(
-                BenchmarkSupport.median(flatLayoutSamples.map(\.seconds))
-            ),
+            seconds: try #require(BenchmarkSupport.median(flatLayoutSamples.map(\.seconds))),
             count: flatFileCount,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
             extra: "segments=\(expectedFlatSegmentCount) "
@@ -140,8 +136,8 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 layoutID: "dense-publication"
             )
         }
-        XCTAssertTrue(publicationMeasurement.value)
-        XCTAssertEqual(publicationModel.renderedSegments.count, denseFileCount)
+        #expect(publicationMeasurement.value)
+        #expect(publicationModel.renderedSegments.count == denseFileCount)
         Self.report(
             phase: "render_state_publication",
             seconds: publicationMeasurement.seconds,
@@ -157,7 +153,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 publicationModel.segment(at: point, in: largeLayoutSize)?.id
             }
         }
-        XCTAssertGreaterThan(hitTestMeasurement.value.selectionCount, 0)
+        #expect(hitTestMeasurement.value.selectionCount > 0)
         Self.report(
             phase: "hit_testing",
             seconds: hitTestMeasurement.seconds,
@@ -174,7 +170,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 iterationCount: keyboardIterationCount
             )
         }
-        XCTAssertGreaterThan(wideKeyboardMeasurement.value.selectionCount, 0)
+        #expect(wideKeyboardMeasurement.value.selectionCount > 0)
         Self.report(
             phase: "keyboard_selection_wide",
             seconds: wideKeyboardMeasurement.seconds,
@@ -191,7 +187,7 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 iterationCount: keyboardIterationCount
             )
         }
-        XCTAssertGreaterThan(tallKeyboardMeasurement.value.selectionCount, 0)
+        #expect(tallKeyboardMeasurement.value.selectionCount > 0)
         Self.report(
             phase: "keyboard_selection_tall",
             seconds: tallKeyboardMeasurement.seconds,
@@ -212,11 +208,10 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 cancellationCheck: Task.checkCancellation
             )
         }
-        XCTAssertTrue(
+        #expect(
             cancellationMeasurement.wasCancelled
                 || cancellationMeasurement.completedBeforeCancellation,
-            "Large layout returned normally after cancellation was requested."
-        )
+            "Large layout returned normally after cancellation was requested.")
         Self.report(
             phase: "cancel_layout",
             seconds: cancellationMeasurement.seconds,
@@ -231,9 +226,9 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             diskMapStore: diskMapStore,
             baseSize: largeLayoutSize
         )
-        XCTAssertEqual(resizeMeasurement.appliedCount, 1)
-        XCTAssertEqual(resizeMeasurement.completedCount, 1)
-        XCTAssertEqual(resizeMeasurement.cancelledCount, resizeMeasurement.requestCount - 1)
+        #expect(resizeMeasurement.appliedCount == 1)
+        #expect(resizeMeasurement.completedCount == 1)
+        #expect(resizeMeasurement.cancelledCount == resizeMeasurement.requestCount - 1)
         Self.report(
             phase: "rapid_resize",
             seconds: resizeMeasurement.latestRequestSeconds,
@@ -250,15 +245,12 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             diskMapStore: diskMapStore,
             size: largeLayoutSize
         )
-        XCTAssertEqual(navigationMeasurement.appliedCount, 1)
-        XCTAssertEqual(navigationMeasurement.completedCount, 1)
-        XCTAssertEqual(
-            navigationMeasurement.cancelledCount,
-            navigationMeasurement.requestCount - 1
-        )
-        XCTAssertEqual(navigationMeasurement.renderedLayoutID, "navigation-final")
-        XCTAssertEqual(navigationMeasurement.segmentCount, denseFileCount)
-        XCTAssertEqual(navigationMeasurement.fingerprint, denseFingerprint)
+        #expect(navigationMeasurement.appliedCount == 1)
+        #expect(navigationMeasurement.completedCount == 1)
+        #expect(navigationMeasurement.cancelledCount == navigationMeasurement.requestCount - 1)
+        #expect(navigationMeasurement.renderedLayoutID == "navigation-final")
+        #expect(navigationMeasurement.segmentCount == denseFileCount)
+        #expect(navigationMeasurement.fingerprint == denseFingerprint)
         Self.report(
             phase: "rapid_navigation",
             seconds: navigationMeasurement.latestRequestSeconds,
@@ -275,7 +267,8 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
             seconds: 0,
             count: fixture.store.nodeCount,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "rss_delta=\(BenchmarkSupport.byteDelta(from: initialPeakRSS, to: BenchmarkSupport.peakResidentBytes()))"
+            extra:
+                "rss_delta=\(BenchmarkSupport.byteDelta(from: initialPeakRSS, to: BenchmarkSupport.peakResidentBytes()))"
         )
     }
 
@@ -411,16 +404,18 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
         let rootID = "/treemap-benchmark"
         let denseDirectoryID = rootID + "/dense"
-        var nodes = [ChartBenchmarkSupport.node(
-            id: rootID,
-            name: "treemap-benchmark",
-            isDirectory: true,
-            allocatedSize: Int64(regularFileCount + denseFileCount),
-            descendantFileCount: regularFileCount + denseFileCount
-        )]
+        var nodes = [
+            ChartBenchmarkSupport.node(
+                id: rootID,
+                name: "treemap-benchmark",
+                isDirectory: true,
+                allocatedSize: Int64(regularFileCount + denseFileCount),
+                descendantFileCount: regularFileCount + denseFileCount
+            )
+        ]
         nodes.reserveCapacity(nodeCount)
         var childIndicesByIndex = Array(repeating: [FileTreeNodeIndex](), count: nodeCount)
-        var parentIndices = Array<FileTreeNodeIndex?>(repeating: nil, count: nodeCount)
+        var parentIndices = [FileTreeNodeIndex?](repeating: nil, count: nodeCount)
         var rootChildren: [FileTreeNodeIndex] = []
         rootChildren.reserveCapacity(directoryCount + 1)
 
@@ -431,13 +426,14 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 directoryOffset
             )
             let directoryIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-            nodes.append(ChartBenchmarkSupport.node(
-                id: directoryID,
-                name: String(format: "directory-%04d", directoryOffset),
-                isDirectory: true,
-                allocatedSize: Int64(filesPerDirectory),
-                descendantFileCount: filesPerDirectory
-            ))
+            nodes.append(
+                ChartBenchmarkSupport.node(
+                    id: directoryID,
+                    name: String(format: "directory-%04d", directoryOffset),
+                    isDirectory: true,
+                    allocatedSize: Int64(filesPerDirectory),
+                    descendantFileCount: filesPerDirectory
+                ))
             parentIndices[Int(directoryIndex.rawValue)] = rootIndex
             rootChildren.append(directoryIndex)
 
@@ -450,13 +446,14 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                     fileOffset
                 )
                 let fileIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-                nodes.append(ChartBenchmarkSupport.node(
-                    id: fileID,
-                    name: String(format: "item-%05d.dat", fileOffset),
-                    isDirectory: false,
-                    allocatedSize: 1,
-                    descendantFileCount: 1
-                ))
+                nodes.append(
+                    ChartBenchmarkSupport.node(
+                        id: fileID,
+                        name: String(format: "item-%05d.dat", fileOffset),
+                        isDirectory: false,
+                        allocatedSize: 1,
+                        descendantFileCount: 1
+                    ))
                 parentIndices[Int(fileIndex.rawValue)] = directoryIndex
                 directoryChildren.append(fileIndex)
             }
@@ -464,26 +461,28 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         }
 
         let denseDirectoryIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-        nodes.append(ChartBenchmarkSupport.node(
-            id: denseDirectoryID,
-            name: "dense",
-            isDirectory: true,
-            allocatedSize: Int64(denseFileCount),
-            descendantFileCount: denseFileCount
-        ))
+        nodes.append(
+            ChartBenchmarkSupport.node(
+                id: denseDirectoryID,
+                name: "dense",
+                isDirectory: true,
+                allocatedSize: Int64(denseFileCount),
+                descendantFileCount: denseFileCount
+            ))
         parentIndices[Int(denseDirectoryIndex.rawValue)] = rootIndex
         var denseChildren: [FileTreeNodeIndex] = []
         denseChildren.reserveCapacity(denseFileCount)
         for fileOffset in 0..<denseFileCount {
             let fileID = String(format: "%@/tile-%05d.dat", denseDirectoryID, fileOffset)
             let fileIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-            nodes.append(ChartBenchmarkSupport.node(
-                id: fileID,
-                name: String(format: "tile-%05d.dat", fileOffset),
-                isDirectory: false,
-                allocatedSize: 1,
-                descendantFileCount: 1
-            ))
+            nodes.append(
+                ChartBenchmarkSupport.node(
+                    id: fileID,
+                    name: String(format: "tile-%05d.dat", fileOffset),
+                    isDirectory: false,
+                    allocatedSize: 1,
+                    descendantFileCount: 1
+                ))
             parentIndices[Int(fileIndex.rawValue)] = denseDirectoryIndex
             denseChildren.append(fileIndex)
         }
@@ -518,17 +517,19 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
     ) throws -> [ChartBenchmarkSupport.LayoutSample] {
         let rootID = "/treemap-flat-benchmark"
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
-        var nodes = [ChartBenchmarkSupport.node(
-            id: rootID,
-            name: "treemap-flat-benchmark",
-            isDirectory: true,
-            allocatedSize: Int64(fileCount),
-            descendantFileCount: fileCount
-        )]
+        var nodes = [
+            ChartBenchmarkSupport.node(
+                id: rootID,
+                name: "treemap-flat-benchmark",
+                isDirectory: true,
+                allocatedSize: Int64(fileCount),
+                descendantFileCount: fileCount
+            )
+        ]
         nodes.reserveCapacity(fileCount + 1)
         var rootChildren: [FileTreeNodeIndex] = []
         rootChildren.reserveCapacity(fileCount)
-        var parentIndices = Array<FileTreeNodeIndex?>(
+        var parentIndices = [FileTreeNodeIndex?](
             repeating: nil,
             count: fileCount + 1
         )
@@ -536,13 +537,14 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
         for fileOffset in 0..<fileCount {
             let fileID = String(format: "%@/item-%05d.dat", rootID, fileOffset)
             let fileIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-            nodes.append(ChartBenchmarkSupport.node(
-                id: fileID,
-                name: String(format: "item-%05d.dat", fileOffset),
-                isDirectory: false,
-                allocatedSize: 1,
-                descendantFileCount: 1
-            ))
+            nodes.append(
+                ChartBenchmarkSupport.node(
+                    id: fileID,
+                    name: String(format: "item-%05d.dat", fileOffset),
+                    isDirectory: false,
+                    allocatedSize: 1,
+                    descendantFileCount: 1
+                ))
             rootChildren.append(fileIndex)
             parentIndices[Int(fileIndex.rawValue)] = rootIndex
         }
@@ -583,17 +585,18 @@ final class TreemapResponsivenessBenchmarkTests: XCTestCase {
                 )
             }
             let segments = measurement.value
-            XCTAssertEqual(segments.count, 1)
-            let aggregate = try XCTUnwrap(segments.first)
-            XCTAssertTrue(aggregate.isAggregate)
-            XCTAssertNil(aggregate.nodeID)
-            XCTAssertEqual(aggregate.groupedItemCount, fileCount)
-            XCTAssertEqual(aggregate.totalSize, Int64(fileCount))
-            samples.append(ChartBenchmarkSupport.LayoutSample(
-                seconds: measurement.seconds,
-                segmentCount: segments.count,
-                fingerprint: Self.segmentFingerprint(segments)
-            ))
+            #expect(segments.count == 1)
+            let aggregate = try #require(segments.first)
+            #expect(aggregate.isAggregate)
+            #expect(aggregate.nodeID == nil)
+            #expect(aggregate.groupedItemCount == fileCount)
+            #expect(aggregate.totalSize == Int64(fileCount))
+            samples.append(
+                ChartBenchmarkSupport.LayoutSample(
+                    seconds: measurement.seconds,
+                    segmentCount: segments.count,
+                    fingerprint: Self.segmentFingerprint(segments)
+                ))
         }
         return samples
     }

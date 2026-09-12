@@ -1,8 +1,11 @@
 import Darwin
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class PackageClassifierTests: XCTestCase {
+struct PackageClassifierTests {
+    @Test
     func testClassifierRoutesAndCachesConservativeExtensionDecisions() {
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(
@@ -17,33 +20,34 @@ final class PackageClassifierTests: XCTestCase {
         )
 
         let ordinaryURL = URL(filePath: "/tmp/Ordinary.TXT", directoryHint: .isDirectory)
-        XCTAssertFalse(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertFalse(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertEqual(counters.extensionCount(for: "txt"), 1)
-        XCTAssertEqual(counters.foundationCount, 0)
+        #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).isPackage))
+        #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).isPackage))
+        #expect(counters.extensionCount(for: "txt") == 1)
+        #expect(counters.foundationCount == 0)
 
         let appURL = URL(filePath: "/tmp/Sample.app", directoryHint: .isDirectory)
-        XCTAssertTrue(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertTrue(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertEqual(counters.foundationCount, 1)
+        #expect(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
+        #expect(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
+        #expect(counters.foundationCount == 1)
 
         let customURL = URL(filePath: "/tmp/Custom.weird", directoryHint: .isDirectory)
-        XCTAssertTrue(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertTrue(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertEqual(counters.extensionCount(for: "weird"), 1)
-        XCTAssertEqual(counters.foundationCount, 2)
+        #expect(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
+        #expect(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
+        #expect(counters.extensionCount(for: "weird") == 1)
+        #expect(counters.foundationCount == 2)
 
         let extensionlessURL = URL(filePath: "/tmp/Extensionless", directoryHint: .isDirectory)
-        XCTAssertFalse(classifier.classification(for: extensionlessURL, hasFinderPackageFlag: false).isPackage)
-        XCTAssertEqual(counters.foundationCount, 3)
+        #expect(!(classifier.classification(for: extensionlessURL, hasFinderPackageFlag: false).isPackage))
+        #expect(counters.foundationCount == 3)
 
-        XCTAssertTrue(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: true).isPackage)
-        XCTAssertEqual(counters.foundationCount, 3)
+        #expect(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: true).isPackage)
+        #expect(counters.foundationCount == 3)
 
-        XCTAssertFalse(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: nil).isPackage)
-        XCTAssertEqual(counters.foundationCount, 4)
+        #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: nil).isPackage))
+        #expect(counters.foundationCount == 4)
     }
 
+    @Test
     func testBulkEnumerationUsesClassifierOnlyForNeededDirectories() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -67,33 +71,39 @@ final class PackageClassifierTests: XCTestCase {
             }
         )
         let metadataLoader = ScanMetadataLoader(packageClassifier: classifier)
-        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
-        let packageValueByName = Dictionary(uniqueKeysWithValues: result.entries.map {
-            ($0.url.lastPathComponent, $0.metadata?.isPackage ?? false)
-        })
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let result = try #require(resultValue)
+        let packageValueByName = Dictionary(
+            uniqueKeysWithValues: result.entries.map {
+                ($0.url.lastPathComponent, $0.metadata?.isPackage ?? false)
+            })
 
-        XCTAssertEqual(packageValueByName["Ordinary.txt"], false)
-        XCTAssertEqual(packageValueByName["Sample.app"], true)
-        XCTAssertEqual(packageValueByName["Custom.weird"], true)
-        XCTAssertEqual(packageValueByName["Extensionless"], true)
-        XCTAssertEqual(counters.foundationCount, 3)
+        #expect(packageValueByName["Ordinary.txt"] == false)
+        #expect(packageValueByName["Sample.app"] == true)
+        #expect(packageValueByName["Custom.weird"] == true)
+        #expect(packageValueByName["Extensionless"] == true)
+        #expect(counters.foundationCount == 3)
 
-        let noPackageResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            loadsPackageMetadata: false,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
-        XCTAssertTrue(noPackageResult.entries.allSatisfy { $0.metadata?.isPackage == false })
-        XCTAssertEqual(counters.foundationCount, 3)
+        let noPackageResultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                loadsPackageMetadata: false,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let noPackageResult = try #require(noPackageResultValue)
+        #expect(noPackageResult.entries.allSatisfy { $0.metadata?.isPackage == false })
+        #expect(counters.foundationCount == 3)
     }
 
+    @Test
     func testAmbiguousExtensionUsesOneFoundationDecisionPerScan() {
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(foundationPackageProvider: { url in
@@ -101,17 +111,20 @@ final class PackageClassifierTests: XCTestCase {
             return false
         })
 
-        XCTAssertFalse(classifier.classification(
-            for: URL(filePath: "/tmp/First.cache", directoryHint: .isDirectory),
-            hasFinderPackageFlag: false
-        ).isPackage)
-        XCTAssertFalse(classifier.classification(
-            for: URL(filePath: "/tmp/Second.CACHE", directoryHint: .isDirectory),
-            hasFinderPackageFlag: false
-        ).isPackage)
-        XCTAssertEqual(counters.foundationCount, 1)
+        #expect(
+            !(classifier.classification(
+                for: URL(filePath: "/tmp/First.cache", directoryHint: .isDirectory),
+                hasFinderPackageFlag: false
+            ).isPackage))
+        #expect(
+            !(classifier.classification(
+                for: URL(filePath: "/tmp/Second.CACHE", directoryHint: .isDirectory),
+                hasFinderPackageFlag: false
+            ).isPackage))
+        #expect(counters.foundationCount == 1)
     }
 
+    @Test
     func testDefaultPolicyFastNegativesOnlyKnownContentExtensions() {
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(foundationPackageProvider: { url in
@@ -123,25 +136,26 @@ final class PackageClassifierTests: XCTestCase {
             for: URL(filePath: "/tmp/Ordinary.txt", directoryHint: .isDirectory),
             hasFinderPackageFlag: false
         )
-        XCTAssertFalse(textClassification.isPackage)
-        XCTAssertEqual(textClassification.source, .fastNegative)
-        XCTAssertEqual(counters.foundationCount, 0)
+        #expect(!(textClassification.isPackage))
+        #expect(textClassification.source == .fastNegative)
+        #expect(counters.foundationCount == 0)
 
         let unknownClassification = classifier.classification(
             for: URL(filePath: "/tmp/Unknown.radixunknown", directoryHint: .isDirectory),
             hasFinderPackageFlag: false
         )
-        XCTAssertFalse(unknownClassification.isPackage)
-        XCTAssertEqual(unknownClassification.source, .foundation)
-        XCTAssertEqual(counters.foundationCount, 1)
+        #expect(!(unknownClassification.isPackage))
+        #expect(unknownClassification.source == .foundation)
+        #expect(counters.foundationCount == 1)
     }
 
+    @Test
     func testKnownPackageCandidateExtensionsRemainConservative() {
         let candidateExtensions = [
             "app", "appex", "artifactbundle", "bundle", "component", "doccarchive",
             "dsym", "framework", "kext", "mlmodelc", "momd", "mpkg", "pkg",
             "systemextension", "vst", "vst3", "xcarchive", "xcdatamodeld",
-            "xcframework", "xcodeproj", "xcresult", "xctest", "xcworkspace", "xpc"
+            "xcframework", "xcodeproj", "xcresult", "xctest", "xcworkspace", "xpc",
         ]
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(
@@ -161,12 +175,13 @@ final class PackageClassifierTests: XCTestCase {
                 for: url,
                 hasFinderPackageFlag: false
             )
-            XCTAssertFalse(classification.isPackage)
-            XCTAssertEqual(classification.source, .foundation)
+            #expect(!(classification.isPackage))
+            #expect(classification.source == .foundation)
         }
-        XCTAssertEqual(counters.foundationCount, candidateExtensions.count)
+        #expect(counters.foundationCount == candidateExtensions.count)
     }
 
+    @Test
     func testNativeAndFoundationHintsOverrideCachedExtensionValues() {
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(foundationPackageProvider: { url in
@@ -175,35 +190,40 @@ final class PackageClassifierTests: XCTestCase {
         })
 
         let cachedURL = URL(filePath: "/tmp/Cached.cache", directoryHint: .isDirectory)
-        XCTAssertFalse(classifier.classification(
-            for: cachedURL,
-            hasFinderPackageFlag: false
-        ).isPackage)
-        XCTAssertEqual(counters.foundationCount, 1)
+        #expect(
+            !(classifier.classification(
+                for: cachedURL,
+                hasFinderPackageFlag: false
+            ).isPackage))
+        #expect(counters.foundationCount == 1)
 
-        XCTAssertTrue(classifier.classification(
-            for: cachedURL,
-            hasFinderPackageFlag: true
-        ).isPackage)
-        XCTAssertEqual(counters.foundationCount, 1)
+        #expect(
+            classifier.classification(
+                for: cachedURL,
+                hasFinderPackageFlag: true
+            ).isPackage)
+        #expect(counters.foundationCount == 1)
 
-        XCTAssertTrue(classifier.classification(
-            for: URL(filePath: "/tmp/Direct.cache", directoryHint: .isDirectory),
-            hasFinderPackageFlag: nil
-        ).isPackage)
-        XCTAssertEqual(counters.foundationCount, 2)
+        #expect(
+            classifier.classification(
+                for: URL(filePath: "/tmp/Direct.cache", directoryHint: .isDirectory),
+                hasFinderPackageFlag: nil
+            ).isPackage)
+        #expect(counters.foundationCount == 2)
     }
 
+    @Test
     func testFailedFoundationDecisionDoesNotPoisonExtensionCache() {
         let provider = FlakyPackageProvider()
         let classifier = PackageClassifier(foundationPackageProvider: provider.value)
         let url = URL(filePath: "/tmp/Retry.custom", directoryHint: .isDirectory)
 
-        XCTAssertFalse(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
-        XCTAssertTrue(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
-        XCTAssertEqual(provider.callCount, 2)
+        #expect(!(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage))
+        #expect(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
+        #expect(provider.callCount == 2)
     }
 
+    @Test
     func testConcurrentAmbiguousExtensionResolutionIsSingleFlight() {
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(foundationPackageProvider: { url in
@@ -214,11 +234,12 @@ final class PackageClassifierTests: XCTestCase {
 
         DispatchQueue.concurrentPerform(iterations: 32) { index in
             let url = URL(filePath: "/tmp/Concurrent-\(index).cache", directoryHint: .isDirectory)
-            XCTAssertFalse(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
+            #expect(!(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage))
         }
-        XCTAssertEqual(counters.foundationCount, 1)
+        #expect(counters.foundationCount == 1)
     }
 
+    @Test
     func testFinderBundleBitPreservesExtensionlessAndOrdinaryExtensionPackages() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -230,30 +251,27 @@ final class PackageClassifierTests: XCTestCase {
         try setFinderBundleBit(at: extensionlessURL)
         try setFinderBundleBit(at: ordinaryExtensionURL)
 
-        XCTAssertEqual(
-            try extensionlessURL.resourceValues(forKeys: [.isPackageKey]).isPackage,
-            true
-        )
-        XCTAssertEqual(
-            try ordinaryExtensionURL.resourceValues(forKeys: [.isPackageKey]).isPackage,
-            true
-        )
+        #expect(try extensionlessURL.resourceValues(forKeys: [.isPackageKey]).isPackage == true)
+        #expect(try ordinaryExtensionURL.resourceValues(forKeys: [.isPackageKey]).isPackage == true)
 
-        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: ScanMetadataLoader(),
-            cancellationCheck: {}
-        ))
-        XCTAssertTrue(result.entries.allSatisfy { $0.metadata?.isPackage == true })
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                cancellationCheck: {}
+            ))
+        let result = try #require(resultValue)
+        #expect(result.entries.allSatisfy { $0.metadata?.isPackage == true })
     }
 
+    @Test
     func testRegisteredPackageExtensionsMatchFoundation() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
         let names = [
             "Application.app", "Installer.pkg", "MetaInstaller.mpkg",
-            "Presentation.key", "Book.epub"
+            "Presentation.key", "Book.epub",
         ]
         for name in names {
             try FileManager.default.createDirectory(
@@ -262,20 +280,23 @@ final class PackageClassifierTests: XCTestCase {
             )
         }
 
-        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: ScanMetadataLoader(),
-            cancellationCheck: {}
-        ))
-        let bulkValueByName = Dictionary(uniqueKeysWithValues: result.entries.map {
-            ($0.url.lastPathComponent, $0.metadata?.isPackage ?? false)
-        })
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                cancellationCheck: {}
+            ))
+        let result = try #require(resultValue)
+        let bulkValueByName = Dictionary(
+            uniqueKeysWithValues: result.entries.map {
+                ($0.url.lastPathComponent, $0.metadata?.isPackage ?? false)
+            })
 
         for name in names {
             let url = rootURL.appending(path: name, directoryHint: .isDirectory)
             let foundationValue = try url.resourceValues(forKeys: [.isPackageKey]).isPackage ?? false
-            XCTAssertEqual(bulkValueByName[name], foundationValue, "Package mismatch for .\(url.pathExtension)")
+            #expect(bulkValueByName[name] == foundationValue, "Package mismatch for .\(url.pathExtension)")
         }
     }
 

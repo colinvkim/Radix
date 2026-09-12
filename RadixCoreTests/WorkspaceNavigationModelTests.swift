@@ -1,5 +1,7 @@
 import Combine
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 private actor NavigationTableLoadGate {
@@ -16,8 +18,9 @@ private actor NavigationTableLoadGate {
     func resume(at index: Int) { continuations.removeValue(forKey: index)?.resume() }
 }
 
-final class WorkspaceNavigationModelTests: XCTestCase {
-    @MainActor
+@MainActor
+struct WorkspaceNavigationModelTests {
+    @Test
     func testLargeDirectoryLoadsInBackgroundAndIgnoresSupersededResult() async throws {
         let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }
         let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
@@ -27,32 +30,32 @@ final class WorkspaceNavigationModelTests: XCTestCase {
             await gate.load(store: store, id: id)
         })
         model.updateScanContext(snapshot: snapshot)
-        XCTAssertTrue(model.isLoadingTableNodes)
-        XCTAssertTrue(model.tableNodes.isEmpty)
+        #expect(model.isLoadingTableNodes)
+        #expect(model.tableNodes.isEmpty)
         try await waitUntil { await gate.requestCount == 1 }
         // Selection and same-context refreshes must not restart pending work.
         model.select(nodeID: files[0].id)
         model.refreshTableNodesForCurrentContext()
         await Task.yield()
         let requests = await gate.requestCount
-        XCTAssertEqual(requests, 1)
+        #expect(requests == 1)
 
         model.reset()
         await gate.resume(at: 0)
         await Task.yield()
-        XCTAssertFalse(model.isLoadingTableNodes)
-        XCTAssertTrue(model.tableNodes.isEmpty)
+        #expect(!(model.isLoadingTableNodes))
+        #expect(model.tableNodes.isEmpty)
 
         model.updateScanContext(snapshot: snapshot)
         try await waitUntil { await gate.requestCount == 2 }
         let revision = model.tableContentRevision
         await gate.resume(at: 1)
         try await waitUntil { !model.isLoadingTableNodes }
-        XCTAssertEqual(model.tableNodes, files)
-        XCTAssertEqual(model.tableContentRevision, revision + 1)
+        #expect(model.tableNodes == files)
+        #expect(model.tableContentRevision == revision + 1)
     }
 
-    @MainActor
+    @Test
     func testExplicitlyDeferredLargeDirectoryWaitsForRefresh() async throws {
         let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }
         let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
@@ -60,47 +63,47 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         let model = WorkspaceNavigationModel()
         model.updateScanContext(snapshot: snapshot, loadTableNodesImmediately: false)
         await Task.yield()
-        XCTAssertFalse(model.isLoadingTableNodes)
-        XCTAssertTrue(model.tableNodes.isEmpty)
+        #expect(!(model.isLoadingTableNodes))
+        #expect(model.tableNodes.isEmpty)
         model.refreshTableNodesForCurrentContext()
         try await waitUntil { !model.isLoadingTableNodes }
-        XCTAssertEqual(model.tableNodes, files)
+        #expect(model.tableNodes == files)
     }
 
-    @MainActor
+    @Test
     func testSelectingValidAndInvalidNodes() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
 
-        XCTAssertTrue(model.selectedNodes.isEmpty)
+        #expect(model.selectedNodes.isEmpty)
 
         model.select(nodeID: fixture.docFile.id)
-        XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
-        XCTAssertEqual(model.selectedNodeIDs, [fixture.docFile.id])
-        XCTAssertEqual(model.selectedNode?.id, fixture.docFile.id)
-        XCTAssertEqual(model.selectedNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
-        XCTAssertTrue(model.canClearSelection)
+        #expect(model.selectedNodeID == fixture.docFile.id)
+        #expect(model.selectedNodeIDs == [fixture.docFile.id])
+        #expect(model.selectedNode?.id == fixture.docFile.id)
+        #expect(model.selectedNodes.map(\.id) == [fixture.docFile.id])
+        #expect(model.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
+        #expect(model.canClearSelection)
 
         model.select(nodeID: "/missing")
-        XCTAssertNil(model.selectedNodeID)
-        XCTAssertTrue(model.selectedNodeIDs.isEmpty)
-        XCTAssertTrue(model.selectedNodes.isEmpty)
-        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
-        XCTAssertFalse(model.canClearSelection)
+        #expect(model.selectedNodeID == nil)
+        #expect(model.selectedNodeIDs.isEmpty)
+        #expect(model.selectedNodes.isEmpty)
+        #expect(model.selectedAncestorIDs.isEmpty)
+        #expect(!(model.canClearSelection))
 
         model.select(nodeID: fixture.cache.id)
-        XCTAssertEqual(model.selectedNodeID, fixture.cache.id)
-        XCTAssertEqual(model.selectedNodes.map(\.id), [fixture.cache.id])
-        XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.cache.id]))
+        #expect(model.selectedNodeID == fixture.cache.id)
+        #expect(model.selectedNodes.map(\.id) == [fixture.cache.id])
+        #expect(model.selectedAncestorIDs == Set([fixture.root.id, fixture.cache.id]))
 
         model.select(nodeID: nil)
-        XCTAssertNil(model.selectedNodeID)
-        XCTAssertTrue(model.selectedNodes.isEmpty)
-        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
+        #expect(model.selectedNodeID == nil)
+        #expect(model.selectedNodes.isEmpty)
+        #expect(model.selectedAncestorIDs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testSelectingMultipleNodesKeepsPrimarySelection() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -110,45 +113,45 @@ final class WorkspaceNavigationModelTests: XCTestCase {
             primaryNodeID: fixture.rootFile.id
         )
 
-        XCTAssertEqual(model.selectedNodeID, fixture.rootFile.id)
-        XCTAssertEqual(model.selectedNodeIDs, [fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.selectedNodes.map(\.id), [fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.selectedAncestorIDs, Set([fixture.root.id, fixture.rootFile.id]))
-        XCTAssertTrue(model.canClearSelection)
+        #expect(model.selectedNodeID == fixture.rootFile.id)
+        #expect(model.selectedNodeIDs == [fixture.cache.id, fixture.rootFile.id])
+        #expect(model.selectedNodes.map(\.id) == [fixture.cache.id, fixture.rootFile.id])
+        #expect(model.selectedAncestorIDs == Set([fixture.root.id, fixture.rootFile.id]))
+        #expect(model.canClearSelection)
 
         model.focus(nodeID: fixture.docs.id)
 
-        XCTAssertNil(model.selectedNodeID)
-        XCTAssertTrue(model.selectedNodeIDs.isEmpty)
-        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
+        #expect(model.selectedNodeID == nil)
+        #expect(model.selectedNodeIDs.isEmpty)
+        #expect(model.selectedAncestorIDs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testFocusingNodesPreservesHistory() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
 
-        XCTAssertEqual(model.focusedNodeID, fixture.root.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
-        XCTAssertFalse(model.canNavigateBack)
+        #expect(model.focusedNodeID == fixture.root.id)
+        #expect(model.currentFocusNode?.id == fixture.root.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        #expect(!(model.canNavigateBack))
 
         model.focus(nodeID: fixture.docs.id)
 
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
-        XCTAssertEqual(model.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.docs.id])
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertFalse(model.canNavigateForward)
+        #expect(model.focusedNodeID == fixture.docs.id)
+        #expect(model.currentFocusNode?.id == fixture.docs.id)
+        #expect(model.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.docs.id])
+        #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
+        #expect(model.canNavigateBack)
+        #expect(!(model.canNavigateForward))
 
         model.focus(nodeID: "/missing")
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
+        #expect(model.focusedNodeID == fixture.docs.id)
     }
 
-    @MainActor
+    @Test
     func testBackAndForwardNavigation() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -156,65 +159,65 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.focus(nodeID: fixture.docs.id)
         model.focus(nodeID: fixture.cache.id)
 
-        XCTAssertEqual(model.focusedNodeID, fixture.cache.id)
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertFalse(model.canNavigateForward)
+        #expect(model.focusedNodeID == fixture.cache.id)
+        #expect(model.canNavigateBack)
+        #expect(!(model.canNavigateForward))
 
         model.navigateBack()
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertTrue(model.canNavigateForward)
+        #expect(model.focusedNodeID == fixture.docs.id)
+        #expect(model.currentFocusNode?.id == fixture.docs.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
+        #expect(model.canNavigateBack)
+        #expect(model.canNavigateForward)
 
         model.navigateBack()
-        XCTAssertEqual(model.focusedNodeID, fixture.root.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
-        XCTAssertFalse(model.canNavigateBack)
-        XCTAssertTrue(model.canNavigateForward)
+        #expect(model.focusedNodeID == fixture.root.id)
+        #expect(model.currentFocusNode?.id == fixture.root.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        #expect(!(model.canNavigateBack))
+        #expect(model.canNavigateForward)
 
         model.navigateForward()
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.docs.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertTrue(model.canNavigateForward)
+        #expect(model.focusedNodeID == fixture.docs.id)
+        #expect(model.currentFocusNode?.id == fixture.docs.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
+        #expect(model.canNavigateBack)
+        #expect(model.canNavigateForward)
     }
 
-    @MainActor
+    @Test
     func testNavigateToParentRecordsHistory() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
 
-        XCTAssertFalse(model.canNavigateToParent)
-        XCTAssertNil(model.currentFocusNodeParent)
+        #expect(!(model.canNavigateToParent))
+        #expect(model.currentFocusNodeParent == nil)
 
         model.focus(nodeID: fixture.docs.id)
         model.select(nodeID: fixture.docFile.id)
 
-        XCTAssertTrue(model.canNavigateToParent)
-        XCTAssertEqual(model.currentFocusNodeParent?.id, fixture.root.id)
+        #expect(model.canNavigateToParent)
+        #expect(model.currentFocusNodeParent?.id == fixture.root.id)
 
         model.navigateToParent()
 
-        XCTAssertEqual(model.focusedNodeID, fixture.root.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
-        XCTAssertNil(model.currentFocusNodeParent)
-        XCTAssertFalse(model.canNavigateToParent)
-        XCTAssertEqual(model.selectedNodeID, fixture.docFile.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertTrue(model.canNavigateBack)
-        XCTAssertFalse(model.canNavigateForward)
+        #expect(model.focusedNodeID == fixture.root.id)
+        #expect(model.currentFocusNode?.id == fixture.root.id)
+        #expect(model.currentFocusNodeParent == nil)
+        #expect(!(model.canNavigateToParent))
+        #expect(model.selectedNodeID == fixture.docFile.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.canNavigateBack)
+        #expect(!(model.canNavigateForward))
 
         model.navigateBack()
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
+        #expect(model.focusedNodeID == fixture.docs.id)
     }
 
-    @MainActor
+    @Test
     func testResetFocusToRootClearsSelectionAndRecordsHistory() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -224,19 +227,19 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.resetFocusToRoot()
 
-        XCTAssertEqual(model.focusedNodeID, fixture.root.id)
-        XCTAssertNil(model.selectedNodeID)
-        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
-        XCTAssertTrue(model.isFocusedAtRoot)
-        XCTAssertTrue(model.canNavigateBack)
+        #expect(model.focusedNodeID == fixture.root.id)
+        #expect(model.selectedNodeID == nil)
+        #expect(model.selectedAncestorIDs.isEmpty)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        #expect(model.isFocusedAtRoot)
+        #expect(model.canNavigateBack)
 
         model.navigateBack()
-        XCTAssertEqual(model.focusedNodeID, fixture.docs.id)
+        #expect(model.focusedNodeID == fixture.docs.id)
     }
 
-    @MainActor
+    @Test
     func testFocusOutsideSelectedSubtreeClearsSelection() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -246,16 +249,16 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.focus(nodeID: fixture.cache.id)
 
-        XCTAssertEqual(model.focusedNodeID, fixture.cache.id)
-        XCTAssertNil(model.selectedNodeID)
-        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
-        XCTAssertEqual(model.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.cache.id])
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.cacheFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
-        XCTAssertFalse(model.canClearSelection)
+        #expect(model.focusedNodeID == fixture.cache.id)
+        #expect(model.selectedNodeID == nil)
+        #expect(model.selectedAncestorIDs.isEmpty)
+        #expect(model.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.cache.id])
+        #expect(model.tableNodes.map(\.id) == [fixture.cacheFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
+        #expect(!(model.canClearSelection))
     }
 
-    @MainActor
+    @Test
     func testFocusPublishesSingleCoherentState() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -272,18 +275,18 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.focus(nodeID: fixture.cache.id)
 
-        XCTAssertEqual(publishedStates.count, 1)
-        let state = try XCTUnwrap(publishedStates.first)
-        XCTAssertEqual(state.focusedNodeID, fixture.cache.id)
-        XCTAssertNil(state.selectedNodeID)
-        XCTAssertTrue(state.selectedAncestorIDs.isEmpty)
-        XCTAssertEqual(state.tableNodes.map(\.id), [fixture.cacheFile.id])
-        XCTAssertEqual(state.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
-        XCTAssertEqual(state.focusBackStack, [fixture.root.id, fixture.docs.id])
-        XCTAssertTrue(state.focusForwardStack.isEmpty)
+        #expect(publishedStates.count == 1)
+        let state = try #require(publishedStates.first)
+        #expect(state.focusedNodeID == fixture.cache.id)
+        #expect(state.selectedNodeID == nil)
+        #expect(state.selectedAncestorIDs.isEmpty)
+        #expect(state.tableNodes.map(\.id) == [fixture.cacheFile.id])
+        #expect(state.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
+        #expect(state.focusBackStack == [fixture.root.id, fixture.docs.id])
+        #expect(state.focusForwardStack.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testSelectAndFocusPublishesSingleCoherentState() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -297,18 +300,18 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.selectAndFocus(nodeID: fixture.docs.id)
 
-        XCTAssertEqual(publishedStates.count, 1)
-        let state = try XCTUnwrap(publishedStates.first)
-        XCTAssertEqual(state.selectedNodeID, fixture.docs.id)
-        XCTAssertEqual(state.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(state.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id]))
-        XCTAssertEqual(state.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(state.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
-        XCTAssertEqual(state.focusBackStack, [fixture.root.id])
-        XCTAssertTrue(state.focusForwardStack.isEmpty)
+        #expect(publishedStates.count == 1)
+        let state = try #require(publishedStates.first)
+        #expect(state.selectedNodeID == fixture.docs.id)
+        #expect(state.focusedNodeID == fixture.docs.id)
+        #expect(state.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id]))
+        #expect(state.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(state.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
+        #expect(state.focusBackStack == [fixture.root.id])
+        #expect(state.focusForwardStack.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testRevealFileFocusesContainingFolderAndSelectsNode() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -322,23 +325,23 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.reveal(nodeID: fixture.docFile.id)
 
-        XCTAssertEqual(publishedStates.count, 1)
-        let state = try XCTUnwrap(publishedStates.first)
+        #expect(publishedStates.count == 1)
+        let state = try #require(publishedStates.first)
         // Unlike selectAndFocus, reveal focuses the parent folder (docs) rather than the
         // file itself, so the file list shows the file among its siblings.
-        XCTAssertEqual(state.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(state.selectedNodeID, fixture.docFile.id)
-        XCTAssertEqual(state.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(state.focusBackStack, [fixture.root.id])
+        #expect(state.focusedNodeID == fixture.docs.id)
+        #expect(state.selectedNodeID == fixture.docFile.id)
+        #expect(state.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(state.focusBackStack == [fixture.root.id])
     }
 
-    @MainActor
+    @Test
     func testSelectionPublishesAncestorsWithoutReplacingTableState() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
         let initialTableContentID = model.tableContentID
         let initialTableNodeIDs = model.tableNodes.map(\.id)
-        let initialTableStorageAddress = try XCTUnwrap(tableStorageAddress(of: model.state.tableNodes))
+        let initialTableStorageAddress = try #require(tableStorageAddress(of: model.state.tableNodes))
         var publishedStates: [WorkspaceNavigationState] = []
         var cancellables = Set<AnyCancellable>()
 
@@ -349,54 +352,54 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.select(nodeID: fixture.docFile.id)
 
-        XCTAssertEqual(publishedStates.count, 1)
-        var state = try XCTUnwrap(publishedStates.first)
-        XCTAssertEqual(state.selectedNodeID, fixture.docFile.id)
-        XCTAssertEqual(state.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
-        XCTAssertEqual(state.tableContentID, initialTableContentID)
-        XCTAssertEqual(state.tableNodes.map(\.id), initialTableNodeIDs)
-        XCTAssertEqual(tableStorageAddress(of: state.tableNodes), initialTableStorageAddress)
+        #expect(publishedStates.count == 1)
+        var state = try #require(publishedStates.first)
+        #expect(state.selectedNodeID == fixture.docFile.id)
+        #expect(state.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
+        #expect(state.tableContentID == initialTableContentID)
+        #expect(state.tableNodes.map(\.id) == initialTableNodeIDs)
+        #expect(tableStorageAddress(of: state.tableNodes) == initialTableStorageAddress)
 
         publishedStates.removeAll()
         model.clearSelection()
 
-        XCTAssertEqual(publishedStates.count, 1)
-        state = try XCTUnwrap(publishedStates.first)
-        XCTAssertNil(state.selectedNodeID)
-        XCTAssertTrue(state.selectedAncestorIDs.isEmpty)
-        XCTAssertEqual(state.tableContentID, initialTableContentID)
-        XCTAssertEqual(state.tableNodes.map(\.id), initialTableNodeIDs)
-        XCTAssertEqual(tableStorageAddress(of: state.tableNodes), initialTableStorageAddress)
+        #expect(publishedStates.count == 1)
+        state = try #require(publishedStates.first)
+        #expect(state.selectedNodeID == nil)
+        #expect(state.selectedAncestorIDs.isEmpty)
+        #expect(state.tableContentID == initialTableContentID)
+        #expect(state.tableNodes.map(\.id) == initialTableNodeIDs)
+        #expect(tableStorageAddress(of: state.tableNodes) == initialTableStorageAddress)
     }
 
-    @MainActor
+    @Test
     func testTableStateTracksRootFallbackAndFocusedFiles() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
 
         model.setFocusedNodeID(nil)
 
-        XCTAssertNil(model.focusedNodeID)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.root.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        #expect(model.focusedNodeID == nil)
+        #expect(model.currentFocusNode?.id == fixture.root.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
 
         let rootTableRevision = model.tableContentRevision
         model.setFocusedNodeID(fixture.rootFile.id)
 
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentRevision, rootTableRevision)
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.rootFile.id)")
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentRevision == rootTableRevision)
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.rootFile.id)")
 
         model.setFocusedNodeID(fixture.docFile.id)
 
-        XCTAssertEqual(model.focusedNodeID, fixture.docFile.id)
-        XCTAssertEqual(model.currentFocusNode?.id, fixture.docFile.id)
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.docFile.id)")
+        #expect(model.focusedNodeID == fixture.docFile.id)
+        #expect(model.currentFocusNode?.id == fixture.docFile.id)
+        #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docFile.id)")
     }
 
-    @MainActor
+    @Test
     func testDeferredTableMaterializationAdvancesContentRevision() {
         let fixture = makeNavigationFixture()
         let model = WorkspaceNavigationModel()
@@ -404,32 +407,32 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
 
         let deferredRevision = model.tableContentRevision
-        XCTAssertTrue(model.tableNodes.isEmpty)
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        #expect(model.tableNodes.isEmpty)
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
 
         model.refreshTableNodesForCurrentContext()
 
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentID, "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
-        XCTAssertEqual(model.tableContentRevision, deferredRevision + 1)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
+        #expect(model.tableContentRevision == deferredRevision + 1)
 
         model.refreshTableNodesForCurrentContext()
 
-        XCTAssertEqual(model.tableContentRevision, deferredRevision + 1)
+        #expect(model.tableContentRevision == deferredRevision + 1)
 
         model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
 
-        XCTAssertTrue(model.tableNodes.isEmpty)
-        XCTAssertEqual(model.tableContentRevision, deferredRevision + 2)
+        #expect(model.tableNodes.isEmpty)
+        #expect(model.tableContentRevision == deferredRevision + 2)
 
         model.refreshTableNodesForCurrentContext()
 
-        XCTAssertEqual(model.tableNodes.map(\.id), [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableContentRevision, deferredRevision + 3)
+        #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableContentRevision == deferredRevision + 3)
     }
 
-    @MainActor
-    func testSameSnapshotIDNodeMetadataChangeAdvancesTableRevision() throws {
+    @Test
+    func testSameSnapshotIDNodeMetadataChangeAdvancesTableRevision() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
         let initialRevision = model.tableContentRevision
@@ -451,11 +454,13 @@ final class WorkspaceNavigationModelTests: XCTestCase {
             name: fixture.root.name,
             children: [updatedDocs, fixture.cache, fixture.rootFile]
         )
-        let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [
-            updatedRoot.id: [updatedDocs, fixture.cache, fixture.rootFile],
-            updatedDocs.id: [updatedDocFile],
-            fixture.cache.id: [fixture.cacheFile]
-        ])
+        let updatedStore = FileTreeStore(
+            root: updatedRoot,
+            childrenByID: [
+                updatedRoot.id: [updatedDocs, fixture.cache, fixture.rootFile],
+                updatedDocs.id: [updatedDocFile],
+                fixture.cache.id: [fixture.cacheFile],
+            ])
         let updatedSnapshot = ScanSnapshot(
             id: fixture.snapshot.id,
             target: fixture.snapshot.target,
@@ -475,14 +480,14 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.updateScanContext(snapshot: updatedSnapshot)
 
-        XCTAssertEqual(publishedStates.count, 1)
-        XCTAssertEqual(model.tableContentRevision, initialRevision + 1)
-        XCTAssertEqual(model.tableNodes.map(\.id), [updatedDocs.id, fixture.cache.id, fixture.rootFile.id])
-        XCTAssertEqual(model.tableNodes.first?.allocatedSize, 80)
-        XCTAssertEqual(model.currentFocusNode?.allocatedSize, updatedRoot.allocatedSize)
+        #expect(publishedStates.count == 1)
+        #expect(model.tableContentRevision == initialRevision + 1)
+        #expect(model.tableNodes.map(\.id) == [updatedDocs.id, fixture.cache.id, fixture.rootFile.id])
+        #expect(model.tableNodes.first?.allocatedSize == 80)
+        #expect(model.currentFocusNode?.allocatedSize == updatedRoot.allocatedSize)
     }
 
-    @MainActor
+    @Test
     func testReconcilingSnapshotReplacementClearsInvalidNavigationState() {
         let fixture = makeNavigationFixture()
         let replacement = makeNavigationFixture(rootID: "/replacement")
@@ -490,22 +495,22 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.focus(nodeID: fixture.docs.id)
         model.select(nodeID: fixture.docFile.id)
-        XCTAssertTrue(model.canNavigateBack)
+        #expect(model.canNavigateBack)
 
         model.reconcileAfterSnapshotApplied(replacement.snapshot)
 
-        XCTAssertEqual(model.focusedNodeID, replacement.root.id)
-        XCTAssertEqual(model.currentFocusNode?.id, replacement.root.id)
-        XCTAssertNil(model.selectedNodeID)
-        XCTAssertTrue(model.selectedAncestorIDs.isEmpty)
-        XCTAssertEqual(model.tableNodes.map(\.id), [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
-        XCTAssertEqual(model.tableContentID, "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
-        XCTAssertFalse(model.canNavigateBack)
-        XCTAssertFalse(model.canNavigateForward)
-        XCTAssertTrue(model.tableContentID.hasPrefix(replacement.snapshot.id.uuidString))
+        #expect(model.focusedNodeID == replacement.root.id)
+        #expect(model.currentFocusNode?.id == replacement.root.id)
+        #expect(model.selectedNodeID == nil)
+        #expect(model.selectedAncestorIDs.isEmpty)
+        #expect(model.tableNodes.map(\.id) == [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
+        #expect(model.tableContentID == "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
+        #expect(!(model.canNavigateBack))
+        #expect(!(model.canNavigateForward))
+        #expect(model.tableContentID.hasPrefix(replacement.snapshot.id.uuidString))
     }
 
-    @MainActor
+    @Test
     func testSnapshotReconciliationPublishesSingleCoherentState() throws {
         let fixture = makeNavigationFixture()
         let replacement = makeNavigationFixture(rootID: "/replacement")
@@ -523,19 +528,19 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.reconcileAfterSnapshotApplied(replacement.snapshot)
 
-        XCTAssertEqual(publishedStates.count, 1)
-        let state = try XCTUnwrap(publishedStates.first)
-        XCTAssertEqual(state.snapshotID, replacement.snapshot.id)
-        XCTAssertEqual(state.focusedNodeID, replacement.root.id)
-        XCTAssertNil(state.selectedNodeID)
-        XCTAssertTrue(state.selectedAncestorIDs.isEmpty)
-        XCTAssertEqual(state.tableNodes.map(\.id), [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
-        XCTAssertEqual(state.tableContentID, "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
-        XCTAssertTrue(state.focusBackStack.isEmpty)
-        XCTAssertTrue(state.focusForwardStack.isEmpty)
+        #expect(publishedStates.count == 1)
+        let state = try #require(publishedStates.first)
+        #expect(state.snapshotID == replacement.snapshot.id)
+        #expect(state.focusedNodeID == replacement.root.id)
+        #expect(state.selectedNodeID == nil)
+        #expect(state.selectedAncestorIDs.isEmpty)
+        #expect(state.tableNodes.map(\.id) == [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
+        #expect(state.tableContentID == "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
+        #expect(state.focusBackStack.isEmpty)
+        #expect(state.focusForwardStack.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testUnchangedScanContextDoesNotRepublish() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -551,10 +556,10 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.reconcileAfterSnapshotApplied(fixture.snapshot)
         model.refreshTableNodesForCurrentContext()
 
-        XCTAssertTrue(publishedStates.isEmpty)
+        #expect(publishedStates.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testAppModelRoutesNavigationActionsThroughNavigationState() {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
@@ -564,38 +569,38 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.select(nodeID: fixture.docFile.id)
         model.focus(nodeID: fixture.docs.id)
 
-        XCTAssertEqual(model.navigation.selectedNodeID, fixture.docFile.id)
-        XCTAssertEqual(model.navigation.selectedNode?.id, fixture.docFile.id)
-        XCTAssertEqual(model.navigation.selectedAncestorIDs, Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
-        XCTAssertEqual(model.navigation.selectedNodeParent?.id, fixture.docs.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, fixture.docs.id)
-        XCTAssertEqual(model.navigation.currentFocusNode?.id, fixture.docs.id)
-        XCTAssertEqual(model.navigation.breadcrumbNodes.map(\.id), [fixture.root.id, fixture.docs.id])
-        XCTAssertEqual(model.navigation.tableNodes.map(\.id), [fixture.docFile.id])
-        XCTAssertTrue(model.navigation.canClearSelection)
-        XCTAssertTrue(model.navigation.canNavigateBack)
-        XCTAssertTrue(model.navigation.tableContentID.hasPrefix(fixture.snapshot.id.uuidString))
+        #expect(model.navigation.selectedNodeID == fixture.docFile.id)
+        #expect(model.navigation.selectedNode?.id == fixture.docFile.id)
+        #expect(model.navigation.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
+        #expect(model.navigation.selectedNodeParent?.id == fixture.docs.id)
+        #expect(model.navigation.focusedNodeID == fixture.docs.id)
+        #expect(model.navigation.currentFocusNode?.id == fixture.docs.id)
+        #expect(model.navigation.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.docs.id])
+        #expect(model.navigation.tableNodes.map(\.id) == [fixture.docFile.id])
+        #expect(model.navigation.canClearSelection)
+        #expect(model.navigation.canNavigateBack)
+        #expect(model.navigation.tableContentID.hasPrefix(fixture.snapshot.id.uuidString))
 
         model.select(nodeID: "/missing")
-        XCTAssertNil(model.navigation.selectedNodeID)
+        #expect(model.navigation.selectedNodeID == nil)
 
         model.select(nodeID: fixture.docFile.id)
         model.navigation.setFocusedNodeID(fixture.cache.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, fixture.cache.id)
-        XCTAssertNil(model.navigation.selectedNodeID)
+        #expect(model.navigation.focusedNodeID == fixture.cache.id)
+        #expect(model.navigation.selectedNodeID == nil)
 
         model.navigation.setFocusedNodeID("/missing")
-        XCTAssertEqual(model.navigation.focusedNodeID, fixture.cache.id)
+        #expect(model.navigation.focusedNodeID == fixture.cache.id)
 
         model.navigateBack()
-        XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
+        #expect(model.navigation.focusedNodeID == fixture.root.id)
 
         model.focus(nodeID: fixture.docs.id)
         model.navigateToParent()
-        XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
+        #expect(model.navigation.focusedNodeID == fixture.root.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelDeferredSelectionPublishesAfterViewUpdate() async throws {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
@@ -605,14 +610,14 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         model.selectAfterViewUpdate(nodeID: fixture.docFile.id)
 
-        XCTAssertNil(model.navigation.selectedNodeID)
+        #expect(model.navigation.selectedNodeID == nil)
 
         try await waitUntil("deferred selection") {
             model.navigation.selectedNodeID == fixture.docFile.id
         }
     }
 
-    @MainActor
+    @Test
     func testAppModelDeferredSelectAndFocusKeepsZoomedSelection() async throws {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
@@ -623,16 +628,15 @@ final class WorkspaceNavigationModelTests: XCTestCase {
         model.selectAfterViewUpdate(nodeID: fixture.docs.id)
         model.selectAndFocusAfterViewUpdate(nodeID: fixture.docs.id)
 
-        XCTAssertNil(model.navigation.selectedNodeID)
-        XCTAssertEqual(model.navigation.focusedNodeID, fixture.root.id)
+        #expect(model.navigation.selectedNodeID == nil)
+        #expect(model.navigation.focusedNodeID == fixture.root.id)
 
         try await waitUntil("deferred select and focus") {
-            model.navigation.selectedNodeID == fixture.docs.id &&
-                model.navigation.focusedNodeID == fixture.docs.id
+            model.navigation.selectedNodeID == fixture.docs.id && model.navigation.focusedNodeID == fixture.docs.id
         }
     }
 
-    @MainActor
+    @Test
     func testAppModelDirectNavigationCancelsDeferredSelection() async throws {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
@@ -645,7 +649,7 @@ final class WorkspaceNavigationModelTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertNil(model.navigation.selectedNodeID)
+        #expect(model.navigation.selectedNodeID == nil)
     }
 }
 
@@ -686,11 +690,13 @@ private func makeNavigationFixture(rootID: String = "/root") -> NavigationFixtur
     let docs = makeTestDirectoryNode(id: rootID + "/docs", name: "docs", children: [docFile])
     let cache = makeTestDirectoryNode(id: rootID + "/cache", name: "cache", children: [cacheFile])
     let root = makeTestDirectoryNode(id: rootID, name: "root", children: [docs, cache, rootFile])
-    let store = FileTreeStore(root: root, childrenByID: [
-        root.id: [docs, cache, rootFile],
-        docs.id: [docFile],
-        cache.id: [cacheFile]
-    ])
+    let store = FileTreeStore(
+        root: root,
+        childrenByID: [
+            root.id: [docs, cache, rootFile],
+            docs.id: [docFile],
+            cache.id: [cacheFile],
+        ])
     let snapshot = makeTestSnapshot(root: root, store: store)
     return NavigationFixture(
         root: root,

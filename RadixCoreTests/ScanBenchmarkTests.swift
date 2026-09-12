@@ -1,69 +1,70 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 #if DEBUG
-private final class AutoSummaryBenchmarkProfile: @unchecked Sendable {
-    struct Snapshot {
-        let probeCount: Int
-        let acceptedProbeCount: Int
-        let probedItemCount: Int
-        let summarizedDirectoryCount: Int
-        let summarizedFileCount: Int
-        let reusedDirectoryCount: Int
-        let reusedEntryCount: Int
-    }
-
-    private let lock = NSLock()
-    private var probeCount = 0
-    private var acceptedProbeCount = 0
-    private var probedItemCount = 0
-    private var summarizedDirectoryCount = 0
-    private var summarizedFileCount = 0
-    private var reusedDirectoryCount = 0
-    private var reusedEntryCount = 0
-
-    func record(_ event: ScanAutoSummaryProfileEvent) {
-        lock.lock()
-        switch event {
-        case .probeCompleted(let visitedItemCount, let wasAccepted):
-            probeCount += 1
-            acceptedProbeCount += wasAccepted ? 1 : 0
-            probedItemCount += visitedItemCount
-        case .directorySummarized(let descendantFileCount):
-            summarizedDirectoryCount += 1
-            summarizedFileCount += descendantFileCount
-        case .reusedDirectoryListing(let entryCount):
-            reusedDirectoryCount += 1
-            reusedEntryCount += entryCount
+    private final class AutoSummaryBenchmarkProfile: @unchecked Sendable {
+        struct Snapshot {
+            let probeCount: Int
+            let acceptedProbeCount: Int
+            let probedItemCount: Int
+            let summarizedDirectoryCount: Int
+            let summarizedFileCount: Int
+            let reusedDirectoryCount: Int
+            let reusedEntryCount: Int
         }
-        lock.unlock()
-    }
 
-    func snapshot() -> Snapshot {
-        lock.lock()
-        defer { lock.unlock() }
-        return Snapshot(
-            probeCount: probeCount,
-            acceptedProbeCount: acceptedProbeCount,
-            probedItemCount: probedItemCount,
-            summarizedDirectoryCount: summarizedDirectoryCount,
-            summarizedFileCount: summarizedFileCount,
-            reusedDirectoryCount: reusedDirectoryCount,
-            reusedEntryCount: reusedEntryCount
-        )
-    }
-}
-#endif
+        private let lock = NSLock()
+        private var probeCount = 0
+        private var acceptedProbeCount = 0
+        private var probedItemCount = 0
+        private var summarizedDirectoryCount = 0
+        private var summarizedFileCount = 0
+        private var reusedDirectoryCount = 0
+        private var reusedEntryCount = 0
 
-final class ScanBenchmarkTests: XCTestCase {
-    func testIncrementalRescanBenchmark() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_INCREMENTAL"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_BENCH_INCREMENTAL=1 to run the incremental rescan benchmark."
+        func record(_ event: ScanAutoSummaryProfileEvent) {
+            lock.lock()
+            switch event {
+            case .probeCompleted(let visitedItemCount, let wasAccepted):
+                probeCount += 1
+                acceptedProbeCount += wasAccepted ? 1 : 0
+                probedItemCount += visitedItemCount
+            case .directorySummarized(let descendantFileCount):
+                summarizedDirectoryCount += 1
+                summarizedFileCount += descendantFileCount
+            case .reusedDirectoryListing(let entryCount):
+                reusedDirectoryCount += 1
+                reusedEntryCount += entryCount
+            }
+            lock.unlock()
+        }
+
+        func snapshot() -> Snapshot {
+            lock.lock()
+            defer { lock.unlock() }
+            return Snapshot(
+                probeCount: probeCount,
+                acceptedProbeCount: acceptedProbeCount,
+                probedItemCount: probedItemCount,
+                summarizedDirectoryCount: summarizedDirectoryCount,
+                summarizedFileCount: summarizedFileCount,
+                reusedDirectoryCount: reusedDirectoryCount,
+                reusedEntryCount: reusedEntryCount
             )
         }
+    }
+#endif
 
+struct ScanBenchmarkTests {
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_INCREMENTAL"] == "1",
+            "Set RADIX_BENCH_INCREMENTAL=1 to run the incremental rescan benchmark."))
+    func testIncrementalRescanBenchmark() async throws {
+        let environment = ProcessInfo.processInfo.environment
         let directoryCount = max(
             environment["RADIX_BENCH_INCREMENTAL_DIRECTORIES"].flatMap(Int.init) ?? 100,
             100
@@ -89,37 +90,41 @@ final class ScanBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH"] == "1",
+            "Set RADIX_BENCH=1 to run the real-world scan benchmark."))
     func testRealWorldScanBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH=1 to run the real-world scan benchmark.")
-        }
 
         let benchmarkPath = environment["RADIX_BENCH_PATH"] ?? "/Applications"
         let targetURL = URL(filePath: benchmarkPath, directoryHint: .isDirectory)
         guard FileManager.default.fileExists(atPath: targetURL.path) else {
-            throw XCTSkip("Benchmark path does not exist: \(targetURL.path)")
+            throw TestFixtureError("Benchmark path does not exist: \(targetURL.path)")
         }
 
         #if DEBUG
-        let autoSummaryProfile = environment["RADIX_BENCH_AUTO_SUMMARY_PROFILE"] == "1"
-            ? AutoSummaryBenchmarkProfile()
-            : nil
-        let autoSummaryProfileReporter: ScanEngine.AutoSummaryProfileReporter?
-        if let autoSummaryProfile {
-            autoSummaryProfileReporter = { @Sendable event in
-                autoSummaryProfile.record(event)
+            let autoSummaryProfile =
+                environment["RADIX_BENCH_AUTO_SUMMARY_PROFILE"] == "1"
+                ? AutoSummaryBenchmarkProfile()
+                : nil
+            let autoSummaryProfileReporter: ScanEngine.AutoSummaryProfileReporter?
+            if let autoSummaryProfile {
+                autoSummaryProfileReporter = { @Sendable event in
+                    autoSummaryProfile.record(event)
+                }
+            } else {
+                autoSummaryProfileReporter = nil
             }
-        } else {
-            autoSummaryProfileReporter = nil
-        }
-        let engine = if let autoSummaryProfileReporter {
-            ScanEngine(autoSummaryProfileReporter: autoSummaryProfileReporter)
-        } else {
-            ScanEngine()
-        }
+            let engine =
+                if let autoSummaryProfileReporter {
+                    ScanEngine(autoSummaryProfileReporter: autoSummaryProfileReporter)
+                } else {
+                    ScanEngine()
+                }
         #else
-        let engine = ScanEngine()
+            let engine = ScanEngine()
         #endif
         var options = ScanOptions()
         options.includeHiddenFiles = environment["RADIX_BENCH_INCLUDE_HIDDEN"] == "1"
@@ -146,21 +151,21 @@ final class ScanBenchmarkTests: XCTestCase {
         }
 
         let elapsed = startedAt.duration(to: .now)
-        let snapshot = try XCTUnwrap(finalSnapshot)
+        let snapshot = try #require(finalSnapshot)
         let elapsedSeconds = BenchmarkSupport.durationSeconds(elapsed)
         #if DEBUG
-        let profile = autoSummaryProfile?.snapshot()
-        let autoSummaryProfileOutput = """
-            auto_summary_probes=\(profile?.probeCount ?? 0)
-            auto_summary_accepted_probes=\(profile?.acceptedProbeCount ?? 0)
-            auto_summary_probed_items=\(profile?.probedItemCount ?? 0)
-            auto_summary_directories=\(profile?.summarizedDirectoryCount ?? 0)
-            auto_summary_files=\(profile?.summarizedFileCount ?? 0)
-            auto_summary_reused_directories=\(profile?.reusedDirectoryCount ?? 0)
-            auto_summary_reused_entries=\(profile?.reusedEntryCount ?? 0)
-            """
+            let profile = autoSummaryProfile?.snapshot()
+            let autoSummaryProfileOutput = """
+                auto_summary_probes=\(profile?.probeCount ?? 0)
+                auto_summary_accepted_probes=\(profile?.acceptedProbeCount ?? 0)
+                auto_summary_probed_items=\(profile?.probedItemCount ?? 0)
+                auto_summary_directories=\(profile?.summarizedDirectoryCount ?? 0)
+                auto_summary_files=\(profile?.summarizedFileCount ?? 0)
+                auto_summary_reused_directories=\(profile?.reusedDirectoryCount ?? 0)
+                auto_summary_reused_entries=\(profile?.reusedEntryCount ?? 0)
+                """
         #else
-        let autoSummaryProfileOutput = ""
+            let autoSummaryProfileOutput = ""
         #endif
 
         print(
@@ -185,44 +190,50 @@ final class ScanBenchmarkTests: XCTestCase {
     }
 
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_TREE_REMOVAL"] == "1",
+            "Set RADIX_BENCH_TREE_REMOVAL=1 to run the tree-removal benchmark."))
     func testTreeRemovalBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_TREE_REMOVAL"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_TREE_REMOVAL=1 to run the tree-removal benchmark.")
-        }
 
         let usesHardLinks = environment["RADIX_BENCH_TREE_HARD_LINKS"] == "1"
         let usesLogicalScope = environment["RADIX_BENCH_TREE_LOGICAL_SCOPE"] == "1"
         let removesDirectory = environment["RADIX_BENCH_TREE_REMOVE_DIRECTORY"] == "1"
-        let directoryCount = environment["RADIX_BENCH_TREE_DIRECTORIES"]
+        let directoryCount =
+            environment["RADIX_BENCH_TREE_DIRECTORIES"]
             .flatMap(Int.init)
             .map { max(2, $0) } ?? 200
-        let filesPerDirectory = environment["RADIX_BENCH_TREE_FILES_PER_DIRECTORY"]
+        let filesPerDirectory =
+            environment["RADIX_BENCH_TREE_FILES_PER_DIRECTORY"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 1_000
         let fileCount = directoryCount * filesPerDirectory
         let nodeCount = fileCount + directoryCount + 1
         let totalAllocatedSize = usesHardLinks ? filesPerDirectory : fileCount
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
-        var nodes = [FileNodeRecord(
-            id: "/benchmark",
-            url: URL(filePath: "/benchmark", directoryHint: .isDirectory),
-            name: "benchmark",
-            isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: Int64(totalAllocatedSize),
-            logicalSize: Int64(fileCount),
-            descendantFileCount: fileCount,
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true,
-            isSelfAccessible: true,
-            isSynthetic: false,
-            isAutoSummarized: false
-        )]
+        var nodes = [
+            FileNodeRecord(
+                id: "/benchmark",
+                url: URL(filePath: "/benchmark", directoryHint: .isDirectory),
+                name: "benchmark",
+                isDirectory: true,
+                isSymbolicLink: false,
+                allocatedSize: Int64(totalAllocatedSize),
+                logicalSize: Int64(fileCount),
+                descendantFileCount: fileCount,
+                lastModified: nil,
+                isPackage: false,
+                isAccessible: true,
+                isSelfAccessible: true,
+                isSynthetic: false,
+                isAutoSummarized: false
+            )
+        ]
         nodes.reserveCapacity(nodeCount)
         var childIndicesByIndex = Array(repeating: [FileTreeNodeIndex](), count: nodeCount)
-        var parentIndices = Array<FileTreeNodeIndex?>(repeating: nil, count: nodeCount)
+        var parentIndices = [FileTreeNodeIndex?](repeating: nil, count: nodeCount)
         var rootChildren: [FileTreeNodeIndex] = []
         rootChildren.reserveCapacity(directoryCount)
         var removalID = ""
@@ -230,22 +241,23 @@ final class ScanBenchmarkTests: XCTestCase {
         for directoryOffset in 0..<directoryCount {
             let directoryIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
             let directoryID = String(format: "/benchmark/directory-%06d", directoryOffset)
-            nodes.append(FileNodeRecord(
-                id: directoryID,
-                url: URL(filePath: directoryID, directoryHint: .isDirectory),
-                name: URL(filePath: directoryID).lastPathComponent,
-                isDirectory: true,
-                isSymbolicLink: false,
-                allocatedSize: Int64(usesHardLinks && directoryOffset > 0 ? 0 : filesPerDirectory),
-                logicalSize: Int64(filesPerDirectory),
-                descendantFileCount: filesPerDirectory,
-                lastModified: nil,
-                isPackage: false,
-                isAccessible: true,
-                isSelfAccessible: true,
-                isSynthetic: false,
-                isAutoSummarized: false
-            ))
+            nodes.append(
+                FileNodeRecord(
+                    id: directoryID,
+                    url: URL(filePath: directoryID, directoryHint: .isDirectory),
+                    name: URL(filePath: directoryID).lastPathComponent,
+                    isDirectory: true,
+                    isSymbolicLink: false,
+                    allocatedSize: Int64(usesHardLinks && directoryOffset > 0 ? 0 : filesPerDirectory),
+                    logicalSize: Int64(filesPerDirectory),
+                    descendantFileCount: filesPerDirectory,
+                    lastModified: nil,
+                    isPackage: false,
+                    isAccessible: true,
+                    isSelfAccessible: true,
+                    isSynthetic: false,
+                    isAutoSummarized: false
+                ))
             parentIndices[Int(directoryIndex.rawValue)] = rootIndex
             rootChildren.append(directoryIndex)
             if removesDirectory, directoryOffset == 0 {
@@ -258,33 +270,35 @@ final class ScanBenchmarkTests: XCTestCase {
                 let fileIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
                 let fileID = directoryID + String(format: "/file-%06d.bin", fileOffset)
                 let allocatedSize: Int64 = usesHardLinks && directoryOffset > 0 ? 0 : 1
-                nodes.append(FileNodeRecord(
-                    id: fileID,
-                    url: URL(filePath: fileID),
-                    name: URL(filePath: fileID).lastPathComponent,
-                    isDirectory: false,
-                    isSymbolicLink: false,
-                    allocatedSize: allocatedSize,
-                    unduplicatedAllocatedSize: 1,
-                    dataAllocatedSize: 1,
-                    logicalSize: 1,
-                    descendantFileCount: 1,
-                    lastModified: nil,
-                    fileIdentity: usesHardLinks
-                        ? FileIdentity(device: 1, inode: UInt64(fileOffset + 1))
-                        : nil,
-                    linkCount: usesHardLinks ? UInt64(directoryCount) : 1,
-                    isPackage: false,
-                    isAccessible: true,
-                    isSelfAccessible: true,
-                    isSynthetic: false,
-                    isAutoSummarized: false
-                ))
+                nodes.append(
+                    FileNodeRecord(
+                        id: fileID,
+                        url: URL(filePath: fileID),
+                        name: URL(filePath: fileID).lastPathComponent,
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        allocatedSize: allocatedSize,
+                        unduplicatedAllocatedSize: 1,
+                        dataAllocatedSize: 1,
+                        logicalSize: 1,
+                        descendantFileCount: 1,
+                        lastModified: nil,
+                        fileIdentity: usesHardLinks
+                            ? FileIdentity(device: 1, inode: UInt64(fileOffset + 1))
+                            : nil,
+                        linkCount: usesHardLinks ? UInt64(directoryCount) : 1,
+                        isPackage: false,
+                        isAccessible: true,
+                        isSelfAccessible: true,
+                        isSynthetic: false,
+                        isAutoSummarized: false
+                    ))
                 parentIndices[Int(fileIndex.rawValue)] = directoryIndex
                 directoryChildren.append(fileIndex)
                 if !removesDirectory,
-                   directoryOffset == 0,
-                   fileOffset == filesPerDirectory / 2 {
+                    directoryOffset == 0,
+                    fileOffset == filesPerDirectory / 2
+                {
                     removalID = fileID
                 }
             }
@@ -307,12 +321,13 @@ final class ScanBenchmarkTests: XCTestCase {
                 inaccessibleItemCount: 0
             )
         )
-        let benchmarkStore = usesLogicalScope
-            ? try XCTUnwrap(store.logicalScope(rootedAt: store.rootID))
+        let benchmarkStore =
+            usesLogicalScope
+            ? try #require(store.logicalScope(rootedAt: store.rootID))
             : store
 
         let startedAt = ContinuousClock.now
-        let updatedStore = try XCTUnwrap(benchmarkStore.removingSubtree(id: removalID))
+        let updatedStore = try #require(benchmarkStore.removingSubtree(id: removalID))
         let filterFinishedAt = ContinuousClock.now
         let sunburstSegments = SunburstLayout.segments(
             in: updatedStore,
@@ -340,36 +355,32 @@ final class ScanBenchmarkTests: XCTestCase {
 
         let removedNodeCount = removesDirectory ? filesPerDirectory + 1 : 1
         let removedFileCount = removesDirectory ? filesPerDirectory : 1
-        XCTAssertEqual(updatedStore.nodeCount, nodeCount - removedNodeCount)
-        XCTAssertEqual(updatedStore.aggregateStats.fileCount, fileCount - removedFileCount)
-        XCTAssertEqual(
-            updatedStore.aggregateStats.totalAllocatedSize,
-            Int64(usesHardLinks ? filesPerDirectory : fileCount - removedFileCount)
-        )
+        #expect(updatedStore.nodeCount == nodeCount - removedNodeCount)
+        #expect(updatedStore.aggregateStats.fileCount == fileCount - removedFileCount)
+        #expect(
+            updatedStore.aggregateStats.totalAllocatedSize
+                == Int64(usesHardLinks ? filesPerDirectory : fileCount - removedFileCount))
         print(
-            "RADIX_BENCH_TREE_REMOVAL_RESULT nodes=\(nodeCount) " +
-            "removed=\(removedNodeCount) hard_links=\(usesHardLinks) " +
-            "logical_scope=\(usesLogicalScope) " +
-            "filter=\(String(format: "%.6f", filterElapsedSeconds))s " +
-            "sunburst=\(String(format: "%.6f", sunburstElapsedSeconds))s " +
-            "sunburst_segments=\(sunburstSegments.count) " +
-            "treemap=\(String(format: "%.6f", treemapElapsedSeconds))s " +
-            "treemap_segments=\(treemapSegments.count) " +
-            "end_to_end=\(String(format: "%.6f", endToEndElapsedSeconds))s"
+            "RADIX_BENCH_TREE_REMOVAL_RESULT nodes=\(nodeCount) "
+                + "removed=\(removedNodeCount) hard_links=\(usesHardLinks) " + "logical_scope=\(usesLogicalScope) "
+                + "filter=\(String(format: "%.6f", filterElapsedSeconds))s "
+                + "sunburst=\(String(format: "%.6f", sunburstElapsedSeconds))s "
+                + "sunburst_segments=\(sunburstSegments.count) "
+                + "treemap=\(String(format: "%.6f", treemapElapsedSeconds))s "
+                + "treemap_segments=\(treemapSegments.count) "
+                + "end_to_end=\(String(format: "%.6f", endToEndElapsedSeconds))s"
         )
     }
 
     /// Release gate for the startup-volume namespace. It compares the optimized
     /// bulk/descriptor scanner with the independent Foundation enumeration path
     /// and verifies that macOS firmlink roots were actually traversed.
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_STARTUP_SCAN_REGRESSION"] == "1",
+            "Set RADIX_STARTUP_SCAN_REGRESSION=1 to compare startup-volume scanner paths."))
     func testStartupVolumeScannerParityGate() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_STARTUP_SCAN_REGRESSION"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_STARTUP_SCAN_REGRESSION=1 to compare startup-volume scanner paths."
-            )
-        }
-
         let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
         let target = ScanTarget(url: rootURL, kind: .volume)
         var options = ScanOptions()
@@ -380,10 +391,11 @@ final class ScanBenchmarkTests: XCTestCase {
         // user homes and volatile per-user system caches. Both scanner paths
         // receive identical rules; firmlink opening and aggregate parity across
         // the startup-volume namespace remain covered.
-        options.exclusionPatterns = ScanExclusionMatcher.commonPresetPatterns + [
-            "Users/*/",
-            "private/var/",
-        ]
+        options.exclusionPatterns =
+            ScanExclusionMatcher.commonPresetPatterns + [
+                "Users/*/",
+                "private/var/",
+            ]
         let optimizedSnapshot = try await finishedSnapshot(
             target: target,
             options: options,
@@ -415,19 +427,17 @@ final class ScanBenchmarkTests: XCTestCase {
         let foundationRootChildIDs = foundationSnapshot.treeStore.childIDs(of: foundationSnapshot.root.id)
 
         for path in firmlinkRoots where FileManager.default.fileExists(atPath: path) {
-            let optimizedNode = try XCTUnwrap(
+            let optimizedNode = try #require(
                 optimizedSnapshot.treeStore.node(id: path),
-                "Optimized startup scan omitted firmlink root \(path). Root children: \(optimizedRootChildIDs)"
-            )
-            let foundationNode = try XCTUnwrap(
+                "Optimized startup scan omitted firmlink root \(path). Root children: \(optimizedRootChildIDs)")
+            let foundationNode = try #require(
                 foundationSnapshot.treeStore.node(id: path),
-                "Foundation startup scan omitted firmlink root \(path). Root children: \(foundationRootChildIDs)"
-            )
-            XCTAssertTrue(optimizedNode.isSelfAccessible, "Optimized startup scan could not open \(path)")
-            XCTAssertTrue(foundationNode.isSelfAccessible, "Foundation startup scan could not open \(path)")
+                "Foundation startup scan omitted firmlink root \(path). Root children: \(foundationRootChildIDs)")
+            #expect(optimizedNode.isSelfAccessible, "Optimized startup scan could not open \(path)")
+            #expect(foundationNode.isSelfAccessible, "Foundation startup scan could not open \(path)")
             if path != "/Users" {
-                XCTAssertGreaterThan(optimizedNode.allocatedSize, 0, "Optimized startup scan found no data at \(path)")
-                XCTAssertGreaterThan(foundationNode.allocatedSize, 0, "Foundation startup scan found no data at \(path)")
+                #expect(optimizedNode.allocatedSize > 0, "Optimized startup scan found no data at \(path)")
+                #expect(foundationNode.allocatedSize > 0, "Foundation startup scan found no data at \(path)")
             }
         }
 
@@ -437,8 +447,8 @@ final class ScanBenchmarkTests: XCTestCase {
         let foundationStaleWarnings = foundationSnapshot.scanWarnings.filter {
             $0.message.localizedCaseInsensitiveContains("stale")
         }
-        XCTAssertTrue(optimizedStaleWarnings.isEmpty, "Optimized scan reported stale handles: \(optimizedStaleWarnings)")
-        XCTAssertTrue(foundationStaleWarnings.isEmpty, "Foundation scan reported stale handles: \(foundationStaleWarnings)")
+        #expect(optimizedStaleWarnings.isEmpty, "Optimized scan reported stale handles: \(optimizedStaleWarnings)")
+        #expect(foundationStaleWarnings.isEmpty, "Foundation scan reported stale handles: \(foundationStaleWarnings)")
 
         assertWithinRelativeTolerance(
             optimizedSnapshot.aggregateStats.totalAllocatedSize,
@@ -478,23 +488,28 @@ final class ScanBenchmarkTests: XCTestCase {
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_WIDE_DIRECTORY"] == "1",
+            "Set RADIX_BENCH_WIDE_DIRECTORY=1 to run the wide-directory benchmark."))
     func testWideDirectoryClassificationBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_WIDE_DIRECTORY"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_WIDE_DIRECTORY=1 to run the wide-directory benchmark.")
-        }
 
         let fileCounts = Self.integerList(
             from: environment["RADIX_BENCH_WIDE_FILE_COUNTS"],
             defaultValues: [128, 1_000, 10_000]
         )
-        let iterations = environment["RADIX_BENCH_WIDE_ITERATIONS"]
+        let iterations =
+            environment["RADIX_BENCH_WIDE_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 3
-        let traversalWorkers = environment["RADIX_BENCH_WIDE_TRAVERSAL_WORKERS"]
+        let traversalWorkers =
+            environment["RADIX_BENCH_WIDE_TRAVERSAL_WORKERS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 4
-        let classificationWorkers = environment["RADIX_BENCH_WIDE_CLASSIFICATION_WORKERS"]
+        let classificationWorkers =
+            environment["RADIX_BENCH_WIDE_CLASSIFICATION_WORKERS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 4
 
@@ -536,7 +551,7 @@ final class ScanBenchmarkTests: XCTestCase {
                 name: "traversal-requested-classification",
                 traversalWorkerLimit: traversalWorkers,
                 classificationWorkerLimit: classificationWorkers
-            )
+            ),
         ]
 
         for fileCount in fileCounts {
@@ -592,21 +607,23 @@ final class ScanBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_DEFERRED_FILTERING"] == "1",
+            "Set RADIX_BENCH_DEFERRED_FILTERING=1 to run the deferred-filtering benchmark."))
     func testDeferredBulkEntryFilteringBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_DEFERRED_FILTERING"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_BENCH_DEFERRED_FILTERING=1 to run the deferred-filtering benchmark."
-            )
-        }
-
-        let fileCount = environment["RADIX_BENCH_DEFERRED_FILTERING_FILES"]
+        let fileCount =
+            environment["RADIX_BENCH_DEFERRED_FILTERING_FILES"]
             .flatMap(Int.init)
             .map { max(1_000, $0) } ?? 30_000
-        let includedStride = environment["RADIX_BENCH_DEFERRED_FILTERING_INCLUDED_STRIDE"]
+        let includedStride =
+            environment["RADIX_BENCH_DEFERRED_FILTERING_INCLUDED_STRIDE"]
             .flatMap(Int.init)
             .map { max(2, $0) } ?? 10
-        let iterations = environment["RADIX_BENCH_DEFERRED_FILTERING_ITERATIONS"]
+        let iterations =
+            environment["RADIX_BENCH_DEFERRED_FILTERING_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(3, $0) } ?? 7
         let rootURL = try makeDeferredFilteringBenchmarkDirectory(
@@ -630,7 +647,7 @@ final class ScanBenchmarkTests: XCTestCase {
                 isWarmup: true
             )
             if let referenceFingerprint {
-                XCTAssertEqual(result.fingerprint, referenceFingerprint)
+                #expect(result.fingerprint == referenceFingerprint)
             } else {
                 referenceFingerprint = result.fingerprint
             }
@@ -638,7 +655,8 @@ final class ScanBenchmarkTests: XCTestCase {
 
         var elapsedByConfiguration: [String: [Double]] = [:]
         for iteration in 1...iterations {
-            let orderedConfigurations = iteration.isMultiple(of: 2)
+            let orderedConfigurations =
+                iteration.isMultiple(of: 2)
                 ? configurations
                 : Array(configurations.reversed())
             for configuration in orderedConfigurations {
@@ -650,7 +668,7 @@ final class ScanBenchmarkTests: XCTestCase {
                     iteration: iteration,
                     isWarmup: false
                 )
-                XCTAssertEqual(result.fingerprint, referenceFingerprint)
+                #expect(result.fingerprint == referenceFingerprint)
                 elapsedByConfiguration[configuration.name, default: []].append(result.elapsedSeconds)
             }
         }
@@ -671,11 +689,13 @@ final class ScanBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_WIDE_FANOUT"] == "1",
+            "Set RADIX_BENCH_WIDE_FANOUT=1 to run the fanout wide-directory benchmark."))
     func testFanoutWideDirectoryClassificationBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_WIDE_FANOUT"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_WIDE_FANOUT=1 to run the fanout wide-directory benchmark.")
-        }
 
         let childDirectoryCounts = Self.integerList(
             from: environment["RADIX_BENCH_WIDE_FANOUT_DIR_COUNTS"],
@@ -685,13 +705,16 @@ final class ScanBenchmarkTests: XCTestCase {
             from: environment["RADIX_BENCH_WIDE_FANOUT_FILES_PER_DIR"],
             defaultValues: [1_000]
         )
-        let iterations = environment["RADIX_BENCH_WIDE_ITERATIONS"]
+        let iterations =
+            environment["RADIX_BENCH_WIDE_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 3
-        let traversalWorkers = environment["RADIX_BENCH_WIDE_TRAVERSAL_WORKERS"]
+        let traversalWorkers =
+            environment["RADIX_BENCH_WIDE_TRAVERSAL_WORKERS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 4
-        let classificationWorkers = environment["RADIX_BENCH_WIDE_CLASSIFICATION_WORKERS"]
+        let classificationWorkers =
+            environment["RADIX_BENCH_WIDE_CLASSIFICATION_WORKERS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 4
 
@@ -738,7 +761,7 @@ final class ScanBenchmarkTests: XCTestCase {
                 name: "traversal-requested-classification",
                 traversalWorkerLimit: traversalWorkers,
                 classificationWorkerLimit: classificationWorkers
-            )
+            ),
         ]
 
         for childDirectoryCount in childDirectoryCounts {
@@ -802,16 +825,20 @@ final class ScanBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_DEEP_DIRECTORY"] == "1",
+            "Set RADIX_BENCH_DEEP_DIRECTORY=1 to run the deep-directory benchmark."))
     func testDeepDirectoryScanBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_DEEP_DIRECTORY"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_DEEP_DIRECTORY=1 to run the deep-directory benchmark.")
-        }
 
-        let depth = environment["RADIX_BENCH_DEEP_DEPTH"]
+        let depth =
+            environment["RADIX_BENCH_DEEP_DEPTH"]
             .flatMap(Int.init)
             .map { min(max(1, $0), 400) } ?? 256
-        let iterations = environment["RADIX_BENCH_DEEP_ITERATIONS"]
+        let iterations =
+            environment["RADIX_BENCH_DEEP_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 3
         let rootURL = try makeDeepBenchmarkDirectory(depth: depth)
@@ -854,30 +881,37 @@ final class ScanBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_ATOMIC_PROBE"] == "1",
+            "Set RADIX_BENCH_ATOMIC_PROBE=1 to run the atomic-probe benchmark."))
     func testAtomicProbeResumeBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_ATOMIC_PROBE"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_ATOMIC_PROBE=1 to run the atomic-probe benchmark.")
-        }
 
-        let directoryCount = environment["RADIX_BENCH_ATOMIC_PROBE_DIRS"]
+        let directoryCount =
+            environment["RADIX_BENCH_ATOMIC_PROBE_DIRS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 32
-        let filesPerDirectory = environment["RADIX_BENCH_ATOMIC_PROBE_FILES_PER_DIR"]
+        let filesPerDirectory =
+            environment["RADIX_BENCH_ATOMIC_PROBE_FILES_PER_DIR"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 200
-        let minFileCount = environment["RADIX_BENCH_ATOMIC_PROBE_THRESHOLD"]
+        let minFileCount =
+            environment["RADIX_BENCH_ATOMIC_PROBE_THRESHOLD"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 5_000
-        let iterations = environment["RADIX_BENCH_ATOMIC_PROBE_ITERATIONS"]
+        let iterations =
+            environment["RADIX_BENCH_ATOMIC_PROBE_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 3
-        let workerLimit = environment["RADIX_BENCH_ATOMIC_PROBE_WORKERS"]
+        let workerLimit =
+            environment["RADIX_BENCH_ATOMIC_PROBE_WORKERS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 8
         let fileCount = directoryCount * filesPerDirectory
         guard fileCount >= minFileCount else {
-            throw XCTSkip("Atomic-probe fixture must contain at least the threshold file count.")
+            throw TestFixtureError("Atomic-probe fixture must contain at least the threshold file count.")
         }
 
         let rootURL = try makeAtomicProbeBenchmarkDirectory(
@@ -887,12 +921,14 @@ final class ScanBenchmarkTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: rootURL) }
         let metadataLoader = ScanMetadataLoader()
         let rootMetadata = try metadataLoader.metadata(for: rootURL)
-        let rootEntries = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        )).entries
+        let rootEntriesValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let rootEntries = try #require(rootEntriesValue).entries
 
         for resumesProbe in [false, true] {
             _ = try await runAtomicProbeBenchmark(
@@ -934,13 +970,16 @@ final class ScanBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_PACKAGE_CLASSIFIER"] == "1",
+            "Set RADIX_BENCH_PACKAGE_CLASSIFIER=1 to run the package-classifier benchmark."))
     func testPackageClassifierBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_PACKAGE_CLASSIFIER"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_PACKAGE_CLASSIFIER=1 to run the package-classifier benchmark.")
-        }
 
-        let directoryCount = environment["RADIX_BENCH_PACKAGE_CLASSIFIER_DIRS"]
+        let directoryCount =
+            environment["RADIX_BENCH_PACKAGE_CLASSIFIER_DIRS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 10_000
         let rootURL = FileManager.default.temporaryDirectory
@@ -991,26 +1030,28 @@ final class ScanBenchmarkTests: XCTestCase {
         let warmElapsed = Self.elapsedSeconds(since: warmStart)
         let warmLookups = counter.lookupCount - coldLookups
 
-        XCTAssertEqual(coldValues, legacyValues)
-        XCTAssertEqual(warmValues, legacyValues)
+        #expect(coldValues == legacyValues)
+        #expect(warmValues == legacyValues)
         let extensionlessCount = directoryURLs.count { $0.pathExtension.isEmpty }
         let foundationExtensionCount = Set(
             directoryURLs.lazy.map(\.pathExtension).filter { !$0.isEmpty && $0 != "txt" }
         ).count
-        XCTAssertEqual(coldLookups, extensionlessCount + foundationExtensionCount)
-        XCTAssertEqual(warmLookups, extensionlessCount)
-        XCTAssertLessThan(coldLookups, directoryCount)
+        #expect(coldLookups == extensionlessCount + foundationExtensionCount)
+        #expect(warmLookups == extensionlessCount)
+        #expect(coldLookups < directoryCount)
         let reduction = 100 * (1 - Double(coldLookups) / Double(directoryCount))
         print(
             "RADIX_BENCH_PACKAGE_CLASSIFIER dirs=\(directoryCount) legacy_elapsed=\(String(format: "%.3f", legacyElapsed))s cold_elapsed=\(String(format: "%.3f", coldElapsed))s warm_elapsed=\(String(format: "%.3f", warmElapsed))s cold_foundation_lookups=\(coldLookups) warm_foundation_lookups=\(warmLookups) lookup_reduction=\(String(format: "%.1f", reduction))%"
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_PACKAGE_SUMMARY"] == "1",
+            "Set RADIX_BENCH_PACKAGE_SUMMARY=1 to run the package summary benchmark."))
     func testPackageSummaryBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_PACKAGE_SUMMARY"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_PACKAGE_SUMMARY=1 to run the package summary benchmark.")
-        }
 
         let directoryCounts = Self.integerList(
             from: environment["RADIX_BENCH_PACKAGE_DIR_COUNTS"],
@@ -1024,17 +1065,19 @@ final class ScanBenchmarkTests: XCTestCase {
             from: environment["RADIX_BENCH_PACKAGE_SYMLINKS_PER_DIR"],
             defaultValues: [0]
         )
-        let iterations = environment["RADIX_BENCH_PACKAGE_ITERATIONS"]
+        let iterations =
+            environment["RADIX_BENCH_PACKAGE_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 3
-        let summaryWorkers = environment["RADIX_BENCH_PACKAGE_SUMMARY_WORKERS"]
+        let summaryWorkers =
+            environment["RADIX_BENCH_PACKAGE_SUMMARY_WORKERS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 8
 
         let configurations = [
             PackageSummaryBenchmarkConfiguration(name: "default-policy", atomicSummaryWorkerLimit: nil),
             PackageSummaryBenchmarkConfiguration(name: "serial-summary", atomicSummaryWorkerLimit: 1),
-            PackageSummaryBenchmarkConfiguration(name: "parallel-summary", atomicSummaryWorkerLimit: summaryWorkers)
+            PackageSummaryBenchmarkConfiguration(name: "parallel-summary", atomicSummaryWorkerLimit: summaryWorkers),
         ]
 
         for directoryCount in directoryCounts {
@@ -1101,10 +1144,12 @@ final class ScanBenchmarkTests: XCTestCase {
             }
         }
 
-        let siblingPackageCount = environment["RADIX_BENCH_PACKAGE_SIBLING_COUNT"]
+        let siblingPackageCount =
+            environment["RADIX_BENCH_PACKAGE_SIBLING_COUNT"]
             .flatMap(Int.init)
             .map { max(2, $0) } ?? 32
-        let siblingFilesPerPackage = environment["RADIX_BENCH_PACKAGE_SIBLING_FILES"]
+        let siblingFilesPerPackage =
+            environment["RADIX_BENCH_PACKAGE_SIBLING_FILES"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 64
         let siblingRootURL = try makeSiblingPackageSummaryBenchmarkDirectory(
@@ -1199,7 +1244,8 @@ final class ScanBenchmarkTests: XCTestCase {
 
     private static func integerList(from value: String?, defaultValues: [Int]) -> [Int] {
         guard let value else { return defaultValues }
-        let parsed = value
+        let parsed =
+            value
             .split(separator: ",")
             .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { $0 > 0 }
@@ -1404,9 +1450,10 @@ final class ScanBenchmarkTests: XCTestCase {
                 withIntermediateDirectories: false
             )
             for fileIndex in 0..<filesPerDirectory {
-                try payload.write(to: directoryURL.appending(
-                    path: String(format: "file-%06d.dat", fileIndex)
-                ))
+                try payload.write(
+                    to: directoryURL.appending(
+                        path: String(format: "file-%06d.dat", fileIndex)
+                    ))
             }
         }
         return rootURL
@@ -1425,51 +1472,27 @@ final class ScanBenchmarkTests: XCTestCase {
         incrementalFingerprint: String,
         fullFingerprint: String,
         scenario: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) {
-        XCTAssertEqual(
-            incrementalFingerprint,
-            fullFingerprint,
+        #expect(
+            incrementalFingerprint == fullFingerprint,
             "\(scenario): \(Self.firstDifference(incremental.treeStore, full.treeStore) ?? "fingerprint only")",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.totalAllocatedSize,
-            full.aggregateStats.totalAllocatedSize,
-            scenario,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.totalLogicalSize,
-            full.aggregateStats.totalLogicalSize,
-            scenario,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.fileCount,
-            full.aggregateStats.fileCount,
-            scenario,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.directoryCount,
-            full.aggregateStats.directoryCount,
-            scenario,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            Self.warningSignatures(incremental.scanWarnings),
-            Self.warningSignatures(full.scanWarnings),
-            scenario,
-            file: file,
-            line: line
-        )
+            sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.totalAllocatedSize == full.aggregateStats.totalAllocatedSize,
+            Comment(rawValue: scenario), sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.totalLogicalSize == full.aggregateStats.totalLogicalSize,
+            Comment(rawValue: scenario), sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.fileCount == full.aggregateStats.fileCount, Comment(rawValue: scenario),
+            sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.directoryCount == full.aggregateStats.directoryCount,
+            Comment(rawValue: scenario), sourceLocation: sourceLocation)
+        #expect(
+            Self.warningSignatures(incremental.scanWarnings) == Self.warningSignatures(full.scanWarnings),
+            Comment(rawValue: scenario), sourceLocation: sourceLocation)
     }
 
     private static func warningSignatures(_ warnings: [ScanWarning]) -> [String] {
@@ -1483,9 +1506,10 @@ final class ScanBenchmarkTests: XCTestCase {
         let incrementalIDs = incremental.indexedNodeIDs()
         let fullIDs = full.indexedNodeIDs()
         if incrementalIDs != fullIDs {
-            let offset = zip(incrementalIDs, fullIDs).enumerated().first {
-                $0.element.0 != $0.element.1
-            }?.offset ?? min(incrementalIDs.count, fullIDs.count)
+            let offset =
+                zip(incrementalIDs, fullIDs).enumerated().first {
+                    $0.element.0 != $0.element.1
+                }?.offset ?? min(incrementalIDs.count, fullIDs.count)
             return "node order differs at \(offset)"
         }
         for nodeID in fullIDs {
@@ -1493,9 +1517,11 @@ final class ScanBenchmarkTests: XCTestCase {
             let fullNode = full.node(id: nodeID)
             if incrementalNode != fullNode {
                 if incrementalNode?.lastModified != fullNode?.lastModified {
-                    return "lastModified differs at \(nodeID) incremental=\(String(format: "%.9f", incrementalNode?.lastModified?.timeIntervalSinceReferenceDate ?? -1)) full=\(String(format: "%.9f", fullNode?.lastModified?.timeIntervalSinceReferenceDate ?? -1))"
+                    return
+                        "lastModified differs at \(nodeID) incremental=\(String(format: "%.9f", incrementalNode?.lastModified?.timeIntervalSinceReferenceDate ?? -1)) full=\(String(format: "%.9f", fullNode?.lastModified?.timeIntervalSinceReferenceDate ?? -1))"
                 }
-                return "node metadata differs at \(nodeID) incremental=\(String(reflecting: incrementalNode)) full=\(String(reflecting: fullNode))"
+                return
+                    "node metadata differs at \(nodeID) incremental=\(String(reflecting: incrementalNode)) full=\(String(reflecting: fullNode))"
             }
             if incremental.childIDs(of: nodeID) != full.childIDs(of: nodeID) {
                 return "child order differs at \(nodeID)"
@@ -1585,9 +1611,9 @@ final class ScanBenchmarkTests: XCTestCase {
             engine: engine
         )
         let elapsed = Self.elapsedSeconds(since: startedAt)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, depth)
-        XCTAssertEqual(snapshot.aggregateStats.directoryCount, depth + 1)
-        XCTAssertEqual(snapshot.treeStore.nodeCount, (depth * 2) + 1)
+        #expect(snapshot.aggregateStats.fileCount == depth)
+        #expect(snapshot.aggregateStats.directoryCount == depth + 1)
+        #expect(snapshot.treeStore.nodeCount == (depth * 2) + 1)
 
         print(
             "RADIX_BENCH_DEEP_RESULT phase=\(isWarmup ? "warmup" : "measure") "
@@ -1662,10 +1688,11 @@ final class ScanBenchmarkTests: XCTestCase {
                 continuation: progressContinuation,
                 emissionState: &emissionState
             )
-            XCTAssertTrue(outcome.profile.suggestsAtomicDirectory(
-                minFileCount: minFileCount,
-                maxAverageFileSize: 256
-            ))
+            #expect(
+                outcome.profile.suggestsAtomicDirectory(
+                    minFileCount: minFileCount,
+                    maxAverageFileSize: 256
+                ))
             summary = try await summarizer.summarize(
                 at: rootURL,
                 includeHiddenFiles: true,
@@ -1679,7 +1706,7 @@ final class ScanBenchmarkTests: XCTestCase {
         }
         _ = progressStream
 
-        XCTAssertEqual(summary?.descendantFileCount, expectedFileCount)
+        #expect(summary?.descendantFileCount == expectedFileCount)
         let elapsed = startedAt.duration(to: .now)
         await pool.finish()
         return BenchmarkSupport.durationSeconds(elapsed)
@@ -1729,7 +1756,8 @@ final class ScanBenchmarkTests: XCTestCase {
 
         let payload = Data([0x41])
         for directoryIndex in 0..<childDirectoryCount {
-            let directoryURL = rootURL.appending(path: String(format: "group-%03d", directoryIndex), directoryHint: .isDirectory)
+            let directoryURL = rootURL.appending(
+                path: String(format: "group-%03d", directoryIndex), directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
             for fileIndex in 0..<filesPerDirectory {
@@ -1749,14 +1777,16 @@ final class ScanBenchmarkTests: XCTestCase {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: "radix-package-summary-\(UUID().uuidString)", directoryHint: .isDirectory)
         let packageURL = rootURL.appending(path: "Payload.app", directoryHint: .isDirectory)
-        let resourcesURL = packageURL
+        let resourcesURL =
+            packageURL
             .appending(path: "Contents", directoryHint: .isDirectory)
             .appending(path: "Resources", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
 
         let payload = Data([0x41])
         for directoryIndex in 0..<directoryCount {
-            let directoryURL = resourcesURL.appending(path: String(format: "bucket-%03d", directoryIndex), directoryHint: .isDirectory)
+            let directoryURL = resourcesURL.appending(
+                path: String(format: "bucket-%03d", directoryIndex), directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
             let targetURL = directoryURL.appending(path: "symlink-target.dat")
@@ -1825,9 +1855,9 @@ final class ScanBenchmarkTests: XCTestCase {
 
         let elapsed = startedAt.duration(to: .now)
         let elapsedSeconds = BenchmarkSupport.durationSeconds(elapsed)
-        let snapshot = try XCTUnwrap(finalSnapshot)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, fileCount)
-        XCTAssertEqual(snapshot.root.descendantFileCount, fileCount)
+        let snapshot = try #require(finalSnapshot)
+        #expect(snapshot.aggregateStats.fileCount == fileCount)
+        #expect(snapshot.root.descendantFileCount == fileCount)
 
         let phase = isWarmup ? "warmup" : "measure"
         print(
@@ -1869,8 +1899,8 @@ final class ScanBenchmarkTests: XCTestCase {
         )
         let elapsedSeconds = Self.elapsedSeconds(since: startedAt)
         let expectedFileCount = (fileCount + includedStride - 1) / includedStride
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, expectedFileCount)
-        XCTAssertEqual(snapshot.root.descendantFileCount, expectedFileCount)
+        #expect(snapshot.aggregateStats.fileCount == expectedFileCount)
+        #expect(snapshot.root.descendantFileCount == expectedFileCount)
         let fingerprint = Self.resultFingerprint(snapshot.treeStore)
 
         print(
@@ -1897,10 +1927,11 @@ final class ScanBenchmarkTests: XCTestCase {
         options.atomicSummaryWorkerLimit = configuration.atomicSummaryWorkerLimit
 
         let workerProbe = PackageSummaryBenchmarkWorkerProbe()
-        let engine = ScanEngine(atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
-            didStart: workerProbe.didStart,
-            didFinish: workerProbe.didFinish
-        ))
+        let engine = ScanEngine(
+            atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
+                didStart: workerProbe.didStart,
+                didFinish: workerProbe.didFinish
+            ))
         let startedAt = ContinuousClock.now
         var finalSnapshot: ScanSnapshot?
 
@@ -1912,14 +1943,14 @@ final class ScanBenchmarkTests: XCTestCase {
 
         let elapsed = startedAt.duration(to: .now)
         let elapsedSeconds = BenchmarkSupport.durationSeconds(elapsed)
-        let snapshot = try XCTUnwrap(finalSnapshot)
+        let snapshot = try #require(finalSnapshot)
         let packageNodes = snapshot.treeStore.children(of: snapshot.root.id).filter(\.isPackage)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, fileCount)
-        XCTAssertEqual(packageNodes.count, packageCount)
-        XCTAssertEqual(packageNodes.reduce(0) { $0 + $1.descendantFileCount }, fileCount)
-        XCTAssertTrue(packageNodes.allSatisfy { !snapshot.treeStore.childIDsByID.keys.contains($0.id) })
+        #expect(snapshot.aggregateStats.fileCount == fileCount)
+        #expect(packageNodes.count == packageCount)
+        #expect(packageNodes.reduce(0) { $0 + $1.descendantFileCount } == fileCount)
+        #expect(packageNodes.allSatisfy { !snapshot.treeStore.childIDsByID.keys.contains($0.id) })
         if let configuredLimit = configuration.atomicSummaryWorkerLimit {
-            XCTAssertLessThanOrEqual(workerProbe.peakWorkerCount, configuredLimit)
+            #expect(workerProbe.peakWorkerCount <= configuredLimit)
         }
 
         let phase = isWarmup ? "warmup" : "measure"
@@ -1952,7 +1983,7 @@ final class ScanBenchmarkTests: XCTestCase {
                 finalSnapshot = snapshot
             }
         }
-        return try XCTUnwrap(finalSnapshot)
+        return try #require(finalSnapshot)
     }
 
     private func finishedSnapshot(
@@ -1963,7 +1994,7 @@ final class ScanBenchmarkTests: XCTestCase {
                 return snapshot
             }
         }
-        XCTFail("Expected a finished scan snapshot")
+        Issue.record("Expected a finished scan snapshot")
         throw CancellationError()
     }
 
@@ -1972,18 +2003,13 @@ final class ScanBenchmarkTests: XCTestCase {
         _ second: Int64,
         tolerance: Double,
         label: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) {
         let denominator = max(Double(max(abs(first), abs(second))), 1)
         let relativeDifference = Double(abs(first - second)) / denominator
-        XCTAssertLessThanOrEqual(
-            relativeDifference,
-            tolerance,
-            "Startup scanner \(label) differed by \(relativeDifference * 100)%",
-            file: file,
-            line: line
-        )
+        #expect(
+            relativeDifference <= tolerance, "Startup scanner \(label) differed by \(relativeDifference * 100)%",
+            sourceLocation: sourceLocation)
     }
 }
 
@@ -1994,7 +2020,8 @@ private enum IncrementalBenchmarkRootMutation: String, CaseIterable {
 }
 
 private final class IncrementalBenchmarkHistoryProvider: FileSystemEventHistoryProviding,
-    @unchecked Sendable {
+    @unchecked Sendable
+{
     private let lock = NSLock()
     private var checkpoints: [ScanIncrementalCheckpoint]
     private let storedHistory: FileSystemEventHistory

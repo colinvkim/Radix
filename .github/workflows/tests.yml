@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Core tests through Swift Package Manager
+        run: swift test
+      - name: Build app and run shared Xcode test plan
+        run: >-
+          xcodebuild test
+          -project Radix.xcodeproj
+          -scheme Radix
+          -configuration Debug
+          -destination 'platform=macOS'
+          -derivedDataPath .build/xcode-derived-data
+          -resultBundlePath .build/Tests.xcresult
+      - name: Preserve test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: .build/Tests.xcresult
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

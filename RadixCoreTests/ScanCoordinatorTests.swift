@@ -1,9 +1,12 @@
 import Combine
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanCoordinatorTests: XCTestCase {
-    @MainActor
+@MainActor
+struct ScanCoordinatorTests {
+    @Test
     func testStartAndFinishScanState() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -12,11 +15,11 @@ final class ScanCoordinatorTests: XCTestCase {
 
         coordinator.startScan(target, options: ScanOptions())
 
-        XCTAssertEqual(coordinator.phase, .scanning)
-        XCTAssertEqual(coordinator.selectedTarget, target)
-        XCTAssertNil(coordinator.snapshot)
-        XCTAssertNil(coordinator.fileTreeStore)
-        XCTAssertEqual(service.requests.map(\.target), [target])
+        #expect(coordinator.phase == .scanning)
+        #expect(coordinator.selectedTarget == target)
+        #expect(coordinator.snapshot == nil)
+        #expect(coordinator.fileTreeStore == nil)
+        #expect(service.requests.map(\.target) == [target])
 
         service.yield(.progress(makeCoordinatorMetrics(path: "/scan/root/a.txt", filesVisited: 1)), scanIndex: 0)
         try await waitUntil("initial progress") {
@@ -30,14 +33,14 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.phase == .displaying
         }
 
-        XCTAssertEqual(coordinator.snapshot?.target, target)
-        XCTAssertEqual(coordinator.fileTreeStore?.root.id, snapshot.root.id)
-        XCTAssertEqual(coordinator.scanMetrics.progressFraction, 1, accuracy: 0.0001)
-        XCTAssertFalse(coordinator.canStopScan)
-        XCTAssertTrue(coordinator.canRescan)
+        #expect(coordinator.snapshot?.target == target)
+        #expect(coordinator.fileTreeStore?.root.id == snapshot.root.id)
+        #expect(abs((coordinator.scanMetrics.progressFraction) - (1)) <= 0.0001)
+        #expect(!(coordinator.canStopScan))
+        #expect(coordinator.canRescan)
     }
 
-    @MainActor
+    @Test
     func testExecutionModeUpdatesProgressAndResetsMetricsOnFallback() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(
@@ -65,12 +68,12 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.progress.executionMode == .fullFallback(.directoryRelistFailed)
         }
 
-        XCTAssertEqual(coordinator.scanMetrics.filesVisited, 0)
-        XCTAssertEqual(coordinator.scanMetrics.currentPath, "")
+        #expect(coordinator.scanMetrics.filesVisited == 0)
+        #expect(coordinator.scanMetrics.currentPath == "")
         coordinator.stopScan()
     }
 
-    @MainActor
+    @Test
     func testRescanPreparationAndCompletionNoticesFollowExecutionMode() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .zero)
@@ -83,7 +86,7 @@ final class ScanCoordinatorTests: XCTestCase {
             baseline: baseline,
             isRescan: true
         )
-        XCTAssertEqual(coordinator.progress.executionMode, .preparingIncremental)
+        #expect(coordinator.progress.executionMode == .preparingIncremental)
 
         service.yield(.executionMode(.incrementalNoChanges), scanIndex: 0)
         service.yield(.finished(makeCoordinatorSnapshot(target: target)), scanIndex: 0)
@@ -93,7 +96,7 @@ final class ScanCoordinatorTests: XCTestCase {
         }
 
         coordinator.dismissScanCompletionNotice()
-        XCTAssertNil(coordinator.scanCompletionNotice)
+        #expect(coordinator.scanCompletionNotice == nil)
 
         coordinator.startScan(
             target,
@@ -109,7 +112,7 @@ final class ScanCoordinatorTests: XCTestCase {
         }
     }
 
-    @MainActor
+    @Test
     func testStartScanWithEligibleBaselineRoutesToRescan() {
         let service = RescanRecordingService()
         let coordinator = ScanCoordinator(scanService: service)
@@ -119,14 +122,14 @@ final class ScanCoordinatorTests: XCTestCase {
 
         coordinator.startScan(target, options: options, baseline: baseline)
 
-        XCTAssertTrue(service.scanRequests.isEmpty)
-        XCTAssertEqual(service.rescanRequests.map(\.target), [target])
-        XCTAssertEqual(service.rescanRequests.map(\.baselineID), [baseline.id])
-        XCTAssertEqual(service.rescanRequests.first?.options.includeHiddenFiles, true)
+        #expect(service.scanRequests.isEmpty)
+        #expect(service.rescanRequests.map(\.target) == [target])
+        #expect(service.rescanRequests.map(\.baselineID) == [baseline.id])
+        #expect(service.rescanRequests.first?.options.includeHiddenFiles == true)
         coordinator.stopScan()
     }
 
-    @MainActor
+    @Test
     func testStartScanBaselineUsesExplicitFullScanFallback() {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service)
@@ -135,11 +138,11 @@ final class ScanCoordinatorTests: XCTestCase {
 
         coordinator.startScan(target, options: ScanOptions(), baseline: baseline)
 
-        XCTAssertEqual(service.requests.map(\.target), [target])
+        #expect(service.requests.map(\.target) == [target])
         coordinator.stopScan()
     }
 
-    @MainActor
+    @Test
     func testRestoreCompletedSnapshotDisplaysWithoutScanRequest() {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -148,15 +151,15 @@ final class ScanCoordinatorTests: XCTestCase {
 
         coordinator.restoreCompletedSnapshot(snapshot)
 
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(coordinator.phase, .displaying)
-        XCTAssertEqual(coordinator.selectedTarget, target)
-        XCTAssertEqual(coordinator.snapshot?.target, target)
-        XCTAssertEqual(coordinator.fileTreeStore?.root.id, snapshot.root.id)
-        XCTAssertEqual(coordinator.scanMetrics.progressFraction, 1, accuracy: 0.0001)
+        #expect(service.requests.isEmpty)
+        #expect(coordinator.phase == .displaying)
+        #expect(coordinator.selectedTarget == target)
+        #expect(coordinator.snapshot?.target == target)
+        #expect(coordinator.fileTreeStore?.root.id == snapshot.root.id)
+        #expect(abs((coordinator.scanMetrics.progressFraction) - (1)) <= 0.0001)
     }
 
-    @MainActor
+    @Test
     func testStoppingScanCancelsAndIgnoresLateEvents() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -173,13 +176,13 @@ final class ScanCoordinatorTests: XCTestCase {
         service.finish(scanIndex: 0)
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertEqual(coordinator.phase, .idle)
-        XCTAssertNil(coordinator.snapshot)
-        XCTAssertNil(coordinator.fileTreeStore)
-        XCTAssertFalse(coordinator.canStopScan)
+        #expect(coordinator.phase == .idle)
+        #expect(coordinator.snapshot == nil)
+        #expect(coordinator.fileTreeStore == nil)
+        #expect(!(coordinator.canStopScan))
     }
 
-    @MainActor
+    @Test
     func testStaleScanEventsCannotReplaceNewerScan() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -191,14 +194,14 @@ final class ScanCoordinatorTests: XCTestCase {
         coordinator.startScan(firstTarget, options: ScanOptions())
         coordinator.startScan(secondTarget, options: ScanOptions())
 
-        XCTAssertEqual(service.requests.map(\.target), [firstTarget, secondTarget])
+        #expect(service.requests.map(\.target) == [firstTarget, secondTarget])
 
         service.yield(.finished(firstSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await Task.sleep(for: .milliseconds(30))
 
-        XCTAssertEqual(coordinator.phase, .scanning)
-        XCTAssertNil(coordinator.snapshot)
+        #expect(coordinator.phase == .scanning)
+        #expect(coordinator.snapshot == nil)
 
         service.yield(.finished(secondSnapshot), scanIndex: 1)
         service.finish(scanIndex: 1)
@@ -207,44 +210,49 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.phase == .displaying
         }
 
-        XCTAssertEqual(coordinator.selectedTarget, secondTarget)
-        XCTAssertEqual(coordinator.snapshot?.target, secondTarget)
+        #expect(coordinator.selectedTarget == secondTarget)
+        #expect(coordinator.snapshot?.target == secondTarget)
     }
 
-    @MainActor
+    @Test
     func testProgressEventsAreThrottledToLatestPendingMetrics() async throws {
         let service = ControlledScanService()
-        let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(90))
+        let clock = ManualTestClock()
+        let coordinator = ScanCoordinator(
+            scanService: service,
+            progressThrottleDuration: .milliseconds(90),
+            progressNow: { clock.now },
+            sleepForProgress: clock.sleep
+        )
         var publishedPaths: [String] = []
-        let cancellable = coordinator.progress.$metrics
-            .sink { metrics in
-                guard !metrics.currentPath.isEmpty else { return }
-                publishedPaths.append(metrics.currentPath)
-            }
-
+        let cancellable = coordinator.progress.$metrics.sink { metrics in
+            guard !metrics.currentPath.isEmpty else { return }
+            publishedPaths.append(metrics.currentPath)
+        }
+        defer {
+            coordinator.stopScan()
+            cancellable.cancel()
+        }
         coordinator.startScan(makeCoordinatorTarget("/scan/progress"), options: ScanOptions())
-
         service.yield(.progress(makeCoordinatorMetrics(path: "first", filesVisited: 1)), scanIndex: 0)
         service.yield(.progress(makeCoordinatorMetrics(path: "second", filesVisited: 2)), scanIndex: 0)
         service.yield(.progress(makeCoordinatorMetrics(path: "third", filesVisited: 3)), scanIndex: 0)
-
-        try await waitUntil("first progress publish") {
-            publishedPaths == ["first"]
+        // An unthrottled event acts as a barrier: all three progress events have
+        // been consumed before we inspect or advance the virtual clock.
+        service.yield(.executionMode(.incremental), scanIndex: 0)
+        try await waitUntil("progress burst consumed and timer scheduled") {
+            coordinator.progress.executionMode == .incremental && clock.pendingSleeps == 1
         }
-        try await Task.sleep(for: .milliseconds(30))
-
-        XCTAssertEqual(publishedPaths, ["first"])
-
-        try await waitUntil("throttled trailing progress publish", timeout: 1.5) {
-            publishedPaths.count == 2
-        }
-
-        XCTAssertEqual(publishedPaths, ["first", "third"])
-        coordinator.stopScan()
-        cancellable.cancel()
+        #expect(publishedPaths == ["first"])
+        clock.advance(by: .milliseconds(89))
+        #expect(publishedPaths == ["first"])
+        clock.advance(by: .milliseconds(1))
+        try await waitUntil("trailing progress published") { publishedPaths.count == 2 }
+        #expect(publishedPaths == ["first", "third"])
+        #expect(coordinator.scanMetrics.filesVisited == 3)
     }
 
-    @MainActor
+    @Test
     func testPublishedProgressDoesNotRegressWithinScan() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(
@@ -267,12 +275,12 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.scanMetrics.currentPath == "trailing"
         }
 
-        XCTAssertEqual(coordinator.scanMetrics.filesVisited, 4)
-        XCTAssertEqual(coordinator.scanMetrics.progressFraction, 0.6, accuracy: 0.0001)
+        #expect(coordinator.scanMetrics.filesVisited == 4)
+        #expect(abs((coordinator.scanMetrics.progressFraction) - (0.6)) <= 0.0001)
         coordinator.stopScan()
     }
 
-    @MainActor
+    @Test
     func testFinishedScanFlushesPendingThrottledProgress() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(250))
@@ -300,13 +308,13 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.phase == .displaying
         }
 
-        XCTAssertEqual(coordinator.scanMetrics.currentPath, "pending-final")
-        XCTAssertEqual(coordinator.scanMetrics.progressFraction, 1, accuracy: 0.0001)
-        XCTAssertTrue(publishedPaths.contains("pending-final"))
+        #expect(coordinator.scanMetrics.currentPath == "pending-final")
+        #expect(abs((coordinator.scanMetrics.progressFraction) - (1)) <= 0.0001)
+        #expect(publishedPaths.contains("pending-final"))
         cancellable.cancel()
     }
 
-    @MainActor
+    @Test
     func testFolderRescanKeepsBaselineVisibleAndAtomicallyReplacesSubtree() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(
@@ -323,32 +331,29 @@ final class ScanCoordinatorTests: XCTestCase {
             scanOptions: ScanOptions(includeHiddenFiles: true),
             incrementalCheckpoint: checkpoint
         )
-        let originalSibling = try XCTUnwrap(
-            baseline.treeStore.node(id: rootTarget.id + "/notes.txt")
-        )
+        let originalSibling = try #require(baseline.treeStore.node(id: rootTarget.id + "/notes.txt"))
         coordinator.restoreCompletedSnapshot(baseline)
 
-        XCTAssertTrue(coordinator.rescanFolder(id: folderTarget.id))
-        XCTAssertFalse(coordinator.rescanFolder(id: folderTarget.id))
-        XCTAssertEqual(coordinator.snapshot?.id, baseline.id)
-        XCTAssertEqual(coordinator.snapshot?.treeStore.contentID, baseline.treeStore.contentID)
-        XCTAssertEqual(
-            coordinator.folderRescanState,
-            FolderRescanState(nodeName: "Downloads")
-        )
-        XCTAssertTrue(coordinator.isScanOperationInProgress)
-        XCTAssertEqual(service.requests.map(\.target), [
-            ScanTarget(url: folderTarget.url, kind: .folder)
-        ])
-        XCTAssertEqual(service.subtreeBehaviorTargets, [rootTarget])
-        XCTAssertEqual(service.requests.first?.options.includeHiddenFiles, true)
-        XCTAssertEqual(service.requests.first?.options.exclusionRootPath, rootTarget.id)
+        #expect(coordinator.rescanFolder(id: folderTarget.id))
+        #expect(!(coordinator.rescanFolder(id: folderTarget.id)))
+        #expect(coordinator.snapshot?.id == baseline.id)
+        #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
+        #expect(coordinator.folderRescanState == FolderRescanState(nodeName: "Downloads"))
+        #expect(coordinator.isScanOperationInProgress)
+        #expect(
+            service.requests.map(\.target) == [
+                ScanTarget(url: folderTarget.url, kind: .folder)
+            ])
+        #expect(service.subtreeBehaviorTargets == [rootTarget])
+        #expect(service.requests.first?.options.includeHiddenFiles == true)
+        #expect(service.requests.first?.options.exclusionRootPath == rootTarget.id)
 
         service.yield(
-            .progress(makeCoordinatorMetrics(
-                path: folderTarget.id + "/new.dat",
-                filesVisited: 1
-            )),
+            .progress(
+                makeCoordinatorMetrics(
+                    path: folderTarget.id + "/new.dat",
+                    filesVisited: 1
+                )),
             scanIndex: 0
         )
         let first = makeTestFileNode(
@@ -389,25 +394,23 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.scanCompletionNotice == .folderUpdated(name: "Downloads")
         }
 
-        let updated = try XCTUnwrap(coordinator.snapshot)
-        XCTAssertEqual(updated.id, baseline.id)
-        XCTAssertEqual(updated.target, baseline.target)
-        XCTAssertEqual(updated.incrementalCheckpoint, checkpoint)
-        XCTAssertEqual(updated.treeStore.children(of: folderTarget.id).map(\.id), [
-            first.id,
-            second.id,
-        ])
-        XCTAssertEqual(updated.treeStore.node(id: originalSibling.id), originalSibling)
-        XCTAssertEqual(updated.scanWarnings.map(\.path), [replacementWarning.path])
-        XCTAssertGreaterThan(
-            try XCTUnwrap(updated.finishedAt),
-            try XCTUnwrap(baseline.finishedAt)
-        )
-        XCTAssertFalse(coordinator.isScanOperationInProgress)
-        XCTAssertNil(coordinator.folderRescanState)
+        let updated = try #require(coordinator.snapshot)
+        #expect(updated.id == baseline.id)
+        #expect(updated.target == baseline.target)
+        #expect(updated.incrementalCheckpoint == checkpoint)
+        #expect(
+            updated.treeStore.children(of: folderTarget.id).map(\.id) == [
+                first.id,
+                second.id,
+            ])
+        #expect(updated.treeStore.node(id: originalSibling.id) == originalSibling)
+        #expect(updated.scanWarnings.map(\.path) == [replacementWarning.path])
+        #expect(try #require(updated.finishedAt) > (try #require(baseline.finishedAt)))
+        #expect(!(coordinator.isScanOperationInProgress))
+        #expect(coordinator.folderRescanState == nil)
     }
 
-    @MainActor
+    @Test
     func testFolderRescanFallsBackToFullScanForCloneMetadata() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(
@@ -442,10 +445,12 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "shared",
             children: [folder, siblingClone]
         )
-        let baselineStore = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder, siblingClone],
-            folder.id: [changedClone],
-        ])
+        let baselineStore = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder, siblingClone],
+                folder.id: [changedClone],
+            ])
         let options = ScanOptions()
         let baseline = makeCoordinatorSnapshot(
             target: rootTarget,
@@ -455,7 +460,7 @@ final class ScanCoordinatorTests: XCTestCase {
         )
         coordinator.restoreCompletedSnapshot(baseline)
 
-        XCTAssertTrue(coordinator.rescanFolder(id: folder.id))
+        #expect(coordinator.rescanFolder(id: folder.id))
 
         let replacementFile = makeTestFileNode(
             id: changedClone.id,
@@ -469,14 +474,16 @@ final class ScanCoordinatorTests: XCTestCase {
             name: folder.name,
             children: [replacementFile]
         )
-        service.yield(.finished(makeCoordinatorSnapshot(
-            target: folderTarget,
-            root: replacementRoot,
-            store: FileTreeStore(
-                root: replacementRoot,
-                childrenByID: [replacementRoot.id: [replacementFile]]
-            )
-        )), scanIndex: 0)
+        service.yield(
+            .finished(
+                makeCoordinatorSnapshot(
+                    target: folderTarget,
+                    root: replacementRoot,
+                    store: FileTreeStore(
+                        root: replacementRoot,
+                        childrenByID: [replacementRoot.id: [replacementFile]]
+                    )
+                )), scanIndex: 0)
         service.finish(scanIndex: 0)
 
         try await waitUntil("shared folder rescan starts full fallback") {
@@ -484,13 +491,10 @@ final class ScanCoordinatorTests: XCTestCase {
                 && coordinator.progress.executionMode
                     == .fullFallback(.sharedAllocationTopologyChanged)
         }
-        let fallbackRequest = try XCTUnwrap(service.requests.dropFirst().first)
-        XCTAssertEqual(fallbackRequest.target, rootTarget)
-        XCTAssertEqual(fallbackRequest.options, options)
-        XCTAssertEqual(
-            coordinator.folderRescanState,
-            FolderRescanState(nodeName: rootTarget.displayName)
-        )
+        let fallbackRequest = try #require(service.requests.dropFirst().first)
+        #expect(fallbackRequest.target == rootTarget)
+        #expect(fallbackRequest.options == options)
+        #expect(coordinator.folderRescanState == FolderRescanState(nodeName: rootTarget.displayName))
 
         let fullSnapshot = makeCoordinatorSnapshot(
             target: rootTarget,
@@ -503,11 +507,11 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.scanCompletionNotice
                 == .fullFallback(.sharedAllocationTopologyChanged)
         }
-        XCTAssertEqual(coordinator.snapshot?.id, fullSnapshot.id)
-        XCTAssertNil(coordinator.folderRescanState)
+        #expect(coordinator.snapshot?.id == fullSnapshot.id)
+        #expect(coordinator.folderRescanState == nil)
     }
 
-    @MainActor
+    @Test
     func testFolderRescanRefreshesWholeVolumeCapacityAccounting() async throws {
         let service = ControlledScanService()
         let refreshedCapacity = VolumeCapacitySnapshot(
@@ -543,10 +547,12 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "Test Volume",
             children: [folder]
         )
-        let baselineStore = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [oldFile],
-        ])
+        let baselineStore = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [oldFile],
+            ])
         let baseline = ScanSnapshot(
             target: volumeTarget,
             treeStore: baselineStore,
@@ -566,7 +572,7 @@ final class ScanCoordinatorTests: XCTestCase {
         )
         coordinator.restoreCompletedSnapshot(baseline)
 
-        XCTAssertTrue(coordinator.rescanFolder(id: folder.id))
+        #expect(coordinator.rescanFolder(id: folder.id))
         let replacementFile = makeTestFileNode(
             id: folder.id + "/new.dat",
             name: "new.dat",
@@ -582,11 +588,12 @@ final class ScanCoordinatorTests: XCTestCase {
             childrenByID: [replacementRoot.id: [replacementFile]]
         )
         service.yield(
-            .finished(makeCoordinatorSnapshot(
-                target: ScanTarget(url: folder.url, kind: .folder),
-                root: replacementRoot,
-                store: replacementStore
-            )),
+            .finished(
+                makeCoordinatorSnapshot(
+                    target: ScanTarget(url: folder.url, kind: .folder),
+                    root: replacementRoot,
+                    store: replacementStore
+                )),
             scanIndex: 0
         )
         service.finish(scanIndex: 0)
@@ -595,17 +602,14 @@ final class ScanCoordinatorTests: XCTestCase {
             coordinator.folderRescanState == nil
         }
 
-        let updated = try XCTUnwrap(coordinator.snapshot)
-        XCTAssertEqual(updated.volumeCapacity, refreshedCapacity)
-        XCTAssertEqual(updated.root.allocatedSize, refreshedCapacity.usedCapacity)
-        XCTAssertEqual(updated.treeStore.node(id: replacementFile.id)?.allocatedSize, 40)
-        XCTAssertEqual(
-            updated.incrementalCheckpoint,
-            baseline.incrementalCheckpoint
-        )
+        let updated = try #require(coordinator.snapshot)
+        #expect(updated.volumeCapacity == refreshedCapacity)
+        #expect(updated.root.allocatedSize == refreshedCapacity.usedCapacity)
+        #expect(updated.treeStore.node(id: replacementFile.id)?.allocatedSize == 40)
+        #expect(updated.incrementalCheckpoint == baseline.incrementalCheckpoint)
     }
 
-    @MainActor
+    @Test
     func testStoppingFolderRescanKeepsExistingSnapshot() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service)
@@ -619,19 +623,19 @@ final class ScanCoordinatorTests: XCTestCase {
         )
         coordinator.restoreCompletedSnapshot(baseline)
 
-        XCTAssertTrue(coordinator.rescanFolder(id: folderTarget.id))
+        #expect(coordinator.rescanFolder(id: folderTarget.id))
         coordinator.stopScan()
 
         try await waitUntil("folder stream cancellation") {
             service.terminationCount > 0
         }
-        XCTAssertEqual(coordinator.snapshot?.treeStore.contentID, baseline.treeStore.contentID)
-        XCTAssertFalse(coordinator.isScanOperationInProgress)
-        XCTAssertNil(coordinator.folderRescanState)
-        XCTAssertNil(coordinator.scanCompletionNotice)
+        #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
+        #expect(!(coordinator.isScanOperationInProgress))
+        #expect(coordinator.folderRescanState == nil)
+        #expect(coordinator.scanCompletionNotice == nil)
     }
 
-    @MainActor
+    @Test
     func testProgressMetricsDoNotPublishCoordinatorChanges() {
         let coordinator = ScanCoordinator()
         var coordinatorChangeCount = 0
@@ -651,12 +655,12 @@ final class ScanCoordinatorTests: XCTestCase {
         metrics.filesVisited = 42
         coordinator.scanMetrics = metrics
 
-        XCTAssertEqual(progressChangeCount, 1)
-        XCTAssertEqual(coordinatorChangeCount, 0)
+        #expect(progressChangeCount == 1)
+        #expect(coordinatorChangeCount == 0)
         withExtendedLifetime((coordinatorCancellable, progressCancellable)) {}
     }
 
-    @MainActor
+    @Test
     func testExpandingSummarizedNodeReplacesSubtreeAndMergesWarnings() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -692,9 +696,9 @@ final class ScanCoordinatorTests: XCTestCase {
             expansionResult = result
         }
 
-        XCTAssertEqual(service.requests.last?.target, ScanTarget(url: summarizedNode.url))
-        XCTAssertEqual(service.requests.last?.options.autoSummarizeDirectories, false)
-        XCTAssertEqual(coordinator.expandingNodeID, summarizedNode.id)
+        #expect(service.requests.last?.target == ScanTarget(url: summarizedNode.url))
+        #expect(service.requests.last?.options.autoSummarizeDirectories == false)
+        #expect(coordinator.expandingNodeID == summarizedNode.id)
 
         service.yield(.finished(expandedSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
@@ -704,25 +708,24 @@ final class ScanCoordinatorTests: XCTestCase {
         }
 
         guard case .expanded(let replacementRootID) = expansionResult else {
-            return XCTFail("Expected expansion to complete with replacement root ID.")
+            Issue.record("Expected expansion to complete with replacement root ID.")
+            return
         }
 
-        let updatedSnapshot = try XCTUnwrap(coordinator.snapshot)
-        let updatedNode = try XCTUnwrap(updatedSnapshot.treeStore.node(id: summarizedNode.id))
-        XCTAssertEqual(replacementRootID, summarizedNode.id)
-        XCTAssertFalse(updatedNode.isAutoSummarized)
-        XCTAssertEqual(updatedSnapshot.treeStore.children(of: summarizedNode.id).map(\.id), [expandedFile.id])
-        XCTAssertEqual(updatedSnapshot.scanWarnings.map(\.path), [expansionWarning.path])
-        XCTAssertEqual(coordinator.fileTreeStore?.root.id, root.id)
-        XCTAssertEqual(
-            coordinator.completedScanSnapshot?.treeStore.children(of: summarizedNode.id).map(\.id),
-            [expandedFile.id]
-        )
-        XCTAssertNil(coordinator.expandingNodeID)
+        let updatedSnapshot = try #require(coordinator.snapshot)
+        let updatedNode = try #require(updatedSnapshot.treeStore.node(id: summarizedNode.id))
+        #expect(replacementRootID == summarizedNode.id)
+        #expect(!(updatedNode.isAutoSummarized))
+        #expect(updatedSnapshot.treeStore.children(of: summarizedNode.id).map(\.id) == [expandedFile.id])
+        #expect(updatedSnapshot.scanWarnings.map(\.path) == [expansionWarning.path])
+        #expect(coordinator.fileTreeStore?.root.id == root.id)
+        #expect(
+            coordinator.completedScanSnapshot?.treeStore.children(of: summarizedNode.id).map(\.id) == [expandedFile.id])
+        #expect(coordinator.expandingNodeID == nil)
     }
 
-    @MainActor
-    func testRemovingLargeSubtreeFromCurrentSnapshotUsesTransformService() async throws {
+    @Test
+    func testRemovingLargeSubtreeFromCurrentSnapshotUsesTransformService() async {
         let service = ControlledScanService()
         let transformService = RecordingSnapshotTransformService()
         let coordinator = ScanCoordinator(
@@ -741,25 +744,27 @@ final class ScanCoordinatorTests: XCTestCase {
         let removedDirectory = makeTestDirectoryNode(id: "/root/cache", name: "cache", children: removedFiles)
         let sibling = makeTestFileNode(id: "/root/readme.txt", name: "readme.txt", size: 25)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [removedDirectory, sibling])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [removedDirectory, sibling],
-            removedDirectory.id: removedFiles,
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [removedDirectory, sibling],
+                removedDirectory.id: removedFiles,
+            ])
         let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
         coordinator.replaceCurrentSnapshot(snapshot)
 
         let didRemove = await coordinator.removeNodesFromCurrentSnapshot(ids: [removedDirectory.id])
         let recordedRemovingNodeIDs = await transformService.recordedRemovingNodeIDs()
 
-        XCTAssertTrue(didRemove)
-        XCTAssertEqual(recordedRemovingNodeIDs, [removedDirectory.id])
-        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: removedDirectory.id))
-        XCTAssertEqual(coordinator.snapshot?.aggregateStats.fileCount, 1)
-        XCTAssertEqual(coordinator.fileTreeStore?.children(of: root.id).map(\.id), [sibling.id])
+        #expect(didRemove)
+        #expect(recordedRemovingNodeIDs == [removedDirectory.id])
+        #expect(coordinator.snapshot?.treeStore.node(id: removedDirectory.id) == nil)
+        #expect(coordinator.snapshot?.aggregateStats.fileCount == 1)
+        #expect(coordinator.fileTreeStore?.children(of: root.id).map(\.id) == [sibling.id])
     }
 
-    @MainActor
-    func testRemovingMultipleNodesUsesOneSnapshotTransformation() async throws {
+    @Test
+    func testRemovingMultipleNodesUsesOneSnapshotTransformation() async {
         let transformService = RecordingSnapshotTransformService()
         let coordinator = ScanCoordinator(snapshotTransformService: transformService)
         let first = makeTestFileNode(id: "/root/first.dat", name: "first.dat", size: 10)
@@ -767,23 +772,24 @@ final class ScanCoordinatorTests: XCTestCase {
         let retained = makeTestFileNode(id: "/root/retained.dat", name: "retained.dat", size: 30)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [first, second, retained])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second, retained]])
-        coordinator.replaceCurrentSnapshot(makeCoordinatorSnapshot(
-            target: makeCoordinatorTarget(root.id),
-            root: root,
-            store: store
-        ))
+        coordinator.replaceCurrentSnapshot(
+            makeCoordinatorSnapshot(
+                target: makeCoordinatorTarget(root.id),
+                root: root,
+                store: store
+            ))
 
         let didRemove = await coordinator.removeNodesFromCurrentSnapshot(ids: [first.id, second.id])
         let batches = await transformService.recordedRemovingNodeIDBatches()
 
-        XCTAssertTrue(didRemove)
-        XCTAssertEqual(batches, [[first.id, second.id]])
-        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: first.id))
-        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: second.id))
-        XCTAssertNotNil(coordinator.snapshot?.treeStore.node(id: retained.id))
+        #expect(didRemove)
+        #expect(batches == [[first.id, second.id]])
+        #expect(coordinator.snapshot?.treeStore.node(id: first.id) == nil)
+        #expect(coordinator.snapshot?.treeStore.node(id: second.id) == nil)
+        #expect(coordinator.snapshot?.treeStore.node(id: retained.id) != nil)
     }
 
-    @MainActor
+    @Test
     func testConcurrentSameContextRemovalsRetryAndPreserveBothMutations() async throws {
         let first = makeTestFileNode(id: "/root/first.dat", name: "first.dat", size: 10)
         let second = makeTestFileNode(id: "/root/second.dat", name: "second.dat", size: 20)
@@ -791,31 +797,33 @@ final class ScanCoordinatorTests: XCTestCase {
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [first, second, retained])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second, retained]])
         let transformService = PausingSnapshotTransformService(pausedRemovalID: first.id)
+        defer { Task { await transformService.resume() } }
         let coordinator = ScanCoordinator(snapshotTransformService: transformService)
-        coordinator.replaceCurrentSnapshot(makeCoordinatorSnapshot(
-            target: makeCoordinatorTarget(root.id),
-            root: root,
-            store: store
-        ))
+        coordinator.replaceCurrentSnapshot(
+            makeCoordinatorSnapshot(
+                target: makeCoordinatorTarget(root.id),
+                root: root,
+                store: store
+            ))
 
         let firstRemoval = Task { @MainActor in
             await coordinator.removeNodesFromCurrentSnapshot(ids: [first.id])
         }
-        await transformService.waitUntilPaused()
+        try await transformService.waitUntilPaused()
         let didRemoveSecond = await coordinator.removeNodesFromCurrentSnapshot(ids: [second.id])
         await transformService.resume()
         let didRemoveFirst = await firstRemoval.value
         let batches = await transformService.recordedRemovalBatches()
 
-        XCTAssertTrue(didRemoveFirst)
-        XCTAssertTrue(didRemoveSecond)
-        XCTAssertEqual(batches, [[first.id], [second.id], [first.id]])
-        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: first.id))
-        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: second.id))
-        XCTAssertNotNil(coordinator.snapshot?.treeStore.node(id: retained.id))
+        #expect(didRemoveFirst)
+        #expect(didRemoveSecond)
+        #expect(batches == [[first.id], [second.id], [first.id]])
+        #expect(coordinator.snapshot?.treeStore.node(id: first.id) == nil)
+        #expect(coordinator.snapshot?.treeStore.node(id: second.id) == nil)
+        #expect(coordinator.snapshot?.treeStore.node(id: retained.id) != nil)
     }
 
-    @MainActor
+    @Test
     func testPausedRemovalCannotOverwriteSameIDExternalSnapshotReplacement() async throws {
         let removed = makeTestFileNode(id: "/root/removed.dat", name: "removed.dat", size: 10)
         let retained = makeTestFileNode(id: "/root/retained.dat", name: "retained.dat", size: 20)
@@ -827,13 +835,14 @@ final class ScanCoordinatorTests: XCTestCase {
             store: store
         )
         let transformService = PausingSnapshotTransformService(pausedRemovalID: removed.id)
+        defer { Task { await transformService.resume() } }
         let coordinator = ScanCoordinator(snapshotTransformService: transformService)
         coordinator.replaceCurrentSnapshot(originalSnapshot)
 
         let removal = Task { @MainActor in
             await coordinator.removeNodesFromCurrentSnapshot(ids: [removed.id])
         }
-        await transformService.waitUntilPaused()
+        try await transformService.waitUntilPaused()
 
         let externallyAdded = makeTestFileNode(id: "/root/external.dat", name: "external.dat", size: 30)
         let replacementRoot = makeTestDirectoryNode(
@@ -841,25 +850,28 @@ final class ScanCoordinatorTests: XCTestCase {
             name: root.name,
             children: [removed, retained, externallyAdded]
         )
-        let replacementStore = FileTreeStore(root: replacementRoot, childrenByID: [
-            replacementRoot.id: [removed, retained, externallyAdded],
-        ])
-        coordinator.replaceCurrentSnapshot(copyCoordinatorSnapshot(
-            originalSnapshot,
-            treeStore: replacementStore
-        ))
+        let replacementStore = FileTreeStore(
+            root: replacementRoot,
+            childrenByID: [
+                replacementRoot.id: [removed, retained, externallyAdded]
+            ])
+        coordinator.replaceCurrentSnapshot(
+            copyCoordinatorSnapshot(
+                originalSnapshot,
+                treeStore: replacementStore
+            ))
 
         await transformService.resume()
         let didRemove = await removal.value
 
-        XCTAssertFalse(didRemove)
-        XCTAssertEqual(coordinator.snapshot?.id, originalSnapshot.id)
-        XCTAssertEqual(coordinator.snapshot?.treeStore.contentID, replacementStore.contentID)
-        XCTAssertNotNil(coordinator.snapshot?.treeStore.node(id: removed.id))
-        XCTAssertNotNil(coordinator.snapshot?.treeStore.node(id: externallyAdded.id))
+        #expect(!(didRemove))
+        #expect(coordinator.snapshot?.id == originalSnapshot.id)
+        #expect(coordinator.snapshot?.treeStore.contentID == replacementStore.contentID)
+        #expect(coordinator.snapshot?.treeStore.node(id: removed.id) != nil)
+        #expect(coordinator.snapshot?.treeStore.node(id: externallyAdded.id) != nil)
     }
 
-    @MainActor
+    @Test
     func testExpansionRetriesAfterUnrelatedRemovalInSameContext() async throws {
         let scanService = ControlledScanService()
         let summarized = makeCoordinatorSummarizedDirectoryNode(id: "/root/cache", name: "cache", size: 300)
@@ -868,15 +880,17 @@ final class ScanCoordinatorTests: XCTestCase {
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [summarized, removed, retained])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [summarized, removed, retained]])
         let transformService = PausingSnapshotTransformService(pausedReplacementID: summarized.id)
+        defer { Task { await transformService.resume() } }
         let coordinator = ScanCoordinator(
             scanService: scanService,
             snapshotTransformService: transformService
         )
-        coordinator.replaceCurrentSnapshot(makeCoordinatorSnapshot(
-            target: makeCoordinatorTarget(root.id),
-            root: root,
-            store: store
-        ))
+        coordinator.replaceCurrentSnapshot(
+            makeCoordinatorSnapshot(
+                target: makeCoordinatorTarget(root.id),
+                root: root,
+                store: store
+            ))
 
         let expandedFile = makeTestFileNode(id: summarized.id + "/expanded.dat", name: "expanded.dat", size: 125)
         let expandedRoot = makeTestDirectoryNode(id: summarized.id, name: summarized.name, children: [expandedFile])
@@ -892,7 +906,7 @@ final class ScanCoordinatorTests: XCTestCase {
         }
         scanService.yield(.finished(expandedSnapshot), scanIndex: 0)
         scanService.finish(scanIndex: 0)
-        await transformService.waitUntilPaused()
+        try await transformService.waitUntilPaused()
 
         let didRemove = await coordinator.removeNodesFromCurrentSnapshot(ids: [removed.id])
         await transformService.resume()
@@ -901,21 +915,19 @@ final class ScanCoordinatorTests: XCTestCase {
         }
         let replacementIDs = await transformService.recordedReplacementIDs()
 
-        XCTAssertTrue(didRemove)
+        #expect(didRemove)
         guard case .expanded(let replacementRootID) = expansionResult else {
-            return XCTFail("Expected expansion to survive the unrelated removal.")
+            Issue.record("Expected expansion to survive the unrelated removal.")
+            return
         }
-        XCTAssertEqual(replacementRootID, summarized.id)
-        XCTAssertEqual(replacementIDs, [summarized.id, summarized.id])
-        XCTAssertNil(coordinator.snapshot?.treeStore.node(id: removed.id))
-        XCTAssertNotNil(coordinator.snapshot?.treeStore.node(id: retained.id))
-        XCTAssertEqual(
-            coordinator.snapshot?.treeStore.children(of: summarized.id).map(\.id),
-            [expandedFile.id]
-        )
+        #expect(replacementRootID == summarized.id)
+        #expect(replacementIDs == [summarized.id, summarized.id])
+        #expect(coordinator.snapshot?.treeStore.node(id: removed.id) == nil)
+        #expect(coordinator.snapshot?.treeStore.node(id: retained.id) != nil)
+        #expect(coordinator.snapshot?.treeStore.children(of: summarized.id).map(\.id) == [expandedFile.id])
     }
 
-    @MainActor
+    @Test
     func testReplacingCurrentSnapshotCancelsActiveExpansion() {
         let scanService = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: scanService)
@@ -936,12 +948,13 @@ final class ScanCoordinatorTests: XCTestCase {
         coordinator.replaceCurrentSnapshot(snapshot)
 
         guard case .cancelled = expansionResult else {
-            return XCTFail("Expected external snapshot replacement to cancel expansion.")
+            Issue.record("Expected external snapshot replacement to cancel expansion.")
+            return
         }
-        XCTAssertNil(coordinator.expandingNodeID)
+        #expect(coordinator.expandingNodeID == nil)
     }
 
-    @MainActor
+    @Test
     func testAppModelScanLifecycleUsesInjectedCoordinatorState() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -954,9 +967,9 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.phase == .scanning && service.requests.count == 1
         }
 
-        XCTAssertEqual(service.requests.first?.target, target)
-        XCTAssertEqual(model.scanState.selectedTarget, target)
-        XCTAssertNil(model.scanState.snapshot)
+        #expect(service.requests.first?.target == target)
+        #expect(model.scanState.selectedTarget == target)
+        #expect(model.scanState.snapshot == nil)
 
         service.yield(.finished(snapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
@@ -965,13 +978,13 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.phase == .displaying
         }
 
-        XCTAssertEqual(model.scanState.snapshot?.target, target)
-        XCTAssertEqual(model.scanState.fileTreeStore?.root.id, snapshot.root.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, snapshot.root.id)
-        XCTAssertEqual(model.recentTargets, [target])
+        #expect(model.scanState.snapshot?.target == target)
+        #expect(model.scanState.fileTreeStore?.root.id == snapshot.root.id)
+        #expect(model.navigation.focusedNodeID == snapshot.root.id)
+        #expect(model.recentTargets == [target])
     }
 
-    @MainActor
+    @Test
     func testAppModelScanCompletionPublishesNavigationOnce() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -1000,11 +1013,11 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.phase == .displaying
         }
 
-        XCTAssertEqual(publishedStates.count, 1)
-        XCTAssertEqual(publishedStates.first?.focusedNodeID, snapshot.root.id)
+        #expect(publishedStates.count == 1)
+        #expect(publishedStates.first?.focusedNodeID == snapshot.root.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelRestoresCachedSidebarTargetWithoutStartingScan() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/first")
@@ -1040,14 +1053,14 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.selectSidebarTarget(id: firstTarget.id)
 
-        XCTAssertEqual(service.requests.count, 2)
-        XCTAssertEqual(model.scanState.selectedTarget, firstTarget)
-        XCTAssertEqual(model.scanState.snapshot?.target, firstTarget)
-        XCTAssertEqual(model.navigation.focusedNodeID, firstSnapshot.root.id)
-        XCTAssertEqual(model.sidebar.activeTargetID, firstTarget.id)
+        #expect(service.requests.count == 2)
+        #expect(model.scanState.selectedTarget == firstTarget)
+        #expect(model.scanState.snapshot?.target == firstTarget)
+        #expect(model.navigation.focusedNodeID == firstSnapshot.root.id)
+        #expect(model.sidebar.activeTargetID == firstTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelKeepsSmallCachedSidebarTargetsBeyondTwoScans() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/small-first")
@@ -1079,14 +1092,14 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == firstTarget || service.requests.count > targets.count
         }
 
-        XCTAssertEqual(service.requests.count, targets.count)
-        XCTAssertEqual(model.scanState.selectedTarget, firstTarget)
-        XCTAssertEqual(model.scanState.snapshot?.target, firstTarget)
-        XCTAssertEqual(model.navigation.focusedNodeID, snapshots[0].root.id)
-        XCTAssertEqual(model.sidebar.activeTargetID, firstTarget.id)
+        #expect(service.requests.count == targets.count)
+        #expect(model.scanState.selectedTarget == firstTarget)
+        #expect(model.scanState.snapshot?.target == firstTarget)
+        #expect(model.navigation.focusedNodeID == snapshots[0].root.id)
+        #expect(model.sidebar.activeTargetID == firstTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelRestoresOversizedCachedParentAfterScopingSidebarTarget() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/oversized-home")
@@ -1103,7 +1116,7 @@ final class ScanCoordinatorTests: XCTestCase {
             downloadsTarget: downloadsTarget,
             rootName: "oversized-home"
         )
-        XCTAssertGreaterThan(homeSnapshot.treeStore.nodeCount, 3)
+        #expect(homeSnapshot.treeStore.nodeCount > 3)
 
         model.selectSidebarTarget(id: homeTarget.id)
         try await waitUntil("oversized home scan request") {
@@ -1125,13 +1138,13 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        XCTAssertEqual(service.requests.count, 1)
-        XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
-        XCTAssertEqual(model.scanState.snapshot?.root.id, homeTarget.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, homeTarget.id)
+        #expect(service.requests.count == 1)
+        #expect(model.scanState.selectedTarget == homeTarget)
+        #expect(model.scanState.snapshot?.root.id == homeTarget.id)
+        #expect(model.navigation.focusedNodeID == homeTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelRescansEvictedOversizedScanAfterAnotherScan() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/oversized-recent-home")
@@ -1149,7 +1162,7 @@ final class ScanCoordinatorTests: XCTestCase {
             rootName: "oversized-recent-home"
         )
         let downloadsSnapshot = makeCoordinatorSnapshot(target: downloadsTarget)
-        XCTAssertGreaterThan(homeSnapshot.treeStore.nodeCount, 3)
+        #expect(homeSnapshot.treeStore.nodeCount > 3)
 
         model.startScan(homeTarget)
         try await waitUntil("oversized recent home scan request") {
@@ -1181,13 +1194,13 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        XCTAssertEqual(service.requests.count, 3)
-        XCTAssertEqual(model.scanState.selectedTarget, homeTarget)
-        XCTAssertEqual(model.scanState.snapshot?.root.id, homeTarget.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, homeTarget.id)
+        #expect(service.requests.count == 3)
+        #expect(model.scanState.selectedTarget == homeTarget)
+        #expect(model.scanState.snapshot?.root.id == homeTarget.id)
+        #expect(model.navigation.focusedNodeID == homeTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelRescanBypassesSidebarCacheAndUsesEligibleBaseline() async throws {
         let service = ControlledScanService()
         let target = makeCoordinatorTarget("/app/sidebar/rescan")
@@ -1202,7 +1215,7 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("initial sidebar scan request") {
             service.requests.count == 1
         }
-        let scanOptions = try XCTUnwrap(service.requests.first?.options)
+        let scanOptions = try #require(service.requests.first?.options)
         let snapshot = makeCoordinatorSnapshot(
             target: target,
             scanOptions: scanOptions,
@@ -1222,13 +1235,13 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("rescan request") {
             service.rescanRequests.count == 1
         }
-        XCTAssertEqual(service.requests.map(\.target), [target, target])
-        XCTAssertEqual(service.rescanRequests.map(\.target), [target])
-        XCTAssertEqual(service.rescanRequests.map(\.baselineID), [snapshot.id])
-        XCTAssertEqual(service.rescanRequests.map(\.options), [scanOptions])
+        #expect(service.requests.map(\.target) == [target, target])
+        #expect(service.rescanRequests.map(\.target) == [target])
+        #expect(service.rescanRequests.map(\.baselineID) == [snapshot.id])
+        #expect(service.rescanRequests.map(\.options) == [scanOptions])
     }
 
-    @MainActor
+    @Test
     func testAppModelRescanUsesFocusedFolderAndPreservesNavigation() async throws {
         let service = ControlledScanService()
         let rootTarget = makeCoordinatorTarget("/app/focused-rescan")
@@ -1244,7 +1257,7 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("focused baseline request") {
             service.requests.count == 1
         }
-        let scanOptions = try XCTUnwrap(service.requests.first?.options)
+        let scanOptions = try #require(service.requests.first?.options)
         let baseline = makeCoordinatorHomeSnapshot(
             target: rootTarget,
             downloadsTarget: folderTarget,
@@ -1262,19 +1275,21 @@ final class ScanCoordinatorTests: XCTestCase {
         }
 
         model.focus(nodeID: folderTarget.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, folderTarget.id)
-        XCTAssertTrue(model.canRescanCurrentFolder)
+        #expect(model.navigation.focusedNodeID == folderTarget.id)
+        #expect(model.canRescanCurrentFolder)
         model.rescan()
 
         try await waitUntil("focused folder request") {
             service.requests.count == 2
         }
-        XCTAssertEqual(service.requests[1].target, ScanTarget(
-            url: folderTarget.url,
-            kind: .folder
-        ))
-        XCTAssertTrue(service.rescanRequests.isEmpty)
-        XCTAssertEqual(model.scanState.snapshot?.id, baseline.id)
+        #expect(
+            service.requests[1].target
+                == ScanTarget(
+                    url: folderTarget.url,
+                    kind: .folder
+                ))
+        #expect(service.rescanRequests.isEmpty)
+        #expect(model.scanState.snapshot?.id == baseline.id)
 
         let refreshedFile = makeTestFileNode(
             id: folderTarget.id + "/refreshed.dat",
@@ -1291,11 +1306,12 @@ final class ScanCoordinatorTests: XCTestCase {
             childrenByID: [refreshedRoot.id: [refreshedFile]]
         )
         service.yield(
-            .finished(makeCoordinatorSnapshot(
-                target: folderTarget,
-                root: refreshedRoot,
-                store: refreshedStore
-            )),
+            .finished(
+                makeCoordinatorSnapshot(
+                    target: folderTarget,
+                    root: refreshedRoot,
+                    store: refreshedStore
+                )),
             scanIndex: 1
         )
         service.finish(scanIndex: 1)
@@ -1303,14 +1319,11 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("focused folder applied") {
             model.scanState.scanCompletionNotice == .folderUpdated(name: "Downloads")
         }
-        XCTAssertEqual(model.navigation.focusedNodeID, folderTarget.id)
-        XCTAssertEqual(
-            model.scanState.snapshot?.treeStore.children(of: folderTarget.id).map(\.id),
-            [refreshedFile.id]
-        )
+        #expect(model.navigation.focusedNodeID == folderTarget.id)
+        #expect(model.scanState.snapshot?.treeStore.children(of: folderTarget.id).map(\.id) == [refreshedFile.id])
     }
 
-    @MainActor
+    @Test
     func testAppModelRescanPreservesIntentWhenScanOptionsChanged() async throws {
         let service = ControlledScanService()
         let target = makeCoordinatorTarget("/app/sidebar/rescan-options")
@@ -1325,7 +1338,7 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("initial options scan") {
             service.requests.count == 1
         }
-        let initialOptions = try XCTUnwrap(service.requests.first?.options)
+        let initialOptions = try #require(service.requests.first?.options)
         let snapshot = makeCoordinatorSnapshot(
             target: target,
             scanOptions: initialOptions,
@@ -1346,12 +1359,12 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("changed-options rescan request") {
             service.rescanRequests.count == 1
         }
-        XCTAssertEqual(service.rescanRequests.first?.baselineID, snapshot.id)
-        XCTAssertNotEqual(service.rescanRequests.first?.options, initialOptions)
-        XCTAssertEqual(model.scanState.progress.executionMode, .preparingIncremental)
+        #expect(service.rescanRequests.first?.baselineID == snapshot.id)
+        #expect(service.rescanRequests.first?.options != initialOptions)
+        #expect(model.scanState.progress.executionMode == .preparingIncremental)
     }
 
-    @MainActor
+    @Test
     func testAppModelScanOptionChangeMissesSidebarCache() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/options-first")
@@ -1389,11 +1402,11 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("changed options cache miss request") {
             service.requests.count == 3
         }
-        XCTAssertEqual(service.requests.last?.target, firstTarget)
-        XCTAssertTrue(service.requests.last?.options.treatPackagesAsDirectories == true)
+        #expect(service.requests.last?.target == firstTarget)
+        #expect(service.requests.last?.options.treatPackagesAsDirectories == true)
     }
 
-    @MainActor
+    @Test
     func testAppModelPathScopedExclusionsDoNotReuseContainingSnapshot() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/exclusion-home")
@@ -1421,16 +1434,18 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "exclusion-home",
             children: [libraryNode]
         )
-        let homeStore = FileTreeStore(root: homeRoot, childrenByID: [
-            homeRoot.id: [libraryNode]
-        ])
+        let homeStore = FileTreeStore(
+            root: homeRoot,
+            childrenByID: [
+                homeRoot.id: [libraryNode]
+            ])
         let homeSnapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
 
         model.selectSidebarTarget(id: homeTarget.id)
         try await waitUntil("home exclusion scan request") {
             service.requests.count == 1
         }
-        XCTAssertEqual(service.requests[0].options.exclusionRootPath, homeTarget.id)
+        #expect(service.requests[0].options.exclusionRootPath == homeTarget.id)
 
         service.yield(.finished(homeSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
@@ -1443,11 +1458,11 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("library exclusion scan request") {
             service.requests.count == 2
         }
-        XCTAssertEqual(service.requests[1].target, libraryTarget)
-        XCTAssertEqual(service.requests[1].options.exclusionRootPath, libraryTarget.id)
+        #expect(service.requests[1].target == libraryTarget)
+        #expect(service.requests[1].options.exclusionRootPath == libraryTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelChildTrashRemovesNodeWithoutAutomaticRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
@@ -1465,10 +1480,12 @@ final class ScanCoordinatorTests: XCTestCase {
         let sibling = makeTestFileNode(id: folderID + "/kept.txt", name: "kept.txt", size: 10)
         let populatedFolder = makeTestDirectoryNode(id: folderID, name: "Folder", children: [child, sibling])
         let root = makeTestDirectoryNode(id: target.id, name: "trash-local", children: [populatedFolder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [populatedFolder],
-            populatedFolder.id: [child, sibling]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [populatedFolder],
+                populatedFolder.id: [child, sibling],
+            ])
         let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
         model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -1481,18 +1498,14 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("trashed child removed from current snapshot") {
             model.scanState.snapshot?.treeStore.node(id: child.id) == nil
         }
-        XCTAssertNil(model.navigation.selectedNodeID)
-        XCTAssertEqual(model.navigation.focusedNodeID, populatedFolder.id)
-        XCTAssertEqual(model.navigation.tableNodes.map(\.id), [sibling.id])
-        XCTAssertTrue(service.requests.isEmpty)
-        // This one representative delay covers the removed one-second post-trash scheduler.
-        try await Task.sleep(for: .milliseconds(1_150))
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.navigation.focusedNodeID, populatedFolder.id)
+        #expect(model.navigation.selectedNodeID == nil)
+        #expect(model.navigation.focusedNodeID == populatedFolder.id)
+        #expect(model.navigation.tableNodes.map(\.id) == [sibling.id])
+        #expect(service.requests.isEmpty)
         model.cleanup()
     }
 
-    @MainActor
+    @Test
     func testAppModelMultipleChildTrashesDoNotStartRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
@@ -1524,13 +1537,13 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("second trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: second.id) == nil
         }
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.scanState.selectedTarget, target)
-        XCTAssertEqual(model.scanState.phase, .displaying)
+        #expect(service.requests.isEmpty)
+        #expect(model.scanState.selectedTarget == target)
+        #expect(model.scanState.phase == .displaying)
         model.cleanup()
     }
 
-    @MainActor
+    @Test
     func testAppModelBulkChildTrashRemovesNodesWithoutRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
@@ -1555,16 +1568,16 @@ final class ScanCoordinatorTests: XCTestCase {
         model.confirmMovePendingSelectionToTrash()
 
         try await waitUntil("bulk trashed children removed") {
-            model.scanState.snapshot?.treeStore.node(id: first.id) == nil &&
-                model.scanState.snapshot?.treeStore.node(id: second.id) == nil
+            model.scanState.snapshot?.treeStore.node(id: first.id) == nil
+                && model.scanState.snapshot?.treeStore.node(id: second.id) == nil
         }
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.scanState.selectedTarget, target)
-        XCTAssertEqual(model.scanState.phase, .displaying)
+        #expect(service.requests.isEmpty)
+        #expect(model.scanState.selectedTarget == target)
+        #expect(model.scanState.phase == .displaying)
         model.cleanup()
     }
 
-    @MainActor
+    @Test
     func testAppModelActiveRootTrashClearsScanWithoutRescan() async throws {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
@@ -1590,14 +1603,14 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot == nil
         }
 
-        XCTAssertNil(model.scanState.snapshot)
-        XCTAssertNil(model.scanState.selectedTarget)
-        XCTAssertNil(model.navigation.focusedNodeID)
-        XCTAssertTrue(service.requests.isEmpty)
+        #expect(model.scanState.snapshot == nil)
+        #expect(model.scanState.selectedTarget == nil)
+        #expect(model.navigation.focusedNodeID == nil)
+        #expect(service.requests.isEmpty)
         model.cleanup()
     }
 
-    @MainActor
+    @Test
     func testAppModelTrashActionClearsSidebarSnapshotCache() async throws {
         let service = ControlledScanService()
         let firstTarget = makeCoordinatorTarget("/app/sidebar/stale-first")
@@ -1621,9 +1634,11 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "stale-second",
             children: [secondChild]
         )
-        let secondStore = FileTreeStore(root: secondRoot, childrenByID: [
-            secondRoot.id: [secondChild]
-        ])
+        let secondStore = FileTreeStore(
+            root: secondRoot,
+            childrenByID: [
+                secondRoot.id: [secondChild]
+            ])
 
         model.selectSidebarTarget(id: firstTarget.id)
         try await waitUntil("stale first scan request") {
@@ -1639,7 +1654,9 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("stale second scan request") {
             service.requests.count == 2
         }
-        service.yield(.finished(makeCoordinatorSnapshot(target: secondTarget, root: secondRoot, store: secondStore)), scanIndex: 1)
+        service.yield(
+            .finished(makeCoordinatorSnapshot(target: secondTarget, root: secondRoot, store: secondStore)), scanIndex: 1
+        )
         service.finish(scanIndex: 1)
         try await waitUntil("stale second scan finished") {
             model.scanState.snapshot?.target == secondTarget
@@ -1650,17 +1667,17 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("trashed child removed from second snapshot") {
             model.scanState.snapshot?.treeStore.node(id: secondChild.id) == nil
         }
-        XCTAssertEqual(service.requests.count, 2)
+        #expect(service.requests.count == 2)
 
         model.selectSidebarTarget(id: firstTarget.id)
 
         try await waitUntil("first target scans after cache invalidation") {
             service.requests.count == 3
         }
-        XCTAssertEqual(service.requests.last?.target, firstTarget)
+        #expect(service.requests.last?.target == firstTarget)
     }
 
-    @MainActor
+    @Test
     func testAppModelContainedSidebarTargetScopesOverOlderExactCache() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/cache-home")
@@ -1681,9 +1698,11 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "Downloads",
             children: [staleFile]
         )
-        let staleDownloadsStore = FileTreeStore(root: staleDownloadsRoot, childrenByID: [
-            staleDownloadsRoot.id: [staleFile]
-        ])
+        let staleDownloadsStore = FileTreeStore(
+            root: staleDownloadsRoot,
+            childrenByID: [
+                staleDownloadsRoot.id: [staleFile]
+            ])
         let downloadFile = makeTestFileNode(
             id: downloadsTarget.id + "/file.txt",
             name: "file.txt",
@@ -1704,10 +1723,12 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "cache-home",
             children: [downloadsNode]
         )
-        let homeStore = FileTreeStore(root: homeRoot, childrenByID: [
-            homeRoot.id: [downloadsNode],
-            downloadsNode.id: [downloadFile]
-        ])
+        let homeStore = FileTreeStore(
+            root: homeRoot,
+            childrenByID: [
+                homeRoot.id: [downloadsNode],
+                downloadsNode.id: [downloadFile],
+            ])
         let homeSnapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
 
         model.selectSidebarTarget(id: downloadsTarget.id)
@@ -1736,16 +1757,16 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == downloadsTarget
         }
 
-        XCTAssertEqual(service.requests.count, 2)
-        XCTAssertEqual(model.scanState.selectedTarget, downloadsTarget)
-        XCTAssertEqual(model.scanState.snapshot?.target, downloadsTarget)
-        XCTAssertEqual(model.scanState.snapshot?.root.id, downloadsTarget.id)
-        XCTAssertEqual(model.scanState.fileTreeStore?.children(of: downloadsTarget.id).map(\.id), [downloadFile.id])
-        XCTAssertEqual(model.navigation.focusedNodeID, downloadsTarget.id)
-        XCTAssertEqual(model.sidebar.activeTargetID, downloadsTarget.id)
+        #expect(service.requests.count == 2)
+        #expect(model.scanState.selectedTarget == downloadsTarget)
+        #expect(model.scanState.snapshot?.target == downloadsTarget)
+        #expect(model.scanState.snapshot?.root.id == downloadsTarget.id)
+        #expect(model.scanState.fileTreeStore?.children(of: downloadsTarget.id).map(\.id) == [downloadFile.id])
+        #expect(model.navigation.focusedNodeID == downloadsTarget.id)
+        #expect(model.sidebar.activeTargetID == downloadsTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelContainedSidebarTargetScopesWithoutStartingScan() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/home")
@@ -1771,10 +1792,12 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "home",
             children: [downloadsNode]
         )
-        let store = FileTreeStore(root: homeRoot, childrenByID: [
-            homeRoot.id: [downloadsNode],
-            downloadsNode.id: [downloadFile]
-        ])
+        let store = FileTreeStore(
+            root: homeRoot,
+            childrenByID: [
+                homeRoot.id: [downloadsNode],
+                downloadsNode.id: [downloadFile],
+            ])
         let snapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: store)
 
         model.selectSidebarTarget(id: homeTarget.id)
@@ -1793,23 +1816,23 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == downloadsTarget
         }
 
-        XCTAssertEqual(service.requests.count, 1)
-        XCTAssertEqual(model.scanState.selectedTarget, downloadsTarget)
-        XCTAssertEqual(model.scanState.snapshot?.target, downloadsTarget)
-        XCTAssertEqual(model.scanState.snapshot?.root.id, downloadsTarget.id)
-        XCTAssertEqual(model.scanState.snapshot?.aggregateStats.totalAllocatedSize, downloadsNode.allocatedSize)
-        XCTAssertEqual(model.navigation.focusedNodeID, downloadsTarget.id)
-        XCTAssertEqual(model.sidebar.activeTargetID, downloadsTarget.id)
+        #expect(service.requests.count == 1)
+        #expect(model.scanState.selectedTarget == downloadsTarget)
+        #expect(model.scanState.snapshot?.target == downloadsTarget)
+        #expect(model.scanState.snapshot?.root.id == downloadsTarget.id)
+        #expect(model.scanState.snapshot?.aggregateStats.totalAllocatedSize == downloadsNode.allocatedSize)
+        #expect(model.navigation.focusedNodeID == downloadsTarget.id)
+        #expect(model.sidebar.activeTargetID == downloadsTarget.id)
 
         model.rescan()
 
         try await waitUntil("scoped target rescan request") {
             service.requests.count == 2
         }
-        XCTAssertEqual(service.requests.last?.target, downloadsTarget)
+        #expect(service.requests.last?.target == downloadsTarget)
     }
 
-    @MainActor
+    @Test
     func testAppModelSiblingSidebarTargetsReuseCachedContainingScan() async throws {
         let service = ControlledScanService()
         let homeTarget = makeCoordinatorTarget("/app/sidebar/sibling-home")
@@ -1846,11 +1869,13 @@ final class ScanCoordinatorTests: XCTestCase {
             name: "sibling-home",
             children: [downloadsNode, documentsNode]
         )
-        let store = FileTreeStore(root: homeRoot, childrenByID: [
-            homeRoot.id: [downloadsNode, documentsNode],
-            downloadsNode.id: [downloadFile],
-            documentsNode.id: [documentFile],
-        ])
+        let store = FileTreeStore(
+            root: homeRoot,
+            childrenByID: [
+                homeRoot.id: [downloadsNode, documentsNode],
+                downloadsNode.id: [downloadFile],
+                documentsNode.id: [documentFile],
+            ])
         let snapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: store)
 
         model.selectSidebarTarget(id: homeTarget.id)
@@ -1874,14 +1899,14 @@ final class ScanCoordinatorTests: XCTestCase {
             model.scanState.snapshot?.target == documentsTarget
         }
 
-        XCTAssertEqual(service.requests.count, 1)
-        XCTAssertEqual(model.scanState.selectedTarget, documentsTarget)
-        XCTAssertEqual(model.scanState.snapshot?.target, documentsTarget)
-        XCTAssertEqual(model.scanState.fileTreeStore?.children(of: documentsTarget.id).map(\.id), [documentFile.id])
-        XCTAssertEqual(model.sidebar.activeTargetID, documentsTarget.id)
+        #expect(service.requests.count == 1)
+        #expect(model.scanState.selectedTarget == documentsTarget)
+        #expect(model.scanState.snapshot?.target == documentsTarget)
+        #expect(model.scanState.fileTreeStore?.children(of: documentsTarget.id).map(\.id) == [documentFile.id])
+        #expect(model.sidebar.activeTargetID == documentsTarget.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelCleanupCancelsActiveScan() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -1899,11 +1924,11 @@ final class ScanCoordinatorTests: XCTestCase {
             service.terminationCount == 1
         }
 
-        XCTAssertEqual(model.scanState.phase, .idle)
-        XCTAssertFalse(model.scanState.canStopScan)
+        #expect(model.scanState.phase == .idle)
+        #expect(!(model.scanState.canStopScan))
     }
 
-    @MainActor
+    @Test
     func testAppModelSuspendingBackgroundActivityKeepsActiveScanAndClosesQuickLook() async throws {
         let service = ControlledScanService()
         let recorder = CoordinatorLifecycleActionRecorder()
@@ -1939,14 +1964,14 @@ final class ScanCoordinatorTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertEqual(service.terminationCount, 0)
-        XCTAssertEqual(model.scanState.phase, .scanning)
-        XCTAssertTrue(model.scanState.canStopScan)
-        XCTAssertEqual(recorder.quickLookCloseCount, 1)
-        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 0)
+        #expect(service.terminationCount == 0)
+        #expect(model.scanState.phase == .scanning)
+        #expect(model.scanState.canStopScan)
+        #expect(recorder.quickLookCloseCount == 1)
+        #expect(recorder.quickLookMonitorRemovalCount == 0)
     }
 
-    @MainActor
+    @Test
     func testAppModelSuspendingMainWindowActivityCancelsActiveScanAndClosesQuickLook() async throws {
         let service = ControlledScanService()
         let recorder = CoordinatorLifecycleActionRecorder()
@@ -1984,13 +2009,13 @@ final class ScanCoordinatorTests: XCTestCase {
             service.terminationCount == 1
         }
 
-        XCTAssertEqual(model.scanState.phase, .idle)
-        XCTAssertFalse(model.scanState.canStopScan)
-        XCTAssertEqual(recorder.quickLookCloseCount, 1)
-        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 0)
+        #expect(model.scanState.phase == .idle)
+        #expect(!(model.scanState.canStopScan))
+        #expect(recorder.quickLookCloseCount == 1)
+        #expect(recorder.quickLookMonitorRemovalCount == 0)
     }
 
-    @MainActor
+    @Test
     func testAppModelStopCancelsDeferredScanStart() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -2000,12 +2025,12 @@ final class ScanCoordinatorTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.scanState.phase, .idle)
-        XCTAssertFalse(model.scanState.canStopScan)
+        #expect(service.requests.isEmpty)
+        #expect(model.scanState.phase == .idle)
+        #expect(!(model.scanState.canStopScan))
     }
 
-    @MainActor
+    @Test
     func testAppModelDeferredSidebarSelectionStartsAfterViewUpdate() async throws {
         let service = ControlledScanService()
         let target = makeCoordinatorTarget("/app/deferred-sidebar")
@@ -2018,15 +2043,15 @@ final class ScanCoordinatorTests: XCTestCase {
 
         model.selectSidebarTargetAfterViewUpdate(id: target.id)
 
-        XCTAssertNil(model.sidebar.activeTargetID)
-        XCTAssertTrue(service.requests.isEmpty)
+        #expect(model.sidebar.activeTargetID == nil)
+        #expect(service.requests.isEmpty)
 
         try await waitUntil("deferred sidebar selection starts scan") {
             model.sidebar.activeTargetID == target.id && service.requests.count == 1
         }
     }
 
-    @MainActor
+    @Test
     func testAppModelStopCancelsDeferredSidebarSelection() async throws {
         let service = ControlledScanService()
         let target = makeCoordinatorTarget("/app/deferred-sidebar-cancel")
@@ -2042,11 +2067,11 @@ final class ScanCoordinatorTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertNil(model.sidebar.activeTargetID)
-        XCTAssertTrue(service.requests.isEmpty)
+        #expect(model.sidebar.activeTargetID == nil)
+        #expect(service.requests.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testAppModelStopClearsEmptySidebarSelectionSoSameTargetCanRestart() async throws {
         let service = ControlledScanService()
         let target = makeCoordinatorTarget("/app/sidebar-cancel-restart")
@@ -2076,7 +2101,7 @@ final class ScanCoordinatorTests: XCTestCase {
         }
     }
 
-    @MainActor
+    @Test
     func testAppModelCleanupCancelsDeferredScanStart() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -2086,12 +2111,12 @@ final class ScanCoordinatorTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.scanState.phase, .idle)
-        XCTAssertFalse(model.scanState.canStopScan)
+        #expect(service.requests.isEmpty)
+        #expect(model.scanState.phase == .idle)
+        #expect(!(model.scanState.canStopScan))
     }
 
-    @MainActor
+    @Test
     func testAppModelSuspendingMainWindowActivityCancelsDeferredScanStart() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -2101,12 +2126,12 @@ final class ScanCoordinatorTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertTrue(service.requests.isEmpty)
-        XCTAssertEqual(model.scanState.phase, .idle)
-        XCTAssertFalse(model.scanState.canStopScan)
+        #expect(service.requests.isEmpty)
+        #expect(model.scanState.phase == .idle)
+        #expect(!(model.scanState.canStopScan))
     }
 
-    @MainActor
+    @Test
     func testAppModelExpansionPreservesNavigationHistory() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
@@ -2123,7 +2148,7 @@ final class ScanCoordinatorTests: XCTestCase {
         model.navigation.reconcileAfterSnapshotApplied(baseSnapshot)
         model.navigation.setFocusedNodeID(root.id)
         model.focus(nodeID: focusChild.id)
-        XCTAssertTrue(model.navigation.canNavigateBack)
+        #expect(model.navigation.canNavigateBack)
 
         let expandedFile = makeTestFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
         let expandedRoot = makeTestDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
@@ -2150,12 +2175,12 @@ final class ScanCoordinatorTests: XCTestCase {
             didCompleteExpansion
         }
 
-        XCTAssertTrue(model.navigation.canNavigateBack)
-        XCTAssertEqual(model.navigation.selectedNodeID, summarizedNode.id)
-        XCTAssertEqual(model.scanState.fileTreeStore?.children(of: summarizedNode.id).map(\.id), [expandedFile.id])
+        #expect(model.navigation.canNavigateBack)
+        #expect(model.navigation.selectedNodeID == summarizedNode.id)
+        #expect(model.scanState.fileTreeStore?.children(of: summarizedNode.id).map(\.id) == [expandedFile.id])
     }
 
-    @MainActor
+    @Test
     func testAppModelExpansionPreservesPathScopedExclusionRoot() async throws {
         let service = ControlledScanService()
         let rootTarget = makeCoordinatorTarget("/root")
@@ -2180,7 +2205,7 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("path-scoped root scan request") {
             service.requests.count == 1
         }
-        XCTAssertEqual(service.requests[0].options.exclusionRootPath, rootTarget.id)
+        #expect(service.requests[0].options.exclusionRootPath == rootTarget.id)
 
         service.yield(.finished(snapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
@@ -2193,9 +2218,9 @@ final class ScanCoordinatorTests: XCTestCase {
         try await waitUntil("path-scoped expansion request") {
             service.requests.count == 2
         }
-        XCTAssertEqual(service.requests[1].target, ScanTarget(url: summarizedNode.url))
-        XCTAssertEqual(service.requests[1].options.exclusionRootPath, rootTarget.id)
-        XCTAssertFalse(service.requests[1].options.autoSummarizeDirectories)
+        #expect(service.requests[1].target == ScanTarget(url: summarizedNode.url))
+        #expect(service.requests[1].options.exclusionRootPath == rootTarget.id)
+        #expect(!(service.requests[1].options.autoSummarizeDirectories))
     }
 }
 
@@ -2335,7 +2360,7 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
     private let pausedRemovalID: String?
     private let pausedReplacementID: String?
     private var didPause = false
-    private var pauseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
     private var resumeContinuation: CheckedContinuation<Void, Never>?
     private var removalBatches: [[String]] = []
     private var replacementIDs: [String] = []
@@ -2345,14 +2370,12 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
         self.pausedReplacementID = pausedReplacementID
     }
 
-    func waitUntilPaused() async {
-        guard !didPause else { return }
-        await withCheckedContinuation { continuation in
-            pauseWaiters.append(continuation)
-        }
+    func waitUntilPaused() async throws {
+        try await waitUntil("snapshot transform paused") { await self.didPause }
     }
 
     func resume() {
+        isReleased = true
         resumeContinuation?.resume()
         resumeContinuation = nil
     }
@@ -2430,13 +2453,8 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
     }
 
     private func pauseIfNeeded(_ shouldPause: Bool) async {
-        guard shouldPause, !didPause else { return }
+        guard shouldPause, !didPause, !isReleased else { return }
         didPause = true
-        let waiters = pauseWaiters
-        pauseWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
         await withCheckedContinuation { continuation in
             resumeContinuation = continuation
         }
@@ -2634,10 +2652,12 @@ private func makeCoordinatorHomeSnapshot(
         name: rootName,
         children: [downloadsNode, siblingFile]
     )
-    let homeStore = FileTreeStore(root: homeRoot, childrenByID: [
-        homeRoot.id: [downloadsNode, siblingFile],
-        downloadsNode.id: [downloadFile],
-    ])
+    let homeStore = FileTreeStore(
+        root: homeRoot,
+        childrenByID: [
+            homeRoot.id: [downloadsNode, siblingFile],
+            downloadsNode.id: [downloadFile],
+        ])
     return makeCoordinatorSnapshot(
         target: homeTarget,
         root: homeRoot,

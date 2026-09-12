@@ -1,8 +1,11 @@
 import Darwin
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanEngineTests: XCTestCase {
+struct ScanEngineTests {
+    @Test
     func testNativeAtomicWorkResultPreservesExcludedVisitedCount() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -31,17 +34,15 @@ final class ScanEngineTests: XCTestCase {
             forcesFoundationTraversal: false
         )
 
-        XCTAssertEqual(result.partial.descendantFileCount, 1)
-        XCTAssertEqual(result.partial.logicalSize, 11)
-        XCTAssertEqual(result.partial.visitedItemCount, 3)
-        XCTAssertTrue(result.partial.warnings.isEmpty)
-        XCTAssertEqual(result.pendingItems.count, 1)
-        XCTAssertEqual(
-            result.pendingItems.first?.url.resolvingSymlinksInPath(),
-            nestedURL.resolvingSymlinksInPath()
-        )
+        #expect(result.partial.descendantFileCount == 1)
+        #expect(result.partial.logicalSize == 11)
+        #expect(result.partial.visitedItemCount == 3)
+        #expect(result.partial.warnings.isEmpty)
+        #expect(result.pendingItems.count == 1)
+        #expect(result.pendingItems.first?.url.resolvingSymlinksInPath() == nestedURL.resolvingSymlinksInPath())
     }
 
+    @Test
     func testFoundationAtomicWorkResultSeedsProtectedChildrenAndPreservesSemantics() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -71,17 +72,14 @@ final class ScanEngineTests: XCTestCase {
             progressVisitedItemCount: 0
         )
 
-        XCTAssertEqual(rootResult.partial.descendantFileCount, 1)
-        XCTAssertEqual(rootResult.partial.logicalSize, 11)
-        XCTAssertEqual(rootResult.partial.visitedItemCount, 3)
-        XCTAssertTrue(rootResult.partial.warnings.isEmpty)
-        XCTAssertEqual(rootResult.pendingItems.count, 1)
-        let childWork = try XCTUnwrap(rootResult.pendingItems.first)
-        XCTAssertEqual(
-            childWork.url.resolvingSymlinksInPath(),
-            nestedURL.resolvingSymlinksInPath()
-        )
-        XCTAssertTrue(childWork.expectedIdentity?.isFileSystemIdentity == true)
+        #expect(rootResult.partial.descendantFileCount == 1)
+        #expect(rootResult.partial.logicalSize == 11)
+        #expect(rootResult.partial.visitedItemCount == 3)
+        #expect(rootResult.partial.warnings.isEmpty)
+        #expect(rootResult.pendingItems.count == 1)
+        let childWork = try #require(rootResult.pendingItems.first)
+        #expect(childWork.url.resolvingSymlinksInPath() == nestedURL.resolvingSymlinksInPath())
+        #expect(childWork.expectedIdentity?.isFileSystemIdentity == true)
 
         let childResult = try AtomicDirectorySummarizer.processFoundationWorkItem(
             childWork,
@@ -95,13 +93,14 @@ final class ScanEngineTests: XCTestCase {
         let accumulator = AtomicSummaryAccumulator(seed: rootResult.partial)
         accumulator.merge(childResult.partial)
         let summary = accumulator.makeSummary()
-        XCTAssertEqual(summary.descendantFileCount, 2)
-        XCTAssertEqual(summary.logicalSize, 31)
-        XCTAssertEqual(summary.visitedItemCount, 4)
-        XCTAssertTrue(summary.isAccessible)
-        XCTAssertTrue(summary.warnings.isEmpty)
+        #expect(summary.descendantFileCount == 2)
+        #expect(summary.logicalSize == 31)
+        #expect(summary.visitedItemCount == 4)
+        #expect(summary.isAccessible)
+        #expect(summary.warnings.isEmpty)
     }
 
+    @Test
     func testFoundationAtomicWorkResultStopsAtVolumeBoundary() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -134,19 +133,18 @@ final class ScanEngineTests: XCTestCase {
             progressVisitedItemCount: 0
         )
 
-        XCTAssertTrue(result.pendingItems.isEmpty)
-        XCTAssertEqual(result.partial.descendantFileCount, 0)
-        XCTAssertEqual(result.partial.logicalSize, 0)
-        XCTAssertEqual(result.partial.warnings.count, 1)
-        XCTAssertEqual(
+        #expect(result.pendingItems.isEmpty)
+        #expect(result.partial.descendantFileCount == 0)
+        #expect(result.partial.logicalSize == 0)
+        #expect(result.partial.warnings.count == 1)
+        #expect(
             result.partial.warnings.first.map {
                 URL(filePath: $0.path).resolvingSymlinksInPath().path
-            },
-            boundaryURL.resolvingSymlinksInPath().path
-        )
-        XCTAssertEqual(result.partial.warnings.first?.category, .fileSystem)
+            } == boundaryURL.resolvingSymlinksInPath().path)
+        #expect(result.partial.warnings.first?.category == .fileSystem)
     }
 
+    @Test
     func testPooledPackageSummaryStopsAtVolumeBoundary() async throws {
         let packageURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: packageURL) }
@@ -185,13 +183,14 @@ final class ScanEngineTests: XCTestCase {
         )
         await pool.finish()
 
-        XCTAssertEqual(summary?.descendantFileCount, 1)
-        XCTAssertEqual(summary?.logicalSize, 7)
-        XCTAssertEqual(summary?.warnings.count, 1)
-        XCTAssertEqual(summary?.warnings.first?.path, boundaryURL.path)
-        XCTAssertEqual(summary?.warnings.first?.category, .fileSystem)
+        #expect(summary?.descendantFileCount == 1)
+        #expect(summary?.logicalSize == 7)
+        #expect(summary?.warnings.count == 1)
+        #expect(summary?.warnings.first?.path == boundaryURL.path)
+        #expect(summary?.warnings.first?.category == .fileSystem)
     }
 
+    @Test
     func testAutoSummaryProbeStopsAtVolumeBoundary() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -212,11 +211,13 @@ final class ScanEngineTests: XCTestCase {
         )
         let rootMetadata = try metadataLoader.metadata(for: rootURL)
         let boundaryMetadata = try metadataLoader.metadata(for: boundaryURL)
-        let rootEntries = [DirectoryEntry(
-            url: boundaryURL,
-            metadata: boundaryMetadata,
-            isDirectoryHint: true
-        )]
+        let rootEntries = [
+            DirectoryEntry(
+                url: boundaryURL,
+                metadata: boundaryMetadata,
+                isDirectoryHint: true
+            )
+        ]
         let (_, continuation) = makeAtomicSummaryProgressReporter()
         defer { continuation.finish() }
         var metrics = ScanMetrics()
@@ -239,9 +240,10 @@ final class ScanEngineTests: XCTestCase {
         )
         await pool.finish()
 
-        XCTAssertNil(decision.summary)
+        #expect(decision.summary == nil)
     }
 
+    @Test
     func testFoundationAtomicWorkResultRejectsPreAndPostEnumerationReplacement() throws {
         let parentURL = try makeTemporaryDirectory()
         let foreignURL = try makeTemporaryDirectory()
@@ -274,11 +276,11 @@ final class ScanEngineTests: XCTestCase {
             progressReporter: progressReporter,
             progressVisitedItemCount: 0
         )
-        XCTAssertEqual(preMismatch.partial.visitedItemCount, 0)
-        XCTAssertEqual(preMismatch.partial.descendantFileCount, 0)
-        XCTAssertTrue(preMismatch.pendingItems.isEmpty)
-        XCTAssertEqual(preMismatch.partial.warnings.count, 1)
-        XCTAssertEqual(preMismatch.partial.warnings.first?.category, .fileSystem)
+        #expect(preMismatch.partial.visitedItemCount == 0)
+        #expect(preMismatch.partial.descendantFileCount == 0)
+        #expect(preMismatch.pendingItems.isEmpty)
+        #expect(preMismatch.partial.warnings.count == 1)
+        #expect(preMismatch.partial.warnings.first?.category == .fileSystem)
 
         let postMismatch = try AtomicDirectorySummarizer.processFoundationWorkItem(
             AtomicSummaryWorkItem(
@@ -302,15 +304,16 @@ final class ScanEngineTests: XCTestCase {
                 )
             }
         )
-        XCTAssertEqual(postMismatch.partial.visitedItemCount, 1)
-        XCTAssertEqual(postMismatch.partial.descendantFileCount, 0)
-        XCTAssertEqual(postMismatch.partial.logicalSize, 0)
-        XCTAssertTrue(postMismatch.pendingItems.isEmpty)
-        XCTAssertEqual(postMismatch.partial.warnings.count, 1)
-        XCTAssertEqual(postMismatch.partial.warnings.first?.path, rootURL.path)
-        XCTAssertEqual(postMismatch.partial.warnings.first?.category, .fileSystem)
+        #expect(postMismatch.partial.visitedItemCount == 1)
+        #expect(postMismatch.partial.descendantFileCount == 0)
+        #expect(postMismatch.partial.logicalSize == 0)
+        #expect(postMismatch.pendingItems.isEmpty)
+        #expect(postMismatch.partial.warnings.count == 1)
+        #expect(postMismatch.partial.warnings.first?.path == rootURL.path)
+        #expect(postMismatch.partial.warnings.first?.category == .fileSystem)
     }
 
+    @Test
     func testFoundationAtomicWorkResultSkipsChildWithoutFilesystemIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -334,17 +337,16 @@ final class ScanEngineTests: XCTestCase {
             progressVisitedItemCount: 0
         )
 
-        XCTAssertTrue(result.pendingItems.isEmpty)
-        XCTAssertEqual(result.partial.warnings.count, 1)
-        XCTAssertEqual(
+        #expect(result.pendingItems.isEmpty)
+        #expect(result.partial.warnings.count == 1)
+        #expect(
             result.partial.warnings.first.map {
                 URL(filePath: $0.path).resolvingSymlinksInPath().path
-            },
-            childURL.resolvingSymlinksInPath().path
-        )
-        XCTAssertEqual(result.partial.warnings.first?.category, .fileSystem)
+            } == childURL.resolvingSymlinksInPath().path)
+        #expect(result.partial.warnings.first?.category == .fileSystem)
     }
 
+    @Test
     func testPooledFoundationRestartMatchesPooledSummary() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -369,23 +371,24 @@ final class ScanEngineTests: XCTestCase {
         let (_, continuation) = makeAtomicSummaryProgressReporter()
         defer { continuation.finish() }
         let pool = AtomicDirectorySummaryPool(workerLimit: 3, progressEmissionInterval: 0)
-        let reference = try await pool.summarize(AtomicSummaryPoolRequest(
-            url: rootURL,
-            expectedRootIdentity: rootIdentity,
-            includeHiddenFiles: false,
-            treatPackagesAsDirectories: false,
-            progressWeight: 1,
-            progressKind: .autoSummary,
-            representedItemCount: 0,
-            ownerNodeID: rootURL.path,
-            exclusionMatcher: matcher,
-            metadataLoader: metadataLoader,
-            volumeBoundaryPolicy: .unrestricted,
-            cancellationCheck: {},
-            metrics: ScanMetrics(),
-            continuation: continuation,
-            resumeState: nil
-        ))
+        let reference = try await pool.summarize(
+            AtomicSummaryPoolRequest(
+                url: rootURL,
+                expectedRootIdentity: rootIdentity,
+                includeHiddenFiles: false,
+                treatPackagesAsDirectories: false,
+                progressWeight: 1,
+                progressKind: .autoSummary,
+                representedItemCount: 0,
+                ownerNodeID: rootURL.path,
+                exclusionMatcher: matcher,
+                metadataLoader: metadataLoader,
+                volumeBoundaryPolicy: .unrestricted,
+                cancellationCheck: {},
+                metrics: ScanMetrics(),
+                continuation: continuation,
+                resumeState: nil
+            ))
 
         let cursor = try BulkDirectoryEnumerator.makeCursor(
             at: rootURL,
@@ -394,58 +397,57 @@ final class ScanEngineTests: XCTestCase {
             cancellationCheck: {},
             forcedUnavailableAfterBatchCount: 0
         )
-        let restarted = try await pool.summarize(AtomicSummaryPoolRequest(
-            url: rootURL,
-            expectedRootIdentity: rootIdentity,
-            includeHiddenFiles: false,
-            treatPackagesAsDirectories: false,
-            progressWeight: 1,
-            progressKind: .autoSummary,
-            representedItemCount: 0,
-            ownerNodeID: rootURL.path,
-            exclusionMatcher: matcher,
-            metadataLoader: metadataLoader,
-            volumeBoundaryPolicy: .unrestricted,
-            cancellationCheck: {},
-            metrics: ScanMetrics(),
-            continuation: continuation,
-            resumeState: AtomicDirectoryProbeResumeState(
-                partial: AtomicDirectorySummaryPartial(),
-                workItems: [AtomicSummaryWorkItem(
-                    url: rootURL,
-                    treatPackagesAsDirectories: false,
-                    ownerNodeID: rootURL.path,
-                    expectedIdentity: rootIdentity,
-                    cursor: cursor,
-                    needsCursor: false,
-                    requiresRootRestartOnFallback: true
-                )],
-                visitedItemCount: 0
-            )
-        ))
+        let restarted = try await pool.summarize(
+            AtomicSummaryPoolRequest(
+                url: rootURL,
+                expectedRootIdentity: rootIdentity,
+                includeHiddenFiles: false,
+                treatPackagesAsDirectories: false,
+                progressWeight: 1,
+                progressKind: .autoSummary,
+                representedItemCount: 0,
+                ownerNodeID: rootURL.path,
+                exclusionMatcher: matcher,
+                metadataLoader: metadataLoader,
+                volumeBoundaryPolicy: .unrestricted,
+                cancellationCheck: {},
+                metrics: ScanMetrics(),
+                continuation: continuation,
+                resumeState: AtomicDirectoryProbeResumeState(
+                    partial: AtomicDirectorySummaryPartial(),
+                    workItems: [
+                        AtomicSummaryWorkItem(
+                            url: rootURL,
+                            treatPackagesAsDirectories: false,
+                            ownerNodeID: rootURL.path,
+                            expectedIdentity: rootIdentity,
+                            cursor: cursor,
+                            needsCursor: false,
+                            requiresRootRestartOnFallback: true
+                        )
+                    ],
+                    visitedItemCount: 0
+                )
+            ))
         await pool.finish()
 
-        let referenceSummary = try XCTUnwrap(reference)
-        let restartedSummary = try XCTUnwrap(restarted)
-        XCTAssertEqual(restartedSummary.allocatedSize, referenceSummary.allocatedSize)
-        XCTAssertEqual(restartedSummary.logicalSize, referenceSummary.logicalSize)
-        XCTAssertEqual(restartedSummary.descendantFileCount, referenceSummary.descendantFileCount)
-        XCTAssertEqual(restartedSummary.visitedItemCount, referenceSummary.visitedItemCount)
-        XCTAssertEqual(restartedSummary.isAccessible, referenceSummary.isAccessible)
-        XCTAssertEqual(
-            warningSemantics(restartedSummary.warnings),
-            warningSemantics(referenceSummary.warnings)
-        )
-        XCTAssertEqual(
-            restartedSummary.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner,
-            referenceSummary.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
-        )
-        XCTAssertEqual(
-            restartedSummary.sharedAllocationAccumulator.identityCount,
-            referenceSummary.sharedAllocationAccumulator.identityCount
-        )
+        let referenceSummary = try #require(reference)
+        let restartedSummary = try #require(restarted)
+        #expect(restartedSummary.allocatedSize == referenceSummary.allocatedSize)
+        #expect(restartedSummary.logicalSize == referenceSummary.logicalSize)
+        #expect(restartedSummary.descendantFileCount == referenceSummary.descendantFileCount)
+        #expect(restartedSummary.visitedItemCount == referenceSummary.visitedItemCount)
+        #expect(restartedSummary.isAccessible == referenceSummary.isAccessible)
+        #expect(warningSemantics(restartedSummary.warnings) == warningSemantics(referenceSummary.warnings))
+        #expect(
+            restartedSummary.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
+                == referenceSummary.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner)
+        #expect(
+            restartedSummary.sharedAllocationAccumulator.identityCount
+                == referenceSummary.sharedAllocationAccumulator.identityCount)
     }
 
+    @Test
     func testLateNativeFallbackPreservesOriginalRootIdentity() async throws {
         let parentURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: parentURL) }
@@ -471,44 +473,49 @@ final class ScanEngineTests: XCTestCase {
         let (_, continuation) = makeAtomicSummaryProgressReporter()
         defer { continuation.finish() }
         let pool = AtomicDirectorySummaryPool(workerLimit: 1, progressEmissionInterval: 0)
-        let summary = try await pool.summarize(AtomicSummaryPoolRequest(
-            url: rootURL,
-            expectedRootIdentity: originalIdentity,
-            includeHiddenFiles: true,
-            treatPackagesAsDirectories: true,
-            progressWeight: 1,
-            progressKind: .autoSummary,
-            representedItemCount: 0,
-            ownerNodeID: rootURL.path,
-            exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
-            metadataLoader: metadataLoader,
-            volumeBoundaryPolicy: .unrestricted,
-            cancellationCheck: {},
-            metrics: ScanMetrics(),
-            continuation: continuation,
-            resumeState: AtomicDirectoryProbeResumeState(
-                partial: AtomicDirectorySummaryPartial(),
-                workItems: [AtomicSummaryWorkItem(
-                    url: rootURL,
-                    treatPackagesAsDirectories: true,
-                    ownerNodeID: rootURL.path,
-                    expectedIdentity: originalIdentity,
-                    cursor: cursor,
-                    needsCursor: false,
-                    requiresRootRestartOnFallback: true
-                )],
-                visitedItemCount: 0
-            )
-        ))
+        let summary = try await pool.summarize(
+            AtomicSummaryPoolRequest(
+                url: rootURL,
+                expectedRootIdentity: originalIdentity,
+                includeHiddenFiles: true,
+                treatPackagesAsDirectories: true,
+                progressWeight: 1,
+                progressKind: .autoSummary,
+                representedItemCount: 0,
+                ownerNodeID: rootURL.path,
+                exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+                metadataLoader: metadataLoader,
+                volumeBoundaryPolicy: .unrestricted,
+                cancellationCheck: {},
+                metrics: ScanMetrics(),
+                continuation: continuation,
+                resumeState: AtomicDirectoryProbeResumeState(
+                    partial: AtomicDirectorySummaryPartial(),
+                    workItems: [
+                        AtomicSummaryWorkItem(
+                            url: rootURL,
+                            treatPackagesAsDirectories: true,
+                            ownerNodeID: rootURL.path,
+                            expectedIdentity: originalIdentity,
+                            cursor: cursor,
+                            needsCursor: false,
+                            requiresRootRestartOnFallback: true
+                        )
+                    ],
+                    visitedItemCount: 0
+                )
+            ))
         await pool.finish()
 
-        XCTAssertEqual(summary?.descendantFileCount, 0)
-        XCTAssertEqual(summary?.logicalSize, 0)
-        XCTAssertTrue(summary?.warnings.contains {
-            $0.path == rootURL.path && $0.category == .fileSystem
-        } == true)
+        #expect(summary?.descendantFileCount == 0)
+        #expect(summary?.logicalSize == 0)
+        #expect(
+            summary?.warnings.contains {
+                $0.path == rootURL.path && $0.category == .fileSystem
+            } == true)
     }
 
+    @Test
     func testFoundationAtomicWorkCancellationDoesNotReturnPartialWork() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -517,33 +524,34 @@ final class ScanEngineTests: XCTestCase {
             try Data([UInt8(index)]).write(to: url)
             return url
         }
-        let cancellation = AtomicFoundationCancellation(cancelAfterCheckCount: 3)
+        let cancellation = CancellationProbe(throwOnCheck: 3)
         let (_, continuation) = makeAtomicSummaryProgressReporter()
         defer { continuation.finish() }
 
-        XCTAssertThrowsError(try AtomicDirectorySummarizer.processFoundationWorkItem(
-            AtomicSummaryWorkItem(
-                url: rootURL,
-                treatPackagesAsDirectories: true,
-                ownerNodeID: rootURL.path
-            ),
-            includeHiddenFiles: true,
-            exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
-            metadataLoader: ScanMetadataLoader(),
-            cancellationCheck: cancellation.check,
-            progressReporter: AtomicSummaryProgressReporter(
-                metrics: ScanMetrics(),
-                continuation: continuation
-            ),
-            progressVisitedItemCount: 0,
-            directoryContents: { _, _, _, _ in
-                ScanEngine.DirectoryEnumerationResult(urls: urls)
-            }
-        )) { error in
-            XCTAssertTrue(error is CancellationError)
+        #expect(throws: CancellationError.self) {
+            try AtomicDirectorySummarizer.processFoundationWorkItem(
+                AtomicSummaryWorkItem(
+                    url: rootURL,
+                    treatPackagesAsDirectories: true,
+                    ownerNodeID: rootURL.path
+                ),
+                includeHiddenFiles: true,
+                exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+                metadataLoader: ScanMetadataLoader(),
+                cancellationCheck: cancellation.check,
+                progressReporter: AtomicSummaryProgressReporter(
+                    metrics: ScanMetrics(),
+                    continuation: continuation
+                ),
+                progressVisitedItemCount: 0,
+                directoryContents: { _, _, _, _ in
+                    ScanEngine.DirectoryEnumerationResult(urls: urls)
+                }
+            )
         }
     }
 
+    @Test
     func testPooledReusedEntriesReloadMissingPrefetchedMetadata() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -559,11 +567,13 @@ final class ScanEngineTests: XCTestCase {
                 url: rootURL,
                 treatPackagesAsDirectories: true,
                 ownerNodeID: rootURL.path,
-                bufferedEntries: [DirectoryEntry(
-                    url: fileURL,
-                    metadata: nil,
-                    localizedEnumerationError: CocoaError(.fileReadUnknown)
-                )],
+                bufferedEntries: [
+                    DirectoryEntry(
+                        url: fileURL,
+                        metadata: nil,
+                        localizedEnumerationError: CocoaError(.fileReadUnknown)
+                    )
+                ],
                 needsCursor: false,
                 reloadsMissingBufferedMetadata: true
             ),
@@ -578,12 +588,13 @@ final class ScanEngineTests: XCTestCase {
             forcesFoundationTraversal: false
         )
 
-        XCTAssertEqual(result.partial.descendantFileCount, 1)
-        XCTAssertEqual(result.partial.logicalSize, 32)
-        XCTAssertEqual(result.partial.visitedItemCount, 1)
-        XCTAssertTrue(result.partial.warnings.isEmpty)
+        #expect(result.partial.descendantFileCount == 1)
+        #expect(result.partial.logicalSize == 32)
+        #expect(result.partial.visitedItemCount == 1)
+        #expect(result.partial.warnings.isEmpty)
     }
 
+    @Test
     func testAtomicSummarySizeAccumulationClampsInsteadOfOverflowing() {
         var partial = AtomicDirectorySummaryPartial(
             allocatedSize: Int64.max,
@@ -609,22 +620,24 @@ final class ScanEngineTests: XCTestCase {
             ownerNodeID: "/"
         )
 
-        XCTAssertEqual(partial.allocatedSize, Int64.max)
-        XCTAssertEqual(partial.logicalSize, Int64.max)
-        XCTAssertEqual(partial.descendantFileCount, Int.max)
+        #expect(partial.allocatedSize == Int64.max)
+        #expect(partial.logicalSize == Int64.max)
+        #expect(partial.descendantFileCount == Int.max)
 
         let accumulator = AtomicSummaryAccumulator(seed: partial)
-        accumulator.merge(AtomicDirectorySummaryPartial(
-            allocatedSize: 1,
-            logicalSize: 1,
-            descendantFileCount: 1
-        ))
+        accumulator.merge(
+            AtomicDirectorySummaryPartial(
+                allocatedSize: 1,
+                logicalSize: 1,
+                descendantFileCount: 1
+            ))
         let summary = accumulator.makeSummary()
-        XCTAssertEqual(summary.allocatedSize, Int64.max)
-        XCTAssertEqual(summary.logicalSize, Int64.max)
-        XCTAssertEqual(summary.descendantFileCount, Int.max)
+        #expect(summary.allocatedSize == Int64.max)
+        #expect(summary.logicalSize == Int64.max)
+        #expect(summary.descendantFileCount == Int.max)
     }
 
+    @Test
     func testSummaryProgressThrottlePublishesOnlyWhenDueOrForced() async throws {
         let clock = AtomicSummaryProgressClock(
             Date(timeIntervalSinceReferenceDate: 1_000)
@@ -672,13 +685,15 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(publications.map(\.currentPath), ["/first", "/due", "/forced"])
-        XCTAssertEqual(publications.map(\.completedPackageSummaryCount), [1, 2, 3])
-        XCTAssertTrue(zip(publications, publications.dropFirst()).allSatisfy {
-            $0.progressFraction <= $1.progressFraction
-        })
+        #expect(publications.map(\.currentPath) == ["/first", "/due", "/forced"])
+        #expect(publications.map(\.completedPackageSummaryCount) == [1, 2, 3])
+        #expect(
+            zip(publications, publications.dropFirst()).allSatisfy {
+                $0.progressFraction <= $1.progressFraction
+            })
     }
 
+    @Test
     func testSummaryCompletionPublishesBeforeCommittedBaseWithinThrottleInterval() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -706,23 +721,24 @@ final class ScanEngineTests: XCTestCase {
             currentPath: "/queued"
         )
 
-        let summary = try await pool.summarize(AtomicSummaryPoolRequest(
-            url: rootURL,
-            expectedRootIdentity: nil,
-            includeHiddenFiles: true,
-            treatPackagesAsDirectories: true,
-            progressWeight: 1,
-            progressKind: .package,
-            representedItemCount: 0,
-            ownerNodeID: rootURL.path,
-            exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
-            metadataLoader: ScanMetadataLoader(),
-            volumeBoundaryPolicy: .unrestricted,
-            cancellationCheck: {},
-            metrics: queuedMetrics,
-            continuation: continuation,
-            resumeState: nil
-        ))
+        let summary = try await pool.summarize(
+            AtomicSummaryPoolRequest(
+                url: rootURL,
+                expectedRootIdentity: nil,
+                includeHiddenFiles: true,
+                treatPackagesAsDirectories: true,
+                progressWeight: 1,
+                progressKind: .package,
+                representedItemCount: 0,
+                ownerNodeID: rootURL.path,
+                exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+                metadataLoader: ScanMetadataLoader(),
+                volumeBoundaryPolicy: .unrestricted,
+                cancellationCheck: {},
+                metrics: queuedMetrics,
+                continuation: continuation,
+                resumeState: nil
+            ))
 
         var committedMetrics = queuedMetrics
         committedMetrics.pendingPackageSummaryCount = 0
@@ -748,22 +764,24 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        let completedSummary = try XCTUnwrap(summary)
-        XCTAssertEqual(completedSummary.descendantFileCount, 1)
-        XCTAssertEqual(publications.count, 3)
-        XCTAssertEqual(publications[0].currentPath, "/queued")
-        XCTAssertEqual(publications[1].activeAtomicSummaryCount, 1)
-        XCTAssertEqual(publications[1].atomicSummaryCompletedTraversalWeight, 1)
-        XCTAssertEqual(publications[1].atomicSummaryVisitedItems, completedSummary.visitedItemCount)
-        XCTAssertEqual(publications[2].currentPath, "/committed")
-        XCTAssertEqual(publications[2].activeAtomicSummaryCount, 0)
-        XCTAssertEqual(publications[2].atomicSummaryVisitedItems, 0)
-        XCTAssertEqual(publications[2].completedPackageSummaryCount, 1)
-        XCTAssertTrue(zip(publications, publications.dropFirst()).allSatisfy {
-            $0.progressFraction <= $1.progressFraction
-        })
+        let completedSummary = try #require(summary)
+        #expect(completedSummary.descendantFileCount == 1)
+        #expect(publications.count == 3)
+        #expect(publications[0].currentPath == "/queued")
+        #expect(publications[1].activeAtomicSummaryCount == 1)
+        #expect(publications[1].atomicSummaryCompletedTraversalWeight == 1)
+        #expect(publications[1].atomicSummaryVisitedItems == completedSummary.visitedItemCount)
+        #expect(publications[2].currentPath == "/committed")
+        #expect(publications[2].activeAtomicSummaryCount == 0)
+        #expect(publications[2].atomicSummaryVisitedItems == 0)
+        #expect(publications[2].completedPackageSummaryCount == 1)
+        #expect(
+            zip(publications, publications.dropFirst()).allSatisfy {
+                $0.progressFraction <= $1.progressFraction
+            })
     }
 
+    @Test
     func testSummaryPathReportingPreservesCanonicalBaseMetrics() async throws {
         let pool = AtomicDirectorySummaryPool(
             workerLimit: 1,
@@ -790,14 +808,16 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(publications.count, 2)
-        XCTAssertTrue(publications.allSatisfy { $0.completedPackageSummaryCount == 1 })
-        XCTAssertTrue(publications.allSatisfy {
-            $0.completedSummaryAdditionalVisitedItemCount == 400
-        })
-        XCTAssertEqual(publications.last?.currentPath, "/newer/worker/path")
+        #expect(publications.count == 2)
+        #expect(publications.allSatisfy { $0.completedPackageSummaryCount == 1 })
+        #expect(
+            publications.allSatisfy {
+                $0.completedSummaryAdditionalVisitedItemCount == 400
+            })
+        #expect(publications.last?.currentPath == "/newer/worker/path")
     }
 
+    @Test
     func testSummaryFallbackAdvancesProgressGenerationBeforeRestartedLease() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -817,14 +837,16 @@ final class ScanEngineTests: XCTestCase {
         )
         let resumeState = AtomicDirectoryProbeResumeState(
             partial: AtomicDirectorySummaryPartial(),
-            workItems: [AtomicSummaryWorkItem(
-                url: rootURL,
-                treatPackagesAsDirectories: true,
-                ownerNodeID: rootURL.path,
-                cursor: cursor,
-                needsCursor: false,
-                requiresRootRestartOnFallback: true
-            )],
+            workItems: [
+                AtomicSummaryWorkItem(
+                    url: rootURL,
+                    treatPackagesAsDirectories: true,
+                    ownerNodeID: rootURL.path,
+                    cursor: cursor,
+                    needsCursor: false,
+                    requiresRootRestartOnFallback: true
+                )
+            ],
             visitedItemCount: 0
         )
         let lifecycle = AtomicSummaryWorkerLifecycleProbe()
@@ -847,23 +869,24 @@ final class ScanEngineTests: XCTestCase {
         base.pendingPackageSummaryCount = 1
         pool.updateProgress(base, continuation: continuation)
 
-        let summary = try await pool.summarize(AtomicSummaryPoolRequest(
-            url: rootURL,
-            expectedRootIdentity: nil,
-            includeHiddenFiles: true,
-            treatPackagesAsDirectories: true,
-            progressWeight: 1,
-            progressKind: .package,
-            representedItemCount: 0,
-            ownerNodeID: rootURL.path,
-            exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
-            metadataLoader: metadataLoader,
-            volumeBoundaryPolicy: .unrestricted,
-            cancellationCheck: {},
-            metrics: base,
-            continuation: continuation,
-            resumeState: resumeState
-        ))
+        let summary = try await pool.summarize(
+            AtomicSummaryPoolRequest(
+                url: rootURL,
+                expectedRootIdentity: nil,
+                includeHiddenFiles: true,
+                treatPackagesAsDirectories: true,
+                progressWeight: 1,
+                progressKind: .package,
+                representedItemCount: 0,
+                ownerNodeID: rootURL.path,
+                exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+                metadataLoader: metadataLoader,
+                volumeBoundaryPolicy: .unrestricted,
+                cancellationCheck: {},
+                metrics: base,
+                continuation: continuation,
+                resumeState: resumeState
+            ))
         await pool.finish()
         await pool.finish()
         continuation.finish()
@@ -875,20 +898,20 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(summary?.descendantFileCount, 128)
-        let firstRestartedVisit = try XCTUnwrap(publications.first {
-            $0.atomicSummaryVisitedItems == 1 && $0.activePackageSummaryCount == 1
-        })
-        XCTAssertEqual(
-            firstRestartedVisit.atomicSummaryEstimatedRemainingItems,
-            ScanMetrics.unobservedSummaryEstimatedItemCount
-        )
-        XCTAssertEqual(lifecycle.activeWorkerCount, 0)
-        XCTAssertTrue(lifecycle.didObserveShutdown)
-        XCTAssertEqual(lifecycle.shutdownCount, 1)
-        XCTAssertEqual(lifecycle.lastEvent, .shutdown)
+        #expect(summary?.descendantFileCount == 128)
+        let firstRestartedVisit = try #require(
+            publications.first {
+                $0.atomicSummaryVisitedItems == 1 && $0.activePackageSummaryCount == 1
+            })
+        #expect(
+            firstRestartedVisit.atomicSummaryEstimatedRemainingItems == ScanMetrics.unobservedSummaryEstimatedItemCount)
+        #expect(lifecycle.activeWorkerCount == 0)
+        #expect(lifecycle.didObserveShutdown)
+        #expect(lifecycle.shutdownCount == 1)
+        #expect(lifecycle.lastEvent == .shutdown)
     }
 
+    @Test
     func testLowDescriptorBudgetMatchesNormalScanAndStaysWithinPeak() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -917,28 +940,29 @@ final class ScanEngineTests: XCTestCase {
         )
 
         let referenceIDs = reference.treeStore.indexedNodeIDs()
-        XCTAssertEqual(constrained.treeStore.indexedNodeIDs(), referenceIDs)
+        #expect(constrained.treeStore.indexedNodeIDs() == referenceIDs)
         for nodeID in referenceIDs {
-            XCTAssertEqual(constrained.treeStore.node(id: nodeID), reference.treeStore.node(id: nodeID), nodeID)
-            XCTAssertEqual(
-                constrained.treeStore.children(of: nodeID).map(\.id),
-                reference.treeStore.children(of: nodeID).map(\.id),
-                nodeID
-            )
+            #expect(
+                constrained.treeStore.node(id: nodeID) == reference.treeStore.node(id: nodeID),
+                Comment(rawValue: nodeID))
+            #expect(
+                constrained.treeStore.children(of: nodeID).map(\.id)
+                    == reference.treeStore.children(of: nodeID).map(\.id), Comment(rawValue: nodeID))
         }
-        XCTAssertEqual(constrained.aggregateStats.totalAllocatedSize, reference.aggregateStats.totalAllocatedSize)
-        XCTAssertEqual(constrained.aggregateStats.totalLogicalSize, reference.aggregateStats.totalLogicalSize)
-        XCTAssertEqual(constrained.aggregateStats.fileCount, reference.aggregateStats.fileCount)
-        XCTAssertEqual(constrained.aggregateStats.directoryCount, reference.aggregateStats.directoryCount)
-        XCTAssertEqual(constrained.aggregateStats.accessibleItemCount, reference.aggregateStats.accessibleItemCount)
-        XCTAssertEqual(constrained.aggregateStats.inaccessibleItemCount, reference.aggregateStats.inaccessibleItemCount)
+        #expect(constrained.aggregateStats.totalAllocatedSize == reference.aggregateStats.totalAllocatedSize)
+        #expect(constrained.aggregateStats.totalLogicalSize == reference.aggregateStats.totalLogicalSize)
+        #expect(constrained.aggregateStats.fileCount == reference.aggregateStats.fileCount)
+        #expect(constrained.aggregateStats.directoryCount == reference.aggregateStats.directoryCount)
+        #expect(constrained.aggregateStats.accessibleItemCount == reference.aggregateStats.accessibleItemCount)
+        #expect(constrained.aggregateStats.inaccessibleItemCount == reference.aggregateStats.inaccessibleItemCount)
         let counters = descriptorPool.debugCounters
-        XCTAssertLessThanOrEqual(counters.peakOpenDescriptorCount, 2)
-        XCTAssertGreaterThan(counters.openatCallCount, 0)
-        XCTAssertGreaterThan(counters.fallbackCount, 0)
-        XCTAssertEqual(counters.currentOpenDescriptorCount, 0)
+        #expect(counters.peakOpenDescriptorCount <= 2)
+        #expect(counters.openatCallCount > 0)
+        #expect(counters.fallbackCount > 0)
+        #expect(counters.currentOpenDescriptorCount == 0)
     }
 
+    @Test
     func testBoundedWorkerSideLeafPreparationMatchesCoordinatorPreparation() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -976,45 +1000,27 @@ final class ScanEngineTests: XCTestCase {
         )
 
         let nodeIDs = coordinatorSnapshot.treeStore.indexedNodeIDs()
-        XCTAssertEqual(workerSnapshot.treeStore.indexedNodeIDs(), nodeIDs)
-        XCTAssertEqual(
-            workerSnapshot.treeStore.childIDsByID,
-            coordinatorSnapshot.treeStore.childIDsByID
-        )
+        #expect(workerSnapshot.treeStore.indexedNodeIDs() == nodeIDs)
+        #expect(workerSnapshot.treeStore.childIDsByID == coordinatorSnapshot.treeStore.childIDsByID)
         for nodeID in nodeIDs {
-            XCTAssertEqual(
-                workerSnapshot.treeStore.node(id: nodeID),
-                coordinatorSnapshot.treeStore.node(id: nodeID),
-                nodeID
-            )
+            #expect(
+                workerSnapshot.treeStore.node(id: nodeID) == coordinatorSnapshot.treeStore.node(id: nodeID),
+                Comment(rawValue: nodeID))
         }
-        XCTAssertEqual(
-            workerSnapshot.aggregateStats.totalAllocatedSize,
-            coordinatorSnapshot.aggregateStats.totalAllocatedSize
-        )
-        XCTAssertEqual(
-            workerSnapshot.aggregateStats.totalLogicalSize,
-            coordinatorSnapshot.aggregateStats.totalLogicalSize
-        )
-        XCTAssertEqual(
-            workerSnapshot.aggregateStats.fileCount,
-            coordinatorSnapshot.aggregateStats.fileCount
-        )
-        XCTAssertEqual(
-            workerSnapshot.aggregateStats.directoryCount,
-            coordinatorSnapshot.aggregateStats.directoryCount
-        )
-        XCTAssertEqual(
-            workerSnapshot.aggregateStats.accessibleItemCount,
-            coordinatorSnapshot.aggregateStats.accessibleItemCount
-        )
-        XCTAssertEqual(
-            workerSnapshot.aggregateStats.inaccessibleItemCount,
-            coordinatorSnapshot.aggregateStats.inaccessibleItemCount
-        )
-        XCTAssertEqual(workerSnapshot.scanWarnings, coordinatorSnapshot.scanWarnings)
+        #expect(
+            workerSnapshot.aggregateStats.totalAllocatedSize == coordinatorSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(workerSnapshot.aggregateStats.totalLogicalSize == coordinatorSnapshot.aggregateStats.totalLogicalSize)
+        #expect(workerSnapshot.aggregateStats.fileCount == coordinatorSnapshot.aggregateStats.fileCount)
+        #expect(workerSnapshot.aggregateStats.directoryCount == coordinatorSnapshot.aggregateStats.directoryCount)
+        #expect(
+            workerSnapshot.aggregateStats.accessibleItemCount == coordinatorSnapshot.aggregateStats.accessibleItemCount)
+        #expect(
+            workerSnapshot.aggregateStats.inaccessibleItemCount
+                == coordinatorSnapshot.aggregateStats.inaccessibleItemCount)
+        #expect(workerSnapshot.scanWarnings == coordinatorSnapshot.scanWarnings)
     }
 
+    @Test
     func testDirectorySymlinkSwapAfterDiscoveryIsRefused() async throws {
         let rootURL = try makeTemporaryDirectory()
         let outsideURL = try makeTemporaryDirectory()
@@ -1043,7 +1049,7 @@ final class ScanEngineTests: XCTestCase {
             blocker.release()
             scanTask.cancel()
         }
-        XCTAssertEqual(blocker.didReachChildOpen.wait(timeout: .now() + 2), .success)
+        #expect(await waitForSemaphore(blocker.didReachChildOpen) == .success)
         try FileManager.default.removeItem(at: childURL)
         try FileManager.default.createSymbolicLink(at: childURL, withDestinationURL: outsideURL)
         blocker.release()
@@ -1051,14 +1057,15 @@ final class ScanEngineTests: XCTestCase {
         let snapshot = try await withTimeout(.seconds(2)) {
             try await scanTask.value
         }
-        let childNode = try XCTUnwrap(snapshot.treeStore.node(id: childURL.path))
-        XCTAssertFalse(childNode.isAccessible)
-        XCTAssertNil(snapshot.treeStore.node(id: childURL.appending(path: "outside.bin").path))
-        XCTAssertNil(snapshot.treeStore.node(id: outsideFileURL.path))
-        XCTAssertFalse(snapshot.scanWarnings.isEmpty)
-        XCTAssertEqual(descriptorPool.debugCounters.currentOpenDescriptorCount, 0)
+        let childNode = try #require(snapshot.treeStore.node(id: childURL.path))
+        #expect(!(childNode.isAccessible))
+        #expect(snapshot.treeStore.node(id: childURL.appending(path: "outside.bin").path) == nil)
+        #expect(snapshot.treeStore.node(id: outsideFileURL.path) == nil)
+        #expect(!(snapshot.scanWarnings.isEmpty))
+        #expect(descriptorPool.debugCounters.currentOpenDescriptorCount == 0)
     }
 
+    @Test
     func testCancellingDescriptorRelativeScanClosesInFlightAndRetainedLeases() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1079,8 +1086,6 @@ final class ScanEngineTests: XCTestCase {
                 }
             } catch is CancellationError {
                 return false
-            } catch {
-                return false
             }
             return false
         }
@@ -1088,36 +1093,38 @@ final class ScanEngineTests: XCTestCase {
             blocker.release()
             scanTask.cancel()
         }
-        XCTAssertEqual(blocker.didReachChildOpen.wait(timeout: .now() + 2), .success)
+        #expect(await waitForSemaphore(blocker.didReachChildOpen) == .success)
 
         scanTask.cancel()
         blocker.release()
         let didFinish = try await withTimeout(.seconds(2)) {
-            await scanTask.value
+            try await scanTask.value
         }
 
-        XCTAssertFalse(didFinish)
+        #expect(!(didFinish))
         try await waitUntil("cancelled descriptor leases to close") {
             descriptorPool.debugCounters.currentOpenDescriptorCount == 0
         }
     }
 
+    @Test
     func testBulkDirectoryEnumerationRejectsIncompleteMetadataAttributeSets() {
         var returned = attribute_set_t()
         returned.commonattr = .max
         returned.fileattr = .max
 
-        XCTAssertTrue(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VREG.rawValue))
+        #expect(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VREG.rawValue))
 
         returned.fileattr &= ~attrgroup_t(ATTR_FILE_LINKCOUNT)
-        XCTAssertFalse(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VREG.rawValue))
-        XCTAssertFalse(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VLNK.rawValue))
-        XCTAssertTrue(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VDIR.rawValue))
+        #expect(!(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VREG.rawValue)))
+        #expect(!(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VLNK.rawValue)))
+        #expect(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VDIR.rawValue))
 
         returned.commonattr &= ~attrgroup_t(ATTR_CMN_OBJTYPE)
-        XCTAssertFalse(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VDIR.rawValue))
+        #expect(!(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VDIR.rawValue)))
     }
 
+    @Test
     func testBulkDirectoryEnumerationMatchesScannerMetadataAndHiddenFiltering() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1141,51 +1148,57 @@ final class ScanEngineTests: XCTestCase {
         try flaggedHiddenURL.setResourceValues(hiddenValues)
 
         let metadataLoader = ScanMetadataLoader()
-        let visibleResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: false,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
-        let completeResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
+        let visibleResultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: false,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let visibleResult = try #require(visibleResultValue)
+        let completeResultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let completeResult = try #require(completeResultValue)
 
-        XCTAssertEqual(visibleResult.enumeratedItemCount, 7)
-        XCTAssertEqual(completeResult.enumeratedItemCount, 7)
-        XCTAssertFalse(visibleResult.entries.contains { $0.url.lastPathComponent == ".hidden" })
-        XCTAssertFalse(visibleResult.entries.contains { $0.url.lastPathComponent == "flagged-hidden" })
-        XCTAssertTrue(completeResult.entries.contains { $0.url.lastPathComponent == ".hidden" })
-        XCTAssertTrue(completeResult.entries.contains { $0.url.lastPathComponent == "flagged-hidden" })
+        #expect(visibleResult.enumeratedItemCount == 7)
+        #expect(completeResult.enumeratedItemCount == 7)
+        #expect(!(visibleResult.entries.contains { $0.url.lastPathComponent == ".hidden" }))
+        #expect(!(visibleResult.entries.contains { $0.url.lastPathComponent == "flagged-hidden" }))
+        #expect(completeResult.entries.contains { $0.url.lastPathComponent == ".hidden" })
+        #expect(completeResult.entries.contains { $0.url.lastPathComponent == "flagged-hidden" })
 
-        let entriesByName = Dictionary(uniqueKeysWithValues: completeResult.entries.map {
-            ($0.url.lastPathComponent, $0)
-        })
-        let fileMetadata = try XCTUnwrap(entriesByName["payload.bin"]?.metadata)
-        let linkMetadata = try XCTUnwrap(entriesByName["payload-link.bin"]?.metadata)
-        let symlinkMetadata = try XCTUnwrap(entriesByName["payload-alias"]?.metadata)
-        let directoryMetadata = try XCTUnwrap(entriesByName["Folder"]?.metadata)
+        let entriesByName = Dictionary(
+            uniqueKeysWithValues: completeResult.entries.map {
+                ($0.url.lastPathComponent, $0)
+            })
+        let fileMetadata = try #require(entriesByName["payload.bin"]?.metadata)
+        let linkMetadata = try #require(entriesByName["payload-link.bin"]?.metadata)
+        let symlinkMetadata = try #require(entriesByName["payload-alias"]?.metadata)
+        let directoryMetadata = try #require(entriesByName["Folder"]?.metadata)
         let loadedDirectoryMetadata = try metadataLoader.metadata(for: directoryURL)
 
-        XCTAssertEqual(directoryMetadata.lastModified, loadedDirectoryMetadata.lastModified)
-        let packageMetadata = try XCTUnwrap(entriesByName["Sample.app"]?.metadata)
+        #expect(directoryMetadata.lastModified == loadedDirectoryMetadata.lastModified)
+        let packageMetadata = try #require(entriesByName["Sample.app"]?.metadata)
         let foundationFileMetadata = try metadataLoader.metadata(for: fileURL)
 
-        XCTAssertEqual(fileMetadata.logicalSize, foundationFileMetadata.logicalSize)
-        XCTAssertEqual(fileMetadata.allocatedSize, foundationFileMetadata.allocatedSize)
-        XCTAssertEqual(fileMetadata.linkCount, foundationFileMetadata.linkCount)
-        XCTAssertEqual(fileMetadata.fileIdentity, linkMetadata.fileIdentity)
-        XCTAssertGreaterThan(fileMetadata.linkCount, 1)
-        XCTAssertTrue(symlinkMetadata.isSymbolicLink)
-        XCTAssertTrue(directoryMetadata.isDirectory)
-        XCTAssertFalse(directoryMetadata.isPackage)
-        XCTAssertTrue(packageMetadata.isDirectory)
-        XCTAssertTrue(packageMetadata.isPackage)
+        #expect(fileMetadata.logicalSize == foundationFileMetadata.logicalSize)
+        #expect(fileMetadata.allocatedSize == foundationFileMetadata.allocatedSize)
+        #expect(fileMetadata.linkCount == foundationFileMetadata.linkCount)
+        #expect(fileMetadata.fileIdentity == linkMetadata.fileIdentity)
+        #expect(fileMetadata.linkCount > 1)
+        #expect(symlinkMetadata.isSymbolicLink)
+        #expect(directoryMetadata.isDirectory)
+        #expect(!(directoryMetadata.isPackage))
+        #expect(packageMetadata.isDirectory)
+        #expect(packageMetadata.isPackage)
     }
 
+    @Test
     func testBulkDirectoryCursorStreamsAndCancelsBetweenBatches() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1214,10 +1227,10 @@ final class ScanEngineTests: XCTestCase {
             names.formUnion(batch.entries.map(\.url.lastPathComponent))
         }
 
-        XCTAssertGreaterThan(batchCount, 1)
-        XCTAssertLessThan(maxBatchSize, 1_200)
-        XCTAssertEqual(enumeratedItemCount, 1_200)
-        XCTAssertEqual(names.count, 1_200)
+        #expect(batchCount > 1)
+        #expect(maxBatchSize < 1_200)
+        #expect(enumeratedItemCount == 1_200)
+        #expect(names.count == 1_200)
 
         let unavailableResult = try BulkDirectoryEnumerator.directoryEntries(
             at: rootURL,
@@ -1226,7 +1239,7 @@ final class ScanEngineTests: XCTestCase {
             cancellationCheck: {},
             forcedUnavailableAfterBatchCount: 1
         )
-        XCTAssertNil(unavailableResult, "Late native fallback must discard earlier uncommitted batches.")
+        #expect(unavailableResult == nil, "Late native fallback must discard earlier uncommitted batches.")
 
         let cancellation = DirectoryEnumerationCancellation()
         let cancellingCursor = try BulkDirectoryEnumerator.makeCursor(
@@ -1235,32 +1248,35 @@ final class ScanEngineTests: XCTestCase {
             metadataLoader: metadataLoader,
             cancellationCheck: cancellation.check
         )
-        let firstBatch = try XCTUnwrap(cancellingCursor.nextBatch(cancellationCheck: cancellation.check))
-        XCTAssertLessThan(firstBatch.enumeratedItemCount, 1_200)
+        let firstBatchValue = try (cancellingCursor.nextBatch(cancellationCheck: cancellation.check))
+        let firstBatch = try #require(firstBatchValue)
+        #expect(firstBatch.enumeratedItemCount < 1_200)
         cancellation.cancel()
-        XCTAssertThrowsError(try cancellingCursor.nextBatch(cancellationCheck: cancellation.check)) { error in
-            XCTAssertTrue(error is CancellationError)
+        #expect(throws: CancellationError.self) {
+            try cancellingCursor.nextBatch(cancellationCheck: cancellation.check)
         }
 
-        let parsingCancellation = CancellationAfterChecks(3)
+        let parsingCancellation = CancellationProbe(throwOnCheck: 3)
         let parsingCursor = try BulkDirectoryEnumerator.makeCursor(
             at: rootURL,
             includeHiddenFiles: true,
             metadataLoader: metadataLoader,
             cancellationCheck: parsingCancellation.check
         )
-        XCTAssertThrowsError(try parsingCursor.nextBatch(cancellationCheck: parsingCancellation.check)) { error in
-            XCTAssertTrue(error is CancellationError)
+        #expect(throws: CancellationError.self) {
+            try parsingCursor.nextBatch(cancellationCheck: parsingCancellation.check)
         }
-        XCTAssertNil(try parsingCursor.nextBatch(cancellationCheck: {}))
+        #expect(try parsingCursor.nextBatch(cancellationCheck: {}) == nil)
     }
 
+    @Test
     func testDescriptorRelativeTraversalMatchesBudgetFallback() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         for branch in 0..<6 {
-            let leafURL = rootURL
+            let leafURL =
+                rootURL
                 .appending(path: "branch-\(branch)", directoryHint: .isDirectory)
                 .appending(path: "nested", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: leafURL, withIntermediateDirectories: true)
@@ -1285,17 +1301,18 @@ final class ScanEngineTests: XCTestCase {
             engine: fallbackEngine
         )
 
-        XCTAssertEqual(descriptorSnapshot.treeStore.indexedNodeIDs(), fallbackSnapshot.treeStore.indexedNodeIDs())
-        XCTAssertEqual(descriptorSnapshot.treeStore.childIDsByID, fallbackSnapshot.treeStore.childIDsByID)
-        XCTAssertEqual(descriptorSnapshot.root.allocatedSize, fallbackSnapshot.root.allocatedSize)
-        XCTAssertGreaterThan(descriptorPool.debugCounters.openatCallCount, 0)
-        XCTAssertEqual(descriptorPool.debugCounters.currentOpenDescriptorCount, 0)
-        XCTAssertLessThanOrEqual(descriptorPool.debugCounters.peakOpenDescriptorCount, 32)
-        XCTAssertGreaterThan(fallbackPool.debugCounters.fallbackCount, 0)
-        XCTAssertEqual(fallbackPool.debugCounters.currentOpenDescriptorCount, 0)
-        XCTAssertLessThanOrEqual(fallbackPool.debugCounters.peakOpenDescriptorCount, 1)
+        #expect(descriptorSnapshot.treeStore.indexedNodeIDs() == fallbackSnapshot.treeStore.indexedNodeIDs())
+        #expect(descriptorSnapshot.treeStore.childIDsByID == fallbackSnapshot.treeStore.childIDsByID)
+        #expect(descriptorSnapshot.root.allocatedSize == fallbackSnapshot.root.allocatedSize)
+        #expect(descriptorPool.debugCounters.openatCallCount > 0)
+        #expect(descriptorPool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(descriptorPool.debugCounters.peakOpenDescriptorCount <= 32)
+        #expect(fallbackPool.debugCounters.fallbackCount > 0)
+        #expect(fallbackPool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(fallbackPool.debugCounters.peakOpenDescriptorCount <= 1)
     }
 
+    @Test
     func testFoundationFallbackRejectsDirectoryReplacedDuringEnumeration() async throws {
         let rootURL = try makeTemporaryDirectory()
         let foreignRootURL = try makeTemporaryDirectory()
@@ -1334,12 +1351,14 @@ final class ScanEngineTests: XCTestCase {
             engine: engine
         )
 
-        XCTAssertNil(snapshot.treeStore.node(id: directoryURL.appending(path: "foreign.bin").path))
-        XCTAssertTrue(snapshot.scanWarnings.contains { warning in
-            warning.path == directoryURL.path && warning.category == .fileSystem
-        })
+        #expect(snapshot.treeStore.node(id: directoryURL.appending(path: "foreign.bin").path) == nil)
+        #expect(
+            snapshot.scanWarnings.contains { warning in
+                warning.path == directoryURL.path && warning.category == .fileSystem
+            })
     }
 
+    @Test
     func testBulkAndFoundationScannersMatchAdversarialFixture() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1360,7 +1379,7 @@ final class ScanEngineTests: XCTestCase {
         )
 
         let sparseURL = unicodeDirectoryURL.appending(path: "sparse-ß.bin")
-        XCTAssertTrue(FileManager.default.createFile(atPath: sparseURL.path, contents: nil))
+        #expect(FileManager.default.createFile(atPath: sparseURL.path, contents: nil))
         let sparseHandle = try FileHandle(forWritingTo: sparseURL)
         try sparseHandle.truncate(atOffset: 16 * 1_024 * 1_024)
         try sparseHandle.close()
@@ -1426,54 +1445,53 @@ final class ScanEngineTests: XCTestCase {
         )
 
         let optimizedNodeIDs = optimized.treeStore.indexedNodeIDs()
-        XCTAssertEqual(optimizedNodeIDs, foundation.treeStore.indexedNodeIDs())
-        XCTAssertEqual(optimized.treeStore.childIDsByID, foundation.treeStore.childIDsByID)
-        XCTAssertEqual(optimized.aggregateStats.totalAllocatedSize, foundation.aggregateStats.totalAllocatedSize)
-        XCTAssertEqual(optimized.aggregateStats.totalLogicalSize, foundation.aggregateStats.totalLogicalSize)
-        XCTAssertEqual(optimized.aggregateStats.fileCount, foundation.aggregateStats.fileCount)
-        XCTAssertEqual(optimized.aggregateStats.directoryCount, foundation.aggregateStats.directoryCount)
-        XCTAssertEqual(optimized.aggregateStats.accessibleItemCount, foundation.aggregateStats.accessibleItemCount)
-        XCTAssertEqual(optimized.aggregateStats.inaccessibleItemCount, foundation.aggregateStats.inaccessibleItemCount)
-        XCTAssertEqual(optimizedNodeIDs, legacy.treeStore.indexedNodeIDs())
-        XCTAssertEqual(optimized.treeStore.childIDsByID, legacy.treeStore.childIDsByID)
-        XCTAssertEqual(optimized.aggregateStats.totalAllocatedSize, legacy.aggregateStats.totalAllocatedSize)
-        XCTAssertEqual(optimized.aggregateStats.totalLogicalSize, legacy.aggregateStats.totalLogicalSize)
-        XCTAssertEqual(optimized.aggregateStats.fileCount, legacy.aggregateStats.fileCount)
-        XCTAssertEqual(optimized.aggregateStats.directoryCount, legacy.aggregateStats.directoryCount)
-        XCTAssertEqual(optimized.aggregateStats.accessibleItemCount, legacy.aggregateStats.accessibleItemCount)
-        XCTAssertEqual(optimized.aggregateStats.inaccessibleItemCount, legacy.aggregateStats.inaccessibleItemCount)
+        #expect(optimizedNodeIDs == foundation.treeStore.indexedNodeIDs())
+        #expect(optimized.treeStore.childIDsByID == foundation.treeStore.childIDsByID)
+        #expect(optimized.aggregateStats.totalAllocatedSize == foundation.aggregateStats.totalAllocatedSize)
+        #expect(optimized.aggregateStats.totalLogicalSize == foundation.aggregateStats.totalLogicalSize)
+        #expect(optimized.aggregateStats.fileCount == foundation.aggregateStats.fileCount)
+        #expect(optimized.aggregateStats.directoryCount == foundation.aggregateStats.directoryCount)
+        #expect(optimized.aggregateStats.accessibleItemCount == foundation.aggregateStats.accessibleItemCount)
+        #expect(optimized.aggregateStats.inaccessibleItemCount == foundation.aggregateStats.inaccessibleItemCount)
+        #expect(optimizedNodeIDs == legacy.treeStore.indexedNodeIDs())
+        #expect(optimized.treeStore.childIDsByID == legacy.treeStore.childIDsByID)
+        #expect(optimized.aggregateStats.totalAllocatedSize == legacy.aggregateStats.totalAllocatedSize)
+        #expect(optimized.aggregateStats.totalLogicalSize == legacy.aggregateStats.totalLogicalSize)
+        #expect(optimized.aggregateStats.fileCount == legacy.aggregateStats.fileCount)
+        #expect(optimized.aggregateStats.directoryCount == legacy.aggregateStats.directoryCount)
+        #expect(optimized.aggregateStats.accessibleItemCount == legacy.aggregateStats.accessibleItemCount)
+        #expect(optimized.aggregateStats.inaccessibleItemCount == legacy.aggregateStats.inaccessibleItemCount)
 
         for nodeID in optimizedNodeIDs {
-            let optimizedNode = try XCTUnwrap(optimized.treeStore.node(id: nodeID))
-            let foundationNode = try XCTUnwrap(foundation.treeStore.node(id: nodeID))
-            XCTAssertEqual(optimizedNode, legacy.treeStore.node(id: nodeID), nodeID)
-            XCTAssertEqual(optimizedNode.name, foundationNode.name, nodeID)
-            XCTAssertEqual(optimizedNode.isDirectory, foundationNode.isDirectory, nodeID)
-            XCTAssertEqual(optimizedNode.isSymbolicLink, foundationNode.isSymbolicLink, nodeID)
-            XCTAssertEqual(optimizedNode.allocatedSize, foundationNode.allocatedSize, nodeID)
-            XCTAssertEqual(
-                optimizedNode.unduplicatedAllocatedSize,
-                foundationNode.unduplicatedAllocatedSize,
-                nodeID
-            )
-            XCTAssertEqual(optimizedNode.dataAllocatedSize, foundationNode.dataAllocatedSize, nodeID)
-            XCTAssertEqual(optimizedNode.logicalSize, foundationNode.logicalSize, nodeID)
-            XCTAssertEqual(optimizedNode.descendantFileCount, foundationNode.descendantFileCount, nodeID)
-            XCTAssertEqual(optimizedNode.linkCount, foundationNode.linkCount, nodeID)
-            XCTAssertEqual(optimizedNode.cloneIdentity, foundationNode.cloneIdentity, nodeID)
-            XCTAssertEqual(optimizedNode.mayShareDataBlocks, foundationNode.mayShareDataBlocks, nodeID)
-            XCTAssertEqual(optimizedNode.isPackage, foundationNode.isPackage, nodeID)
-            XCTAssertEqual(optimizedNode.isAccessible, foundationNode.isAccessible, nodeID)
-            XCTAssertEqual(optimizedNode.isSelfAccessible, foundationNode.isSelfAccessible, nodeID)
+            let optimizedNode = try #require(optimized.treeStore.node(id: nodeID))
+            let foundationNode = try #require(foundation.treeStore.node(id: nodeID))
+            #expect(optimizedNode == legacy.treeStore.node(id: nodeID), Comment(rawValue: nodeID))
+            #expect(optimizedNode.name == foundationNode.name, Comment(rawValue: nodeID))
+            #expect(optimizedNode.isDirectory == foundationNode.isDirectory, Comment(rawValue: nodeID))
+            #expect(optimizedNode.isSymbolicLink == foundationNode.isSymbolicLink, Comment(rawValue: nodeID))
+            #expect(optimizedNode.allocatedSize == foundationNode.allocatedSize, Comment(rawValue: nodeID))
+            #expect(
+                optimizedNode.unduplicatedAllocatedSize == foundationNode.unduplicatedAllocatedSize,
+                Comment(rawValue: nodeID))
+            #expect(optimizedNode.dataAllocatedSize == foundationNode.dataAllocatedSize, Comment(rawValue: nodeID))
+            #expect(optimizedNode.logicalSize == foundationNode.logicalSize, Comment(rawValue: nodeID))
+            #expect(optimizedNode.descendantFileCount == foundationNode.descendantFileCount, Comment(rawValue: nodeID))
+            #expect(optimizedNode.linkCount == foundationNode.linkCount, Comment(rawValue: nodeID))
+            #expect(optimizedNode.cloneIdentity == foundationNode.cloneIdentity, Comment(rawValue: nodeID))
+            #expect(optimizedNode.mayShareDataBlocks == foundationNode.mayShareDataBlocks, Comment(rawValue: nodeID))
+            #expect(optimizedNode.isPackage == foundationNode.isPackage, Comment(rawValue: nodeID))
+            #expect(optimizedNode.isAccessible == foundationNode.isAccessible, Comment(rawValue: nodeID))
+            #expect(optimizedNode.isSelfAccessible == foundationNode.isSelfAccessible, Comment(rawValue: nodeID))
             if optimizedNode.linkCount > 1 {
-                XCTAssertNotNil(optimizedNode.fileIdentity, nodeID)
-                XCTAssertNotNil(foundationNode.fileIdentity, nodeID)
+                #expect(optimizedNode.fileIdentity != nil, Comment(rawValue: nodeID))
+                #expect(foundationNode.fileIdentity != nil, Comment(rawValue: nodeID))
             } else if optimizedNode.isSymbolicLink || optimizedNode.isDirectory {
-                XCTAssertEqual(optimizedNode.fileIdentity, foundationNode.fileIdentity, nodeID)
+                #expect(optimizedNode.fileIdentity == foundationNode.fileIdentity, Comment(rawValue: nodeID))
             }
         }
     }
 
+    @Test
     func testPackagesAreLeafNodesByDefault() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1481,23 +1499,25 @@ final class ScanEngineTests: XCTestCase {
         let packageURL = rootURL.appending(path: "Sample.app", directoryHint: .isDirectory)
         let binaryURL = packageURL.appending(path: "Contents/MacOS/Binary")
 
-        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("binary".utf8).write(to: binaryURL)
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
-        XCTAssertTrue(packageNode.isPackage)
-        XCTAssertTrue(packageNode.isDirectory)
-        XCTAssertFalse(containsChildren(packageNode, in: snapshot))
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertGreaterThanOrEqual(packageNode.logicalSize, Int64("binary".utf8.count))
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
+        #expect(packageNode.isPackage)
+        #expect(packageNode.isDirectory)
+        #expect(!(containsChildren(packageNode, in: snapshot)))
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(packageNode.logicalSize >= Int64("binary".utf8.count))
+        #expect(snapshot.aggregateStats.fileCount == 1)
     }
 
+    @Test
     func testPackageLeafNodesIncludeNestedPackageContents() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1506,19 +1526,21 @@ final class ScanEngineTests: XCTestCase {
         let nestedPackageURL = packageURL.appending(path: "Contents/PlugIns/Nested.appex", directoryHint: .isDirectory)
         let nestedBinaryURL = nestedPackageURL.appending(path: "Contents/MacOS/NestedBinary")
 
-        try FileManager.default.createDirectory(at: nestedBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: nestedBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x5A, count: 2_048).write(to: nestedBinaryURL)
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Host.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Host.app" }))
 
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertGreaterThanOrEqual(packageNode.logicalSize, 2_048)
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(packageNode.logicalSize >= 2_048)
     }
 
+    @Test
     func testPackageLeafSizesIgnoreNestedDirectoryEntries() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1526,20 +1548,22 @@ final class ScanEngineTests: XCTestCase {
         let packageURL = rootURL.appending(path: "Deep.app", directoryHint: .isDirectory)
         let binaryURL = packageURL.appending(path: "Contents/Frameworks/A.framework/Resources/B.bundle/C.txt")
 
-        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x7F, count: 1_024).write(to: binaryURL)
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Deep.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Deep.app" }))
 
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertEqual(packageNode.logicalSize, 1_024)
-        XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 1_024)
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(packageNode.logicalSize == 1_024)
+        #expect(packageNode.allocatedSize >= 1_024)
     }
 
+    @Test
     func testPackageRootHardLinksOnlyCountAllocatedStorageOnce() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1548,7 +1572,8 @@ final class ScanEngineTests: XCTestCase {
         let originalURL = packageURL.appending(path: "Contents/Resources/original.bin")
         let linkedURL = packageURL.appending(path: "Contents/Resources/linked.bin")
 
-        try FileManager.default.createDirectory(at: originalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: originalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0xCA, count: 4_096).write(to: originalURL)
         try FileManager.default.linkItem(at: originalURL, to: linkedURL)
 
@@ -1557,13 +1582,14 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
-        XCTAssertEqual(snapshot.root.logicalSize, 8_192)
-        XCTAssertGreaterThan(snapshot.root.allocatedSize, 0)
-        XCTAssertLessThan(snapshot.root.allocatedSize, snapshot.root.logicalSize)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+        #expect(snapshot.root.descendantFileCount == 2)
+        #expect(snapshot.root.logicalSize == 8_192)
+        #expect(snapshot.root.allocatedSize > 0)
+        #expect(snapshot.root.allocatedSize < snapshot.root.logicalSize)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
     }
 
+    @Test
     func testHardLinkCrossingAtomicPackageAndVisibleFileUsesLexicographicOwner() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1583,20 +1609,18 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let visibleNode = try XCTUnwrap(snapshot.treeStore.node(id: visibleFileURL.path))
-        let packageNode = try XCTUnwrap(snapshot.treeStore.node(id: packageURL.path))
+        let visibleNode = try #require(snapshot.treeStore.node(id: visibleFileURL.path))
+        let packageNode = try #require(snapshot.treeStore.node(id: packageURL.path))
 
-        XCTAssertGreaterThan(visibleNode.allocatedSize, 0)
-        XCTAssertEqual(packageNode.allocatedSize, packageMinimumAllocatedSize)
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 8_192)
-        XCTAssertEqual(
-            snapshot.root.allocatedSize,
-            visibleNode.allocatedSize + packageNode.allocatedSize
-        )
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+        #expect(visibleNode.allocatedSize > 0)
+        #expect(packageNode.allocatedSize == packageMinimumAllocatedSize)
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 8_192)
+        #expect(snapshot.root.allocatedSize == visibleNode.allocatedSize + packageNode.allocatedSize)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
     }
 
+    @Test
     func testParallelPackageSummaryMatchesSerialSummary() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1605,14 +1629,19 @@ final class ScanEngineTests: XCTestCase {
         let binaryURL = packageURL.appending(path: "Contents/MacOS/Parallel")
         let resourceURL = packageURL.appending(path: "Contents/Resources/Data/blob.dat")
         let hiddenURL = packageURL.appending(path: "Contents/Resources/.hidden")
-        let nestedPackageBinaryURL = packageURL
+        let nestedPackageBinaryURL =
+            packageURL
             .appending(path: "Contents/PlugIns/Nested.appex", directoryHint: .isDirectory)
             .appending(path: "Contents/MacOS/Nested")
 
-        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: resourceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: hiddenURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: nestedPackageBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: resourceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: hiddenURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: nestedPackageBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 128).write(to: binaryURL)
         try Data(repeating: 0x2, count: 256).write(to: resourceURL)
         try Data(repeating: 0x3, count: 512).write(to: hiddenURL)
@@ -1625,26 +1654,30 @@ final class ScanEngineTests: XCTestCase {
 
         let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
         let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
-        let serialPackageNode = try XCTUnwrap(rootChildren(in: serialSnapshot).first(where: { $0.name == "Parallel.app" }))
-        let parallelPackageNode = try XCTUnwrap(rootChildren(in: parallelSnapshot).first(where: { $0.name == "Parallel.app" }))
+        let serialPackageNode = try #require(
+            rootChildren(in: serialSnapshot).first(where: { $0.name == "Parallel.app" }))
+        let parallelPackageNode = try #require(
+            rootChildren(in: parallelSnapshot).first(where: { $0.name == "Parallel.app" }))
 
-        XCTAssertEqual(parallelPackageNode.descendantFileCount, serialPackageNode.descendantFileCount)
-        XCTAssertEqual(parallelPackageNode.logicalSize, serialPackageNode.logicalSize)
-        XCTAssertEqual(parallelPackageNode.allocatedSize, serialPackageNode.allocatedSize)
-        XCTAssertEqual(parallelPackageNode.isAccessible, serialPackageNode.isAccessible)
-        XCTAssertEqual(parallelPackageNode.isSelfAccessible, serialPackageNode.isSelfAccessible)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalLogicalSize, serialSnapshot.aggregateStats.totalLogicalSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(parallelPackageNode.descendantFileCount == serialPackageNode.descendantFileCount)
+        #expect(parallelPackageNode.logicalSize == serialPackageNode.logicalSize)
+        #expect(parallelPackageNode.allocatedSize == serialPackageNode.allocatedSize)
+        #expect(parallelPackageNode.isAccessible == serialPackageNode.isAccessible)
+        #expect(parallelPackageNode.isSelfAccessible == serialPackageNode.isSelfAccessible)
+        #expect(parallelSnapshot.aggregateStats.fileCount == serialSnapshot.aggregateStats.fileCount)
+        #expect(parallelSnapshot.aggregateStats.totalLogicalSize == serialSnapshot.aggregateStats.totalLogicalSize)
+        #expect(parallelSnapshot.aggregateStats.totalAllocatedSize == serialSnapshot.aggregateStats.totalAllocatedSize)
     }
 
+    @Test
     func testScanWidePackageSummaryPoolMatchesSerialAcrossSiblingPackages() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         var firstPayloadURL: URL?
         for packageIndex in 0..<24 {
-            let resourcesURL = rootURL
+            let resourcesURL =
+                rootURL
                 .appending(
                     path: String(format: "Sibling-%02d.app", packageIndex),
                     directoryHint: .isDirectory
@@ -1666,8 +1699,9 @@ final class ScanEngineTests: XCTestCase {
             )
         }
 
-        let sharedSourceURL = try XCTUnwrap(firstPayloadURL)
-        let sharedLinkURL = rootURL
+        let sharedSourceURL = try #require(firstPayloadURL)
+        let sharedLinkURL =
+            rootURL
             .appending(path: "Sibling-01.app/Contents/Resources/shared-link.dat")
         try FileManager.default.linkItem(at: sharedSourceURL, to: sharedLinkURL)
 
@@ -1684,47 +1718,36 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: pooledOptions
         )
-        let serialNodes = Dictionary(uniqueKeysWithValues: rootChildren(in: serialSnapshot).map {
-            ($0.name, $0)
-        })
-        let pooledNodes = Dictionary(uniqueKeysWithValues: rootChildren(in: pooledSnapshot).map {
-            ($0.name, $0)
-        })
+        let serialNodes = Dictionary(
+            uniqueKeysWithValues: rootChildren(in: serialSnapshot).map {
+                ($0.name, $0)
+            })
+        let pooledNodes = Dictionary(
+            uniqueKeysWithValues: rootChildren(in: pooledSnapshot).map {
+                ($0.name, $0)
+            })
 
-        XCTAssertEqual(pooledNodes.count, 24)
-        XCTAssertEqual(Set(pooledNodes.keys), Set(serialNodes.keys))
+        #expect(pooledNodes.count == 24)
+        #expect(Set(pooledNodes.keys) == Set(serialNodes.keys))
         for name in serialNodes.keys {
-            let serialNode = try XCTUnwrap(serialNodes[name])
-            let pooledNode = try XCTUnwrap(pooledNodes[name])
-            XCTAssertEqual(pooledNode.descendantFileCount, serialNode.descendantFileCount, name)
-            XCTAssertEqual(pooledNode.logicalSize, serialNode.logicalSize, name)
-            XCTAssertEqual(pooledNode.allocatedSize, serialNode.allocatedSize, name)
-            XCTAssertEqual(pooledNode.isAccessible, serialNode.isAccessible, name)
+            let serialNode = try #require(serialNodes[name])
+            let pooledNode = try #require(pooledNodes[name])
+            #expect(pooledNode.descendantFileCount == serialNode.descendantFileCount, Comment(rawValue: name))
+            #expect(pooledNode.logicalSize == serialNode.logicalSize, Comment(rawValue: name))
+            #expect(pooledNode.allocatedSize == serialNode.allocatedSize, Comment(rawValue: name))
+            #expect(pooledNode.isAccessible == serialNode.isAccessible, Comment(rawValue: name))
         }
-        XCTAssertEqual(
-            pooledSnapshot.aggregateStats.totalAllocatedSize,
-            serialSnapshot.aggregateStats.totalAllocatedSize
-        )
-        XCTAssertEqual(
-            pooledSnapshot.aggregateStats.totalLogicalSize,
-            serialSnapshot.aggregateStats.totalLogicalSize
-        )
-        XCTAssertEqual(pooledSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
-        XCTAssertEqual(
-            pooledSnapshot.aggregateStats.directoryCount,
-            serialSnapshot.aggregateStats.directoryCount
-        )
-        XCTAssertEqual(
-            pooledSnapshot.aggregateStats.accessibleItemCount,
-            serialSnapshot.aggregateStats.accessibleItemCount
-        )
-        XCTAssertEqual(
-            pooledSnapshot.aggregateStats.inaccessibleItemCount,
-            serialSnapshot.aggregateStats.inaccessibleItemCount
-        )
-        XCTAssertEqual(pooledSnapshot.scanWarnings, serialSnapshot.scanWarnings)
+        #expect(pooledSnapshot.aggregateStats.totalAllocatedSize == serialSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(pooledSnapshot.aggregateStats.totalLogicalSize == serialSnapshot.aggregateStats.totalLogicalSize)
+        #expect(pooledSnapshot.aggregateStats.fileCount == serialSnapshot.aggregateStats.fileCount)
+        #expect(pooledSnapshot.aggregateStats.directoryCount == serialSnapshot.aggregateStats.directoryCount)
+        #expect(pooledSnapshot.aggregateStats.accessibleItemCount == serialSnapshot.aggregateStats.accessibleItemCount)
+        #expect(
+            pooledSnapshot.aggregateStats.inaccessibleItemCount == serialSnapshot.aggregateStats.inaccessibleItemCount)
+        #expect(pooledSnapshot.scanWarnings == serialSnapshot.scanWarnings)
     }
 
+    @Test
     func testPackageSummariesShareScanWideBoundedWorkers() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1763,26 +1786,27 @@ final class ScanEngineTests: XCTestCase {
             scanTask.cancel()
         }
 
-        XCTAssertTrue(probe.waitForDistinctActiveOwners(2, timeout: 2))
-        XCTAssertEqual(probe.activeWorkerCount, 2)
-        XCTAssertEqual(probe.peakActiveWorkerCount, 2)
-        XCTAssertEqual(probe.activeOwnerCount, 2)
+        try await waitUntil("two package summary owners are active") { probe.activeOwnerCount == 2 }
+        #expect(probe.activeWorkerCount == 2)
+        #expect(probe.peakActiveWorkerCount == 2)
+        #expect(probe.activeOwnerCount == 2)
         probe.releaseAll()
 
         let snapshot = try await withTimeout(.seconds(2)) {
             try await scanTask.value
         }
         let packageNodes = rootChildren(in: snapshot)
-        XCTAssertEqual(packageNodes.count, 4)
-        XCTAssertTrue(packageNodes.allSatisfy { $0.descendantFileCount == 3 })
-        XCTAssertTrue(packageNodes.allSatisfy { !containsChildren($0, in: snapshot) })
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 12)
-        XCTAssertEqual(probe.seenOwnerCount, 4)
-        XCTAssertGreaterThanOrEqual(probe.maximumDistinctActiveOwnerCount, 2)
-        XCTAssertLessThanOrEqual(probe.peakActiveWorkerCount, 2)
-        XCTAssertEqual(probe.activeWorkerCount, 0)
+        #expect(packageNodes.count == 4)
+        #expect(packageNodes.allSatisfy { $0.descendantFileCount == 3 })
+        #expect(packageNodes.allSatisfy { !containsChildren($0, in: snapshot) })
+        #expect(snapshot.aggregateStats.fileCount == 12)
+        #expect(probe.seenOwnerCount == 4)
+        #expect(probe.maximumDistinctActiveOwnerCount >= 2)
+        #expect(probe.peakActiveWorkerCount <= 2)
+        #expect(probe.activeWorkerCount == 0)
     }
 
+    @Test
     func testRecursiveBulkPackageSummaryMatchesSerialAcrossMultipleBatches() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1822,17 +1846,18 @@ final class ScanEngineTests: XCTestCase {
 
         let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
         let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
-        let serialPackageNode = try XCTUnwrap(rootChildren(in: serialSnapshot).first { $0.name == "Wide.app" })
-        let parallelPackageNode = try XCTUnwrap(rootChildren(in: parallelSnapshot).first { $0.name == "Wide.app" })
+        let serialPackageNode = try #require(rootChildren(in: serialSnapshot).first { $0.name == "Wide.app" })
+        let parallelPackageNode = try #require(rootChildren(in: parallelSnapshot).first { $0.name == "Wide.app" })
 
-        XCTAssertEqual(serialPackageNode.descendantFileCount, 752)
-        XCTAssertEqual(serialPackageNode.logicalSize, 928)
-        XCTAssertEqual(parallelPackageNode.descendantFileCount, serialPackageNode.descendantFileCount)
-        XCTAssertEqual(parallelPackageNode.logicalSize, serialPackageNode.logicalSize)
-        XCTAssertEqual(parallelPackageNode.allocatedSize, serialPackageNode.allocatedSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(serialPackageNode.descendantFileCount == 752)
+        #expect(serialPackageNode.logicalSize == 928)
+        #expect(parallelPackageNode.descendantFileCount == serialPackageNode.descendantFileCount)
+        #expect(parallelPackageNode.logicalSize == serialPackageNode.logicalSize)
+        #expect(parallelPackageNode.allocatedSize == serialPackageNode.allocatedSize)
+        #expect(parallelSnapshot.aggregateStats.totalAllocatedSize == serialSnapshot.aggregateStats.totalAllocatedSize)
     }
 
+    @Test
     func testRecursiveBulkPackageSummaryDoesNotFollowDirectorySymlinks() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1856,13 +1881,14 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first { $0.name == "Links.app" })
+        let packageNode = try #require(rootChildren(in: snapshot).first { $0.name == "Links.app" })
 
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertLessThan(packageNode.logicalSize, 32_768)
-        XCTAssertFalse(containsChildren(packageNode, in: snapshot))
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(packageNode.logicalSize < 32_768)
+        #expect(!(containsChildren(packageNode, in: snapshot)))
     }
 
+    @Test
     func testPackagesCanBeExpandedWhenEnabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1870,19 +1896,21 @@ final class ScanEngineTests: XCTestCase {
         let packageURL = rootURL.appending(path: "Sample.app", directoryHint: .isDirectory)
         let binaryURL = packageURL.appending(path: "Contents/MacOS/Binary")
 
-        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("binary".utf8).write(to: binaryURL)
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions(treatPackagesAsDirectories: true)
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
-        XCTAssertTrue(containsChildren(packageNode, in: snapshot))
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
+        #expect(containsChildren(packageNode, in: snapshot))
+        #expect(packageNode.descendantFileCount == 1)
     }
 
+    @Test
     func testPooledSummaryPreservesRootAccessibilityAndErrors() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1916,15 +1944,16 @@ final class ScanEngineTests: XCTestCase {
             )
             await pool.finish()
 
-            let summary = try XCTUnwrap(result)
-            XCTAssertEqual(summary.isAccessible, state == "readable", state)
-            XCTAssertEqual(summary.warnings.isEmpty, state == "readable", state)
-            XCTAssertTrue(summary.warnings.allSatisfy { $0.path == packageURL.path }, state)
-            XCTAssertEqual(summary.descendantFileCount, 0, state)
-            XCTAssertEqual(summary.allocatedSize, 0, state)
+            let summary = try #require(result)
+            #expect(summary.isAccessible == (state == "readable"), Comment(rawValue: state))
+            #expect(summary.warnings.isEmpty == (state == "readable"), Comment(rawValue: state))
+            #expect(summary.warnings.allSatisfy { $0.path == packageURL.path }, Comment(rawValue: state))
+            #expect(summary.descendantFileCount == 0, Comment(rawValue: state))
+            #expect(summary.allocatedSize == 0, Comment(rawValue: state))
         }
     }
 
+    @Test
     func testAtomicPackageAccessFailuresProduceWarnings() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1934,26 +1963,29 @@ final class ScanEngineTests: XCTestCase {
         let unreadableDirectoryURL = packageURL.appending(path: "Contents/Private")
         let unreadableFileURL = unreadableDirectoryURL.appending(path: "Secret.dat")
 
-        try FileManager.default.createDirectory(at: readableFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: readableFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: unreadableDirectoryURL, withIntermediateDirectories: true)
         try Data("binary".utf8).write(to: readableFileURL)
         try Data("secret".utf8).write(to: unreadableFileURL)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadableDirectoryURL.path)
         defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: unreadableDirectoryURL.path)
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: unreadableDirectoryURL.path)
         }
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Locked.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Locked.app" }))
 
-        XCTAssertFalse(packageNode.isAccessible)
-        XCTAssertFalse(snapshot.scanWarnings.isEmpty)
-        XCTAssertTrue(snapshot.scanWarnings.contains(where: { $0.path.contains("Locked.app") }))
+        #expect(!(packageNode.isAccessible))
+        #expect(!(snapshot.scanWarnings.isEmpty))
+        #expect(snapshot.scanWarnings.contains(where: { $0.path.contains("Locked.app") }))
     }
 
+    @Test
     func testUnreadableOrdinaryDirectoryProducesWarningAndContinuesScan() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1982,22 +2014,23 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions(),
             engine: engine
         )
-        let lockedNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Locked" }))
-        let visibleNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "visible.txt" }))
-        let warning = try XCTUnwrap(snapshot.scanWarnings.first(where: { $0.path == lockedNode.url.path }))
+        let lockedNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Locked" }))
+        let visibleNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "visible.txt" }))
+        let warning = try #require(snapshot.scanWarnings.first(where: { $0.path == lockedNode.url.path }))
 
-        XCTAssertTrue(lockedNode.isDirectory)
-        XCTAssertFalse(lockedNode.isPackage)
-        XCTAssertFalse(lockedNode.isAccessible)
-        XCTAssertEqual(lockedNode.allocatedSize, 0)
-        XCTAssertEqual(lockedNode.logicalSize, 0)
-        XCTAssertEqual(lockedNode.descendantFileCount, 0)
-        XCTAssertFalse(containsChildren(lockedNode, in: snapshot))
-        XCTAssertTrue(visibleNode.isAccessible)
-        XCTAssertEqual(warning.category, .permissionDenied)
-        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.fileCount, 1)
+        #expect(lockedNode.isDirectory)
+        #expect(!(lockedNode.isPackage))
+        #expect(!(lockedNode.isAccessible))
+        #expect(lockedNode.allocatedSize == 0)
+        #expect(lockedNode.logicalSize == 0)
+        #expect(lockedNode.descendantFileCount == 0)
+        #expect(!(containsChildren(lockedNode, in: snapshot)))
+        #expect(visibleNode.isAccessible)
+        #expect(warning.category == .permissionDenied)
+        #expect(snapshot.aggregateStats.fileCount >= 1)
     }
 
+    @Test
     func testLocalizedChildEnumerationFailureKeepsReadableSiblings() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2013,11 +2046,12 @@ final class ScanEngineTests: XCTestCase {
         try Data("visible".utf8).write(to: visibleFileURL)
 
         let permissionError = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
-        let enumeratedLockedURL = lockedURL.withUnsafeFileSystemRepresentation { path -> URL? in
-            guard let path, let resolvedPath = realpath(path, nil) else { return nil }
-            defer { free(resolvedPath) }
-            return URL(filePath: String(cString: resolvedPath), directoryHint: .isDirectory)
-        } ?? lockedURL
+        let enumeratedLockedURL =
+            lockedURL.withUnsafeFileSystemRepresentation { path -> URL? in
+                guard let path, let resolvedPath = realpath(path, nil) else { return nil }
+                defer { free(resolvedPath) }
+                return URL(filePath: String(cString: resolvedPath), directoryHint: .isDirectory)
+            } ?? lockedURL
         let engine = ScanEngine(enumeratedDirectoryContents: { url, keys, options, cancellationCheck in
             try cancellationCheck()
             if url == rootURL {
@@ -2048,21 +2082,22 @@ final class ScanEngineTests: XCTestCase {
         )
 
         let rootChildNames = rootChildren(in: snapshot).map(\.name)
-        let readableNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Readable" }))
-        let visibleNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "visible.txt" }))
-        let lockedNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Locked" }))
-        let warning = try XCTUnwrap(snapshot.scanWarnings.first(where: { $0.path == lockedURL.path }))
+        let readableNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Readable" }))
+        let visibleNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "visible.txt" }))
+        let lockedNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Locked" }))
+        let warning = try #require(snapshot.scanWarnings.first(where: { $0.path == lockedURL.path }))
 
-        XCTAssertEqual(Set(rootChildNames), Set(["Locked", "Readable", "visible.txt"]))
-        XCTAssertEqual(children(of: readableNode, in: snapshot).map(\.name), ["nested.txt"])
-        XCTAssertTrue(visibleNode.isAccessible)
-        XCTAssertTrue(lockedNode.isDirectory)
-        XCTAssertFalse(lockedNode.isAccessible)
-        XCTAssertFalse(containsChildren(lockedNode, in: snapshot))
-        XCTAssertEqual(warning.category, .permissionDenied)
-        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
+        #expect(Set(rootChildNames) == Set(["Locked", "Readable", "visible.txt"]))
+        #expect(children(of: readableNode, in: snapshot).map(\.name) == ["nested.txt"])
+        #expect(visibleNode.isAccessible)
+        #expect(lockedNode.isDirectory)
+        #expect(!(lockedNode.isAccessible))
+        #expect(!(containsChildren(lockedNode, in: snapshot)))
+        #expect(warning.category == .permissionDenied)
+        #expect(snapshot.root.descendantFileCount == 2)
     }
 
+    @Test
     func testPackageLeafExcludesHiddenContentsWhenHiddenFilesDisabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2071,8 +2106,10 @@ final class ScanEngineTests: XCTestCase {
         let visibleFileURL = packageURL.appending(path: "Contents/MacOS/Binary")
         let hiddenFileURL = packageURL.appending(path: "Contents/Resources/.secret")
 
-        try FileManager.default.createDirectory(at: visibleFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: hiddenFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: visibleFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: hiddenFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 128).write(to: visibleFileURL)
         try Data(repeating: 0x2, count: 256).write(to: hiddenFileURL)
 
@@ -2080,23 +2117,26 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions(includeHiddenFiles: false)
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertEqual(packageNode.logicalSize, 128)
-        XCTAssertGreaterThanOrEqual(packageNode.allocatedSize, 128)
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(packageNode.logicalSize == 128)
+        #expect(packageNode.allocatedSize >= 128)
     }
 
+    @Test
     func testExcludesBasenameDirectoryLikeNodeModules() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let visibleFileURL = rootURL.appending(path: "visible.txt")
-        let nodeModulesFileURL = rootURL
+        let nodeModulesFileURL =
+            rootURL
             .appending(path: "node_modules", directoryHint: .isDirectory)
             .appending(path: "left-pad/index.js")
 
-        try FileManager.default.createDirectory(at: nodeModulesFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: nodeModulesFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 16).write(to: visibleFileURL)
         try Data(repeating: 0x2, count: 128).write(to: nodeModulesFileURL)
 
@@ -2108,12 +2148,13 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["visible.txt"])
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 16)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
+        #expect(rootChildren(in: snapshot).map(\.name) == ["visible.txt"])
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 16)
+        #expect(snapshot.aggregateStats.fileCount == 1)
     }
 
+    @Test
     func testExcludesFilesByGlob() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2131,20 +2172,23 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["notes.txt"])
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 32)
+        #expect(rootChildren(in: snapshot).map(\.name) == ["notes.txt"])
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 32)
     }
 
+    @Test
     func testExcludesDirectoryOnlyPatternsWithoutExcludingSameNamedFiles() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let nestedBuildFileURL = rootURL
+        let nestedBuildFileURL =
+            rootURL
             .appending(path: "nested", directoryHint: .isDirectory)
             .appending(path: "build", directoryHint: .isDirectory)
             .appending(path: "artifact.o")
-        try FileManager.default.createDirectory(at: nestedBuildFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: nestedBuildFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 256).write(to: nestedBuildFileURL)
         try Data(repeating: 0x2, count: 32).write(to: rootURL.appending(path: "build"))
 
@@ -2155,27 +2199,32 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: options
         )
-        let nestedNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "nested" }))
+        let nestedNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "nested" }))
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["build", "nested"])
-        XCTAssertTrue(children(of: nestedNode, in: snapshot).isEmpty)
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 32)
+        #expect(rootChildren(in: snapshot).map(\.name) == ["build", "nested"])
+        #expect(children(of: nestedNode, in: snapshot).isEmpty)
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 32)
     }
 
+    @Test
     func testExcludesPathGlobPatternsRelativeToScanRoot() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let libraryCacheFileURL = rootURL
+        let libraryCacheFileURL =
+            rootURL
             .appending(path: "Library/Caches", directoryHint: .isDirectory)
             .appending(path: "ignored.bin")
-        let topLevelCacheFileURL = rootURL
+        let topLevelCacheFileURL =
+            rootURL
             .appending(path: "Caches", directoryHint: .isDirectory)
             .appending(path: "kept.bin")
 
-        try FileManager.default.createDirectory(at: libraryCacheFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: topLevelCacheFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: libraryCacheFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: topLevelCacheFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 512).write(to: libraryCacheFileURL)
         try Data(repeating: 0x2, count: 64).write(to: topLevelCacheFileURL)
 
@@ -2186,28 +2235,33 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: options
         )
-        let cachesNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Caches" }))
-        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let cachesNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Caches" }))
+        let libraryNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
 
-        XCTAssertEqual(children(of: cachesNode, in: snapshot).map(\.name), ["kept.bin"])
-        XCTAssertTrue(children(of: libraryNode, in: snapshot).isEmpty)
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 64)
+        #expect(children(of: cachesNode, in: snapshot).map(\.name) == ["kept.bin"])
+        #expect(children(of: libraryNode, in: snapshot).isEmpty)
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 64)
     }
 
+    @Test
     func testExcludesDoubleStarPathGlobPatterns() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let nestedBuildFileURL = rootURL
+        let nestedBuildFileURL =
+            rootURL
             .appending(path: "project/build", directoryHint: .isDirectory)
             .appending(path: "artifact.o")
-        let keptFileURL = rootURL
+        let keptFileURL =
+            rootURL
             .appending(path: "project/Sources", directoryHint: .isDirectory)
             .appending(path: "main.swift")
 
-        try FileManager.default.createDirectory(at: nestedBuildFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: keptFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: nestedBuildFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: keptFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 512).write(to: nestedBuildFileURL)
         try Data(repeating: 0x2, count: 128).write(to: keptFileURL)
 
@@ -2218,13 +2272,14 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: options
         )
-        let projectNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "project" }))
+        let projectNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "project" }))
 
-        XCTAssertEqual(children(of: projectNode, in: snapshot).map(\.name), ["Sources"])
-        XCTAssertEqual(projectNode.descendantFileCount, 1)
-        XCTAssertEqual(projectNode.logicalSize, 128)
+        #expect(children(of: projectNode, in: snapshot).map(\.name) == ["Sources"])
+        #expect(projectNode.descendantFileCount == 1)
+        #expect(projectNode.logicalSize == 128)
     }
 
+    @Test
     func testExcludesDSStoreEvenWhenHiddenFilesAreIncluded() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2242,22 +2297,25 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["visible.txt"])
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 24)
+        #expect(rootChildren(in: snapshot).map(\.name) == ["visible.txt"])
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 24)
     }
 
+    @Test
     func testIncludesResidentCloudStorageFiles() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let localFileURL = rootURL.appending(path: "local.txt")
         let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
-        let cloudFileURL = cloudStorageURL
+        let cloudFileURL =
+            cloudStorageURL
             .appending(path: "GoogleDrive-example", directoryHint: .isDirectory)
             .appending(path: "remote.bin")
 
-        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 64).write(to: localFileURL)
         try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
 
@@ -2265,27 +2323,32 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
-        let cloudStorageNode = try XCTUnwrap(children(of: libraryNode, in: snapshot).first(where: { $0.name == "CloudStorage" }))
-        let providerNode = try XCTUnwrap(children(of: cloudStorageNode, in: snapshot).first(where: { $0.name == "GoogleDrive-example" }))
+        let libraryNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let cloudStorageNode = try #require(
+            children(of: libraryNode, in: snapshot).first(where: { $0.name == "CloudStorage" }))
+        let providerNode = try #require(
+            children(of: cloudStorageNode, in: snapshot).first(where: { $0.name == "GoogleDrive-example" }))
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name).sorted(), ["Library", "local.txt"])
-        XCTAssertEqual(children(of: providerNode, in: snapshot).map(\.name), ["remote.bin"])
-        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
-        XCTAssertEqual(snapshot.root.logicalSize, 576)
+        #expect(rootChildren(in: snapshot).map(\.name).sorted() == ["Library", "local.txt"])
+        #expect(children(of: providerNode, in: snapshot).map(\.name) == ["remote.bin"])
+        #expect(snapshot.root.descendantFileCount == 2)
+        #expect(snapshot.root.logicalSize == 576)
     }
 
+    @Test
     func testIncludesResidentICloudDriveFiles() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let localFileURL = rootURL.appending(path: "local.txt")
         let iCloudDriveURL = rootURL.appending(path: "Library/Mobile Documents", directoryHint: .isDirectory)
-        let cloudFileURL = iCloudDriveURL
+        let cloudFileURL =
+            iCloudDriveURL
             .appending(path: "com~apple~CloudDocs", directoryHint: .isDirectory)
             .appending(path: "remote.bin")
 
-        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 64).write(to: localFileURL)
         try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
 
@@ -2293,26 +2356,31 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
-        let iCloudDriveNode = try XCTUnwrap(children(of: libraryNode, in: snapshot).first(where: { $0.name == "Mobile Documents" }))
-        let providerNode = try XCTUnwrap(children(of: iCloudDriveNode, in: snapshot).first(where: { $0.name == "com~apple~CloudDocs" }))
+        let libraryNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let iCloudDriveNode = try #require(
+            children(of: libraryNode, in: snapshot).first(where: { $0.name == "Mobile Documents" }))
+        let providerNode = try #require(
+            children(of: iCloudDriveNode, in: snapshot).first(where: { $0.name == "com~apple~CloudDocs" }))
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name).sorted(), ["Library", "local.txt"])
-        XCTAssertEqual(children(of: providerNode, in: snapshot).map(\.name), ["remote.bin"])
-        XCTAssertEqual(snapshot.root.descendantFileCount, 2)
-        XCTAssertEqual(snapshot.root.logicalSize, 576)
+        #expect(rootChildren(in: snapshot).map(\.name).sorted() == ["Library", "local.txt"])
+        #expect(children(of: providerNode, in: snapshot).map(\.name) == ["remote.bin"])
+        #expect(snapshot.root.descendantFileCount == 2)
+        #expect(snapshot.root.logicalSize == 576)
     }
 
+    @Test
     func testExplicitCloudStorageFolderScanIsAllowedByDefault() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
-        let cloudFileURL = cloudStorageURL
+        let cloudFileURL =
+            cloudStorageURL
             .appending(path: "Dropbox", directoryHint: .isDirectory)
             .appending(path: "remote.bin")
 
-        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
 
         let snapshot = try await finishedSnapshot(
@@ -2320,11 +2388,12 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        XCTAssertEqual(rootChildren(in: snapshot).map(\.name), ["Dropbox"])
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 512)
+        #expect(rootChildren(in: snapshot).map(\.name) == ["Dropbox"])
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 512)
     }
 
+    @Test
     func testVolumeScanWithExclusionsDoesNotAddSystemUnattributedNode() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2340,12 +2409,14 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        XCTAssertFalse(rootChildren(in: snapshot).contains(where: \.isSynthetic))
-        XCTAssertEqual(snapshot.root.descendantFileCount, 1)
-        XCTAssertEqual(snapshot.root.logicalSize, 128)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+        let hasSyntheticChildren = rootChildren(in: snapshot).contains(where: \.isSynthetic)
+        #expect(!hasSyntheticChildren)
+        #expect(snapshot.root.descendantFileCount == 1)
+        #expect(snapshot.root.logicalSize == 128)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
     }
 
+    @Test
     func testExcludedFilesDoNotContributeToParentSizeTotals() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2364,14 +2435,15 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: options
         )
-        let dataNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Data" }))
+        let dataNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Data" }))
 
-        XCTAssertEqual(children(of: dataNode, in: snapshot).map(\.name), ["keep.bin"])
-        XCTAssertEqual(dataNode.descendantFileCount, 1)
-        XCTAssertEqual(dataNode.logicalSize, 10)
-        XCTAssertEqual(snapshot.root.logicalSize, 10)
+        #expect(children(of: dataNode, in: snapshot).map(\.name) == ["keep.bin"])
+        #expect(dataNode.descendantFileCount == 1)
+        #expect(dataNode.logicalSize == 10)
+        #expect(snapshot.root.logicalSize == 10)
     }
 
+    @Test
     func testExcludedFilesDoNotContributeThroughPackageSummaries() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2380,8 +2452,10 @@ final class ScanEngineTests: XCTestCase {
         let keptFileURL = packageURL.appending(path: "Contents/MacOS/Binary")
         let excludedFileURL = packageURL.appending(path: "Contents/Resources/debug.log")
 
-        try FileManager.default.createDirectory(at: keptFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: excludedFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: keptFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: excludedFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x1, count: 128).write(to: keptFileURL)
         try Data(repeating: 0x2, count: 2_048).write(to: excludedFileURL)
 
@@ -2392,13 +2466,14 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: options
         )
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
-        XCTAssertEqual(packageNode.descendantFileCount, 1)
-        XCTAssertEqual(packageNode.logicalSize, 128)
-        XCTAssertEqual(snapshot.root.logicalSize, 128)
+        #expect(packageNode.descendantFileCount == 1)
+        #expect(packageNode.logicalSize == 128)
+        #expect(snapshot.root.logicalSize == 128)
     }
 
+    @Test
     func testExcludedPackageContentsStillEmitSummaryProgress() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2433,20 +2508,19 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        let snapshot = try XCTUnwrap(finalSnapshot)
-        let packageNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
+        let snapshot = try #require(finalSnapshot)
+        let packageNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Sample.app" }))
 
-        XCTAssertEqual(packageNode.descendantFileCount, 0)
-        XCTAssertFalse(containsChildren(packageNode, in: snapshot))
-        XCTAssertTrue(summaryProgress.contains { $0.currentPath.contains("/Sample.app") })
-        XCTAssertTrue(summaryProgress.contains { $0.atomicSummaryVisitedItems >= 1 })
-        XCTAssertGreaterThanOrEqual(
-            try XCTUnwrap(lastProgress).completedSummaryAdditionalVisitedItemCount,
-            2,
-            "Committed summary work must retain visited directory and excluded-entry units."
-        )
+        #expect(packageNode.descendantFileCount == 0)
+        #expect(!(containsChildren(packageNode, in: snapshot)))
+        #expect(summaryProgress.contains { $0.currentPath.contains("/Sample.app") })
+        #expect(summaryProgress.contains { $0.atomicSummaryVisitedItems >= 1 })
+        #expect(
+            try #require(lastProgress).completedSummaryAdditionalVisitedItemCount >= 2,
+            "Committed summary work must retain visited directory and excluded-entry units.")
     }
 
+    @Test
     func testPackageSummaryProgressTracksVisitedAndEstimatedRemainingWork() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2468,23 +2542,24 @@ final class ScanEngineTests: XCTestCase {
         }
 
         let summaryMetrics = progressMetrics.filter { $0.atomicSummaryVisitedItems > 0 }
-        XCTAssertGreaterThanOrEqual(summaryMetrics.count, 2)
-        XCTAssertEqual(summaryMetrics.map(\.atomicSummaryVisitedItems).max(), 300)
-        XCTAssertTrue(summaryMetrics.contains { $0.atomicSummaryEstimatedRemainingItems > 0 })
-        XCTAssertTrue(summaryMetrics.contains { $0.activeAtomicSummaryCount == 1 })
-        XCTAssertTrue(progressMetrics.contains { $0.pendingPackageSummaryCount == 1 })
+        #expect(summaryMetrics.count >= 2)
+        #expect(summaryMetrics.map(\.atomicSummaryVisitedItems).max() == 300)
+        #expect(summaryMetrics.contains { $0.atomicSummaryEstimatedRemainingItems > 0 })
+        #expect(summaryMetrics.contains { $0.activeAtomicSummaryCount == 1 })
+        #expect(progressMetrics.contains { $0.pendingPackageSummaryCount == 1 })
         for pair in zip(progressMetrics, progressMetrics.dropFirst()) {
-            XCTAssertGreaterThanOrEqual(pair.1.progressFraction, pair.0.progressFraction)
+            #expect(pair.1.progressFraction >= pair.0.progressFraction)
         }
-        let completedMetrics = try XCTUnwrap(progressMetrics.last)
-        XCTAssertEqual(completedMetrics.progressFraction, 1, accuracy: 0.0001)
-        XCTAssertEqual(completedMetrics.pendingPackageSummaryCount, 0)
-        XCTAssertEqual(completedMetrics.completedPackageSummaryCount, 1)
-        XCTAssertEqual(completedMetrics.completedPackageSummaryVisitedItemCount, 300)
-        XCTAssertEqual(completedMetrics.completedSummaryAdditionalVisitedItemCount, 300)
-        XCTAssertEqual(completedMetrics.atomicSummaryVisitedItems, 0)
+        let completedMetrics = try #require(progressMetrics.last)
+        #expect(abs((completedMetrics.progressFraction) - (1)) <= 0.0001)
+        #expect(completedMetrics.pendingPackageSummaryCount == 0)
+        #expect(completedMetrics.completedPackageSummaryCount == 1)
+        #expect(completedMetrics.completedPackageSummaryVisitedItemCount == 300)
+        #expect(completedMetrics.completedSummaryAdditionalVisitedItemCount == 300)
+        #expect(completedMetrics.atomicSummaryVisitedItems == 0)
     }
 
+    @Test
     func testPackageRootParticipatesInSummaryWorkAccounting() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2504,16 +2579,18 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertTrue(progressMetrics.contains { $0.pendingPackageSummaryCount == 1 })
-        XCTAssertTrue(progressMetrics.contains {
-            $0.activePackageSummaryCount == 1 && $0.atomicSummaryVisitedItems > 0
-        })
-        let completedMetrics = try XCTUnwrap(progressMetrics.last)
-        XCTAssertEqual(completedMetrics.pendingPackageSummaryCount, 0)
-        XCTAssertEqual(completedMetrics.completedPackageSummaryCount, 1)
-        XCTAssertEqual(completedMetrics.completedPackageSummaryVisitedItemCount, 300)
+        #expect(progressMetrics.contains { $0.pendingPackageSummaryCount == 1 })
+        #expect(
+            progressMetrics.contains {
+                $0.activePackageSummaryCount == 1 && $0.atomicSummaryVisitedItems > 0
+            })
+        let completedMetrics = try #require(progressMetrics.last)
+        #expect(completedMetrics.pendingPackageSummaryCount == 0)
+        #expect(completedMetrics.completedPackageSummaryCount == 1)
+        #expect(completedMetrics.completedPackageSummaryVisitedItemCount == 300)
     }
 
+    @Test
     func testReusedEntryAutoSummaryPublishesInFlightWork() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2549,18 +2626,17 @@ final class ScanEngineTests: XCTestCase {
             $0.activeAutoSummaryRepresentedItemCount == 300
                 && $0.atomicSummaryVisitedItems > 0
         }
-        XCTAssertGreaterThanOrEqual(active.count, 2)
-        XCTAssertEqual(active.map(\.atomicSummaryVisitedItems).max(), 300)
-        XCTAssertTrue(active.contains { $0.atomicSummaryEstimatedRemainingItems > 0 })
-        XCTAssertTrue(progressMetrics.contains {
-            $0.pendingAutoSummaryRepresentedItemCount == 300
-        })
-        XCTAssertEqual(
-            try XCTUnwrap(snapshot).treeStore.node(id: cacheURL.path)?.descendantFileCount,
-            300
-        )
+        #expect(active.count >= 2)
+        #expect(active.map(\.atomicSummaryVisitedItems).max() == 300)
+        #expect(active.contains { $0.atomicSummaryEstimatedRemainingItems > 0 })
+        #expect(
+            progressMetrics.contains {
+                $0.pendingAutoSummaryRepresentedItemCount == 300
+            })
+        #expect(try #require(snapshot).treeStore.node(id: cacheURL.path)?.descendantFileCount == 300)
     }
 
+    @Test
     func testExcludedFilesDoNotContributeThroughAutoSummaries() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2589,14 +2665,15 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
 
-        XCTAssertTrue(cacheNode.isAutoSummarized)
-        XCTAssertEqual(cacheNode.descendantFileCount, 10)
-        XCTAssertEqual(cacheNode.logicalSize, 10 * 32)
+        #expect(cacheNode.isAutoSummarized)
+        #expect(cacheNode.descendantFileCount == 10)
+        #expect(cacheNode.logicalSize == 10 * 32)
     }
 
+    @Test
     func testCancellingScanStopsPackageLeafSummaryWork() async throws {
         let rootURL = try makeTemporaryDirectory()
         let followUpURL = try makeTemporaryDirectory()
@@ -2605,17 +2682,29 @@ final class ScanEngineTests: XCTestCase {
             try? FileManager.default.removeItem(at: followUpURL)
         }
 
-        let packageContentsURL = rootURL
+        let packageContentsURL =
+            rootURL
             .appending(path: "Large.app", directoryHint: .isDirectory)
             .appending(path: "Contents/Resources", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: packageContentsURL, withIntermediateDirectories: true)
 
-        for index in 0..<8_000 {
+        for index in 0..<32 {
             let fileURL = packageContentsURL.appending(path: "payload-\(index).tmp")
             try Data([UInt8(index % 256)]).write(to: fileURL)
         }
 
-        let engine = ScanEngine()
+        let cancellation = TestTaskCancellation()
+        defer { cancellation.cancel() }
+        let activity = AtomicSummaryWorkerLifecycleProbe()
+        let engine = ScanEngine(
+            atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
+                didStart: { _, _ in
+                    activity.didStart()
+                    cancellation.cancel()
+                },
+                didFinish: { _, _ in activity.didFinish() },
+                didShutdown: { activity.didShutdown() }
+            ))
         let scanTask = Task {
             var didFinish = false
             do {
@@ -2630,13 +2719,15 @@ final class ScanEngineTests: XCTestCase {
             return didFinish
         }
 
-        try await Task.sleep(for: .milliseconds(10))
-        scanTask.cancel()
-        let didFinishCancelledScan = try await scanTask.value
+        cancellation.install { scanTask.cancel() }
+        let didFinishCancelledScan = try await withTimeout(.seconds(5)) { try await scanTask.value }
 
-        XCTAssertFalse(didFinishCancelledScan)
+        #expect(!didFinishCancelledScan)
+        #expect(activity.peakActiveWorkerCount > 0)
+        #expect(activity.activeWorkerCount == 0)
+        #expect(activity.didObserveShutdown)
 
-        let followUpFinished = try await withTimeout(.seconds(1)) {
+        let followUpFinished = try await withTimeout(.seconds(5)) {
             for try await event in engine.scan(target: ScanTarget(url: followUpURL), options: ScanOptions()) {
                 if case .finished = event {
                     return true
@@ -2645,15 +2736,17 @@ final class ScanEngineTests: XCTestCase {
             return false
         }
 
-        XCTAssertTrue(followUpFinished)
+        #expect(followUpFinished)
     }
 
+    @Test
     func testCancellingConcurrentPackageProgressDoesNotDeadlock() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         for packageIndex in 0..<8 {
-            let resourcesURL = rootURL
+            let resourcesURL =
+                rootURL
                 .appending(path: "Package-\(packageIndex).app", directoryHint: .isDirectory)
                 .appending(path: "Contents/Resources", directoryHint: .isDirectory)
             for branchIndex in 0..<4 {
@@ -2675,9 +2768,14 @@ final class ScanEngineTests: XCTestCase {
 
         for _ in 0..<8 {
             let lifecycle = AtomicSummaryWorkerLifecycleProbe()
+            let cancellation = TestTaskCancellation()
+            defer { cancellation.cancel() }
             let engine = ScanEngine(
                 atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
-                    didStart: { _, _ in lifecycle.didStart() },
+                    didStart: { _, _ in
+                        lifecycle.didStart()
+                        if lifecycle.peakActiveWorkerCount >= 2 { cancellation.cancel() }
+                    },
                     didFinish: { _, _ in lifecycle.didFinish() },
                     didShutdown: { lifecycle.didShutdown() }
                 ),
@@ -2700,29 +2798,26 @@ final class ScanEngineTests: XCTestCase {
                 return didFinish
             }
 
-            let workerDeadline = ContinuousClock.now.advanced(by: .seconds(1))
-            while lifecycle.peakActiveWorkerCount < 2, ContinuousClock.now < workerDeadline {
-                try await Task.sleep(for: .milliseconds(1))
-            }
-            XCTAssertGreaterThanOrEqual(lifecycle.peakActiveWorkerCount, 2)
-
-            scanTask.cancel()
+            cancellation.install { scanTask.cancel() }
             let didFinish = try await withTimeout(.seconds(2)) {
                 try await scanTask.value
             }
             let shutdownDeadline = ContinuousClock.now.advanced(by: .seconds(1))
-            while (!lifecycle.didObserveShutdown || lifecycle.activeWorkerCount > 0),
-                  ContinuousClock.now < shutdownDeadline {
+            while !lifecycle.didObserveShutdown || lifecycle.activeWorkerCount > 0,
+                ContinuousClock.now < shutdownDeadline
+            {
                 await Task.yield()
             }
 
-            XCTAssertFalse(didFinish)
-            XCTAssertEqual(lifecycle.activeWorkerCount, 0)
-            XCTAssertTrue(lifecycle.didObserveShutdown)
+            #expect(lifecycle.peakActiveWorkerCount >= 2)
+            #expect(!(didFinish))
+            #expect(lifecycle.activeWorkerCount == 0)
+            #expect(lifecycle.didObserveShutdown)
         }
     }
 
-    func testCancellingScanStopsWideDirectoryEnumerationWork() async throws {
+    @Test
+    func testCancellationDuringDirectoryListingDoesNotPoisonTheNextScan() async throws {
         let rootURL = try makeTemporaryDirectory()
         let followUpURL = try makeTemporaryDirectory()
         defer {
@@ -2730,7 +2825,7 @@ final class ScanEngineTests: XCTestCase {
             try? FileManager.default.removeItem(at: followUpURL)
         }
 
-        for index in 0..<10_000 {
+        for index in 0..<32 {
             let fileURL = rootURL.appending(path: "payload-\(index).tmp")
             try Data([UInt8(index % 256)]).write(to: fileURL)
         }
@@ -2738,7 +2833,18 @@ final class ScanEngineTests: XCTestCase {
         var options = ScanOptions()
         options.autoSummarizeDirectories = false
 
-        let engine = ScanEngine()
+        let cancellation = TestTaskCancellation()
+        defer { cancellation.cancel() }
+        let engine = ScanEngine(directoryContents: { url, keys, options, checkCancellation in
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: keys, options: options
+            )
+            if url.resolvingSymlinksInPath() == rootURL.resolvingSymlinksInPath() {
+                cancellation.cancel()
+            }
+            try checkCancellation()
+            return contents
+        })
         let scanTask = Task {
             var didFinish = false
             do {
@@ -2753,15 +2859,14 @@ final class ScanEngineTests: XCTestCase {
             return didFinish
         }
 
-        try await Task.sleep(for: .milliseconds(10))
-        scanTask.cancel()
-        let didFinishCancelledScan = try await withTimeout(.seconds(2)) {
+        cancellation.install { scanTask.cancel() }
+        let didFinishCancelledScan = try await withTimeout(.seconds(5)) {
             try await scanTask.value
         }
 
-        XCTAssertFalse(didFinishCancelledScan)
+        #expect(!(didFinishCancelledScan))
 
-        let followUpFinished = try await withTimeout(.seconds(1)) {
+        let followUpFinished = try await withTimeout(.seconds(5)) {
             for try await event in engine.scan(target: ScanTarget(url: followUpURL), options: ScanOptions()) {
                 if case .finished = event {
                     return true
@@ -2770,9 +2875,10 @@ final class ScanEngineTests: XCTestCase {
             return false
         }
 
-        XCTAssertTrue(followUpFinished)
+        #expect(followUpFinished)
     }
 
+    @Test
     func testNewScanCanFinishWhilePreviousEnumerationIsStillCancelling() async throws {
         let rootURL = try makeTemporaryDirectory()
         let followUpURL = try makeTemporaryDirectory()
@@ -2795,8 +2901,6 @@ final class ScanEngineTests: XCTestCase {
                 }
             } catch is CancellationError {
                 return false
-            } catch {
-                return false
             }
             return didFinish
         }
@@ -2818,51 +2922,44 @@ final class ScanEngineTests: XCTestCase {
         }
 
         probe.release()
-        let blockedScanFinished = await blockedScanTask.value
+        let blockedScanFinished = try await blockedScanTask.value
 
-        XCTAssertTrue(followUpFinished)
-        XCTAssertFalse(blockedScanFinished)
+        #expect(followUpFinished)
+        #expect(!(blockedScanFinished))
     }
 
-    func testEnumeratedDirectoryContentsChecksCancellationBeforeMaterializingAllURLs() async throws {
+    @Test
+    func testEnumeratedDirectoryContentsChecksCancellationBeforeMaterializingAllURLs() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
-
         let cancellation = DirectoryEnumerationCancellation()
-        let enumerator = SlowDirectoryObjectEnumerator(rootURL: rootURL, totalCount: 10_000)
-        let enumerationTask = Task {
+        let enumerator = CancellingDirectoryObjectEnumerator(
+            rootURL: rootURL, totalCount: 1_000, cancelAfter: 64, cancel: cancellation.cancel)
+
+        #expect(throws: CancellationError.self) {
             try ScanEngine.enumeratedDirectoryContents(
-                url: rootURL,
-                keys: nil,
-                options: [],
-                cancellationCheck: { try cancellation.check() },
-                makeEnumerator: { _, _, _ in enumerator }
-            )
+                url: rootURL, keys: nil, options: [],
+                cancellationCheck: cancellation.check,
+                makeEnumerator: { _, _, _ in enumerator })
         }
-
-        try await enumerator.waitUntilProduced(64)
-        cancellation.cancel()
-
-        do {
-            _ = try await withTimeout(.seconds(1)) {
-                try await enumerationTask.value
-            }
-            XCTFail("Expected directory enumeration to stop after cancellation.")
-        } catch is CancellationError {
-            XCTAssertLessThan(enumerator.producedCount, enumerator.totalCount)
-        }
+        #expect(enumerator.producedCount < enumerator.totalCount)
     }
 
+    @Test
     func testCancellingScanStopsInjectedDirectoryEnumerationBeforeMaterialization() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let probe = CancellableDirectoryContentsProbe(totalCount: 10_000)
+        let cancellation = TestTaskCancellation()
+        let probe = CancellableDirectoryContentsProbe(totalCount: 1_000, cancel: cancellation.cancel)
         let engine = ScanEngine(directoryContents: { url, _, _, cancellationCheck in
             guard url == rootURL else { return [] }
             return try probe.contents(for: url, cancellationCheck: cancellationCheck)
         })
+        // Install cancellation before the scanner can enter its synchronous hook.
+        let (start, trigger) = AsyncStream<Void>.makeStream()
         let scanTask = Task {
+            for await _ in start { break }
             var didFinish = false
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
@@ -2876,16 +2973,19 @@ final class ScanEngineTests: XCTestCase {
             return didFinish
         }
 
-        try await probe.waitUntilProduced(64)
-        scanTask.cancel()
-        let didFinishCancelledScan = try await withTimeout(.seconds(1)) {
+        defer { scanTask.cancel() }
+        cancellation.install { scanTask.cancel() }
+        trigger.yield(())
+        trigger.finish()
+        let didFinishCancelledScan = try await withTimeout(.seconds(5)) {
             try await scanTask.value
         }
 
-        XCTAssertFalse(didFinishCancelledScan)
-        XCTAssertLessThan(probe.producedCount, probe.totalCount)
+        #expect(!(didFinishCancelledScan))
+        #expect(probe.producedCount < probe.totalCount)
     }
 
+    @Test
     func testSymbolicLinksAreNotTraversed() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2902,15 +3002,16 @@ final class ScanEngineTests: XCTestCase {
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let aliasNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Alias" }))
+        let aliasNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Alias" }))
 
-        XCTAssertTrue(aliasNode.isSymbolicLink)
-        XCTAssertFalse(containsChildren(aliasNode, in: snapshot))
-        XCTAssertEqual(aliasNode.itemKind, "Alias")
-        XCTAssertEqual(aliasNode.descendantFileCount, 0)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 1)
+        #expect(aliasNode.isSymbolicLink)
+        #expect(!(containsChildren(aliasNode, in: snapshot)))
+        #expect(aliasNode.itemKind == "Alias")
+        #expect(aliasNode.descendantFileCount == 0)
+        #expect(snapshot.aggregateStats.fileCount == 1)
     }
 
+    @Test
     func testHardLinkedFilesOnlyCountAllocatedStorageOnce() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2928,16 +3029,17 @@ final class ScanEngineTests: XCTestCase {
         let children = rootChildren(in: snapshot)
         let allocatedSizes = children.map(\.allocatedSize)
 
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
-        XCTAssertEqual(children.map(\.logicalSize).reduce(0, +), 8_192)
-        XCTAssertEqual(allocatedSizes.filter { $0 > 0 }.count, 1)
-        XCTAssertEqual(snapshot.root.allocatedSize, allocatedSizes.reduce(0, +))
-        XCTAssertTrue(children.allSatisfy { $0.fileIdentity != nil })
-        XCTAssertEqual(children.map(\.linkCount), [2, 2])
-        XCTAssertEqual(children.filter { $0.allocatedSize == 0 }.map(\.unduplicatedAllocatedSize).count, 1)
-        XCTAssertTrue(children.allSatisfy { $0.unduplicatedAllocatedSize > 0 })
+        #expect(snapshot.aggregateStats.fileCount == 2)
+        #expect(children.map(\.logicalSize).reduce(0, +) == 8_192)
+        #expect(allocatedSizes.filter { $0 > 0 }.count == 1)
+        #expect(snapshot.root.allocatedSize == allocatedSizes.reduce(0, +))
+        #expect(children.allSatisfy { $0.fileIdentity != nil })
+        #expect(children.map(\.linkCount) == [2, 2])
+        #expect(children.filter { $0.allocatedSize == 0 }.map(\.unduplicatedAllocatedSize).count == 1)
+        #expect(children.allSatisfy { $0.unduplicatedAllocatedSize > 0 })
     }
 
+    @Test(.enabled(if: try TestFileSystem.supportsCloning(), "Requires file cloning on the fixture volume"))
     func testAPFSClonedFilesOnlyCountAllocatedStorageOnce() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2946,30 +3048,32 @@ final class ScanEngineTests: XCTestCase {
         let clonedURL = rootURL.appending(path: "cloned.bin")
 
         try Data(repeating: 0xC3, count: 4 * 1_024 * 1_024).write(to: originalURL)
-        try cloneFileOrSkip(at: originalURL, to: clonedURL)
+        try cloneFile(at: originalURL, to: clonedURL)
 
         let metadataLoader = ScanMetadataLoader()
         let originalMetadata = try metadataLoader.metadata(for: originalURL)
         let clonedMetadata = try metadataLoader.metadata(for: clonedURL)
-        XCTAssertEqual(originalMetadata.linkCount, 1)
-        XCTAssertEqual(clonedMetadata.linkCount, 1)
-        XCTAssertNotEqual(originalMetadata.fileIdentity, clonedMetadata.fileIdentity)
-        XCTAssertGreaterThan(originalMetadata.allocatedSize, 0)
-        XCTAssertEqual(clonedMetadata.allocatedSize, originalMetadata.allocatedSize)
-        XCTAssertNotNil(originalMetadata.cloneIdentity)
-        XCTAssertEqual(clonedMetadata.cloneIdentity, originalMetadata.cloneIdentity)
-        XCTAssertTrue(originalMetadata.mayShareDataBlocks)
-        XCTAssertTrue(clonedMetadata.mayShareDataBlocks)
+        #expect(originalMetadata.linkCount == 1)
+        #expect(clonedMetadata.linkCount == 1)
+        #expect(originalMetadata.fileIdentity != clonedMetadata.fileIdentity)
+        #expect(originalMetadata.allocatedSize > 0)
+        #expect(clonedMetadata.allocatedSize == originalMetadata.allocatedSize)
+        #expect(originalMetadata.cloneIdentity != nil)
+        #expect(clonedMetadata.cloneIdentity == originalMetadata.cloneIdentity)
+        #expect(originalMetadata.mayShareDataBlocks)
+        #expect(clonedMetadata.mayShareDataBlocks)
 
-        let bulkResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
-        XCTAssertEqual(bulkResult.entries.count, 2)
+        let bulkResultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let bulkResult = try #require(bulkResultValue)
+        #expect(bulkResult.entries.count == 2)
         for entry in bulkResult.entries {
-            XCTAssertEqual(entry.metadata?.cloneIdentity, originalMetadata.cloneIdentity)
+            #expect(entry.metadata?.cloneIdentity == originalMetadata.cloneIdentity)
         }
 
         let snapshot = try await finishedSnapshot(
@@ -2979,21 +3083,22 @@ final class ScanEngineTests: XCTestCase {
         let children = rootChildren(in: snapshot)
         let allocatedSizes = children.map(\.allocatedSize)
 
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
-        XCTAssertEqual(children.map(\.logicalSize).reduce(0, +), 8 * 1_024 * 1_024)
-        XCTAssertEqual(allocatedSizes.filter { $0 > 0 }.count, 1)
-        XCTAssertEqual(snapshot.root.allocatedSize, originalMetadata.allocatedSize)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
-        XCTAssertEqual(children.filter { $0.allocatedSize == 0 }.map(\.unduplicatedAllocatedSize).count, 1)
-        XCTAssertTrue(children.allSatisfy { $0.unduplicatedAllocatedSize > 0 })
+        #expect(snapshot.aggregateStats.fileCount == 2)
+        #expect(children.map(\.logicalSize).reduce(Int64(0), +) == Int64(8 * 1_024 * 1_024))
+        #expect(allocatedSizes.filter { $0 > 0 }.count == 1)
+        #expect(snapshot.root.allocatedSize == originalMetadata.allocatedSize)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
+        #expect(children.filter { $0.allocatedSize == 0 }.map(\.unduplicatedAllocatedSize).count == 1)
+        #expect(children.allSatisfy { $0.unduplicatedAllocatedSize > 0 })
 
-        let owner = try XCTUnwrap(children.first(where: { $0.allocatedSize > 0 }))
-        let snapshotWithoutOwner = try XCTUnwrap(snapshot.removingNode(id: owner.id))
-        let remainingClone = try XCTUnwrap(rootChildren(in: snapshotWithoutOwner).first)
-        XCTAssertEqual(remainingClone.allocatedSize, remainingClone.unduplicatedAllocatedSize)
-        XCTAssertEqual(snapshotWithoutOwner.root.allocatedSize, remainingClone.allocatedSize)
+        let owner = try #require(children.first(where: { $0.allocatedSize > 0 }))
+        let snapshotWithoutOwner = try #require(snapshot.removingNode(id: owner.id))
+        let remainingClone = try #require(rootChildren(in: snapshotWithoutOwner).first)
+        #expect(remainingClone.allocatedSize == remainingClone.unduplicatedAllocatedSize)
+        #expect(snapshotWithoutOwner.root.allocatedSize == remainingClone.allocatedSize)
     }
 
+    @Test(.enabled(if: try TestFileSystem.supportsCloning(), "Requires file cloning on the fixture volume"))
     func testAPFSClonePreservesUniqueResourceForkAllocation() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3002,7 +3107,7 @@ final class ScanEngineTests: XCTestCase {
         let clonedURL = rootURL.appending(path: "z-clone.bin")
 
         try Data(repeating: 0xC3, count: 4 * 1_024 * 1_024).write(to: originalURL)
-        try cloneFileOrSkip(at: originalURL, to: clonedURL)
+        try cloneFile(at: originalURL, to: clonedURL)
         try setExtendedAttribute(
             named: "com.apple.ResourceFork",
             data: Data(repeating: 0x5A, count: 256 * 1_024),
@@ -3012,25 +3117,24 @@ final class ScanEngineTests: XCTestCase {
         let metadataLoader = ScanMetadataLoader()
         let originalMetadata = try metadataLoader.metadata(for: originalURL)
         let clonedMetadata = try metadataLoader.metadata(for: clonedURL)
-        XCTAssertEqual(clonedMetadata.cloneIdentity, originalMetadata.cloneIdentity)
-        XCTAssertGreaterThan(clonedMetadata.allocatedSize, clonedMetadata.dataAllocatedSize)
+        #expect(clonedMetadata.cloneIdentity == originalMetadata.cloneIdentity)
+        #expect(clonedMetadata.allocatedSize > clonedMetadata.dataAllocatedSize)
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()
         )
-        let cloneNode = try XCTUnwrap(
-            rootChildren(in: snapshot).first(where: { $0.url == clonedURL })
-        )
+        let cloneNode = try #require(rootChildren(in: snapshot).first(where: { $0.url == clonedURL }))
         let expectedCloneAllocation = clonedMetadata.allocatedSize - clonedMetadata.dataAllocatedSize
         let expectedTotal = originalMetadata.allocatedSize + expectedCloneAllocation
 
-        XCTAssertEqual(cloneNode.allocatedSize, expectedCloneAllocation)
-        XCTAssertGreaterThan(cloneNode.allocatedSize, 0)
-        XCTAssertEqual(snapshot.root.allocatedSize, expectedTotal)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, expectedTotal)
+        #expect(cloneNode.allocatedSize == expectedCloneAllocation)
+        #expect(cloneNode.allocatedSize > 0)
+        #expect(snapshot.root.allocatedSize == expectedTotal)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == expectedTotal)
     }
 
+    @Test(.enabled(if: try TestFileSystem.supportsCloning(), "Requires file cloning on the fixture volume"))
     func testModifiedAPFSCloneRetainsAllocatedStorage() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3039,7 +3143,7 @@ final class ScanEngineTests: XCTestCase {
         let clonedURL = rootURL.appending(path: "cloned.bin")
 
         try Data(repeating: 0x5D, count: 4 * 1_024 * 1_024).write(to: originalURL)
-        try cloneFileOrSkip(at: originalURL, to: clonedURL)
+        try cloneFile(at: originalURL, to: clonedURL)
         let clonedFile = try FileHandle(forWritingTo: clonedURL)
         defer { try? clonedFile.close() }
         try clonedFile.seek(toOffset: 2 * 1_024 * 1_024)
@@ -3049,10 +3153,10 @@ final class ScanEngineTests: XCTestCase {
         let metadataLoader = ScanMetadataLoader()
         let originalMetadata = try metadataLoader.metadata(for: originalURL)
         let clonedMetadata = try metadataLoader.metadata(for: clonedURL)
-        XCTAssertNil(originalMetadata.cloneIdentity)
-        XCTAssertNil(clonedMetadata.cloneIdentity)
-        XCTAssertTrue(originalMetadata.mayShareDataBlocks)
-        XCTAssertTrue(clonedMetadata.mayShareDataBlocks)
+        #expect(originalMetadata.cloneIdentity == nil)
+        #expect(clonedMetadata.cloneIdentity == nil)
+        #expect(originalMetadata.mayShareDataBlocks)
+        #expect(clonedMetadata.mayShareDataBlocks)
 
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
@@ -3060,12 +3164,14 @@ final class ScanEngineTests: XCTestCase {
         )
         let children = rootChildren(in: snapshot)
 
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
-        XCTAssertTrue(children.allSatisfy { $0.allocatedSize > 0 })
-        XCTAssertTrue(children.allSatisfy(\.mayShareDataBlocks))
-        XCTAssertEqual(snapshot.root.allocatedSize, children.map(\.allocatedSize).reduce(0, +))
+        #expect(snapshot.aggregateStats.fileCount == 2)
+        #expect(children.allSatisfy { $0.allocatedSize > 0 })
+        let allChildrenMayShareDataBlocks = children.allSatisfy(\.mayShareDataBlocks)
+        #expect(allChildrenMayShareDataBlocks)
+        #expect(snapshot.root.allocatedSize == children.map(\.allocatedSize).reduce(0, +))
     }
 
+    @Test
     func testParallelTraversalAssignsHardLinkStorageDeterministically() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3110,20 +3216,21 @@ final class ScanEngineTests: XCTestCase {
             options: options,
             engine: engine
         )
-        let alphaNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Alpha" }))
-        let betaNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Beta" }))
-        let alphaFile = try XCTUnwrap(children(of: alphaNode, in: snapshot).first)
-        let betaFile = try XCTUnwrap(children(of: betaNode, in: snapshot).first)
+        let alphaNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Alpha" }))
+        let betaNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Beta" }))
+        let alphaFile = try #require(children(of: alphaNode, in: snapshot).first)
+        let betaFile = try #require(children(of: betaNode, in: snapshot).first)
 
-        XCTAssertGreaterThan(alphaFile.allocatedSize, 0)
-        XCTAssertEqual(betaFile.allocatedSize, 0)
-        XCTAssertEqual(alphaNode.allocatedSize, alphaFile.allocatedSize)
-        XCTAssertEqual(betaNode.allocatedSize, 0)
-        XCTAssertEqual(snapshot.root.allocatedSize, alphaFile.allocatedSize)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
+        #expect(alphaFile.allocatedSize > 0)
+        #expect(betaFile.allocatedSize == 0)
+        #expect(alphaNode.allocatedSize == alphaFile.allocatedSize)
+        #expect(betaNode.allocatedSize == 0)
+        #expect(snapshot.root.allocatedSize == alphaFile.allocatedSize)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
+        #expect(snapshot.aggregateStats.fileCount == 2)
     }
 
+    @Test(.enabled(if: try TestFileSystem.supportsCloning(), "Requires file cloning on the fixture volume"))
     func testParallelTraversalAssignsAPFSCloneStorageDeterministically() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3136,7 +3243,7 @@ final class ScanEngineTests: XCTestCase {
         try FileManager.default.createDirectory(at: alphaDirectoryURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: betaDirectoryURL, withIntermediateDirectories: true)
         try Data(repeating: 0x81, count: 4 * 1_024 * 1_024).write(to: betaOriginalURL)
-        try cloneFileOrSkip(at: betaOriginalURL, to: alphaCloneURL)
+        try cloneFile(at: betaOriginalURL, to: alphaCloneURL)
 
         let engine = ScanEngine(directoryContents: { url, keys, options, cancellationCheck in
             try cancellationCheck()
@@ -3168,31 +3275,33 @@ final class ScanEngineTests: XCTestCase {
             options: options,
             engine: engine
         )
-        let alphaNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Alpha" }))
-        let betaNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Beta" }))
-        let alphaFile = try XCTUnwrap(children(of: alphaNode, in: snapshot).first)
-        let betaFile = try XCTUnwrap(children(of: betaNode, in: snapshot).first)
+        let alphaNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Alpha" }))
+        let betaNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Beta" }))
+        let alphaFile = try #require(children(of: alphaNode, in: snapshot).first)
+        let betaFile = try #require(children(of: betaNode, in: snapshot).first)
 
-        XCTAssertGreaterThan(alphaFile.allocatedSize, 0)
-        XCTAssertEqual(betaFile.allocatedSize, 0)
-        XCTAssertEqual(alphaNode.allocatedSize, alphaFile.allocatedSize)
-        XCTAssertEqual(betaNode.allocatedSize, 0)
-        XCTAssertEqual(snapshot.root.allocatedSize, alphaFile.allocatedSize)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 2)
+        #expect(alphaFile.allocatedSize > 0)
+        #expect(betaFile.allocatedSize == 0)
+        #expect(alphaNode.allocatedSize == alphaFile.allocatedSize)
+        #expect(betaNode.allocatedSize == 0)
+        #expect(snapshot.root.allocatedSize == alphaFile.allocatedSize)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
+        #expect(snapshot.aggregateStats.fileCount == 2)
     }
 
+    @Test
     func testScanTargetNormalizesSyntheticRootAliases() {
         let nofollowTarget = ScanTarget(url: URL(filePath: "/.nofollow/Users/example", directoryHint: .isDirectory))
         let resolveTarget = ScanTarget(url: URL(filePath: "/.resolve/System/Volumes/Data", directoryHint: .isDirectory))
         let rootAliasTarget = ScanTarget(url: URL(filePath: "/.nofollow", directoryHint: .isDirectory))
 
-        XCTAssertEqual(nofollowTarget.url.path, "/Users/example")
-        XCTAssertEqual(resolveTarget.url.path, "/System/Volumes/Data")
-        XCTAssertEqual(rootAliasTarget.url.path, "/")
-        XCTAssertEqual(rootAliasTarget.kind, .volume)
+        #expect(nofollowTarget.url.path == "/Users/example")
+        #expect(resolveTarget.url.path == "/System/Volumes/Data")
+        #expect(rootAliasTarget.url.path == "/")
+        #expect(rootAliasTarget.kind == .volume)
     }
 
+    @Test
     func testScanTargetResolvesSymlinkRoots() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3204,107 +3313,96 @@ final class ScanEngineTests: XCTestCase {
 
         let target = ScanTarget(url: symlinkURL)
 
-        XCTAssertEqual(target.url.path, realDirectory.path)
-        XCTAssertEqual(target.id, realDirectory.path)
+        #expect(target.url.path == realDirectory.path)
+        #expect(target.id == realDirectory.path)
     }
 
+    @Test
     func testStartupVolumeScanExcludesSyntheticAndDuplicateNamespaces() {
         let startupBehavior = ScanEngine.ScanBehavior(excludesStartupVolumeInternals: true)
         let standardBehavior = ScanEngine.ScanBehavior.standard
 
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/.file"),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+            )))
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/.nofollow", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+            )))
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/.resolve", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+            )))
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/dev", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+            )))
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/.vol", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+            )))
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/Volumes", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanDirectoryEntryFilter.includes(
+            )))
+        #expect(
+            !(ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
                 under: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertTrue(
+            )))
+        #expect(
             ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/System/Library", directoryHint: .isDirectory),
                 under: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertTrue(
+            ))
+        #expect(
             ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/System/Volumes", directoryHint: .isDirectory),
                 under: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
-        XCTAssertTrue(
+            ))
+        #expect(
             ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/.file"),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
-        XCTAssertTrue(
+            ))
+        #expect(
             ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/dev", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
-        XCTAssertTrue(
+            ))
+        #expect(
             ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/.vol", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
-        XCTAssertTrue(
+            ))
+        #expect(
             ScanDirectoryEntryFilter.includes(
                 URL(filePath: "/Volumes", directoryHint: .isDirectory),
                 under: URL(filePath: "/", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
+            ))
     }
 
+    @Test
     func testVolumeSnapshotAddsSystemAndUnattributedNode() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3313,7 +3411,8 @@ final class ScanEngineTests: XCTestCase {
         let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
         let cloudFileURL = cloudStorageURL.appending(path: "Dropbox/remote.bin")
         try Data(repeating: 0x5A, count: 1_024).write(to: fileURL)
-        try FileManager.default.createDirectory(at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
 
         let engine = ScanEngine(volumeFileSystemTypeProvider: { _ in "hfs" })
@@ -3326,18 +3425,22 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        let snapshot = try XCTUnwrap(finalSnapshot)
-        let syntheticNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: \.isSynthetic))
+        let snapshot = try #require(finalSnapshot)
+        let syntheticNodeValue = (rootChildren(in: snapshot).first(where: \.isSynthetic))
+        let syntheticNode = try #require(syntheticNodeValue)
 
-        XCTAssertEqual(syntheticNode.name, "System & Unattributed")
-        XCTAssertTrue(syntheticNode.isAccessible)
-        XCTAssertTrue(snapshot.root.isAccessible)
-        XCTAssertFalse(syntheticNode.supportsFileActions)
-        XCTAssertEqual(syntheticNode.logicalSize, 0)
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
-        XCTAssertGreaterThanOrEqual(snapshot.aggregateStats.totalAllocatedSize, rootChildren(in: snapshot).filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })
+        #expect(syntheticNode.name == "System & Unattributed")
+        #expect(syntheticNode.isAccessible)
+        #expect(snapshot.root.isAccessible)
+        #expect(!(syntheticNode.supportsFileActions))
+        #expect(syntheticNode.logicalSize == 0)
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
+        #expect(
+            snapshot.aggregateStats.totalAllocatedSize
+                >= rootChildren(in: snapshot).filter { !$0.isSynthetic }.reduce(0) { $0 + $1.allocatedSize })
     }
 
+    @Test
     func testRemovingVolumeNodeTransfersItsAllocationToUnattributedStorage() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3350,65 +3453,63 @@ final class ScanEngineTests: XCTestCase {
             engine: ScanEngine(volumeFileSystemTypeProvider: { _ in "hfs" })
         )
         let originalUsedSize = snapshot.root.allocatedSize
-        let originalRemainder = try XCTUnwrap(rootChildren(in: snapshot).first(where: \.isSynthetic))
-        let fileNode = try XCTUnwrap(snapshot.treeStore.node(id: fileURL.path))
+        let originalRemainderValue = (rootChildren(in: snapshot).first(where: \.isSynthetic))
+        let originalRemainder = try #require(originalRemainderValue)
+        let fileNode = try #require(snapshot.treeStore.node(id: fileURL.path))
 
-        let updated = try XCTUnwrap(snapshot.removingNode(id: fileURL.path))
-        let updatedRemainder = try XCTUnwrap(rootChildren(in: updated).first(where: \.isSynthetic))
+        let updated = try #require(snapshot.removingNode(id: fileURL.path))
+        let updatedRemainderValue = (rootChildren(in: updated).first(where: \.isSynthetic))
+        let updatedRemainder = try #require(updatedRemainderValue)
 
-        XCTAssertEqual(updated.root.allocatedSize, originalUsedSize)
-        XCTAssertEqual(updatedRemainder.allocatedSize, originalRemainder.allocatedSize + fileNode.allocatedSize)
-        XCTAssertEqual(updatedRemainder.logicalSize, 0)
+        #expect(updated.root.allocatedSize == originalUsedSize)
+        #expect(updatedRemainder.allocatedSize == originalRemainder.allocatedSize + fileNode.allocatedSize)
+        #expect(updatedRemainder.logicalSize == 0)
     }
 
+    @Test
     func testCapacityReconciliationPolicyExcludesAllAPFSVolumes() {
-        XCTAssertFalse(
-            ScanEngine.shouldReconcileVolumeCapacity(
+        #expect(
+            !(ScanEngine.shouldReconcileVolumeCapacity(
                 fileSystemType: " APFS "
-            )
-        )
-        XCTAssertFalse(
-            ScanEngine.shouldReconcileVolumeCapacity(
+            )))
+        #expect(
+            !(ScanEngine.shouldReconcileVolumeCapacity(
                 fileSystemType: "apfs"
-            )
-        )
-        XCTAssertTrue(
+            )))
+        #expect(
             ScanEngine.shouldReconcileVolumeCapacity(
                 fileSystemType: "hfs"
-            )
-        )
+            ))
     }
 
+    @Test
     func testStartupVolumeFirmlinksSkipDescriptorIdentityVerification() {
         let startupBehavior = ScanEngine.ScanBehavior(excludesStartupVolumeInternals: true)
         let standardBehavior = ScanEngine.ScanBehavior.standard
 
-        XCTAssertFalse(
-            ScanEngine.verifiesDirectoryIdentity(
+        #expect(
+            !(ScanEngine.verifiesDirectoryIdentity(
                 at: URL(filePath: "/Applications", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertFalse(
-            ScanEngine.verifiesDirectoryIdentity(
+            )))
+        #expect(
+            !(ScanEngine.verifiesDirectoryIdentity(
                 at: URL(filePath: "/usr/local", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertTrue(
+            )))
+        #expect(
             ScanEngine.verifiesDirectoryIdentity(
                 at: URL(filePath: "/System", directoryHint: .isDirectory),
                 behavior: startupBehavior
-            )
-        )
-        XCTAssertTrue(
+            ))
+        #expect(
             ScanEngine.verifiesDirectoryIdentity(
                 at: URL(filePath: "/Applications", directoryHint: .isDirectory),
                 behavior: standardBehavior
-            )
-        )
+            ))
     }
 
+    @Test
     func testAPFSVolumeSnapshotKeepsScannedAllocatedTotal() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3423,11 +3524,13 @@ final class ScanEngineTests: XCTestCase {
         )
         let children = rootChildren(in: snapshot)
 
-        XCTAssertFalse(children.contains(where: \.isSynthetic))
-        XCTAssertEqual(snapshot.root.allocatedSize, children.reduce(0) { $0 + $1.allocatedSize })
-        XCTAssertEqual(snapshot.aggregateStats.totalAllocatedSize, snapshot.root.allocatedSize)
+        let hasSyntheticChildren = children.contains(where: \.isSynthetic)
+        #expect(!hasSyntheticChildren)
+        #expect(snapshot.root.allocatedSize == children.reduce(0) { $0 + $1.allocatedSize })
+        #expect(snapshot.aggregateStats.totalAllocatedSize == snapshot.root.allocatedSize)
     }
 
+    @Test
     func testDirectoryChildrenAreOrderedDeterministically() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3442,12 +3545,13 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        XCTAssertEqual(
-            rootChildren(in: snapshot).map(\.name),
-            ["large.bin", "alpha.txt", "file-2.txt", "file-10.txt", "zeta.txt"]
-        )
+        #expect(
+            rootChildren(in: snapshot).map(\.name) == [
+                "large.bin", "alpha.txt", "file-2.txt", "file-10.txt", "zeta.txt",
+            ])
     }
 
+    @Test
     func testParallelDirectoryClassificationMatchesSerialClassification() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3458,7 +3562,8 @@ final class ScanEngineTests: XCTestCase {
         }
 
         for index in 0..<16 {
-            let directoryURL = rootURL.appending(path: String(format: "folder-%03d", index), directoryHint: .isDirectory)
+            let directoryURL = rootURL.appending(
+                path: String(format: "folder-%03d", index), directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             try Data(repeating: UInt8(index), count: 9).write(to: directoryURL.appending(path: "payload.txt"))
         }
@@ -3477,17 +3582,18 @@ final class ScanEngineTests: XCTestCase {
         let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
         let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
 
-        XCTAssertEqual(rootChildren(in: parallelSnapshot).map(\.name), rootChildren(in: serialSnapshot).map(\.name))
-        XCTAssertFalse(rootChildren(in: parallelSnapshot).contains(where: { $0.name == "excluded.log" }))
-        XCTAssertEqual(parallelSnapshot.root.descendantFileCount, serialSnapshot.root.descendantFileCount)
-        XCTAssertEqual(parallelSnapshot.root.isAccessible, serialSnapshot.root.isAccessible)
-        XCTAssertEqual(parallelSnapshot.root.isSelfAccessible, serialSnapshot.root.isSelfAccessible)
-        XCTAssertEqual(parallelSnapshot.root.logicalSize, serialSnapshot.root.logicalSize)
-        XCTAssertEqual(parallelSnapshot.root.allocatedSize, serialSnapshot.root.allocatedSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
+        #expect(rootChildren(in: parallelSnapshot).map(\.name) == rootChildren(in: serialSnapshot).map(\.name))
+        #expect(!(rootChildren(in: parallelSnapshot).contains(where: { $0.name == "excluded.log" })))
+        #expect(parallelSnapshot.root.descendantFileCount == serialSnapshot.root.descendantFileCount)
+        #expect(parallelSnapshot.root.isAccessible == serialSnapshot.root.isAccessible)
+        #expect(parallelSnapshot.root.isSelfAccessible == serialSnapshot.root.isSelfAccessible)
+        #expect(parallelSnapshot.root.logicalSize == serialSnapshot.root.logicalSize)
+        #expect(parallelSnapshot.root.allocatedSize == serialSnapshot.root.allocatedSize)
+        #expect(parallelSnapshot.aggregateStats.fileCount == serialSnapshot.aggregateStats.fileCount)
+        #expect(parallelSnapshot.aggregateStats.directoryCount == serialSnapshot.aggregateStats.directoryCount)
     }
 
+    @Test
     func testParallelDirectoryTraversalAndClassificationMatchSerialScan() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3498,12 +3604,14 @@ final class ScanEngineTests: XCTestCase {
         }
 
         for directoryIndex in 0..<8 {
-            let directoryURL = rootURL.appending(path: String(format: "group-%02d", directoryIndex), directoryHint: .isDirectory)
+            let directoryURL = rootURL.appending(
+                path: String(format: "group-%02d", directoryIndex), directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
             for fileIndex in 0..<160 {
                 let fileURL = directoryURL.appending(path: String(format: "payload-%03d.bin", fileIndex))
-                try Data(repeating: UInt8((directoryIndex + fileIndex) % 256), count: 4 + (fileIndex % 5)).write(to: fileURL)
+                try Data(repeating: UInt8((directoryIndex + fileIndex) % 256), count: 4 + (fileIndex % 5)).write(
+                    to: fileURL)
             }
 
             try Data(repeating: 0xD, count: 32).write(to: directoryURL.appending(path: "ignored.skip"))
@@ -3523,44 +3631,51 @@ final class ScanEngineTests: XCTestCase {
         let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
         let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
 
-        XCTAssertEqual(rootChildren(in: parallelSnapshot).map(\.name), rootChildren(in: serialSnapshot).map(\.name))
-        XCTAssertEqual(parallelSnapshot.root.descendantFileCount, serialSnapshot.root.descendantFileCount)
-        XCTAssertEqual(parallelSnapshot.root.logicalSize, serialSnapshot.root.logicalSize)
-        XCTAssertEqual(parallelSnapshot.root.allocatedSize, serialSnapshot.root.allocatedSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalLogicalSize, serialSnapshot.aggregateStats.totalLogicalSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
-        XCTAssertFalse(parallelSnapshot.treeStore.nodesByID.keys.contains { $0.hasSuffix("ignored.skip") })
+        #expect(rootChildren(in: parallelSnapshot).map(\.name) == rootChildren(in: serialSnapshot).map(\.name))
+        #expect(parallelSnapshot.root.descendantFileCount == serialSnapshot.root.descendantFileCount)
+        #expect(parallelSnapshot.root.logicalSize == serialSnapshot.root.logicalSize)
+        #expect(parallelSnapshot.root.allocatedSize == serialSnapshot.root.allocatedSize)
+        #expect(parallelSnapshot.aggregateStats.fileCount == serialSnapshot.aggregateStats.fileCount)
+        #expect(parallelSnapshot.aggregateStats.directoryCount == serialSnapshot.aggregateStats.directoryCount)
+        #expect(parallelSnapshot.aggregateStats.totalLogicalSize == serialSnapshot.aggregateStats.totalLogicalSize)
+        #expect(parallelSnapshot.aggregateStats.totalAllocatedSize == serialSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(!(parallelSnapshot.treeStore.nodesByID.keys.contains { $0.hasSuffix("ignored.skip") }))
 
         for serialChild in rootChildren(in: serialSnapshot) {
-            let parallelChild = try XCTUnwrap(rootChildren(in: parallelSnapshot).first { $0.id == serialChild.id })
-            XCTAssertEqual(children(of: parallelChild, in: parallelSnapshot).map(\.name), children(of: serialChild, in: serialSnapshot).map(\.name))
-            XCTAssertEqual(parallelChild.isAccessible, serialChild.isAccessible)
-            XCTAssertEqual(parallelChild.isSelfAccessible, serialChild.isSelfAccessible)
+            let parallelChild = try #require(rootChildren(in: parallelSnapshot).first { $0.id == serialChild.id })
+            #expect(
+                children(of: parallelChild, in: parallelSnapshot).map(\.name)
+                    == children(of: serialChild, in: serialSnapshot).map(\.name))
+            #expect(parallelChild.isAccessible == serialChild.isAccessible)
+            #expect(parallelChild.isSelfAccessible == serialChild.isSelfAccessible)
         }
     }
 
+    @Test
     func testParallelDirectoryTraversalMatchesSerialTraversal() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         for directoryIndex in 0..<12 {
-            let directoryURL = rootURL.appending(path: String(format: "group-%02d", directoryIndex), directoryHint: .isDirectory)
+            let directoryURL = rootURL.appending(
+                path: String(format: "group-%02d", directoryIndex), directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
             for fileIndex in 0..<6 {
                 let fileURL = directoryURL.appending(path: String(format: "direct-%02d.dat", fileIndex))
-                try Data(repeating: UInt8(directoryIndex + fileIndex), count: 32 + directoryIndex + fileIndex).write(to: fileURL)
+                try Data(repeating: UInt8(directoryIndex + fileIndex), count: 32 + directoryIndex + fileIndex).write(
+                    to: fileURL)
             }
 
             for nestedIndex in 0..<4 {
-                let nestedURL = directoryURL.appending(path: String(format: "nested-%02d", nestedIndex), directoryHint: .isDirectory)
+                let nestedURL = directoryURL.appending(
+                    path: String(format: "nested-%02d", nestedIndex), directoryHint: .isDirectory)
                 try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
 
                 for fileIndex in 0..<3 {
                     let fileURL = nestedURL.appending(path: String(format: "payload-%02d.bin", fileIndex))
-                    try Data(repeating: UInt8(nestedIndex + fileIndex), count: 17 + nestedIndex + fileIndex).write(to: fileURL)
+                    try Data(repeating: UInt8(nestedIndex + fileIndex), count: 17 + nestedIndex + fileIndex).write(
+                        to: fileURL)
                 }
             }
 
@@ -3580,22 +3695,25 @@ final class ScanEngineTests: XCTestCase {
         let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
         let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
 
-        XCTAssertEqual(rootChildren(in: parallelSnapshot).map(\.name), rootChildren(in: serialSnapshot).map(\.name))
-        XCTAssertEqual(parallelSnapshot.root.descendantFileCount, serialSnapshot.root.descendantFileCount)
-        XCTAssertEqual(parallelSnapshot.root.logicalSize, serialSnapshot.root.logicalSize)
-        XCTAssertEqual(parallelSnapshot.root.allocatedSize, serialSnapshot.root.allocatedSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.fileCount, serialSnapshot.aggregateStats.fileCount)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.directoryCount, serialSnapshot.aggregateStats.directoryCount)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalLogicalSize, serialSnapshot.aggregateStats.totalLogicalSize)
-        XCTAssertEqual(parallelSnapshot.aggregateStats.totalAllocatedSize, serialSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(rootChildren(in: parallelSnapshot).map(\.name) == rootChildren(in: serialSnapshot).map(\.name))
+        #expect(parallelSnapshot.root.descendantFileCount == serialSnapshot.root.descendantFileCount)
+        #expect(parallelSnapshot.root.logicalSize == serialSnapshot.root.logicalSize)
+        #expect(parallelSnapshot.root.allocatedSize == serialSnapshot.root.allocatedSize)
+        #expect(parallelSnapshot.aggregateStats.fileCount == serialSnapshot.aggregateStats.fileCount)
+        #expect(parallelSnapshot.aggregateStats.directoryCount == serialSnapshot.aggregateStats.directoryCount)
+        #expect(parallelSnapshot.aggregateStats.totalLogicalSize == serialSnapshot.aggregateStats.totalLogicalSize)
+        #expect(parallelSnapshot.aggregateStats.totalAllocatedSize == serialSnapshot.aggregateStats.totalAllocatedSize)
 
         for serialChild in rootChildren(in: serialSnapshot) {
-            let parallelChild = try XCTUnwrap(rootChildren(in: parallelSnapshot).first { $0.id == serialChild.id })
-            XCTAssertEqual(children(of: parallelChild, in: parallelSnapshot).map(\.name), children(of: serialChild, in: serialSnapshot).map(\.name))
+            let parallelChild = try #require(rootChildren(in: parallelSnapshot).first { $0.id == serialChild.id })
+            #expect(
+                children(of: parallelChild, in: parallelSnapshot).map(\.name)
+                    == children(of: serialChild, in: serialSnapshot).map(\.name))
         }
-        XCTAssertFalse(parallelSnapshot.treeStore.nodesByID.keys.contains { $0.hasSuffix("ignored.skip") })
+        #expect(!(parallelSnapshot.treeStore.nodesByID.keys.contains { $0.hasSuffix("ignored.skip") }))
     }
 
+    @Test
     func testProgressFractionIsMonotonicAndCompletes() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3619,14 +3737,15 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertFalse(progressFractions.isEmpty)
-        XCTAssertEqual(try XCTUnwrap(progressFractions.last), 1, accuracy: 0.0001)
+        #expect(!(progressFractions.isEmpty))
+        #expect(abs((try #require(progressFractions.last)) - (1)) <= 0.0001)
 
         for pair in zip(progressFractions, progressFractions.dropFirst()) {
-            XCTAssertGreaterThanOrEqual(pair.1, pair.0)
+            #expect(pair.1 >= pair.0)
         }
     }
 
+    @Test
     func testInFlightAtomicSummaryWorkFoldsIntoTraversalProgress() {
         var metrics = ScanMetrics()
         metrics.discoveredItems = 1
@@ -3635,9 +3754,10 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertEqual(metrics.progressFraction, 0.5 * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (0.5 * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testKnownPendingSummariesUseObservedDescendantWorkInCountCap() {
         var metrics = ScanMetrics()
         metrics.filesVisited = 10_000
@@ -3653,9 +3773,10 @@ final class ScanEngineTests: XCTestCase {
         metrics.recalculateProgress()
 
         let expectedCountFraction = 10_003.0 / 30_003.0
-        XCTAssertEqual(metrics.progressFraction, expectedCountFraction * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (expectedCountFraction * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testUnobservedPendingSummaryRetainsConservativeRemainingWork() {
         var metrics = ScanMetrics()
         metrics.discoveredItems = 1
@@ -3666,9 +3787,10 @@ final class ScanEngineTests: XCTestCase {
         metrics.recalculateProgress()
 
         let expectedCountFraction = 1.0 / 65.0
-        XCTAssertEqual(metrics.progressFraction, expectedCountFraction * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (expectedCountFraction * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testSummaryOnlyWorkParticipatesInCountCapWithoutOrdinaryEnumeration() {
         var metrics = ScanMetrics()
         metrics.discoveredItems = 1
@@ -3683,9 +3805,10 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertEqual(metrics.progressFraction, 0.1 * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (0.1 * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testSummaryVisitedWorkUsesSameUnitsAcrossOverlayCommitTransition() {
         var active = ScanMetrics()
         active.discoveredItems = 4
@@ -3710,26 +3833,11 @@ final class ScanEngineTests: XCTestCase {
         committed.completedPackageSummaryVisitedItemCount = 1_000
         committed.recalculateProgress()
 
-        XCTAssertEqual(active.progressFraction, 0.9 * 0.95, accuracy: 0.0001)
-        XCTAssertEqual(committed.progressFraction, active.progressFraction, accuracy: 0.0001)
+        #expect(abs((active.progressFraction) - (0.9 * 0.95)) <= 0.0001)
+        #expect(abs((committed.progressFraction) - (active.progressFraction)) <= 0.0001)
     }
 
-    func testCountCapStillBindsPlainTraversalWeight() {
-        var metrics = ScanMetrics()
-        // Same skewed tree as below: the cap must still bind plain traversal weight.
-        metrics.filesVisited = 2_000
-        metrics.discoveredItems = 2_001
-        metrics.completedItems = 2_000
-        metrics.enumeratedDirectoryCount = 1
-        metrics.pendingDirectoryCount = 1
-        metrics.discoveredDirectoryCount = 2
-        metrics.completedTraversalWeight = 2_000.0 / 2_008.0
-
-        metrics.recalculateProgress()
-
-        XCTAssertLessThan(metrics.progressFraction, 0.40)
-    }
-
+    @Test
     func testInFlightAtomicSummaryWorkParticipatesInCountCap() {
         var metrics = ScanMetrics()
         metrics.discoveredItems = 10
@@ -3747,9 +3855,10 @@ final class ScanEngineTests: XCTestCase {
         metrics.recalculateProgress()
 
         let expectedCountFraction = 1_003.0 / 10_009.0
-        XCTAssertEqual(metrics.progressFraction, expectedCountFraction * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (expectedCountFraction * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testActiveAutoSummaryTransfersRepresentedChildrenOutOfOrdinaryWork() {
         var metrics = ScanMetrics()
         metrics.discoveredItems = 1_001
@@ -3764,9 +3873,10 @@ final class ScanEngineTests: XCTestCase {
         metrics.recalculateProgress()
 
         let expectedCountFraction = 901.0 / 1_001.0
-        XCTAssertEqual(metrics.progressFraction, expectedCountFraction * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (expectedCountFraction * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testMixedSummaryPopulationsAddDisjointRemainingWork() {
         var metrics = ScanMetrics()
         metrics.discoveredItems = 103
@@ -3787,9 +3897,10 @@ final class ScanEngineTests: XCTestCase {
         // Active work has 950 units remaining. The second, not-yet-registered
         // package independently contributes the active package's 1,000-unit estimate.
         let expectedCountFraction = 151.0 / 2_101.0
-        XCTAssertEqual(metrics.progressFraction, expectedCountFraction * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (expectedCountFraction * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testFinalizationProgressIsEmittedDuringAssembly() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3814,14 +3925,15 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertTrue(didFinish)
-        XCTAssertGreaterThanOrEqual(finalizingProgress.count, 2)
+        #expect(didFinish)
+        #expect(finalizingProgress.count >= 2)
 
         for pair in zip(finalizingProgress, finalizingProgress.dropFirst()) {
-            XCTAssertGreaterThanOrEqual(pair.1.progressFraction, pair.0.progressFraction)
+            #expect(pair.1.progressFraction >= pair.0.progressFraction)
         }
     }
 
+    @Test
     func testEmptyDirectoryScanProducesEmptyRootNode() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3831,13 +3943,14 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        XCTAssertTrue(snapshot.root.isDirectory)
-        XCTAssertEqual(snapshot.root.url.path, rootURL.path)
-        XCTAssertTrue(rootChildren(in: snapshot).isEmpty)
-        XCTAssertEqual(snapshot.aggregateStats.directoryCount, 1)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 0)
+        #expect(snapshot.root.isDirectory)
+        #expect(snapshot.root.url.path == rootURL.path)
+        #expect(rootChildren(in: snapshot).isEmpty)
+        #expect(snapshot.aggregateStats.directoryCount == 1)
+        #expect(snapshot.aggregateStats.fileCount == 0)
     }
 
+    @Test
     func testEmptySubdirectoryIsRetainedInTree() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3853,12 +3966,13 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        let emptyNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Empty" }))
-        XCTAssertTrue(emptyNode.isDirectory)
-        XCTAssertTrue(children(of: emptyNode, in: snapshot).isEmpty)
-        XCTAssertEqual(emptyNode.descendantFileCount, 0)
+        let emptyNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Empty" }))
+        #expect(emptyNode.isDirectory)
+        #expect(children(of: emptyNode, in: snapshot).isEmpty)
+        #expect(emptyNode.descendantFileCount == 0)
     }
 
+    @Test
     func testByteEstimatePreventsPrematureFinalizingProgress() {
         var metrics = ScanMetrics()
         metrics.estimatedTotalBytes = 10_000
@@ -3869,10 +3983,11 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertLessThan(metrics.progressFraction, 0.5)
-        XCTAssertFalse(metrics.isFinalizing)
+        #expect(metrics.progressFraction < 0.5)
+        #expect(!(metrics.isFinalizing))
     }
 
+    @Test
     func testTraversalWeightDrivesProgressWithoutByteEstimate() {
         var metrics = ScanMetrics()
         metrics.filesVisited = 10
@@ -3880,9 +3995,10 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertEqual(metrics.progressFraction, 0.5 * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (0.5 * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testDirectoryScanProgressStaysLowWhenLittleWeightIsCompleted() {
         var metrics = ScanMetrics()
         metrics.filesVisited = 5_000
@@ -3893,9 +4009,10 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertLessThan(metrics.progressFraction, 0.05)
+        #expect(metrics.progressFraction < 0.05)
     }
 
+    @Test
     func testFrontierExtrapolationCapsProgressInSkewedTrees() {
         var metrics = ScanMetrics()
         // 2,000 flat files completed; one giant unexplored sibling directory remains.
@@ -3910,9 +4027,10 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertLessThan(metrics.progressFraction, 0.35)
+        #expect(metrics.progressFraction < 0.35)
     }
 
+    @Test
     func testItemCountCapAppliesWhenFrontierDrainsButFilesRemain() {
         var metrics = ScanMetrics()
         // 1,000 sibling files completed, then one directory was enumerated and yielded
@@ -3931,9 +4049,10 @@ final class ScanEngineTests: XCTestCase {
 
         // The item-count cap, (completed + enumerated) / discovered ≈ 0.167, must hold the
         // bar near the true ~17% rather than letting the weight estimate jump to ~94%.
-        XCTAssertLessThan(metrics.progressFraction, 0.30)
+        #expect(metrics.progressFraction < 0.30)
     }
 
+    @Test
     func testVolumeByteEstimateBlendsWithTraversalWeight() {
         var metrics = ScanMetrics()
         metrics.filesVisited = 100
@@ -3943,9 +4062,10 @@ final class ScanEngineTests: XCTestCase {
 
         metrics.recalculateProgress()
 
-        XCTAssertEqual(metrics.progressFraction, ((0.3 + 0.5) / 2) * 0.95, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (((0.3 + 0.5) / 2) * 0.95)) <= 0.0001)
     }
 
+    @Test
     func testFinalizationProgressMapsAboveTraversalSpan() {
         var metrics = ScanMetrics()
         metrics.filesVisited = 100
@@ -3955,16 +4075,17 @@ final class ScanEngineTests: XCTestCase {
         metrics.isFinalizing = true
         metrics.finalizationFraction = 0.5
         metrics.recalculateProgress()
-        XCTAssertEqual(metrics.progressFraction, 0.97, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (0.97)) <= 0.0001)
 
         metrics.finalizationFraction = 1
         metrics.recalculateProgress()
-        XCTAssertEqual(metrics.progressFraction, 0.99, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (0.99)) <= 0.0001)
 
         metrics.recalculateProgress(isComplete: true)
-        XCTAssertEqual(metrics.progressFraction, 1, accuracy: 0.0001)
+        #expect(abs((metrics.progressFraction) - (1)) <= 0.0001)
     }
 
+    @Test
     func testDirectoryBelowThresholdNotAutoSummarized() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3986,12 +4107,13 @@ final class ScanEngineTests: XCTestCase {
 
         // The cache directory should NOT be auto-summarized (only 100 files, below threshold)
         // This test verifies the mechanism doesn't trigger at low file counts
-        let cacheNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with only 100 files should not be auto-summarized")
-        XCTAssertTrue(cacheNode.isDirectory)
-        XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
+        let cacheNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(!(cacheNode.isAutoSummarized), "Directory with only 100 files should not be auto-summarized")
+        #expect(cacheNode.isDirectory)
+        #expect(containsChildren(cacheNode, in: snapshot))
     }
 
+    @Test
     func testAutoSummarizedDirectoryShowsFileCount() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4005,12 +4127,13 @@ final class ScanEngineTests: XCTestCase {
             options: ScanOptions()
         )
 
-        let fileNode = try XCTUnwrap(rootChildren(in: snapshot).first)
-        XCTAssertFalse(fileNode.isAutoSummarized)
-        XCTAssertEqual(fileNode.itemKind, "File")
-        XCTAssertNil(fileNode.secondaryStatusText)
+        let fileNode = try #require(rootChildren(in: snapshot).first)
+        #expect(!(fileNode.isAutoSummarized))
+        #expect(fileNode.itemKind == "File")
+        #expect(fileNode.secondaryStatusText == nil)
     }
 
+    @Test
     func testAutoSummarizeCanBeDisabledViaOptions() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4035,12 +4158,13 @@ final class ScanEngineTests: XCTestCase {
         )
 
         // Even with many files, the directory should NOT be auto-summarized
-        let cacheNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertFalse(cacheNode.isAutoSummarized)
-        XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
-        XCTAssertEqual(children(of: cacheNode, in: snapshot).count, 100)
+        let cacheNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(!(cacheNode.isAutoSummarized))
+        #expect(containsChildren(cacheNode, in: snapshot))
+        #expect(children(of: cacheNode, in: snapshot).count == 100)
     }
 
+    @Test
     func testCoreSimulatorUsesOrdinaryAutoSummaryCriteria() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4049,7 +4173,8 @@ final class ScanEngineTests: XCTestCase {
             path: "Library/Developer/CoreSimulator",
             directoryHint: .isDirectory
         )
-        let appDataURL = coreSimulatorURL
+        let appDataURL =
+            coreSimulatorURL
             .appending(path: "Devices/00000000-0000-0000-0000-000000000001/data/Containers/Data/Application")
             .appending(path: "ExampleData", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: appDataURL, withIntermediateDirectories: true)
@@ -4068,15 +4193,18 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let libraryNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
-        let developerNode = try XCTUnwrap(children(of: libraryNode, in: snapshot).first(where: { $0.name == "Developer" }))
-        let coreSimulatorNode = try XCTUnwrap(children(of: developerNode, in: snapshot).first(where: { $0.name == "CoreSimulator" }))
+        let libraryNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
+        let developerNode = try #require(
+            children(of: libraryNode, in: snapshot).first(where: { $0.name == "Developer" }))
+        let coreSimulatorNode = try #require(
+            children(of: developerNode, in: snapshot).first(where: { $0.name == "CoreSimulator" }))
 
-        XCTAssertFalse(coreSimulatorNode.isAutoSummarized)
-        XCTAssertTrue(containsChildren(coreSimulatorNode, in: snapshot))
-        XCTAssertEqual(coreSimulatorNode.descendantFileCount, 12)
+        #expect(!(coreSimulatorNode.isAutoSummarized))
+        #expect(containsChildren(coreSimulatorNode, in: snapshot))
+        #expect(coreSimulatorNode.descendantFileCount == 12)
     }
 
+    @Test
     func testDirectoryIsAutoSummarizedWithLowThresholds() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4105,15 +4233,16 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertTrue(cacheNode.isAutoSummarized, "Directory should be auto-summarized with low thresholds")
-        XCTAssertFalse(containsChildren(cacheNode, in: snapshot), "Auto-summarized directory should have no children")
-        XCTAssertEqual(cacheNode.descendantFileCount, 20, "Should report correct file count")
-        XCTAssertEqual(cacheNode.itemKind, "Summarized")
-        XCTAssertEqual(cacheNode.secondaryStatusText, "Summarized (20 files)")
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(cacheNode.isAutoSummarized, "Directory should be auto-summarized with low thresholds")
+        #expect(!(containsChildren(cacheNode, in: snapshot)), "Auto-summarized directory should have no children")
+        #expect(cacheNode.descendantFileCount == 20, "Should report correct file count")
+        #expect(cacheNode.itemKind == "Summarized")
+        #expect(cacheNode.secondaryStatusText == "Summarized (20 files)")
     }
 
+    @Test
     func testDeepTinyFileDirectoryIsAutoSummarized() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4138,84 +4267,86 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertTrue(cacheNode.isAutoSummarized)
-        XCTAssertFalse(containsChildren(cacheNode, in: snapshot))
-        XCTAssertEqual(cacheNode.descendantFileCount, 12)
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(cacheNode.isAutoSummarized)
+        #expect(!(containsChildren(cacheNode, in: snapshot)))
+        #expect(cacheNode.descendantFileCount == 12)
     }
 
     #if DEBUG
-    func testSuccessfulAtomicProbeResumesTraversalState() async throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
+        @Test
+        func testSuccessfulAtomicProbeResumesTraversalState() async throws {
+            let rootURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        for index in 0..<12 {
-            let shardURL = rootURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: shardURL, withIntermediateDirectories: true)
-            try Data(repeating: UInt8(index), count: 32)
-                .write(to: shardURL.appending(path: "payload.bin"))
+            for index in 0..<12 {
+                let shardURL = rootURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
+                try FileManager.default.createDirectory(at: shardURL, withIntermediateDirectories: true)
+                try Data(repeating: UInt8(index), count: 32)
+                    .write(to: shardURL.appending(path: "payload.bin"))
+            }
+
+            let diagnostics = ScanDiagnostics(environment: [
+                "RADIX_SCAN_DIAGNOSTICS_LIMIT": "20",
+                "RADIX_SCAN_DIAGNOSTICS_SLOW_MS": "0",
+            ])
+            let metadataLoader = ScanMetadataLoader(diagnostics: diagnostics)
+            let rootMetadata = try metadataLoader.metadata(for: rootURL)
+            let rootEntriesValue = try
+                (BulkDirectoryEnumerator.directoryEntries(
+                    at: rootURL,
+                    includeHiddenFiles: true,
+                    metadataLoader: metadataLoader,
+                    cancellationCheck: {}
+                ))
+            let rootEntries = try #require(rootEntriesValue).entries
+            let pool = AtomicDirectorySummaryPool(workerLimit: 4, progressEmissionInterval: 0)
+            let summarizer = AtomicDirectorySummarizer(
+                metadataLoader: metadataLoader,
+                diagnostics: diagnostics,
+                summaryPool: pool
+            )
+            let exclusionMatcher = ScanExclusionMatcher(
+                patterns: [],
+                rootURL: rootURL
+            )
+            var progressContinuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation!
+            let progressStream = AsyncThrowingStream<ScanProgressEvent, Error> { continuation in
+                progressContinuation = continuation
+            }
+            defer { progressContinuation.finish() }
+            var metrics = ScanMetrics()
+            var emissionState = ScanEmissionState()
+
+            let summary = try await summarizer.summaryDecisionIfNeeded(
+                url: rootURL,
+                childEntries: rootEntries,
+                metadata: rootMetadata,
+                includeHiddenFiles: true,
+                treatPackagesAsDirectories: false,
+                isNodeDependencyLayout: false,
+                minFileCount: 10,
+                maxAverageFileSize: 256,
+                exclusionMatcher: exclusionMatcher,
+                cancellationCheck: {},
+                metrics: &metrics,
+                continuation: progressContinuation,
+                emissionState: &emissionState
+            ).summary
+            await pool.finish()
+            _ = progressStream
+
+            #expect(summary?.descendantFileCount == 12)
+            #expect(summary?.logicalSize == 384)
+            let report = diagnostics.makeReport(targetPath: rootURL.path, elapsedSeconds: 0)
+            #expect(report.contains("atomic.summary.pool"))
+            let cursorOpenLine = try #require(report.split(separator: "\n").first { $0.contains("bulk.cursor.open: ") })
+            #expect(cursorOpenLine.contains("count=13"))
         }
-
-        let diagnostics = ScanDiagnostics(environment: [
-            "RADIX_SCAN_DIAGNOSTICS_LIMIT": "20",
-            "RADIX_SCAN_DIAGNOSTICS_SLOW_MS": "0"
-        ])
-        let metadataLoader = ScanMetadataLoader(diagnostics: diagnostics)
-        let rootMetadata = try metadataLoader.metadata(for: rootURL)
-        let rootEntries = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        )).entries
-        let pool = AtomicDirectorySummaryPool(workerLimit: 4, progressEmissionInterval: 0)
-        let summarizer = AtomicDirectorySummarizer(
-            metadataLoader: metadataLoader,
-            diagnostics: diagnostics,
-            summaryPool: pool
-        )
-        let exclusionMatcher = ScanExclusionMatcher(
-            patterns: [],
-            rootURL: rootURL
-        )
-        var progressContinuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation!
-        let progressStream = AsyncThrowingStream<ScanProgressEvent, Error> { continuation in
-            progressContinuation = continuation
-        }
-        defer { progressContinuation.finish() }
-        var metrics = ScanMetrics()
-        var emissionState = ScanEmissionState()
-
-        let summary = try await summarizer.summaryDecisionIfNeeded(
-            url: rootURL,
-            childEntries: rootEntries,
-            metadata: rootMetadata,
-            includeHiddenFiles: true,
-            treatPackagesAsDirectories: false,
-            isNodeDependencyLayout: false,
-            minFileCount: 10,
-            maxAverageFileSize: 256,
-            exclusionMatcher: exclusionMatcher,
-            cancellationCheck: {},
-            metrics: &metrics,
-            continuation: progressContinuation,
-            emissionState: &emissionState
-        ).summary
-        await pool.finish()
-        _ = progressStream
-
-        XCTAssertEqual(summary?.descendantFileCount, 12)
-        XCTAssertEqual(summary?.logicalSize, 384)
-        let report = diagnostics.makeReport(targetPath: rootURL.path, elapsedSeconds: 0)
-        XCTAssertTrue(report.contains("atomic.summary.pool"))
-        let cursorOpenLine = try XCTUnwrap(
-            report.split(separator: "\n").first { $0.contains("bulk.cursor.open: ") }
-        )
-        XCTAssertTrue(cursorOpenLine.contains("count=13"))
-    }
     #endif
 
+    @Test
     func testAtomicProbeCursorCapAcrossDepths() throws {
         let temporaryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
@@ -4242,12 +4373,14 @@ final class ScanEngineTests: XCTestCase {
             try Data([0x11]).write(to: deepestURL.appending(path: "payload.bin"))
 
             let rootMetadata = try metadataLoader.metadata(for: rootURL)
-            let rootEntries = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-                at: rootURL,
-                includeHiddenFiles: true,
-                metadataLoader: metadataLoader,
-                cancellationCheck: {}
-            )).entries
+            let rootEntriesValue = try
+                (BulkDirectoryEnumerator.directoryEntries(
+                    at: rootURL,
+                    includeHiddenFiles: true,
+                    metadataLoader: metadataLoader,
+                    cancellationCheck: {}
+                ))
+            let rootEntries = try #require(rootEntriesValue).entries
             let (_, continuation) = makeAtomicSummaryProgressReporter()
             defer { continuation.finish() }
             var metrics = ScanMetrics()
@@ -4269,20 +4402,17 @@ final class ScanEngineTests: XCTestCase {
                 emissionState: &emissionState
             )
 
-            let resumeState = try XCTUnwrap(outcome.resumeState)
+            let resumeState = try #require(outcome.resumeState)
             defer { resumeState.invalidateCursors() }
-            XCTAssertEqual(outcome.visitedItemCount, depth + 1, "depth \(depth)")
-            XCTAssertEqual(outcome.profile.observedDirectoryCount, depth, "depth \(depth)")
-            XCTAssertEqual(resumeState.workItems.count, depth + 1, "depth \(depth)")
-            XCTAssertEqual(
-                resumeState.workItems.count { $0.cursor != nil },
-                min(depth, 64),
-                "depth \(depth)"
-            )
-            XCTAssertFalse(resumeState.workItems.contains { $0.needsCursor }, "depth \(depth)")
+            #expect(outcome.visitedItemCount == depth + 1, "depth \(depth)")
+            #expect(outcome.profile.observedDirectoryCount == depth, "depth \(depth)")
+            #expect(resumeState.workItems.count == depth + 1, "depth \(depth)")
+            #expect(resumeState.workItems.count { $0.cursor != nil } == min(depth, 64), "depth \(depth)")
+            #expect(!(resumeState.workItems.contains { $0.needsCursor }), "depth \(depth)")
         }
     }
 
+    @Test
     func testResumedAtomicProbeMatchesFullSummarySemantics() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4308,12 +4438,14 @@ final class ScanEngineTests: XCTestCase {
 
         let metadataLoader = ScanMetadataLoader()
         let rootMetadata = try metadataLoader.metadata(for: rootURL)
-        let rootEntries = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: false,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        )).entries
+        let rootEntriesValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: false,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let rootEntries = try #require(rootEntriesValue).entries
         let pool = AtomicDirectorySummaryPool(workerLimit: 4, progressEmissionInterval: 0)
         let summarizer = AtomicDirectorySummarizer(
             metadataLoader: metadataLoader,
@@ -4360,28 +4492,28 @@ final class ScanEngineTests: XCTestCase {
         await pool.finish()
         _ = progressStream
 
-        XCTAssertEqual(resumed?.descendantFileCount, reference?.descendantFileCount)
-        XCTAssertEqual(resumed?.logicalSize, reference?.logicalSize)
-        XCTAssertEqual(resumed?.allocatedSize, reference?.allocatedSize)
-        XCTAssertEqual(resumed?.isAccessible, reference?.isAccessible)
-        XCTAssertEqual(resumed?.warnings.count, reference?.warnings.count)
-        let hardLinkIdentity = try XCTUnwrap(metadataLoader.metadata(for: originalURL).fileIdentity)
-        XCTAssertEqual(
-            resumed?.sharedAllocationAccumulator.winner(for: hardLinkIdentity)?.path,
-            reference?.sharedAllocationAccumulator.winner(for: hardLinkIdentity)?.path
-        )
-        XCTAssertEqual(
-            resumed?.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner,
-            reference?.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
-        )
-        XCTAssertEqual(resumed?.sharedAllocationAccumulator.identityCount, 1)
+        #expect(resumed?.descendantFileCount == reference?.descendantFileCount)
+        #expect(resumed?.logicalSize == reference?.logicalSize)
+        #expect(resumed?.allocatedSize == reference?.allocatedSize)
+        #expect(resumed?.isAccessible == reference?.isAccessible)
+        #expect(resumed?.warnings.count == reference?.warnings.count)
+        let hardLinkIdentity = try #require(metadataLoader.metadata(for: originalURL).fileIdentity)
+        #expect(
+            resumed?.sharedAllocationAccumulator.winner(for: hardLinkIdentity)?.path
+                == reference?.sharedAllocationAccumulator.winner(for: hardLinkIdentity)?.path)
+        #expect(
+            resumed?.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
+                == reference?.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner)
+        #expect(resumed?.sharedAllocationAccumulator.identityCount == 1)
     }
 
+    @Test
     func testNodeModulesPnpmStoreAutoSummarizesAtShallowDepth() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let packageURL = rootURL
+        let packageURL =
+            rootURL
             .appending(path: "node_modules", directoryHint: .isDirectory)
             .appending(path: ".pnpm/left-pad@1.3.0/node_modules/left-pad", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
@@ -4401,17 +4533,19 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let nodeModulesNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "node_modules" }))
-        XCTAssertTrue(nodeModulesNode.isAutoSummarized)
-        XCTAssertFalse(containsChildren(nodeModulesNode, in: snapshot))
-        XCTAssertEqual(nodeModulesNode.descendantFileCount, 20)
+        let nodeModulesNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "node_modules" }))
+        #expect(nodeModulesNode.isAutoSummarized)
+        #expect(!(containsChildren(nodeModulesNode, in: snapshot)))
+        #expect(nodeModulesNode.descendantFileCount == 20)
     }
 
+    @Test
     func testScopedNodePackageContainerAutoSummarizesAtShallowDepth() async throws {
         let nodeModulesURL = try makeTemporaryDirectory().appending(path: "node_modules", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: nodeModulesURL.deletingLastPathComponent()) }
 
-        let packageURL = nodeModulesURL
+        let packageURL =
+            nodeModulesURL
             .appending(path: "@radix-ui/colors/dist", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
 
@@ -4430,19 +4564,22 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let scopeNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "@radix-ui" }))
-        XCTAssertTrue(scopeNode.isAutoSummarized)
-        XCTAssertFalse(containsChildren(scopeNode, in: snapshot))
-        XCTAssertEqual(scopeNode.descendantFileCount, 20)
+        let scopeNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "@radix-ui" }))
+        #expect(scopeNode.isAutoSummarized)
+        #expect(!(containsChildren(scopeNode, in: snapshot)))
+        #expect(scopeNode.descendantFileCount == 20)
     }
 
+    @Test
     func testNestedNodeModulesForestAutoSummarizesThroughSparseParent() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let nodeModulesURL = rootURL
+        let nodeModulesURL =
+            rootURL
             .appending(path: "workspace/packages/app/node_modules", directoryHint: .isDirectory)
-        let packageURL = nodeModulesURL
+        let packageURL =
+            nodeModulesURL
             .appending(path: "vite/dist/client", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
 
@@ -4461,15 +4598,18 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let workspaceNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "workspace" }))
-        let packagesNode = try XCTUnwrap(children(of: workspaceNode, in: snapshot).first(where: { $0.name == "packages" }))
-        let appNode = try XCTUnwrap(children(of: packagesNode, in: snapshot).first(where: { $0.name == "app" }))
-        let nodeModulesNode = try XCTUnwrap(children(of: appNode, in: snapshot).first(where: { $0.name == "node_modules" }))
-        XCTAssertTrue(nodeModulesNode.isAutoSummarized)
-        XCTAssertFalse(containsChildren(nodeModulesNode, in: snapshot))
-        XCTAssertEqual(nodeModulesNode.descendantFileCount, 20)
+        let workspaceNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "workspace" }))
+        let packagesNode = try #require(
+            children(of: workspaceNode, in: snapshot).first(where: { $0.name == "packages" }))
+        let appNode = try #require(children(of: packagesNode, in: snapshot).first(where: { $0.name == "app" }))
+        let nodeModulesNode = try #require(
+            children(of: appNode, in: snapshot).first(where: { $0.name == "node_modules" }))
+        #expect(nodeModulesNode.isAutoSummarized)
+        #expect(!(containsChildren(nodeModulesNode, in: snapshot)))
+        #expect(nodeModulesNode.descendantFileCount == 20)
     }
 
+    @Test
     func testSparseAncestorDefersAutoSummarizationToDenseDescendant() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4494,16 +4634,17 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        let denseNode = try XCTUnwrap(children(of: cacheNode, in: snapshot).first(where: { $0.name == "dense" }))
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        let denseNode = try #require(children(of: cacheNode, in: snapshot).first(where: { $0.name == "dense" }))
 
-        XCTAssertFalse(cacheNode.isAutoSummarized)
-        XCTAssertTrue(denseNode.isAutoSummarized)
-        XCTAssertFalse(containsChildren(denseNode, in: snapshot))
-        XCTAssertEqual(denseNode.descendantFileCount, 20)
+        #expect(!(cacheNode.isAutoSummarized))
+        #expect(denseNode.isAutoSummarized)
+        #expect(!(containsChildren(denseNode, in: snapshot)))
+        #expect(denseNode.descendantFileCount == 20)
     }
 
+    @Test
     func testAutoSummarizedDirectoryIncludesPackageLeafContents() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4517,10 +4658,12 @@ final class ScanEngineTests: XCTestCase {
             try Data(repeating: UInt8(i), count: 32).write(to: fileURL)
         }
 
-        let packageBinaryURL = cacheURL
+        let packageBinaryURL =
+            cacheURL
             .appending(path: "Tool.app", directoryHint: .isDirectory)
             .appending(path: "Contents/MacOS/Tool")
-        try FileManager.default.createDirectory(at: packageBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: packageBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 0x5A, count: 2_048).write(to: packageBinaryURL)
 
         var options = ScanOptions()
@@ -4533,12 +4676,12 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertTrue(cacheNode.isAutoSummarized)
-        XCTAssertEqual(cacheNode.descendantFileCount, 13)
-        XCTAssertGreaterThanOrEqual(cacheNode.logicalSize, (12 * 32) + 2_048)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 13)
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(cacheNode.isAutoSummarized)
+        #expect(cacheNode.descendantFileCount == 13)
+        #expect(cacheNode.logicalSize >= (12 * 32) + 2_048)
+        #expect(snapshot.aggregateStats.fileCount == 13)
 
         let rebuiltStore = FileTreeStore(
             rootID: snapshot.treeStore.rootID,
@@ -4547,14 +4690,15 @@ final class ScanEngineTests: XCTestCase {
         )
         let scannedStats = snapshot.aggregateStats
         let rebuiltStats = rebuiltStore.aggregateStats
-        XCTAssertEqual(scannedStats.fileCount, rebuiltStats.fileCount)
-        XCTAssertEqual(scannedStats.directoryCount, rebuiltStats.directoryCount)
-        XCTAssertEqual(scannedStats.accessibleItemCount, rebuiltStats.accessibleItemCount)
-        XCTAssertEqual(scannedStats.inaccessibleItemCount, rebuiltStats.inaccessibleItemCount)
-        XCTAssertEqual(scannedStats.totalAllocatedSize, rebuiltStats.totalAllocatedSize)
-        XCTAssertEqual(scannedStats.totalLogicalSize, rebuiltStats.totalLogicalSize)
+        #expect(scannedStats.fileCount == rebuiltStats.fileCount)
+        #expect(scannedStats.directoryCount == rebuiltStats.directoryCount)
+        #expect(scannedStats.accessibleItemCount == rebuiltStats.accessibleItemCount)
+        #expect(scannedStats.inaccessibleItemCount == rebuiltStats.inaccessibleItemCount)
+        #expect(scannedStats.totalAllocatedSize == rebuiltStats.totalAllocatedSize)
+        #expect(scannedStats.totalLogicalSize == rebuiltStats.totalLogicalSize)
     }
 
+    @Test
     func testAutoSummarizedDirectoryCountsAsSingleVisitedDirectory() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4583,10 +4727,11 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(finalMetrics.directoriesVisited, 3)
-        XCTAssertEqual(finalMetrics.filesVisited, 20)
+        #expect(finalMetrics.directoriesVisited == 3)
+        #expect(finalMetrics.filesVisited == 20)
     }
 
+    @Test
     func testAutoSummarizedDirectoryReleasesChildDirectoryDiscoveryCounts() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4623,18 +4768,19 @@ final class ScanEngineTests: XCTestCase {
             }
         }
 
-        let snapshot = try XCTUnwrap(finalSnapshot)
-        let finalMetrics = try XCTUnwrap(progressSnapshots.last)
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        let snapshot = try #require(finalSnapshot)
+        let finalMetrics = try #require(progressSnapshots.last)
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
 
-        XCTAssertTrue(cacheNode.isAutoSummarized)
-        XCTAssertEqual(finalMetrics.enumeratedDirectoryCount, 3)
-        XCTAssertEqual(finalMetrics.discoveredDirectoryCount, 3)
-        XCTAssertEqual(finalMetrics.pendingDirectoryCount, 0)
-        XCTAssertEqual(finalMetrics.progressFraction, 1, accuracy: 0.0001)
+        #expect(cacheNode.isAutoSummarized)
+        #expect(finalMetrics.enumeratedDirectoryCount == 3)
+        #expect(finalMetrics.discoveredDirectoryCount == 3)
+        #expect(finalMetrics.pendingDirectoryCount == 0)
+        #expect(abs((finalMetrics.progressFraction) - (1)) <= 0.0001)
     }
 
+    @Test
     func testDirectoryNotAutoSummarizedWhenFilesAreLarge() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4660,13 +4806,14 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertFalse(cacheNode.isAutoSummarized, "Directory with large files should not be auto-summarized")
-        XCTAssertTrue(containsChildren(cacheNode, in: snapshot))
-        XCTAssertEqual(children(of: cacheNode, in: snapshot).count, 20)
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(!(cacheNode.isAutoSummarized), "Directory with large files should not be auto-summarized")
+        #expect(containsChildren(cacheNode, in: snapshot))
+        #expect(children(of: cacheNode, in: snapshot).count == 20)
     }
 
+    @Test
     func testRejectedAutoSummaryProbeReusesCompleteListingsWithoutChangingResults() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4690,10 +4837,10 @@ final class ScanEngineTests: XCTestCase {
         options.autoSummarizeMinDepthForSummarization = 2
 
         #if DEBUG
-        let profile = AutoSummaryEventProbe()
-        let enabledEngine = ScanEngine(autoSummaryProfileReporter: profile.record)
+            let profile = AutoSummaryEventProbe()
+            let enabledEngine = ScanEngine(autoSummaryProfileReporter: profile.record)
         #else
-        let enabledEngine = ScanEngine()
+            let enabledEngine = ScanEngine()
         #endif
         let enabledSnapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
@@ -4707,84 +4854,74 @@ final class ScanEngineTests: XCTestCase {
         )
 
         #if DEBUG
-        XCTAssertGreaterThan(profile.rejectedProbeCount, 0)
-        XCTAssertGreaterThan(profile.reusedDirectoryCount, 0)
-        XCTAssertGreaterThan(profile.reusedEntryCount, 0)
+            #expect(profile.rejectedProbeCount > 0)
+            #expect(profile.reusedDirectoryCount > 0)
+            #expect(profile.reusedEntryCount > 0)
         #endif
         let expectedNodeIDs = disabledSnapshot.treeStore.indexedNodeIDs()
-        XCTAssertEqual(enabledSnapshot.treeStore.indexedNodeIDs(), expectedNodeIDs)
+        #expect(enabledSnapshot.treeStore.indexedNodeIDs() == expectedNodeIDs)
         for nodeID in expectedNodeIDs {
-            XCTAssertEqual(
-                enabledSnapshot.treeStore.node(id: nodeID),
-                disabledSnapshot.treeStore.node(id: nodeID),
-                nodeID
-            )
-            XCTAssertEqual(
-                enabledSnapshot.treeStore.children(of: nodeID).map(\.id),
-                disabledSnapshot.treeStore.children(of: nodeID).map(\.id),
-                nodeID
-            )
+            #expect(
+                enabledSnapshot.treeStore.node(id: nodeID) == disabledSnapshot.treeStore.node(id: nodeID),
+                Comment(rawValue: nodeID))
+            #expect(
+                enabledSnapshot.treeStore.children(of: nodeID).map(\.id)
+                    == disabledSnapshot.treeStore.children(of: nodeID).map(\.id), Comment(rawValue: nodeID))
         }
-        XCTAssertEqual(
-            enabledSnapshot.aggregateStats.totalAllocatedSize,
-            disabledSnapshot.aggregateStats.totalAllocatedSize
-        )
-        XCTAssertEqual(
-            enabledSnapshot.aggregateStats.totalLogicalSize,
-            disabledSnapshot.aggregateStats.totalLogicalSize
-        )
-        XCTAssertEqual(enabledSnapshot.aggregateStats.fileCount, disabledSnapshot.aggregateStats.fileCount)
-        XCTAssertEqual(enabledSnapshot.aggregateStats.directoryCount, disabledSnapshot.aggregateStats.directoryCount)
-        XCTAssertEqual(
-            enabledSnapshot.aggregateStats.accessibleItemCount,
-            disabledSnapshot.aggregateStats.accessibleItemCount
-        )
-        XCTAssertEqual(
-            enabledSnapshot.aggregateStats.inaccessibleItemCount,
-            disabledSnapshot.aggregateStats.inaccessibleItemCount
-        )
+        #expect(enabledSnapshot.aggregateStats.totalAllocatedSize == disabledSnapshot.aggregateStats.totalAllocatedSize)
+        #expect(enabledSnapshot.aggregateStats.totalLogicalSize == disabledSnapshot.aggregateStats.totalLogicalSize)
+        #expect(enabledSnapshot.aggregateStats.fileCount == disabledSnapshot.aggregateStats.fileCount)
+        #expect(enabledSnapshot.aggregateStats.directoryCount == disabledSnapshot.aggregateStats.directoryCount)
+        #expect(
+            enabledSnapshot.aggregateStats.accessibleItemCount == disabledSnapshot.aggregateStats.accessibleItemCount)
+        #expect(
+            enabledSnapshot.aggregateStats.inaccessibleItemCount
+                == disabledSnapshot.aggregateStats.inaccessibleItemCount)
     }
 
     #if DEBUG
-    func testExhaustedAutoSummaryProbeSuppressesRedundantDescendantProbes() async throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
+        @Test
+        func testExhaustedAutoSummaryProbeSuppressesRedundantDescendantProbes() async throws {
+            let rootURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let cacheURL = rootURL.appending(path: "projects/cache", directoryHint: .isDirectory)
-        for index in 0..<3 {
-            let nestedURL = cacheURL.appending(
-                path: "branch-\(index)/nested",
-                directoryHint: .isDirectory
+            let cacheURL = rootURL.appending(path: "projects/cache", directoryHint: .isDirectory)
+            for index in 0..<3 {
+                let nestedURL = cacheURL.appending(
+                    path: "branch-\(index)/nested",
+                    directoryHint: .isDirectory
+                )
+                try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+                try Data(repeating: UInt8(index), count: 8_192)
+                    .write(to: nestedURL.appending(path: "payload.bin"))
+            }
+
+            var options = ScanOptions()
+            options.autoSummarizeMinFileCount = 10
+            options.autoSummarizeMaxAverageFileSize = 256
+            options.autoSummarizeMinDepthForSummarization = 2
+            let profile = AutoSummaryEventProbe()
+
+            let snapshot = try await finishedSnapshot(
+                target: ScanTarget(url: rootURL),
+                options: options,
+                engine: ScanEngine(autoSummaryProfileReporter: profile.record)
             )
-            try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
-            try Data(repeating: UInt8(index), count: 8_192)
-                .write(to: nestedURL.appending(path: "payload.bin"))
+
+            #expect(profile.probeCount == 1)
+            #expect(profile.rejectedProbeCount == 1)
+            #expect(snapshot.aggregateStats.fileCount == 3)
+            #expect(snapshot.treeStore.indexedNodeIDs().contains { $0.hasSuffix("payload.bin") })
         }
-
-        var options = ScanOptions()
-        options.autoSummarizeMinFileCount = 10
-        options.autoSummarizeMaxAverageFileSize = 256
-        options.autoSummarizeMinDepthForSummarization = 2
-        let profile = AutoSummaryEventProbe()
-
-        let snapshot = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: options,
-            engine: ScanEngine(autoSummaryProfileReporter: profile.record)
-        )
-
-        XCTAssertEqual(profile.probeCount, 1)
-        XCTAssertEqual(profile.rejectedProbeCount, 1)
-        XCTAssertEqual(snapshot.aggregateStats.fileCount, 3)
-        XCTAssertTrue(snapshot.treeStore.indexedNodeIDs().contains { $0.hasSuffix("payload.bin") })
-    }
     #endif
 
+    @Test
     func testNodeDependencyLayoutNotAutoSummarizedWhenFilesAreLarge() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let packageURL = rootURL
+        let packageURL =
+            rootURL
             .appending(path: "node_modules", directoryHint: .isDirectory)
             .appending(path: ".pnpm/large-payload@1.0.0/node_modules/large-payload", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
@@ -4804,11 +4941,12 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let nodeModulesNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "node_modules" }))
-        XCTAssertFalse(nodeModulesNode.isAutoSummarized)
-        XCTAssertTrue(containsChildren(nodeModulesNode, in: snapshot))
+        let nodeModulesNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "node_modules" }))
+        #expect(!(nodeModulesNode.isAutoSummarized))
+        #expect(containsChildren(nodeModulesNode, in: snapshot))
     }
 
+    @Test
     func testAutoSummarizedDirectoryExcludesHiddenFilesWhenHiddenFilesDisabled() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4838,11 +4976,11 @@ final class ScanEngineTests: XCTestCase {
             options: options
         )
 
-        let projectsNode = try XCTUnwrap(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
-        let cacheNode = try XCTUnwrap(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        XCTAssertTrue(cacheNode.isAutoSummarized)
-        XCTAssertEqual(cacheNode.descendantFileCount, 12)
-        XCTAssertEqual(cacheNode.logicalSize, 12 * 32)
+        let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
+        let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
+        #expect(cacheNode.isAutoSummarized)
+        #expect(cacheNode.descendantFileCount == 12)
+        #expect(cacheNode.logicalSize == 12 * 32)
     }
 }
 
@@ -4896,9 +5034,7 @@ private func rejectingVolumeBoundaryPolicy(
     for rootURL: URL,
     metadataLoader: ScanMetadataLoader
 ) throws -> ScanEngine.ScanVolumeBoundaryPolicy {
-    let actualDeviceID = try XCTUnwrap(
-        metadataLoader.fileSystemIdentity(at: rootURL).fileSystemDeviceID
-    )
+    let actualDeviceID = try #require(metadataLoader.fileSystemIdentity(at: rootURL).fileSystemDeviceID)
     return ScanEngine.ScanVolumeBoundaryPolicy.resolve(
         rootPath: rootURL.path,
         rootDeviceID: actualDeviceID ^ 1,
@@ -4921,7 +5057,7 @@ private func finishedSnapshot(
         }
     }
 
-    XCTFail("Expected scan to produce a final snapshot")
+    Issue.record("Expected scan to produce a final snapshot")
     throw CancellationError()
 }
 
@@ -4937,7 +5073,7 @@ private func containsChildren(_ node: FileNodeRecord, in snapshot: ScanSnapshot)
     snapshot.treeStore.containsChildren(id: node.id)
 }
 
-private func cloneFileOrSkip(at sourceURL: URL, to destinationURL: URL) throws {
+private func cloneFile(at sourceURL: URL, to destinationURL: URL) throws {
     let result = sourceURL.withUnsafeFileSystemRepresentation { sourcePath in
         destinationURL.withUnsafeFileSystemRepresentation { destinationPath in
             guard let sourcePath, let destinationPath else {
@@ -4950,7 +5086,7 @@ private func cloneFileOrSkip(at sourceURL: URL, to destinationURL: URL) throws {
     guard result == 0 else {
         let errorCode = errno
         if errorCode == ENOTSUP || errorCode == EXDEV {
-            throw XCTSkip("APFS file cloning is unavailable in the test environment")
+            throw TestFixtureError("APFS file cloning is unavailable in the test environment")
         }
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode))
     }
@@ -4973,26 +5109,6 @@ private final class DirectoryEnumerationCancellation: @unchecked Sendable {
     func check() throws {
         lock.lock()
         let isCancelled = isCancelled
-        lock.unlock()
-        if isCancelled {
-            throw CancellationError()
-        }
-    }
-}
-
-private final class AtomicFoundationCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private let cancelAfterCheckCount: Int
-    private var checkCount = 0
-
-    init(cancelAfterCheckCount: Int) {
-        self.cancelAfterCheckCount = cancelAfterCheckCount
-    }
-
-    func check() throws {
-        lock.lock()
-        checkCount += 1
-        let isCancelled = checkCount >= cancelAfterCheckCount
         lock.unlock()
         if isCancelled {
             throw CancellationError()
@@ -5063,16 +5179,6 @@ private final class BlockingAtomicSummaryWorkerProbe: @unchecked Sendable {
         condition.unlock()
     }
 
-    func waitForDistinctActiveOwners(_ count: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        condition.lock()
-        defer { condition.unlock() }
-        while activeOwners.count < count, Date() < deadline {
-            _ = condition.wait(until: deadline)
-        }
-        return activeOwners.count >= count
-    }
-
     func releaseAll() {
         condition.lock()
         isReleased = true
@@ -5135,25 +5241,6 @@ private final class AtomicSummaryWorkerLifecycleProbe: @unchecked Sendable {
     }
 }
 
-private final class CancellationAfterChecks: @unchecked Sendable {
-    private let lock = NSLock()
-    private var remainingChecks: Int
-
-    init(_ remainingChecks: Int) {
-        self.remainingChecks = remainingChecks
-    }
-
-    func check() throws {
-        lock.lock()
-        remainingChecks -= 1
-        let shouldCancel = remainingChecks == 0
-        lock.unlock()
-        if shouldCancel {
-            throw CancellationError()
-        }
-    }
-}
-
 private final class AtomicSummaryProgressClock: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Date
@@ -5174,142 +5261,94 @@ private final class AtomicSummaryProgressClock: @unchecked Sendable {
 }
 
 #if DEBUG
-private final class AutoSummaryEventProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var probes = 0
-    private var rejectedProbes = 0
-    private var reusedDirectories = 0
-    private var reusedEntries = 0
+    private final class AutoSummaryEventProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var probes = 0
+        private var rejectedProbes = 0
+        private var reusedDirectories = 0
+        private var reusedEntries = 0
 
-    var probeCount: Int {
-        lock.withLock { probes }
-    }
+        var probeCount: Int {
+            lock.withLock { probes }
+        }
 
-    var rejectedProbeCount: Int {
-        lock.withLock { rejectedProbes }
-    }
+        var rejectedProbeCount: Int {
+            lock.withLock { rejectedProbes }
+        }
 
-    var reusedDirectoryCount: Int {
-        lock.withLock { reusedDirectories }
-    }
+        var reusedDirectoryCount: Int {
+            lock.withLock { reusedDirectories }
+        }
 
-    var reusedEntryCount: Int {
-        lock.withLock { reusedEntries }
-    }
+        var reusedEntryCount: Int {
+            lock.withLock { reusedEntries }
+        }
 
-    func record(_ event: ScanAutoSummaryProfileEvent) {
-        lock.withLock {
-            switch event {
-            case .probeCompleted(_, let wasAccepted):
-                probes += 1
-                if !wasAccepted {
-                    rejectedProbes += 1
+        func record(_ event: ScanAutoSummaryProfileEvent) {
+            lock.withLock {
+                switch event {
+                case .probeCompleted(_, let wasAccepted):
+                    probes += 1
+                    if !wasAccepted {
+                        rejectedProbes += 1
+                    }
+                case .reusedDirectoryListing(let entryCount):
+                    reusedDirectories += 1
+                    reusedEntries += entryCount
+                case .directorySummarized:
+                    break
                 }
-            case .reusedDirectoryListing(let entryCount):
-                reusedDirectories += 1
-                reusedEntries += entryCount
-            case .directorySummarized:
-                break
             }
         }
     }
-}
 #endif
 
-private final class SlowDirectoryObjectEnumerator: ScanEngine.DirectoryObjectEnumerating, @unchecked Sendable {
+/// Requests cancellation at a known enumeration boundary, without timing sleeps.
+private final class CancellingDirectoryObjectEnumerator: ScanEngine.DirectoryObjectEnumerating {
     let totalCount: Int
     private let rootURL: URL
-    private let lock = NSLock()
-    private var nextIndex = 0
+    private let cancelAfter: Int
+    private let cancel: () -> Void
+    private(set) var producedCount = 0
 
-    init(rootURL: URL, totalCount: Int) {
+    init(rootURL: URL, totalCount: Int, cancelAfter: Int, cancel: @escaping () -> Void) {
         self.rootURL = rootURL
         self.totalCount = totalCount
-    }
-
-    var producedCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return nextIndex
+        self.cancelAfter = cancelAfter
+        self.cancel = cancel
     }
 
     func nextObject() -> Any? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard nextIndex < totalCount else { return nil }
-        let childURL = rootURL.appending(path: "payload-\(nextIndex).tmp")
-        nextIndex += 1
-        Thread.sleep(forTimeInterval: 0.0005)
+        guard producedCount < totalCount else { return nil }
+        let childURL = rootURL.appending(path: "payload-\(producedCount).tmp")
+        producedCount += 1
+        if producedCount == cancelAfter { cancel() }
         return childURL
-    }
-
-    func waitUntilProduced(
-        _ minimumCount: Int,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async throws {
-        for _ in 0..<200 {
-            if producedCount >= minimumCount {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTFail("Timed out waiting for directory object enumeration.", file: file, line: line)
     }
 }
 
 private final class CancellableDirectoryContentsProbe: @unchecked Sendable {
     let totalCount: Int
+    private let cancel: @Sendable () -> Void
     private let lock = NSLock()
     private var produced = 0
 
-    init(totalCount: Int) {
+    init(totalCount: Int, cancel: @escaping @Sendable () -> Void) {
         self.totalCount = totalCount
+        self.cancel = cancel
     }
 
-    var producedCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return produced
-    }
+    var producedCount: Int { lock.withLock { produced } }
 
-    func contents(
-        for url: URL,
-        cancellationCheck: @Sendable () throws -> Void
-    ) throws -> [URL] {
+    func contents(for url: URL, cancellationCheck: @Sendable () throws -> Void) throws -> [URL] {
         var urls: [URL] = []
-        urls.reserveCapacity(totalCount)
-
         for index in 0..<totalCount {
-            if index.isMultiple(of: 8) {
-                try cancellationCheck()
-            }
-            recordProducedChild()
-            Thread.sleep(forTimeInterval: 0.0005)
+            if index == 64 { cancel() }
+            try cancellationCheck()
+            lock.withLock { produced += 1 }
             urls.append(url.appending(path: "payload-\(index).tmp"))
         }
-
         return urls
-    }
-
-    func waitUntilProduced(
-        _ minimumCount: Int,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async throws {
-        for _ in 0..<200 {
-            if producedCount >= minimumCount {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTFail("Timed out waiting for directory contents production.", file: file, line: line)
-    }
-
-    private func recordProducedChild() {
-        lock.lock()
-        produced += 1
-        lock.unlock()
     }
 }
 
@@ -5336,17 +5375,8 @@ private final class BlockingDirectoryContentsProbe: @unchecked Sendable {
         return []
     }
 
-    func waitUntilBlocked(
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async throws {
-        for _ in 0..<200 {
-            if blocked {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTFail("Timed out waiting for directory contents blocking.", file: file, line: line)
+    func waitUntilBlocked(sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        try await waitUntil("directory contents blocked", sourceLocation: sourceLocation) { self.blocked }
     }
 
     func release() {

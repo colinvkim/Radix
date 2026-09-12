@@ -1,14 +1,17 @@
 import Combine
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
-final class FileBrowserBenchmarkTests: XCTestCase {
+struct FileBrowserBenchmarkTests {
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_METADATA_SEARCH"] == "1",
+            "Set RADIX_BENCH_METADATA_SEARCH=1 to benchmark cold metadata searches."))
     func testColdMetadataSearchBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_METADATA_SEARCH"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_METADATA_SEARCH=1 to benchmark cold metadata searches.")
-        }
         let fixture = Self.makeWideFixture(directoryCount: 1_000, filesPerDirectory: 1_000)
         let noMatches = environment["RADIX_BENCH_METADATA_MATCHES"] == "none"
         let scenario = noMatches ? "no-matches" : "all-files"
@@ -38,7 +41,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                     sortOrder: phase.order
                 )
             }
-            XCTAssertEqual(measurement.value.count, phase.count)
+            #expect(measurement.value.count == phase.count)
             if !phase.order.isEmpty, measurement.value.count > 1 {
                 Self.assertSorted(measurement.value, using: phase.order, fileTreeStore: fixture.store)
             }
@@ -61,38 +64,39 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             store: fixture.store,
             query: metadataQuery
         )
-        XCTAssertTrue(
+        #expect(
             cancellation.wasCancelled || cancellation.completedBeforeCancellation,
-            "Metadata search returned normally after cancellation was requested."
-        )
+            "Metadata search returned normally after cancellation was requested.")
         Self.report(
             phase: "cancel_cold_metadata",
             seconds: cancellation.seconds,
             count: fixture.store.nodeCount - 1,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "scenario=\(scenario) cancelled=\(cancellation.wasCancelled) " +
-                "completed_before_cancel=\(cancellation.completedBeforeCancellation)"
+            extra: "scenario=\(scenario) cancelled=\(cancellation.wasCancelled) "
+                + "completed_before_cancel=\(cancellation.completedBeforeCancellation)"
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_FILE_BROWSER"] == "1",
+            "Set RADIX_BENCH_FILE_BROWSER=1 to run the million-node File Browser benchmark."))
     func testMillionNodeFileBrowserBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_FILE_BROWSER"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_BENCH_FILE_BROWSER=1 to run the million-node File Browser benchmark."
-            )
-        }
-
         let fixtureShape = FileBrowserBenchmarkFixtureShape(
             environmentValue: environment["RADIX_BENCH_FILE_BROWSER_SHAPE"]
         )
-        let directoryCount = environment["RADIX_BENCH_FILE_BROWSER_DIRECTORIES"]
+        let directoryCount =
+            environment["RADIX_BENCH_FILE_BROWSER_DIRECTORIES"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? fixtureShape.defaultDirectoryCount
-        let filesPerDirectory = environment["RADIX_BENCH_FILE_BROWSER_FILES_PER_DIRECTORY"]
+        let filesPerDirectory =
+            environment["RADIX_BENCH_FILE_BROWSER_FILES_PER_DIRECTORY"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 1_000
-        let warmIterationCount = environment["RADIX_BENCH_FILE_BROWSER_WARM_ITERATIONS"]
+        let warmIterationCount =
+            environment["RADIX_BENCH_FILE_BROWSER_WARM_ITERATIONS"]
             .flatMap(Int.init)
             .map { max(1, $0) } ?? 3
 
@@ -108,10 +112,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         let fixturePeakRSS = BenchmarkSupport.peakResidentBytes()
         let fixtureCurrentRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
 
-        XCTAssertEqual(
-            fixture.store.nodeCount,
-            fixture.fileCount + fixture.directoryCount + 1
-        )
+        #expect(fixture.store.nodeCount == fixture.fileCount + fixture.directoryCount + 1)
         Self.report(
             phase: "fixture",
             seconds: fixtureMeasurement.seconds,
@@ -135,7 +136,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 sortOrder: []
             )
         }
-        XCTAssertTrue(coldMeasurement.value.isEmpty)
+        #expect(coldMeasurement.value.isEmpty)
         let coldIndexedPeakRSS = BenchmarkSupport.peakResidentBytes()
         let coldIndexedCurrentRSS = coldMeasurement.endRSS
 
@@ -163,9 +164,9 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 startRSS: coldMeasurement.startRSS,
                 endRSS: coldMeasurement.endRSS,
                 phasePeakRSS: coldMeasurement.peakRSS,
-                extra: "cold_total=\(BenchmarkSupport.format(coldMeasurement.seconds)) " +
-                    "warm_scan_median=\(BenchmarkSupport.format(warmNoMatchMedian)) " +
-                    "post_index_rss_delta=\(coldIndexRSSDelta)"
+                extra: "cold_total=\(BenchmarkSupport.format(coldMeasurement.seconds)) "
+                    + "warm_scan_median=\(BenchmarkSupport.format(warmNoMatchMedian)) "
+                    + "post_index_rss_delta=\(coldIndexRSSDelta)"
             )
         )
 
@@ -177,9 +178,10 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             query: FileBrowserQuery(text: "needle"),
             sortOrder: []
         )
-        XCTAssertTrue(textSamples.allSatisfy {
-            $0.resultCount == fixture.expectedTextQueryCount
-        })
+        #expect(
+            textSamples.allSatisfy {
+                $0.resultCount == fixture.expectedTextQueryCount
+            })
         Self.reportSamples(
             phase: "warm_text",
             samples: textSamples,
@@ -194,10 +196,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 sortOrder: []
             )
         }
-        XCTAssertEqual(
-            firstPathMeasurement.value.count,
-            fixture.expectedPathQueryCount
-        )
+        #expect(firstPathMeasurement.value.count == fixture.expectedPathQueryCount)
         let firstPathPeakRSS = BenchmarkSupport.peakResidentBytes()
         let firstPathRSSDeltaFromIndex = BenchmarkSupport.byteDelta(
             from: coldIndexedCurrentRSS,
@@ -225,9 +224,10 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             query: fixture.pathQuery,
             sortOrder: []
         )
-        XCTAssertTrue(warmPathSamples.allSatisfy {
-            $0.resultCount == fixture.expectedPathQueryCount
-        })
+        #expect(
+            warmPathSamples.allSatisfy {
+                $0.resultCount == fixture.expectedPathQueryCount
+            })
         let warmPathMemoryMeasurement = try await Self.measureAsyncWithMemory {
             try await searchService.search(
                 snapshotID: snapshotID,
@@ -236,10 +236,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 sortOrder: []
             )
         }
-        XCTAssertEqual(
-            warmPathMemoryMeasurement.value.count,
-            fixture.expectedPathQueryCount
-        )
+        #expect(warmPathMemoryMeasurement.value.count == fixture.expectedPathQueryCount)
         let warmPathRSSDeltaFromIndex = BenchmarkSupport.byteDelta(
             from: coldIndexedCurrentRSS,
             to: warmPathMemoryMeasurement.endRSS
@@ -266,7 +263,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             query: filterQuery,
             sortOrder: []
         )
-        XCTAssertTrue(filterSamples.allSatisfy { $0.resultCount == fixture.fileCount })
+        #expect(filterSamples.allSatisfy { $0.resultCount == fixture.fileCount })
         let largeResults = try await searchService.search(
             snapshotID: snapshotID,
             treeStore: fixture.store,
@@ -289,7 +286,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         }
         let sortedResults = sortingMeasurement.value
         let sortingPeakRSS = BenchmarkSupport.peakResidentBytes()
-        XCTAssertEqual(sortedResults.count, fixture.fileCount)
+        #expect(sortedResults.count == fixture.fileCount)
         Self.assertSorted(
             sortedResults,
             using: sortOrder,
@@ -344,17 +341,16 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             store: fixture.store,
             query: noMatchQuery
         )
-        XCTAssertTrue(
+        #expect(
             coldCancellation.wasCancelled || coldCancellation.completedBeforeCancellation,
-            "Cold search returned normally after cancellation was requested."
-        )
+            "Cold search returned normally after cancellation was requested.")
         Self.report(
             phase: "cancel_cold_search",
             seconds: coldCancellation.seconds,
             count: fixture.store.nodeCount - 1,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "cancelled=\(coldCancellation.wasCancelled) " +
-                "completed_before_cancel=\(coldCancellation.completedBeforeCancellation)"
+            extra: "cancelled=\(coldCancellation.wasCancelled) "
+                + "completed_before_cancel=\(coldCancellation.completedBeforeCancellation)"
         )
 
         let warmSearchCancellation = try await Self.measureSearchCancellation(
@@ -363,18 +359,16 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             store: fixture.store,
             query: noMatchQuery
         )
-        XCTAssertTrue(
-            warmSearchCancellation.wasCancelled ||
-                warmSearchCancellation.completedBeforeCancellation,
-            "Warm search returned normally after cancellation was requested."
-        )
+        #expect(
+            warmSearchCancellation.wasCancelled || warmSearchCancellation.completedBeforeCancellation,
+            "Warm search returned normally after cancellation was requested.")
         Self.report(
             phase: "cancel_warm_search",
             seconds: warmSearchCancellation.seconds,
             count: fixture.store.nodeCount - 1,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "cancelled=\(warmSearchCancellation.wasCancelled) " +
-                "completed_before_cancel=\(warmSearchCancellation.completedBeforeCancellation)"
+            extra: "cancelled=\(warmSearchCancellation.wasCancelled) "
+                + "completed_before_cancel=\(warmSearchCancellation.completedBeforeCancellation)"
         )
 
         let sortCancellation = try await Self.measureSortCancellation(
@@ -383,17 +377,16 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             store: fixture.store,
             baselineSortSeconds: sortingMeasurement.seconds
         )
-        XCTAssertTrue(
+        #expect(
             sortCancellation.wasCancelled || sortCancellation.completedBeforeCancellation,
-            "Sort returned normally after cancellation was requested."
-        )
+            "Sort returned normally after cancellation was requested.")
         Self.report(
             phase: "cancel_sort",
             seconds: sortCancellation.seconds,
             count: largeResults.count,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "cancelled=\(sortCancellation.wasCancelled) " +
-                "completed_before_cancel=\(sortCancellation.completedBeforeCancellation)"
+            extra: "cancelled=\(sortCancellation.wasCancelled) "
+                + "completed_before_cancel=\(sortCancellation.completedBeforeCancellation)"
         )
 
         let endToEndSeconds = try await Self.measureEndToEnd(
@@ -442,10 +435,11 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                     sortOrder: sortOrder
                 )
             }
-            samples.append(SearchSample(
-                seconds: measurement.seconds,
-                resultCount: measurement.value.count
-            ))
+            samples.append(
+                SearchSample(
+                    seconds: measurement.seconds,
+                    resultCount: measurement.value.count
+                ))
         }
         return samples
     }
@@ -468,13 +462,12 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         publisher.publish(projection)
         let seconds = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
 
-        XCTAssertEqual(publicationCount, 1)
-        XCTAssertEqual(publisher.nodeCount, projection.nodes.count)
-        XCTAssertEqual(publisher.node(id: projection.nodes[0].id)?.id, projection.nodes[0].id)
-        XCTAssertEqual(
-            publisher.node(id: projection.nodes[projection.nodes.count - 1].id)?.id,
-            projection.nodes[projection.nodes.count - 1].id
-        )
+        #expect(publicationCount == 1)
+        #expect(publisher.nodeCount == projection.nodes.count)
+        #expect(publisher.node(id: projection.nodes[0].id)?.id == projection.nodes[0].id)
+        #expect(
+            publisher.node(id: projection.nodes[projection.nodes.count - 1].id)?.id
+                == projection.nodes[projection.nodes.count - 1].id)
         withExtendedLifetime(cancellable) {}
         return seconds
     }
@@ -530,8 +523,8 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         }
         let seconds = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
 
-        XCTAssertTrue(model.isDisplayingCurrentResults)
-        XCTAssertEqual(model.displayedNodes.count, fixture.fileCount)
+        #expect(model.isDisplayingCurrentResults)
+        #expect(model.displayedNodes.count == fixture.fileCount)
         return seconds
     }
 
@@ -646,47 +639,50 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         let nodeCount = fileCount + directoryCount + 1
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
         let rootID = "/benchmark"
-        var nodes = [FileNodeRecord(
-            id: rootID,
-            url: URL(filePath: rootID, directoryHint: .isDirectory),
-            name: "benchmark",
-            isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: Int64(fileCount),
-            logicalSize: Int64(fileCount),
-            descendantFileCount: fileCount,
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true,
-            isSelfAccessible: true,
-            isSynthetic: false,
-            isAutoSummarized: false
-        )]
-        nodes.reserveCapacity(nodeCount)
-        var childIndicesByIndex = Array(repeating: [FileTreeNodeIndex](), count: nodeCount)
-        var parentIndices = Array<FileTreeNodeIndex?>(repeating: nil, count: nodeCount)
-        var rootChildren: [FileTreeNodeIndex] = []
-        rootChildren.reserveCapacity(directoryCount)
-
-        for directoryOffset in 0..<directoryCount {
-            let directoryID = String(format: "%@/directory-%04d", rootID, directoryOffset)
-            let directoryIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-            nodes.append(FileNodeRecord(
-                id: directoryID,
-                url: URL(filePath: directoryID, directoryHint: .isDirectory),
-                name: URL(filePath: directoryID).lastPathComponent,
+        var nodes = [
+            FileNodeRecord(
+                id: rootID,
+                url: URL(filePath: rootID, directoryHint: .isDirectory),
+                name: "benchmark",
                 isDirectory: true,
                 isSymbolicLink: false,
-                allocatedSize: Int64(filesPerDirectory),
-                logicalSize: Int64(filesPerDirectory),
-                descendantFileCount: filesPerDirectory,
+                allocatedSize: Int64(fileCount),
+                logicalSize: Int64(fileCount),
+                descendantFileCount: fileCount,
                 lastModified: nil,
                 isPackage: false,
                 isAccessible: true,
                 isSelfAccessible: true,
                 isSynthetic: false,
                 isAutoSummarized: false
-            ))
+            )
+        ]
+        nodes.reserveCapacity(nodeCount)
+        var childIndicesByIndex = Array(repeating: [FileTreeNodeIndex](), count: nodeCount)
+        var parentIndices = [FileTreeNodeIndex?](repeating: nil, count: nodeCount)
+        var rootChildren: [FileTreeNodeIndex] = []
+        rootChildren.reserveCapacity(directoryCount)
+
+        for directoryOffset in 0..<directoryCount {
+            let directoryID = String(format: "%@/directory-%04d", rootID, directoryOffset)
+            let directoryIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
+            nodes.append(
+                FileNodeRecord(
+                    id: directoryID,
+                    url: URL(filePath: directoryID, directoryHint: .isDirectory),
+                    name: URL(filePath: directoryID).lastPathComponent,
+                    isDirectory: true,
+                    isSymbolicLink: false,
+                    allocatedSize: Int64(filesPerDirectory),
+                    logicalSize: Int64(filesPerDirectory),
+                    descendantFileCount: filesPerDirectory,
+                    lastModified: nil,
+                    isPackage: false,
+                    isAccessible: true,
+                    isSelfAccessible: true,
+                    isSynthetic: false,
+                    isAutoSummarized: false
+                ))
             parentIndices[Int(directoryIndex.rawValue)] = rootIndex
             rootChildren.append(directoryIndex)
 
@@ -694,28 +690,30 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             directoryChildren.reserveCapacity(filesPerDirectory)
             for fileOffset in 0..<filesPerDirectory {
                 let fileIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-                let name = directoryOffset.isMultiple(of: 100) && fileOffset == 777
+                let name =
+                    directoryOffset.isMultiple(of: 100) && fileOffset == 777
                     ? String(format: "needle-%06d.dat", directoryOffset)
                     : String(format: "item-%04d.dat", fileOffset)
                 let fileID = directoryID + "/" + name
                 let sequence = (directoryOffset * filesPerDirectory) + fileOffset
                 let allocatedSize = Int64(((sequence * 37) % 16_384) + 1)
-                nodes.append(FileNodeRecord(
-                    id: fileID,
-                    url: URL(filePath: fileID),
-                    name: name,
-                    isDirectory: false,
-                    isSymbolicLink: false,
-                    allocatedSize: allocatedSize,
-                    logicalSize: allocatedSize,
-                    descendantFileCount: 1,
-                    lastModified: Date(timeIntervalSinceReferenceDate: Double(sequence % 10_000)),
-                    isPackage: false,
-                    isAccessible: true,
-                    isSelfAccessible: true,
-                    isSynthetic: false,
-                    isAutoSummarized: false
-                ))
+                nodes.append(
+                    FileNodeRecord(
+                        id: fileID,
+                        url: URL(filePath: fileID),
+                        name: name,
+                        isDirectory: false,
+                        isSymbolicLink: false,
+                        allocatedSize: allocatedSize,
+                        logicalSize: allocatedSize,
+                        descendantFileCount: 1,
+                        lastModified: Date(timeIntervalSinceReferenceDate: Double(sequence % 10_000)),
+                        isPackage: false,
+                        isAccessible: true,
+                        isSelfAccessible: true,
+                        isSynthetic: false,
+                        isAutoSummarized: false
+                    ))
                 parentIndices[Int(fileIndex.rawValue)] = directoryIndex
                 directoryChildren.append(fileIndex)
             }
@@ -738,7 +736,8 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 inaccessibleItemCount: 0
             )
         )
-        let expectedTextQueryCount = filesPerDirectory > 777
+        let expectedTextQueryCount =
+            filesPerDirectory > 777
             ? ((directoryCount - 1) / 100) + 1
             : 0
         let pathDirectoryOffset = directoryCount / 2
@@ -764,25 +763,27 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
         let rootID = "/benchmark"
 
-        var nodes = [FileNodeRecord(
-            id: rootID,
-            url: URL(filePath: rootID, directoryHint: .isDirectory),
-            name: "benchmark",
-            isDirectory: true,
-            isSymbolicLink: false,
-            allocatedSize: Int64(fileCount),
-            logicalSize: Int64(fileCount),
-            descendantFileCount: fileCount,
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true,
-            isSelfAccessible: true,
-            isSynthetic: false,
-            isAutoSummarized: false
-        )]
+        var nodes = [
+            FileNodeRecord(
+                id: rootID,
+                url: URL(filePath: rootID, directoryHint: .isDirectory),
+                name: "benchmark",
+                isDirectory: true,
+                isSymbolicLink: false,
+                allocatedSize: Int64(fileCount),
+                logicalSize: Int64(fileCount),
+                descendantFileCount: fileCount,
+                lastModified: nil,
+                isPackage: false,
+                isAccessible: true,
+                isSelfAccessible: true,
+                isSynthetic: false,
+                isAutoSummarized: false
+            )
+        ]
         nodes.reserveCapacity(nodeCount)
         var childIndicesByIndex = Array(repeating: [FileTreeNodeIndex](), count: nodeCount)
-        var parentIndices = Array<FileTreeNodeIndex?>(repeating: nil, count: nodeCount)
+        var parentIndices = [FileTreeNodeIndex?](repeating: nil, count: nodeCount)
 
         // A forest of bounded chains keeps the fixture realistic while making
         // parent-path storage scale with directory count rather than shallow breadth.
@@ -795,7 +796,8 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 parentIndex = FileTreeNodeIndex(rawValue: UInt32(directoryOffset))
             }
             let directoryIndex = FileTreeNodeIndex(rawValue: UInt32(directoryOffset + 1))
-            let directoryName = depth == 0
+            let directoryName =
+                depth == 0
                 ? String(format: "Branch-%05d", directoryOffset / maximumDepth)
                 : String(
                     format: depth.isMultiple(of: 2) ? "Folder-%03d" : "segment-%03d",
@@ -806,22 +808,23 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                 maximumDepth - depth,
                 directoryCount - directoryOffset
             )
-            nodes.append(FileNodeRecord(
-                id: directoryID,
-                url: URL(filePath: directoryID, directoryHint: .isDirectory),
-                name: directoryName,
-                isDirectory: true,
-                isSymbolicLink: false,
-                allocatedSize: Int64(descendantFileCount),
-                logicalSize: Int64(descendantFileCount),
-                descendantFileCount: descendantFileCount,
-                lastModified: nil,
-                isPackage: false,
-                isAccessible: true,
-                isSelfAccessible: true,
-                isSynthetic: false,
-                isAutoSummarized: false
-            ))
+            nodes.append(
+                FileNodeRecord(
+                    id: directoryID,
+                    url: URL(filePath: directoryID, directoryHint: .isDirectory),
+                    name: directoryName,
+                    isDirectory: true,
+                    isSymbolicLink: false,
+                    allocatedSize: Int64(descendantFileCount),
+                    logicalSize: Int64(descendantFileCount),
+                    descendantFileCount: descendantFileCount,
+                    lastModified: nil,
+                    isPackage: false,
+                    isAccessible: true,
+                    isSelfAccessible: true,
+                    isSynthetic: false,
+                    isAutoSummarized: false
+                ))
             parentIndices[Int(directoryIndex.rawValue)] = parentIndex
             childIndicesByIndex[Int(parentIndex.rawValue)].append(directoryIndex)
         }
@@ -834,24 +837,25 @@ final class FileBrowserBenchmarkTests: XCTestCase {
             let name = directoryOffset.isMultiple(of: 100) ? "needle.dat" : "item.dat"
             let fileID = nodes[Int(directoryIndex.rawValue)].id + "/" + name
             let allocatedSize = Int64(((directoryOffset * 37) % 16_384) + 1)
-            nodes.append(FileNodeRecord(
-                id: fileID,
-                url: URL(filePath: fileID),
-                name: name,
-                isDirectory: false,
-                isSymbolicLink: false,
-                allocatedSize: allocatedSize,
-                logicalSize: allocatedSize,
-                descendantFileCount: 1,
-                lastModified: Date(
-                    timeIntervalSinceReferenceDate: Double(directoryOffset % 10_000)
-                ),
-                isPackage: false,
-                isAccessible: true,
-                isSelfAccessible: true,
-                isSynthetic: false,
-                isAutoSummarized: false
-            ))
+            nodes.append(
+                FileNodeRecord(
+                    id: fileID,
+                    url: URL(filePath: fileID),
+                    name: name,
+                    isDirectory: false,
+                    isSymbolicLink: false,
+                    allocatedSize: allocatedSize,
+                    logicalSize: allocatedSize,
+                    descendantFileCount: 1,
+                    lastModified: Date(
+                        timeIntervalSinceReferenceDate: Double(directoryOffset % 10_000)
+                    ),
+                    isPackage: false,
+                    isAccessible: true,
+                    isSelfAccessible: true,
+                    isSynthetic: false,
+                    isAutoSummarized: false
+                ))
             parentIndices[Int(fileIndex.rawValue)] = directoryIndex
             childIndicesByIndex[Int(directoryIndex.rawValue)].append(fileIndex)
         }
@@ -890,8 +894,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         _ nodes: [FileNodeRecord],
         using sortOrder: [FileNodeTableComparator],
         fileTreeStore: FileTreeStore? = nil,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) {
         for offset in 1..<nodes.count {
             let lhs = nodes[offset - 1]
@@ -911,7 +914,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
                     rhsID: rhs.id
                 )
             }
-            XCTAssertNotEqual(result, .orderedDescending, file: file, line: line)
+            #expect(result != .orderedDescending, sourceLocation: sourceLocation)
         }
     }
 
@@ -1003,8 +1006,7 @@ final class FileBrowserBenchmarkTests: XCTestCase {
         phasePeakRSS: UInt64,
         extra: String = ""
     ) -> String {
-        let memoryExtra = "shape=\(shape) start_rss=\(startRSS) end_rss=\(endRSS) " +
-            "phase_peak_rss=\(phasePeakRSS)"
+        let memoryExtra = "shape=\(shape) start_rss=\(startRSS) end_rss=\(endRSS) " + "phase_peak_rss=\(phasePeakRSS)"
         return extra.isEmpty ? memoryExtra : "\(memoryExtra) \(extra)"
     }
 

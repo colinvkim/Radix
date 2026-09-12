@@ -1,19 +1,23 @@
 import Darwin
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
+struct BulkDirectoryEnumeratorDescriptorTests {
+    @Test
     func testNativeNameRejectsUnsafeOrLossyComponents() {
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: []))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array(".".utf8)))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("..".utf8)))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("a/b".utf8)))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0x61, 0, 0x62]))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0xC0, 0xAF]))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0x80]))
-        XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0x81]))
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: []) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array(".".utf8)) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("..".utf8)) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("a/b".utf8)) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0x61, 0, 0x62]) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0xC0, 0xAF]) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0x80]) == nil)
+        #expect(BulkDirectoryEnumerator.NativeName(fileSystemBytes: [0x81]) == nil)
     }
 
+    @Test
     func testUnicodeNativeNamesOpenExactChildrenRelativeToDescriptor() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -22,28 +26,34 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
             try Data([UInt8(offset + 1)]).write(to: rootURL.appending(path: name))
         }
 
-        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: ScanMetadataLoader(),
-            cancellationCheck: {}
-        ))
-        XCTAssertEqual(result.entries.count, names.count)
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                cancellationCheck: {}
+            ))
+        let result = try #require(resultValue)
+        #expect(result.entries.count == names.count)
 
         let parentDescriptor = try openDirectoryDescriptor(at: rootURL)
         defer { Darwin.close(parentDescriptor) }
         for entry in result.entries {
-            let nativeName = try XCTUnwrap(entry.nativeName, entry.url.lastPathComponent)
+            let nativeName = try #require(entry.nativeName, Comment(rawValue: entry.url.lastPathComponent))
             let childDescriptor = nativeName.withUnsafeFileSystemRepresentation { namePointer in
                 openat(parentDescriptor, namePointer, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
             }
-            XCTAssertGreaterThanOrEqual(childDescriptor, 0, entry.url.lastPathComponent)
+            #expect(childDescriptor >= 0, Comment(rawValue: entry.url.lastPathComponent))
             if childDescriptor >= 0 {
                 Darwin.close(childDescriptor)
             }
         }
     }
 
+    @Test(
+        .enabled(
+            if: try TestFileSystem.supportsNativeNames([[0x69, 0x6E, 0x76, 0x80]]),
+            "Requires a filesystem supporting non-UTF-8 names"))
     func testInvalidUTF8FilesystemNameDisablesBulkDirectoryWhenFilesystemPermitsIt() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -59,7 +69,7 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
             )
         }
         guard childDescriptor >= 0 else {
-            throw XCTSkip("The test filesystem rejects invalid UTF-8 child names.")
+            throw TestFixtureError("The test filesystem rejects invalid UTF-8 child names.")
         }
         Darwin.close(childDescriptor)
 
@@ -70,9 +80,13 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
             entryInclusion: { _, _ in false },
             cancellationCheck: {}
         )
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
+    @Test(
+        .enabled(
+            if: try TestFileSystem.supportsNativeNames([Array("\u{00E9}.txt".utf8), Array("e\u{0301}.txt".utf8)]),
+            "Requires a filesystem distinguishing canonically equivalent names"))
     func testCanonicallyCollidingNativeNamesOnlyDisableBulkWhenIncluded() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -91,29 +105,33 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
                 )
             }
             guard childDescriptor >= 0 else {
-                throw XCTSkip("The test filesystem folds canonically equivalent names.")
+                throw TestFixtureError("The test filesystem folds canonically equivalent names.")
             }
             Darwin.close(childDescriptor)
         }
 
-        let excludedResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: ScanMetadataLoader(),
-            entryInclusion: { _, _ in false },
-            cancellationCheck: {}
-        ))
-        XCTAssertTrue(excludedResult.entries.isEmpty)
+        let excludedResultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                entryInclusion: { _, _ in false },
+                cancellationCheck: {}
+            ))
+        let excludedResult = try #require(excludedResultValue)
+        #expect(excludedResult.entries.isEmpty)
 
-        XCTAssertNil(try BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: ScanMetadataLoader(),
-            entryInclusion: { _, _ in true },
-            cancellationCheck: {}
-        ))
+        #expect(
+            try BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                entryInclusion: { _, _ in true },
+                cancellationCheck: {}
+            ) == nil)
     }
 
+    @Test
     func testDescriptorCursorMatchesPathCursor() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -128,12 +146,14 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: fileURL)
 
         let metadataLoader = ScanMetadataLoader()
-        let pathResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
+        let pathResultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let pathResult = try #require(pathResultValue)
         let descriptor = try openDirectoryDescriptor(at: rootURL)
         let handle = BulkDirectoryEnumerator.NativeDirectoryHandle(owning: descriptor)
         let cursor = try BulkDirectoryEnumerator.makeCursor(
@@ -150,37 +170,40 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
             descriptorItemCount += batch.enumeratedItemCount
         }
 
-        XCTAssertFalse(handle.isOpen)
-        XCTAssertEqual(descriptorItemCount, pathResult.enumeratedItemCount)
-        let pathEntries = Dictionary(uniqueKeysWithValues: pathResult.entries.map {
-            ($0.url.lastPathComponent, $0)
-        })
-        let nativeEntries = Dictionary(uniqueKeysWithValues: descriptorEntries.map {
-            ($0.url.lastPathComponent, $0)
-        })
-        XCTAssertEqual(Set(nativeEntries.keys), Set(pathEntries.keys))
+        #expect(!(handle.isOpen))
+        #expect(descriptorItemCount == pathResult.enumeratedItemCount)
+        let pathEntries = Dictionary(
+            uniqueKeysWithValues: pathResult.entries.map {
+                ($0.url.lastPathComponent, $0)
+            })
+        let nativeEntries = Dictionary(
+            uniqueKeysWithValues: descriptorEntries.map {
+                ($0.url.lastPathComponent, $0)
+            })
+        #expect(Set(nativeEntries.keys) == Set(pathEntries.keys))
         for name in pathEntries.keys {
-            let pathMetadata = try XCTUnwrap(pathEntries[name]?.metadata)
-            let nativeMetadata = try XCTUnwrap(nativeEntries[name]?.metadata)
+            let pathMetadata = try #require(pathEntries[name]?.metadata)
+            let nativeMetadata = try #require(nativeEntries[name]?.metadata)
             if nativeMetadata.isDirectory || nativeMetadata.isSymbolicLink {
-                XCTAssertNotNil(nativeEntries[name]?.nativeName, name)
+                #expect(nativeEntries[name]?.nativeName != nil, Comment(rawValue: name))
             } else {
                 // ASCII regular files, including hard links, need only the URL.
-                XCTAssertNil(nativeEntries[name]?.nativeName, name)
+                #expect(nativeEntries[name]?.nativeName == nil, Comment(rawValue: name))
             }
-            XCTAssertEqual(nativeMetadata.isDirectory, pathMetadata.isDirectory, name)
-            XCTAssertEqual(nativeMetadata.isPackage, pathMetadata.isPackage, name)
-            XCTAssertEqual(nativeMetadata.isSymbolicLink, pathMetadata.isSymbolicLink, name)
-            XCTAssertEqual(nativeMetadata.logicalSize, pathMetadata.logicalSize, name)
-            XCTAssertEqual(nativeMetadata.allocatedSize, pathMetadata.allocatedSize, name)
-            XCTAssertEqual(nativeMetadata.dataAllocatedSize, pathMetadata.dataAllocatedSize, name)
-            XCTAssertEqual(nativeMetadata.fileIdentity, pathMetadata.fileIdentity, name)
-            XCTAssertEqual(nativeMetadata.linkCount, pathMetadata.linkCount, name)
-            XCTAssertEqual(nativeMetadata.cloneIdentity, pathMetadata.cloneIdentity, name)
-            XCTAssertEqual(nativeMetadata.mayShareDataBlocks, pathMetadata.mayShareDataBlocks, name)
+            #expect(nativeMetadata.isDirectory == pathMetadata.isDirectory, Comment(rawValue: name))
+            #expect(nativeMetadata.isPackage == pathMetadata.isPackage, Comment(rawValue: name))
+            #expect(nativeMetadata.isSymbolicLink == pathMetadata.isSymbolicLink, Comment(rawValue: name))
+            #expect(nativeMetadata.logicalSize == pathMetadata.logicalSize, Comment(rawValue: name))
+            #expect(nativeMetadata.allocatedSize == pathMetadata.allocatedSize, Comment(rawValue: name))
+            #expect(nativeMetadata.dataAllocatedSize == pathMetadata.dataAllocatedSize, Comment(rawValue: name))
+            #expect(nativeMetadata.fileIdentity == pathMetadata.fileIdentity, Comment(rawValue: name))
+            #expect(nativeMetadata.linkCount == pathMetadata.linkCount, Comment(rawValue: name))
+            #expect(nativeMetadata.cloneIdentity == pathMetadata.cloneIdentity, Comment(rawValue: name))
+            #expect(nativeMetadata.mayShareDataBlocks == pathMetadata.mayShareDataBlocks, Comment(rawValue: name))
         }
     }
 
+    @Test
     func testDescriptorCursorOwnsAndClosesHandleWhenDropped() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -199,12 +222,13 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
 
         cursor = nil
 
-        XCTAssertFalse(handle.isOpen)
+        #expect(!(handle.isOpen))
         errno = 0
-        XCTAssertEqual(fcntl(descriptor, F_GETFD), -1)
-        XCTAssertEqual(errno, EBADF)
+        #expect(fcntl(descriptor, F_GETFD) == -1)
+        #expect(errno == EBADF)
     }
 
+    @Test
     func testDescriptorCursorClosesHandleOnUnsupportedFallback() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -221,13 +245,15 @@ final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
             forcedUnavailableAfterBatchCount: 0
         )
 
-        XCTAssertThrowsError(try cursor.nextBatch(cancellationCheck: {})) { error in
+        #expect { try cursor.nextBatch(cancellationCheck: {}) } throws: { error in
             guard case BulkDirectoryEnumerator.StreamError.unavailable = error else {
-                return XCTFail("Expected descriptor cursor fallback, got \(error)")
+                Issue.record("Expected descriptor cursor fallback, got \(error)")
+                return false
             }
+            return true
         }
-        XCTAssertFalse(handle.isOpen)
-        XCTAssertNil(try cursor.nextBatch(cancellationCheck: {}))
+        #expect(!(handle.isOpen))
+        #expect(try cursor.nextBatch(cancellationCheck: {}) == nil)
     }
 
     private func openDirectoryDescriptor(at url: URL) throws -> Int32 {

@@ -1,22 +1,25 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
 /// Opt-in measurements for the performance audit; elapsed times are never test assertions.
-final class PerformanceAuditBenchmarkTests: XCTestCase {
+struct PerformanceAuditBenchmarkTests {
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_DIRECTORY_PUBLICATION"] == "1",
+            "Set RADIX_BENCH_DIRECTORY_PUBLICATION=1 to measure directory publication."))
     func testLargeDirectoryPublicationBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_DIRECTORY_PUBLICATION"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_DIRECTORY_PUBLICATION=1 to measure directory publication.")
-        }
         let count = environment["RADIX_BENCH_DIRECTORY_FILES"].flatMap(Int.init) ?? 1_000_000
         let dense = Self.makeFlatSnapshot(fileCount: count, rootID: "/navigation/dense")
         let root = makeTestDirectoryNode(id: "/navigation", name: "navigation", children: [dense.root])
         let store = try FileTreeStore.combining(
             root: root,
-            childSubtrees: [try XCTUnwrap(FileTreeStore.SubtreeSource(store: dense.treeStore, rootedAt: dense.root.id))],
+            childSubtrees: [try #require(FileTreeStore.SubtreeSource(store: dense.treeStore, rootedAt: dense.root.id))],
             cancellationCheck: {}
         )
         let snapshot = makeTestSnapshot(root: root, store: store)
@@ -39,7 +42,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             let submission = BenchmarkSupport.measure(operation)
             while !ready() {
                 guard startedAt.duration(to: .now) < .seconds(60) else {
-                    XCTFail("Directory publication timed out: \(phase)")
+                    Issue.record("Directory publication timed out: \(phase)")
                     return
                 }
                 try await Task.sleep(for: .milliseconds(1))
@@ -60,12 +63,16 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         for iteration in 1...3 {
             try await sample("directory_enter_\(iteration)") {
                 navigation.focus(nodeID: dense.root.id)
-            } ready: { navigation.tableNodes.count == count }
-            XCTAssertEqual(navigation.tableNodes.first?.name, "item-0.dat")
-            XCTAssertEqual(navigation.tableNodes.last?.name, "item-\(count - 1).dat")
+            } ready: {
+                navigation.tableNodes.count == count
+            }
+            #expect(navigation.tableNodes.first?.name == "item-0.dat")
+            #expect(navigation.tableNodes.last?.name == "item-\(count - 1).dat")
             try await sample("directory_exit_\(iteration)") {
                 navigation.navigateToParent()
-            } ready: { navigation.tableNodes.count == 1 }
+            } ready: {
+                navigation.tableNodes.count == 1
+            }
         }
 
         let browser = FileBrowserModel(searchDebounceDuration: .zero)
@@ -74,31 +81,37 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             snapshot: snapshot, fileTreeStore: store
         )
         try await waitUntil(timeout: 60) { !browser.isRefreshingCurrentContents }
-        XCTAssertEqual(browser.displayedNodes.count, count)
+        #expect(browser.displayedNodes.count == count)
         for iteration in 1...3 {
             try await sample("browser_filter_clear_\(iteration)") {
                 browser.setActiveQuery(FileBrowserQuery(itemKind: .folder))
-            } ready: { !browser.isRefreshingCurrentContents }
-            XCTAssertTrue(browser.displayedNodes.isEmpty)
+            } ready: {
+                !browser.isRefreshingCurrentContents
+            }
+            #expect(browser.displayedNodes.isEmpty)
             browser.setActiveQuery(FileBrowserQuery())
             try await waitUntil(timeout: 60) { !browser.isRefreshingCurrentContents }
-            XCTAssertEqual(browser.displayedNodes.count, count)
+            #expect(browser.displayedNodes.count == count)
         }
         try await sample("browser_content_clear") {
             browser.updateContent(nodes: [], contentID: "empty", snapshot: nil, fileTreeStore: nil)
-        } ready: { !browser.isRefreshingCurrentContents }
-        XCTAssertTrue(browser.displayedNodes.isEmpty)
+        } ready: {
+            !browser.isRefreshingCurrentContents
+        }
+        #expect(browser.displayedNodes.isEmpty)
         browser.cleanup()
         withExtendedLifetime(dense) {}
         withExtendedLifetime(snapshot) {}
     }
 
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_COMPARISON"] == "1",
+            "Set RADIX_BENCH_COMPARISON=1 to measure comparison preparation."))
     func testComparisonPreparationBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_COMPARISON"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_COMPARISON=1 to measure comparison preparation.")
-        }
         let count = environment["RADIX_BENCH_COMPARISON_FILES"].flatMap(Int.init) ?? 100_000
         let before = Self.makeFlatSnapshot(fileCount: 0)
         let after = Self.makeFlatSnapshot(fileCount: count)
@@ -110,14 +123,14 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             )
         })
         let comparison = try await service.compare(before: before, after: after)
-        XCTAssertEqual(comparison.rows.count, count)
+        #expect(comparison.rows.count == count)
         let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
         let queries: [(String, ScanComparisonRowQuery)] = [
             ("initial", .init(searchText: "", sortOrder: [])),
             ("path", .init(searchText: "", sortOrder: [], pathPrefix: "item-0.dat")),
             ("sort", .init(searchText: "", sortOrder: [.defaultOrder])),
             ("search_cold", .init(searchText: "item-0.dat", sortOrder: [])),
-            ("search_warm", .init(searchText: "item-1.dat", sortOrder: []))
+            ("search_warm", .init(searchText: "item-1.dat", sortOrder: [])),
         ]
         for (phase, query) in queries {
             let start = ContinuousClock.now
@@ -147,11 +160,13 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
     }
 
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_CHART_PREPARATION"] == "1",
+            "Set RADIX_BENCH_CHART_PREPARATION=1 to measure chart preparation."))
     func testChartPreparationBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_CHART_PREPARATION"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_CHART_PREPARATION=1 to measure chart preparation.")
-        }
         let scenario = environment["RADIX_BENCH_CHART_SCENARIO"] ?? "sunburst_flat"
         let count = environment["RADIX_BENCH_CHART_FILES"].flatMap(Int.init) ?? 1_000_000
         let snapshot = Self.makeFlatSnapshot(fileCount: count, rootID: "/chart/dense")
@@ -161,14 +176,17 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             let root = makeTestDirectoryNode(id: "/chart", name: "chart", children: [snapshot.root])
             store = try FileTreeStore.combining(
                 root: root,
-                childSubtrees: [try XCTUnwrap(FileTreeStore.SubtreeSource(store: snapshot.treeStore, rootedAt: snapshot.root.id))],
+                childSubtrees: [
+                    try #require(FileTreeStore.SubtreeSource(store: snapshot.treeStore, rootedAt: snapshot.root.id))
+                ],
                 cancellationCheck: {}
             )
             layoutRootID = root.id
         } else {
             store = snapshot.treeStore
-            layoutRootID = scenario == "sunburst_focused"
-                ? try XCTUnwrap(store.childrenPrefix(of: store.rootID, maxCount: 1).first).id
+            layoutRootID =
+                scenario == "sunburst_focused"
+                ? try #require(store.childrenPrefix(of: store.rootID, maxCount: 1).first).id
                 : store.rootID
         }
         let tree = ChartReadProbe(store)
@@ -195,10 +213,10 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             seconds = measurement.seconds
             descriptions = measurement.value.map { String(reflecting: $0) }
         default:
-            XCTFail("Unknown chart scenario: \(scenario)")
+            Issue.record("Unknown chart scenario: \(scenario)")
             return
         }
-        XCTAssertEqual(descriptions.count, 1)
+        #expect(descriptions.count == 1)
         var fingerprint = ChartResponsivenessBenchmarkSupport.fnvOffsetBasis
         for description in descriptions {
             ChartResponsivenessBenchmarkSupport.hash(description, into: &fingerprint)
@@ -214,12 +232,15 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
     }
 
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_AUDIT"] == "1",
+            "Set RADIX_BENCH_AUDIT=1 to run the navigation audit benchmark."))
     func testNavigationAuditBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_AUDIT"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_AUDIT=1 to run the navigation audit benchmark.")
-        }
-        let counts = environment["RADIX_BENCH_AUDIT_ROWS"].flatMap(Int.init)
+        let counts =
+            environment["RADIX_BENCH_AUDIT_ROWS"].flatMap(Int.init)
             .map { [max($0, 1)] } ?? [100_000, 1_000_000]
         print("RADIX_BENCH_AUDIT_LAYOUT file_node_stride=\(MemoryLayout<FileNodeRecord>.stride)")
 
@@ -257,29 +278,32 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 model.updateScanContext(snapshot: snapshot)
             }
             try await waitUntil(timeout: 60) { model.tableNodes.count == count }
-            XCTAssertEqual(model.tableNodes.count, count)
+            #expect(model.tableNodes.count == count)
             Self.report(
                 phase: "install_scan_context_main_actor",
                 count: count,
                 seconds: installation.seconds,
-                extra: "rss_delta=\(BenchmarkSupport.byteDelta(from: beforeInstallRSS, to: BenchmarkMemorySampler.currentResidentMemoryBytes()))"
+                extra:
+                    "rss_delta=\(BenchmarkSupport.byteDelta(from: beforeInstallRSS, to: BenchmarkMemorySampler.currentResidentMemoryBytes()))"
             )
 
             let tableRefresh = BenchmarkSupport.measure { model.refreshTableNodesForCurrentContext() }
             Self.report(phase: "refresh_unchanged_table_main_actor", count: count, seconds: tableRefresh.seconds)
 
             let contextRefresh = BenchmarkSupport.measure { model.updateScanContext(snapshot: snapshot) }
-            Self.report(phase: "refresh_unchanged_scan_context_main_actor", count: count, seconds: contextRefresh.seconds)
+            Self.report(
+                phase: "refresh_unchanged_scan_context_main_actor", count: count, seconds: contextRefresh.seconds)
 
             let reconciliation = BenchmarkSupport.measure { model.reconcileAfterSnapshotApplied(snapshot) }
-            Self.report(phase: "reconcile_unchanged_scan_context_main_actor", count: count, seconds: reconciliation.seconds)
+            Self.report(
+                phase: "reconcile_unchanged_scan_context_main_actor", count: count, seconds: reconciliation.seconds)
 
             for selectedCount in [0, 1] {
                 model.select(nodeID: selectedCount == 0 ? nil : model.tableNodes.last?.id)
                 var samples: [Double] = []
                 for _ in 0..<5 {
                     let result = BenchmarkSupport.measure { model.selectedNodes }
-                    XCTAssertEqual(result.value.count, selectedCount)
+                    #expect(result.value.count == selectedCount)
                     samples.append(result.seconds)
                 }
                 Self.report(
@@ -289,7 +313,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                     extra: "selected=\(selectedCount) samples=5"
                 )
                 let directLookup = BenchmarkSupport.measure { model.selectedNode }
-                XCTAssertEqual(directLookup.value == nil ? 0 : 1, selectedCount)
+                #expect((directLookup.value == nil ? 0 : 1) == selectedCount)
                 Self.report(
                     phase: "selected_node_direct_lookup_main_actor",
                     count: count,
@@ -299,7 +323,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 let summary = BenchmarkSupport.measure {
                     InspectorSelectionSummary(selectedNodes: model.selectedNodes, fileTreeStore: snapshot.treeStore)
                 }
-                XCTAssertEqual(summary.value.selectedCount, selectedCount)
+                #expect(summary.value.selectedCount == selectedCount)
                 Self.report(
                     phase: "selection_summary_with_resolution_main_actor",
                     count: count,
@@ -310,18 +334,21 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         }
     }
 
+    @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_ENUMERATION_PATH"] != nil))
     func testNativeEnumerationAllocationBenchmark() throws {
         guard let path = ProcessInfo.processInfo.environment["RADIX_BENCH_ENUMERATION_PATH"] else {
-            throw XCTSkip("Set RADIX_BENCH_ENUMERATION_PATH to measure native enumeration buffers.")
+            throw TestFixtureError("Set RADIX_BENCH_ENUMERATION_PATH to measure native enumeration buffers.")
         }
         Self.reportRetention(phase: "enumeration_initial")
         let start = ContinuousClock.now
-        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: URL(filePath: path, directoryHint: .isDirectory),
-            includeHiddenFiles: true,
-            metadataLoader: ScanMetadataLoader(),
-            cancellationCheck: Task.checkCancellation
-        ))
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: URL(filePath: path, directoryHint: .isDirectory),
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                cancellationCheck: Task.checkCancellation
+            ))
+        let result = try #require(resultValue)
         let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
         var nativeNames = 0
         var missingMetadata = 0
@@ -329,27 +356,35 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             if entry.nativeName != nil { nativeNames += 1 }
             if entry.metadata == nil { missingMetadata += 1 }
         }
-        XCTAssertEqual(result.entries.count, result.enumeratedItemCount)
-        XCTAssertEqual(missingMetadata, 0)
+        #expect(result.entries.count == result.enumeratedItemCount)
+        #expect(missingMetadata == 0)
         withExtendedLifetime(result) {
-            Self.reportRetention(phase: "enumeration_retained", seconds: seconds,
-                                 extra: "entries=\(result.entries.count) native_names=\(nativeNames)")
+            Self.reportRetention(
+                phase: "enumeration_retained", seconds: seconds,
+                extra: "entries=\(result.entries.count) native_names=\(nativeNames)")
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_METADATA_PATH"] != nil,
+            "Set RADIX_BENCH_METADATA_PATH to an audit fixture containing directory, file, and symlink."))
     func testMetadataReadAuditBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["RADIX_BENCH_METADATA_PATH"] else {
-            throw XCTSkip("Set RADIX_BENCH_METADATA_PATH to an audit fixture containing directory, file, and symlink.")
+            throw TestFixtureError(
+                "Set RADIX_BENCH_METADATA_PATH to an audit fixture containing directory, file, and symlink.")
         }
         let root = URL(filePath: path, directoryHint: .isDirectory)
         let loader = ScanMetadataLoader()
         for scenario in ["directory", "symlink", "file", "missing-allocation"] {
             let url = root.appending(path: scenario == "missing-allocation" ? "file" : scenario)
-            let keys = scenario == "missing-allocation"
+            let keys =
+                scenario == "missing-allocation"
                 ? ScanMetadataLoader.scanResourceKeys.subtracting([
                     .fileAllocatedSizeKey, .totalFileAllocatedSizeKey,
-                    .linkCountKey, .fileResourceIdentifierKey
+                    .linkCountKey, .fileResourceIdentifierKey,
                 ]) : ScanMetadataLoader.scanResourceKeys
             let values = try url.resourceValues(forKeys: keys)
             let start = ContinuousClock.now
@@ -361,19 +396,24 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 if metadata.fileIdentity != nil { identities += 1 }
             }
             let elapsed = start.duration(to: .now)
-            XCTAssertEqual(identities, 10_000)
-            print("RADIX_BENCH_METADATA scenario=\(scenario) seconds=\(BenchmarkSupport.durationSeconds(elapsed)) allocated_sum=\(total) identities=\(identities)")
+            #expect(identities == 10_000)
+            print(
+                "RADIX_BENCH_METADATA scenario=\(scenario) seconds=\(BenchmarkSupport.durationSeconds(elapsed)) allocated_sum=\(total) identities=\(identities)"
+            )
         }
     }
 
-    func testLeafPreparationPathBenchmark() throws {
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_LEAF_PATH"] == "1",
+            "Set RADIX_BENCH_LEAF_PATH=1 to measure path extraction during node preparation."))
+    func testLeafPreparationPathBenchmark() {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_LEAF_PATH"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_LEAF_PATH=1 to measure path extraction during node preparation.")
-        }
         let count = max(environment["RADIX_BENCH_LEAF_PATH_COUNT"].flatMap(Int.init) ?? 200_000, 1)
         let scenario = environment["RADIX_BENCH_LEAF_PATH_SCENARIO"] ?? "ascii"
-        let parentPath = scenario == "unicode"
+        let parentPath =
+            scenario == "unicode"
             ? "/audit/" + String(repeating: "层级-é-😀-路径/", count: 24)
             : "/audit/"
         let parent = URL(filePath: parentPath, directoryHint: .isDirectory)
@@ -392,10 +432,11 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         let measurement = BenchmarkSupport.measure {
             urls.map { engine.makeFileNode(url: $0, metadata: metadata) }
         }
-        XCTAssertEqual(measurement.value.count, count)
-        XCTAssertTrue(zip(measurement.value, urls).allSatisfy {
-            $0.id == $1.path && $0.name == $1.lastPathComponent
-        })
+        #expect(measurement.value.count == count)
+        #expect(
+            zip(measurement.value, urls).allSatisfy {
+                $0.id == $1.path && $0.name == $1.lastPathComponent
+            })
         let pathBytes = measurement.value.reduce(0) { $0 + $1.id.utf8.count }
         let nameBytes = measurement.value.reduce(0) { $0 + $1.name.utf8.count }
         print(
@@ -406,10 +447,15 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_AUDIT_PATH"] != nil,
+            "Set RADIX_BENCH_AUDIT_PATH to scan an existing audit fixture."))
     func testFilesystemAuditBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["RADIX_BENCH_AUDIT_PATH"] else {
-            throw XCTSkip("Set RADIX_BENCH_AUDIT_PATH to scan an existing audit fixture.")
+            throw TestFixtureError("Set RADIX_BENCH_AUDIT_PATH to scan an existing audit fixture.")
         }
         let usesFoundation = environment["RADIX_BENCH_AUDIT_FOUNDATION"] == "1"
         let engine: ScanEngine
@@ -454,10 +500,11 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             }
         }
         let elapsed = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
-        let finalizationSeconds = finalizationStartedAt.map {
-            BenchmarkSupport.durationSeconds($0.duration(to: .now))
-        } ?? 0
-        let snapshot = try XCTUnwrap(finished)
+        let finalizationSeconds =
+            finalizationStartedAt.map {
+                BenchmarkSupport.durationSeconds($0.duration(to: .now))
+            } ?? 0
+        let snapshot = try #require(finished)
         print(
             "RADIX_BENCH_AUDIT_FILESYSTEM mode=\(usesFoundation ? "foundation" : "native") "
                 + "seconds=\(BenchmarkSupport.format(elapsed)) "
@@ -474,11 +521,13 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
     }
 
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_RETENTION"] == "1",
+            "Set RADIX_BENCH_RETENTION=1 to measure snapshot ownership and release."))
     func testSnapshotRetentionBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_RETENTION"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_RETENTION=1 to measure snapshot ownership and release.")
-        }
         let scenario = environment["RADIX_BENCH_RETENTION_SCENARIO"] ?? "single"
         let fileCount = environment["RADIX_BENCH_RETENTION_FILES"].flatMap(Int.init) ?? 1_000_000
         let path = environment["RADIX_BENCH_RETENTION_PATH"]
@@ -490,12 +539,14 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario)
         case "repeat":
             for iteration in 0..<3 {
-                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario, iteration: iteration)
+                try await Self.retainSnapshot(
+                    fileCount: fileCount, path: path, cache: cache, scenario: scenario, iteration: iteration)
                 Self.reportRetention(phase: "released_\(iteration)")
             }
         case "cache":
             for iteration in 0..<3 {
-                try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario, iteration: iteration)
+                try await Self.retainSnapshot(
+                    fileCount: fileCount, path: path, cache: cache, scenario: scenario, iteration: iteration)
                 await cache.waitForPendingReleases()
                 withExtendedLifetime(cache) {
                     Self.reportRetention(phase: "cache_only_\(iteration)")
@@ -507,17 +558,20 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 Self.reportRetention(phase: "scope_only")
             }
         case "navigation":
-            try await Self.retainSnapshot(fileCount: fileCount, path: path, cache: cache, scenario: scenario, navigation: navigation)
+            try await Self.retainSnapshot(
+                fileCount: fileCount, path: path, cache: cache, scenario: scenario, navigation: navigation)
             Self.reportRetention(phase: "navigation_and_cache")
         default:
-            XCTFail("Unknown retention scenario: \(scenario)")
+            Issue.record("Unknown retention scenario: \(scenario)")
         }
         let clearStartedAt = ContinuousClock.now
         cache.removeAll()
-        Self.reportRetention(phase: "cache_cleared", seconds: BenchmarkSupport.durationSeconds(clearStartedAt.duration(to: .now)))
+        Self.reportRetention(
+            phase: "cache_cleared", seconds: BenchmarkSupport.durationSeconds(clearStartedAt.duration(to: .now)))
         let navigationClearStartedAt = ContinuousClock.now
         navigation.updateScanContext(snapshot: nil)
-        Self.reportRetention(phase: "released", seconds: BenchmarkSupport.durationSeconds(navigationClearStartedAt.duration(to: .now)))
+        Self.reportRetention(
+            phase: "released", seconds: BenchmarkSupport.durationSeconds(navigationClearStartedAt.duration(to: .now)))
         await cache.waitForPendingReleases()
         try await Task.sleep(for: .milliseconds(100))
         Self.reportRetention(phase: "settled")
@@ -556,20 +610,24 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             }
         }
         withExtendedLifetime(snapshot) {
-            reportRetention(phase: "retained_\(iteration)", seconds: BenchmarkSupport.durationSeconds(startedAt.duration(to: .now)), extra: "nodes=\(snapshot.treeStore.nodeCount)")
+            reportRetention(
+                phase: "retained_\(iteration)", seconds: BenchmarkSupport.durationSeconds(startedAt.duration(to: .now)),
+                extra: "nodes=\(snapshot.treeStore.nodeCount)")
         }
         if scenario == "cache" {
             let storeStartedAt = ContinuousClock.now
             cache.store(snapshot, for: ScanCacheKey(target: snapshot.target, options: options))
-            reportRetention(phase: "stored_\(iteration)", seconds: BenchmarkSupport.durationSeconds(storeStartedAt.duration(to: .now)))
+            reportRetention(
+                phase: "stored_\(iteration)",
+                seconds: BenchmarkSupport.durationSeconds(storeStartedAt.duration(to: .now)))
         } else if scenario == "scope" || scenario == "navigation" {
-            let child = try XCTUnwrap(snapshot.treeStore.childrenPrefix(of: snapshot.root.id, maxCount: 1).first)
-            let scope = try XCTUnwrap(snapshot.scoped(to: ScanTarget(url: child.url)))
+            let child = try #require(snapshot.treeStore.childrenPrefix(of: snapshot.root.id, maxCount: 1).first)
+            let scope = try #require(snapshot.scoped(to: ScanTarget(url: child.url)))
             if let navigation {
                 cache.store(snapshot, for: ScanCacheKey(target: snapshot.target, options: options))
                 navigation.updateScanContext(snapshot: snapshot)
                 navigation.updateScanContext(snapshot: scope)
-                XCTAssertEqual(navigation.state.fileTreeStore?.nodeCount, scope.treeStore.nodeCount)
+                #expect(navigation.state.fileTreeStore?.nodeCount == scope.treeStore.nodeCount)
             } else {
                 cache.store(scope, for: ScanCacheKey(target: scope.target, options: options))
             }
@@ -591,9 +649,9 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 completed = snapshot
             }
         }
-        let snapshot = try XCTUnwrap(completed)
-        XCTAssertTrue(snapshot.isComplete)
-        XCTAssertTrue(snapshot.scanWarnings.isEmpty)
+        let snapshot = try #require(completed)
+        #expect(snapshot.isComplete)
+        #expect(snapshot.scanWarnings.isEmpty)
         return snapshot
     }
 
@@ -607,7 +665,7 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
                 task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &infoCount)
             }
         }
-        XCTAssertEqual(result, KERN_SUCCESS)
+        #expect(result == KERN_SUCCESS)
         print(
             "RADIX_BENCH_RETENTION phase=\(phase) seconds=\(BenchmarkSupport.format(seconds)) main_thread=\(Thread.isMainThread ? 1 : 0) pid=\(ProcessInfo.processInfo.processIdentifier) "
                 + "rss=\(BenchmarkMemorySampler.currentResidentMemoryBytes()) "
@@ -634,10 +692,11 @@ final class PerformanceAuditBenchmarkTests: XCTestCase {
             let name = "item-\(offset).dat"
             let id = rootID + "/" + name
             let index = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-            nodes.append(ChartResponsivenessBenchmarkSupport.node(
-                id: id, name: name, isDirectory: false,
-                allocatedSize: Int64(fileCount - offset), descendantFileCount: 1
-            ))
+            nodes.append(
+                ChartResponsivenessBenchmarkSupport.node(
+                    id: id, name: name, isDirectory: false,
+                    allocatedSize: Int64(fileCount - offset), descendantFileCount: 1
+                ))
             indexByNodeID[id] = index
             childIndices.append(index)
         }

@@ -37,14 +37,15 @@ enum BenchmarkSupport {
         peakRSS: UInt64,
         extra: String = ""
     ) {
-        print(resultLine(
-            prefix: prefix,
-            phase: phase,
-            seconds: seconds,
-            count: count,
-            peakRSS: peakRSS,
-            extra: extra
-        ))
+        print(
+            resultLine(
+                prefix: prefix,
+                phase: phase,
+                seconds: seconds,
+                count: count,
+                peakRSS: peakRSS,
+                extra: extra
+            ))
     }
 
     static func resultLine(

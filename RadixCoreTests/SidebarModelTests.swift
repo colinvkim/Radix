@@ -1,8 +1,11 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class SidebarModelTests: XCTestCase {
-    @MainActor
+@MainActor
+struct SidebarModelTests {
+    @Test
     func testRecentTargetReadsUseCachedAvailability() {
         let recent = makeSidebarTarget("/recent/cached")
         var availabilityCheckCount = 0
@@ -20,13 +23,13 @@ final class SidebarModelTests: XCTestCase {
         model.refreshTargetSections(availableTargets: [], recentTargets: [recent])
         let checksAfterRefresh = availabilityCheckCount
 
-        XCTAssertEqual(model.recentScanTargets, [recent])
-        XCTAssertEqual(model.recentScanTargetRows.map(\.target), [recent])
-        XCTAssertEqual(model.recentScanTargets, [recent])
-        XCTAssertEqual(availabilityCheckCount, checksAfterRefresh)
+        #expect(model.recentScanTargets == [recent])
+        #expect(model.recentScanTargetRows.map(\.target) == [recent])
+        #expect(model.recentScanTargets == [recent])
+        #expect(availabilityCheckCount == checksAfterRefresh)
     }
 
-    @MainActor
+    @Test
     func testSmartTargetsIncludeMountedVolumesBelowStartupDiskAndBuildSubtitles() {
         let startupDisk = makeSidebarTarget("/", kind: .volume)
         let externalVolume = makeSidebarTarget("/Volumes/External SSD", kind: .volume)
@@ -44,20 +47,20 @@ final class SidebarModelTests: XCTestCase {
         model.replaceTargetCapacityDescriptions(
             [
                 startupDisk.id: "128 GB free of 1 TB",
-                externalVolume.id: "512 GB free of 2 TB"
+                externalVolume.id: "512 GB free of 2 TB",
             ]
         )
 
-        XCTAssertEqual(model.smartTargets, [startupDisk, externalVolume, home, desktop])
-        XCTAssertEqual(model.smartTargetRows.map(\.target), [startupDisk, externalVolume, home, desktop])
+        #expect(model.smartTargets == [startupDisk, externalVolume, home, desktop])
+        #expect(model.smartTargetRows.map(\.target) == [startupDisk, externalVolume, home, desktop])
 
         let subtitlesByID = Dictionary(uniqueKeysWithValues: model.smartTargetRows.map { ($0.id, $0.subtitle) })
-        XCTAssertEqual(subtitlesByID[startupDisk.id], "128 GB free of 1 TB")
-        XCTAssertEqual(subtitlesByID[externalVolume.id], "512 GB free of 2 TB")
-        XCTAssertEqual(subtitlesByID[home.id], home.url.path)
+        #expect(subtitlesByID[startupDisk.id] == "128 GB free of 1 TB")
+        #expect(subtitlesByID[externalVolume.id] == "512 GB free of 2 TB")
+        #expect(subtitlesByID[home.id] == home.url.path)
     }
 
-    @MainActor
+    @Test
     func testRecentTargetsFilterUnavailableAndSmartTargetsWhilePreservingOrder() {
         let home = makeSidebarTarget("/Users/example")
         let project = makeSidebarTarget("/Work/Project")
@@ -75,15 +78,15 @@ final class SidebarModelTests: XCTestCase {
             recentTargets: [project, home, unavailable, downloads]
         )
 
-        XCTAssertEqual(model.smartTargets, [home])
-        XCTAssertEqual(model.recentScanTargets, [project, downloads])
-        XCTAssertEqual(model.recentScanTargetRows.map(\.target), [project, downloads])
-        XCTAssertEqual(model.target(id: home.id), home)
-        XCTAssertEqual(model.target(id: project.id), project)
-        XCTAssertNil(model.target(id: unavailable.id))
+        #expect(model.smartTargets == [home])
+        #expect(model.recentScanTargets == [project, downloads])
+        #expect(model.recentScanTargetRows.map(\.target) == [project, downloads])
+        #expect(model.target(id: home.id) == home)
+        #expect(model.target(id: project.id) == project)
+        #expect(model.target(id: unavailable.id) == nil)
     }
 
-    @MainActor
+    @Test
     func testRemovingRecentTargetClearsActiveTargetOnlyWhenTargetIsNotSmart() {
         let recent = makeSidebarTarget("/recent/only")
         let smart = makeSidebarTarget("/Users/example")
@@ -95,15 +98,15 @@ final class SidebarModelTests: XCTestCase {
         model.refreshTargetSections(availableTargets: [], recentTargets: [recent])
         model.setActiveTargetID(recent.id)
         model.clearActiveTargetIfNeededAfterRemovingRecentTarget(recent)
-        XCTAssertNil(model.activeTargetID)
+        #expect(model.activeTargetID == nil)
 
         model.refreshTargetSections(availableTargets: [smart], recentTargets: [smart])
         model.setActiveTargetID(smart.id)
         model.clearActiveTargetIfNeededAfterRemovingRecentTarget(smart)
-        XCTAssertEqual(model.activeTargetID, smart.id)
+        #expect(model.activeTargetID == smart.id)
     }
 
-    @MainActor
+    @Test
     func testRebuildingTargetSectionsClearsMissingActiveTarget() {
         let recent = makeSidebarTarget("/recent/active")
         let smart = makeSidebarTarget("/Users/example")
@@ -117,14 +120,14 @@ final class SidebarModelTests: XCTestCase {
 
         model.refreshTargetSections(availableTargets: [], recentTargets: [])
 
-        XCTAssertNil(model.activeTargetID)
+        #expect(model.activeTargetID == nil)
 
         model.refreshTargetSections(availableTargets: [smart], recentTargets: [smart])
         model.setActiveTargetID(smart.id)
 
         model.refreshTargetSections(availableTargets: [smart], recentTargets: [])
 
-        XCTAssertEqual(model.activeTargetID, smart.id)
+        #expect(model.activeTargetID == smart.id)
     }
 }
 

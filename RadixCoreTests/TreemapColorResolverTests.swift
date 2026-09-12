@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class TreemapColorResolverTests: XCTestCase {
+struct TreemapColorResolverTests {
+    @Test
     func testTopLevelBranchesUseDistinctCuratedHues() {
         let tokens = (0..<8).map { index in
             SunburstColorToken(
@@ -20,11 +23,12 @@ final class TreemapColorResolverTests: XCTestCase {
             TreemapColorResolver.components(for: $0, appearance: .dark)
         }
 
-        XCTAssertEqual(Set(colors.map(\.hue)).count, 8)
-        XCTAssertTrue(colors.allSatisfy { (0.44...0.66).contains($0.saturation) })
-        XCTAssertTrue(colors.allSatisfy { (0.46...0.68).contains($0.brightness) })
+        #expect(Set(colors.map(\.hue)).count == 8)
+        #expect(colors.allSatisfy { (0.44...0.66).contains($0.saturation) })
+        #expect(colors.allSatisfy { (0.46...0.68).contains($0.brightness) })
     }
 
+    @Test
     func testSiblingTilesVaryWithinTheSameBranch() {
         let tokens = (0..<5).map { index in
             SunburstColorToken(
@@ -43,36 +47,32 @@ final class TreemapColorResolverTests: XCTestCase {
             TreemapColorResolver.components(for: $0, appearance: .dark)
         }
 
-        XCTAssertEqual(Set(colors).count, tokens.count)
-        XCTAssertGreaterThan((colors.map(\.hue).max() ?? 0) - (colors.map(\.hue).min() ?? 0), 0.04)
+        #expect(Set(colors).count == tokens.count)
+        #expect((colors.map(\.hue).max() ?? 0) - (colors.map(\.hue).min() ?? 0) > 0.04)
     }
 
+    @Test
     func testAppearanceUsesDarkAndLightBrightnessBands() {
         let token = SunburstColorToken.single(id: "branch", depth: 2)
 
         let dark = TreemapColorResolver.components(for: token, appearance: .dark)
         let light = TreemapColorResolver.components(for: token, appearance: .light)
 
-        XCTAssertLessThan(dark.brightness, light.brightness)
-        XCTAssertGreaterThanOrEqual(dark.brightness, 0.46)
-        XCTAssertLessThanOrEqual(dark.brightness, 0.68)
-        XCTAssertGreaterThanOrEqual(light.brightness, 0.73)
-        XCTAssertLessThanOrEqual(light.brightness, 0.93)
+        #expect(dark.brightness < light.brightness)
+        #expect(dark.brightness >= 0.46)
+        #expect(dark.brightness <= 0.68)
+        #expect(light.brightness >= 0.73)
+        #expect(light.brightness <= 0.93)
     }
 
+    @Test
     func testAggregateAndFreeSpaceTilesRemainNeutral() {
         let aggregate = SunburstColorToken.single(id: "aggregate", role: .aggregate)
         let freeSpace = SunburstColorToken.single(id: "free", role: .freeSpace)
 
         for appearance in [TreemapColorAppearance.light, .dark] {
-            XCTAssertEqual(
-                TreemapColorResolver.components(for: aggregate, appearance: appearance).saturation,
-                0
-            )
-            XCTAssertEqual(
-                TreemapColorResolver.components(for: freeSpace, appearance: appearance).saturation,
-                0
-            )
+            #expect(TreemapColorResolver.components(for: aggregate, appearance: appearance).saturation == 0)
+            #expect(TreemapColorResolver.components(for: freeSpace, appearance: appearance).saturation == 0)
         }
     }
 }

@@ -1,15 +1,19 @@
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
-final class ScanSortSpeedAuditBenchmarkTests: XCTestCase {
+struct ScanSortSpeedAuditBenchmarkTests {
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_SCAN_SORT"] == "1",
+            "Set RADIX_BENCH_SCAN_SORT=1 to compare scanner sibling-sort field access."))
     func testSiblingSortFieldAccessBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_SCAN_SORT"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_SCAN_SORT=1 to compare scanner sibling-sort field access.")
-        }
         let count = max(environment["RADIX_BENCH_SCAN_SORT_COUNT"].flatMap(Int.init) ?? 200_000, 1)
-        let modes = environment["RADIX_BENCH_SCAN_SORT_REVERSE"] == "1"
+        let modes =
+            environment["RADIX_BENCH_SCAN_SORT_REVERSE"] == "1"
             ? ["fields", "records"] : ["records", "fields"]
         for scenario in ["ordered-ties", "shuffled-ties", "shuffled-sizes"] {
             let nodes = (0..<count).map { index in
@@ -39,7 +43,7 @@ final class ScanSortSpeedAuditBenchmarkTests: XCTestCase {
                     try Self.sortFields(&keys, nodes: nodes)
                 }
                 let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
-                if let expected { XCTAssertEqual(keys, expected) }
+                if let expected { #expect(keys == expected) }
                 expected = keys
                 print("RADIX_BENCH_SCAN_SORT scenario=\(scenario) mode=\(mode) count=\(count) seconds=\(seconds)")
             }

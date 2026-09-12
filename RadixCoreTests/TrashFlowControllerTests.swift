@@ -1,8 +1,11 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class TrashFlowControllerTests: XCTestCase {
+struct TrashFlowControllerTests {
+    @Test
     func testReleasingControllerCancelsEveryConfirmedBatch() async throws {
         var controller: TrashFlowController? = TrashFlowController()
         var continuations: [CheckedContinuation<Void, Never>] = []
@@ -21,10 +24,10 @@ final class TrashFlowControllerTests: XCTestCase {
                 },
                 beginMove: {},
                 onFinish: { requested, moved, error, wasCancelled in
-                    XCTAssertEqual(requested, [first, second])
-                    XCTAssertEqual(moved, [first])
-                    XCTAssertNil(error)
-                    XCTAssertTrue(wasCancelled)
+                    #expect(requested == [first, second])
+                    #expect(moved == [first])
+                    #expect(error == nil)
+                    #expect(wasCancelled)
                     finishedCount += 1
                 }
             )
@@ -34,9 +37,10 @@ final class TrashFlowControllerTests: XCTestCase {
         for continuation in continuations { continuation.resume() }
 
         try await waitUntil("both cancelled batches finish") { finishedCount == 2 }
-        XCTAssertEqual(attemptedIDs.sorted(), ["/batch-0/first", "/batch-1/first"])
+        #expect(attemptedIDs.sorted() == ["/batch-0/first", "/batch-1/first"])
     }
 
+    @Test
     func testCancellationBeforeTaskStartsDoesNotMoveFiles() async throws {
         let controller = TrashFlowController()
         let node = makeTestFileNode(id: "/file", name: "file")
@@ -44,14 +48,14 @@ final class TrashFlowControllerTests: XCTestCase {
         controller.startConfirmedMove(
             [node],
             moveToTrash: { _ in
-                XCTFail("A cancelled batch must not start a filesystem move")
+                Issue.record("A cancelled batch must not start a filesystem move")
                 return .matches
             },
             beginMove: { controller.cancelConfirmedTrashMoves() },
             onFinish: { _, moved, error, wasCancelled in
-                XCTAssertTrue(moved.isEmpty)
-                XCTAssertNil(error)
-                XCTAssertTrue(wasCancelled)
+                #expect(moved.isEmpty)
+                #expect(error == nil)
+                #expect(wasCancelled)
                 didFinish = true
             }
         )
@@ -59,6 +63,7 @@ final class TrashFlowControllerTests: XCTestCase {
         try await waitUntil("cancelled batch reports its outcome") { didFinish }
     }
 
+    @Test
     func testCancelledRemovalWorkerCannotDisturbReplacementQueue() async throws {
         let controller = TrashFlowController()
         var oldContinuation: CheckedContinuation<Void, Never>?
@@ -70,7 +75,7 @@ final class TrashFlowControllerTests: XCTestCase {
             events.append("old returned")
         }
         controller.enqueuePostTrashSnapshotRemoval {
-            XCTFail("Cancellation must discard queued removal requests")
+            Issue.record("Cancellation must discard queued removal requests")
         }
         try await waitUntil("old removal starts") { oldContinuation != nil }
         controller.cancelPostTrashSnapshotRemoval()
@@ -88,6 +93,6 @@ final class TrashFlowControllerTests: XCTestCase {
         newContinuation?.resume()
 
         try await waitUntil("replacement queue drains") { events.contains("last") }
-        XCTAssertEqual(events, ["old started", "new started", "old returned", "new returned", "next", "last"])
+        #expect(events == ["old started", "new started", "old returned", "new returned", "next", "last"])
     }
 }
