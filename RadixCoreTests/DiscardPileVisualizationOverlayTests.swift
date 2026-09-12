@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class DiscardPileVisualizationOverlayTests: XCTestCase {
+struct DiscardPileVisualizationOverlayTests {
+    @Test
     func testQueuedRootAndRenderedDescendantsAreMarkedWithoutChangingTree() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -10,19 +13,20 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(overlay.queuedNodeIDs, [fixture.folder.id, fixture.child.id])
-        XCTAssertEqual(overlay.queuedRootNodeIDs, [fixture.folder.id])
-        XCTAssertTrue(overlay.containingQueuedNodeIDs.isEmpty)
-        XCTAssertEqual(overlay.role(for: fixture.folder.id), .queuedRoot)
-        XCTAssertEqual(overlay.role(for: fixture.child.id), .queuedDescendant)
-        XCTAssertNil(overlay.role(for: fixture.sibling.id))
-        XCTAssertFalse(overlay.allowsChartNodeAction(for: fixture.folder.id))
-        XCTAssertFalse(overlay.allowsChartNodeAction(for: fixture.child.id))
-        XCTAssertTrue(overlay.allowsChartNodeAction(for: fixture.sibling.id))
-        XCTAssertNotNil(fixture.store.node(id: fixture.folder.id))
-        XCTAssertNotNil(fixture.store.node(id: fixture.child.id))
+        #expect(overlay.queuedNodeIDs == [fixture.folder.id, fixture.child.id])
+        #expect(overlay.queuedRootNodeIDs == [fixture.folder.id])
+        #expect(overlay.containingQueuedNodeIDs.isEmpty)
+        #expect(overlay.role(for: fixture.folder.id) == .queuedRoot)
+        #expect(overlay.role(for: fixture.child.id) == .queuedDescendant)
+        #expect(overlay.role(for: fixture.sibling.id) == nil)
+        #expect(!(overlay.allowsChartNodeAction(for: fixture.folder.id)))
+        #expect(!(overlay.allowsChartNodeAction(for: fixture.child.id)))
+        #expect(overlay.allowsChartNodeAction(for: fixture.sibling.id))
+        #expect(fixture.store.node(id: fixture.folder.id) != nil)
+        #expect(fixture.store.node(id: fixture.child.id) != nil)
     }
 
+    @Test
     func testUnrenderedQueuedItemMarksOnlyItsNearestRenderedAncestor() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -31,12 +35,13 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertTrue(overlay.queuedNodeIDs.isEmpty)
-        XCTAssertEqual(overlay.containingQueuedNodeIDs, [fixture.folder.id])
-        XCTAssertEqual(overlay.role(for: fixture.folder.id), .containsQueuedItem)
-        XCTAssertNil(overlay.role(for: fixture.root.id))
+        #expect(overlay.queuedNodeIDs.isEmpty)
+        #expect(overlay.containingQueuedNodeIDs == [fixture.folder.id])
+        #expect(overlay.role(for: fixture.folder.id) == .containsQueuedItem)
+        #expect(overlay.role(for: fixture.root.id) == nil)
     }
 
+    @Test
     func testTopmostRenderedDescendantsBecomeVisualRootsWhenQueuedRootIsNotRendered() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -45,15 +50,13 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(
-            overlay.queuedRootNodeIDs,
-            [fixture.folder.id, fixture.sibling.id]
-        )
-        XCTAssertEqual(overlay.role(for: fixture.folder.id), .queuedRoot)
-        XCTAssertEqual(overlay.role(for: fixture.child.id), .queuedDescendant)
-        XCTAssertEqual(overlay.role(for: fixture.sibling.id), .queuedRoot)
+        #expect(overlay.queuedRootNodeIDs == [fixture.folder.id, fixture.sibling.id])
+        #expect(overlay.role(for: fixture.folder.id) == .queuedRoot)
+        #expect(overlay.role(for: fixture.child.id) == .queuedDescendant)
+        #expect(overlay.role(for: fixture.sibling.id) == .queuedRoot)
     }
 
+    @Test
     func testRootLevelSunburstAggregateMarksQueuedGroupedItem() throws {
         let fixture = makeAggregateFixture()
         let segments = SunburstLayout.segments(
@@ -61,7 +64,8 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             rootID: fixture.root.id,
             depthLimit: 1
         )
-        let aggregate = try XCTUnwrap(segments.first(where: \.isAggregate))
+        let aggregateValue = (segments.first(where: \.isAggregate))
+        let aggregate = try #require(aggregateValue)
         let overlay = DiscardPileVisualizationOverlay(
             renderedNodeIDs: Set(segments.compactMap(\.nodeID)),
             renderedAggregateContainerNodeIDs: Set(
@@ -71,17 +75,16 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertNil(aggregate.nodeID)
-        XCTAssertEqual(aggregate.containerNodeID, fixture.root.id)
-        XCTAssertEqual(
+        #expect(aggregate.nodeID == nil)
+        #expect(aggregate.containerNodeID == fixture.root.id)
+        #expect(
             overlay.role(
                 for: aggregate.nodeID,
                 aggregateContainerNodeID: aggregate.containerNodeID
-            ),
-            .containsQueuedItem
-        )
+            ) == .containsQueuedItem)
     }
 
+    @Test
     func testRootLevelTreemapAggregateMarksQueuedGroupedItem() throws {
         let fixture = makeAggregateFixture()
         let segments = TreemapLayout.segments(
@@ -90,7 +93,8 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             depthLimit: 1,
             size: CGSize(width: 500, height: 300)
         )
-        let aggregate = try XCTUnwrap(segments.first(where: \.isAggregate))
+        let aggregateValue = (segments.first(where: \.isAggregate))
+        let aggregate = try #require(aggregateValue)
         let overlay = DiscardPileVisualizationOverlay(
             renderedNodeIDs: Set(segments.compactMap(\.nodeID)),
             renderedAggregateContainerNodeIDs: Set(
@@ -100,17 +104,16 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertNil(aggregate.nodeID)
-        XCTAssertEqual(aggregate.containerNodeID, fixture.root.id)
-        XCTAssertEqual(
+        #expect(aggregate.nodeID == nil)
+        #expect(aggregate.containerNodeID == fixture.root.id)
+        #expect(
             overlay.role(
                 for: aggregate.nodeID,
                 aggregateContainerNodeID: aggregate.containerNodeID
-            ),
-            .containsQueuedItem
-        )
+            ) == .containsQueuedItem)
     }
 
+    @Test
     func testQueuedItemsOutsideRenderedSubtreeProduceNoMarks() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -119,9 +122,10 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(overlay, .empty)
+        #expect(overlay == .empty)
     }
 
+    @Test
     func testQueuedAncestorTakesPrecedenceOverContainedIndicator() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -130,10 +134,11 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(overlay.role(for: fixture.folder.id), .queuedRoot)
-        XCTAssertTrue(overlay.containingQueuedNodeIDs.isEmpty)
+        #expect(overlay.role(for: fixture.folder.id) == .queuedRoot)
+        #expect(overlay.containingQueuedNodeIDs.isEmpty)
     }
 
+    @Test
     func testMovingToTrashStateRemainsDistinctFromDiscardPileState() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -143,16 +148,17 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(overlay.role(for: fixture.folder.id), .movingToTrashRoot)
-        XCTAssertEqual(overlay.role(for: fixture.child.id), .movingToTrashDescendant)
-        XCTAssertEqual(overlay.role(for: fixture.sibling.id), .queuedRoot)
-        XCTAssertEqual(overlay.role(for: fixture.folder.id)?.statusText, "Moving to Trash")
-        XCTAssertEqual(overlay.role(for: fixture.sibling.id)?.statusText, "In Discard Pile")
-        XCTAssertTrue(overlay.isMovingToTrash(fixture.child.id))
-        XCTAssertFalse(overlay.isQueued(fixture.child.id))
-        XCTAssertFalse(overlay.allowsChartNodeAction(for: fixture.child.id))
+        #expect(overlay.role(for: fixture.folder.id) == .movingToTrashRoot)
+        #expect(overlay.role(for: fixture.child.id) == .movingToTrashDescendant)
+        #expect(overlay.role(for: fixture.sibling.id) == .queuedRoot)
+        #expect(overlay.role(for: fixture.folder.id)?.statusText == "Moving to Trash")
+        #expect(overlay.role(for: fixture.sibling.id)?.statusText == "In Discard Pile")
+        #expect(overlay.isMovingToTrash(fixture.child.id))
+        #expect(!(overlay.isQueued(fixture.child.id)))
+        #expect(!(overlay.allowsChartNodeAction(for: fixture.child.id)))
     }
 
+    @Test
     func testUnrenderedMovingItemMarksNearestRenderedContainer() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
@@ -161,11 +167,12 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertTrue(overlay.movingToTrashNodeIDs.isEmpty)
-        XCTAssertEqual(overlay.containingMovingToTrashNodeIDs, [fixture.folder.id])
-        XCTAssertEqual(overlay.role(for: fixture.folder.id), .containsMovingToTrashItem)
+        #expect(overlay.movingToTrashNodeIDs.isEmpty)
+        #expect(overlay.containingMovingToTrashNodeIDs == [fixture.folder.id])
+        #expect(overlay.role(for: fixture.folder.id) == .containsMovingToTrashItem)
     }
 
+    @Test
     func testCacheAvoidsRebuildingOverlayUntilLayoutOrQueueChanges() {
         let fixture = makeFixture()
         let treeStore = DiskMapTreeStore(fixture.store)
@@ -198,11 +205,12 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             renderedNodeIDs: renderedNodeIDs
         )
 
-        XCTAssertEqual(first, cached)
-        XCTAssertNotEqual(updated, first)
-        XCTAssertEqual(renderedNodeIDBuildCount, 2)
+        #expect(first == cached)
+        #expect(updated != first)
+        #expect(renderedNodeIDBuildCount == 2)
     }
 
+    @Test
     func testCacheRebuildsWhenMovingToTrashRootsChange() {
         let fixture = makeFixture()
         let treeStore = DiskMapTreeStore(fixture.store)
@@ -228,10 +236,11 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             renderedNodeIDs: renderedNodeIDs
         )
 
-        XCTAssertEqual(renderedNodeIDBuildCount, 2)
+        #expect(renderedNodeIDBuildCount == 2)
     }
 
     @MainActor
+    @Test
     func testConsecutiveQueueChangesPreserveLayoutIdentity() {
         let fixture = makeFixture()
         let snapshot = makeTestSnapshot(
@@ -281,14 +290,15 @@ final class DiscardPileVisualizationOverlayTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(layoutRequestCount, 1)
-        XCTAssertEqual(presentations.map(\.discardPileRootNodeIDs), queuedNodeIDSets)
-        XCTAssertTrue(presentations.allSatisfy {
-            $0.visualizationInput.treeContentID == fixture.store.contentID
-        })
-        XCTAssertNotEqual(changedDepthPresentation.layoutID, presentations.last?.layoutID)
-        XCTAssertEqual(movingPresentation.layoutID, presentations.last?.layoutID)
-        XCTAssertEqual(movingPresentation.movingToTrashRootNodeIDs, [fixture.folder.id])
+        #expect(layoutRequestCount == 1)
+        #expect(presentations.map(\.discardPileRootNodeIDs) == queuedNodeIDSets)
+        #expect(
+            presentations.allSatisfy {
+                $0.visualizationInput.treeContentID == fixture.store.contentID
+            })
+        #expect(changedDepthPresentation.layoutID != presentations.last?.layoutID)
+        #expect(movingPresentation.layoutID == presentations.last?.layoutID)
+        #expect(movingPresentation.movingToTrashRootNodeIDs == [fixture.folder.id])
     }
 
     private func makeFixture() -> (

@@ -398,12 +398,12 @@ nonisolated private final class AtomicSummaryProgressCoordinator: @unchecked Sen
 }
 
 nonisolated struct AtomicSummaryWorkerObserver: Sendable {
-    let didStart: @Sendable (_ ownerNodeID: String, _ itemURL: URL) -> Void
+    let didStart: @Sendable (_ ownerNodeID: String, _ itemURL: URL) async -> Void
     let didFinish: @Sendable (_ ownerNodeID: String, _ itemURL: URL) -> Void
     let didShutdown: @Sendable () -> Void
 
     init(
-        didStart: @escaping @Sendable (_ ownerNodeID: String, _ itemURL: URL) -> Void,
+        didStart: @escaping @Sendable (_ ownerNodeID: String, _ itemURL: URL) async -> Void,
         didFinish: @escaping @Sendable (_ ownerNodeID: String, _ itemURL: URL) -> Void,
         didShutdown: @escaping @Sendable () -> Void = {}
     ) {
@@ -691,7 +691,7 @@ nonisolated final class AtomicDirectorySummaryPool: @unchecked Sendable {
 
     private func workerLoop() async {
         while let lease = await takeWork() {
-            workerObserver?.didStart(lease.item.ownerNodeID, lease.item.url)
+            await workerObserver?.didStart(lease.item.ownerNodeID, lease.item.url)
             let progressReporter = AtomicSummaryProgressReporter(
                 metrics: lease.request.metrics,
                 continuation: lease.request.continuation,

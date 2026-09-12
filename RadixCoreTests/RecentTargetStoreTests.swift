@@ -1,8 +1,11 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class RecentTargetStoreTests: XCTestCase {
+struct RecentTargetStoreTests {
+    @Test
     func testLoadPrunesUnavailableTargetsAndPersistsAvailableSubset() {
         let available = makeRecentTarget("/recent/available")
         let missing = makeRecentTarget("/recent/missing")
@@ -12,10 +15,11 @@ final class RecentTargetStoreTests: XCTestCase {
             isAvailable: { $0.id == available.id }
         )
 
-        XCTAssertEqual(store.loadAvailableTargets(), [available])
-        XCTAssertEqual(persistence.savedTargets, [[available]])
+        #expect(store.loadAvailableTargets() == [available])
+        #expect(persistence.savedTargets == [[available]])
     }
 
+    @Test
     func testRecordMovesTargetToFrontDeduplicatesPrunesAndCaps() {
         let first = makeRecentTarget("/recent/first")
         let duplicate = makeRecentTarget("/recent/duplicate")
@@ -35,10 +39,11 @@ final class RecentTargetStoreTests: XCTestCase {
             currentTargets: [first, duplicate, missing, lastKept, droppedByLimit]
         )
 
-        XCTAssertEqual(updatedTargets, [duplicate, first, lastKept])
-        XCTAssertEqual(persistence.savedTargets, [[duplicate, first, lastKept]])
+        #expect(updatedTargets == [duplicate, first, lastKept])
+        #expect(persistence.savedTargets == [[duplicate, first, lastKept]])
     }
 
+    @Test
     func testRecordUnavailableTargetPrunesAndDoesNotInsert() {
         let available = makeRecentTarget("/recent/available")
         let missing = makeRecentTarget("/recent/missing")
@@ -54,10 +59,11 @@ final class RecentTargetStoreTests: XCTestCase {
             currentTargets: [available, missing]
         )
 
-        XCTAssertEqual(updatedTargets, [available])
-        XCTAssertEqual(persistence.savedTargets, [[available]])
+        #expect(updatedTargets == [available])
+        #expect(persistence.savedTargets == [[available]])
     }
 
+    @Test
     func testRemoveTargetPrunesAndPersistsRemainingTargets() {
         let first = makeRecentTarget("/recent/first")
         let removed = makeRecentTarget("/recent/removed")
@@ -75,10 +81,11 @@ final class RecentTargetStoreTests: XCTestCase {
             currentTargets: [first, removed, missing, last]
         )
 
-        XCTAssertEqual(updatedTargets, [first, last])
-        XCTAssertEqual(persistence.savedTargets, [[first, last]])
+        #expect(updatedTargets == [first, last])
+        #expect(persistence.savedTargets == [[first, last]])
     }
 
+    @Test
     func testClearDelegatesToPersistence() {
         let persistence = InMemoryRecentTargetPersistence(targets: [makeRecentTarget("/recent/item")])
         let store = RecentTargetStore(
@@ -88,8 +95,8 @@ final class RecentTargetStoreTests: XCTestCase {
 
         store.clear()
 
-        XCTAssertTrue(persistence.didClear)
-        XCTAssertTrue(persistence.targets.isEmpty)
+        #expect(persistence.didClear)
+        #expect(persistence.targets.isEmpty)
     }
 }
 

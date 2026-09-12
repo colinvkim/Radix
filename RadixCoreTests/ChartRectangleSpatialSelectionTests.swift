@@ -1,46 +1,42 @@
 import CoreGraphics
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ChartRectangleSpatialSelectionTests: XCTestCase {
+struct ChartRectangleSpatialSelectionTests {
+    @Test
     func testRectangleNavigationUsesVisibleEdgeDistance() {
         let candidates = [
             rectangleCandidate("current", x: 90, y: 0, width: 10, height: 100),
             rectangleCandidate("adjacent-header", x: 0, y: 0, width: 88, height: 10),
-            rectangleCandidate("distant-center", x: 50, y: 49, width: 10, height: 2)
+            rectangleCandidate("distant-center", x: 50, y: 49, width: 10, height: 2),
         ]
 
-        XCTAssertEqual(
-            nextRectangle(from: "current", moving: .left, among: candidates),
-            "adjacent-header"
-        )
+        #expect(nextRectangle(from: "current", moving: .left, among: candidates) == "adjacent-header")
     }
 
+    @Test
     func testRectangleNavigationDoesNotTreatContainingOrContainedTileAsSideways() {
         let candidates = [
             rectangleCandidate("current", x: 20, y: 0, width: 10, height: 10),
             rectangleCandidate("containing", x: 0, y: 0, width: 100, height: 10),
             rectangleCandidate("child-below", x: 20, y: 10, width: 10, height: 10),
-            rectangleCandidate("right", x: 40, y: 0, width: 10, height: 10)
+            rectangleCandidate("right", x: 40, y: 0, width: 10, height: 10),
         ]
 
-        XCTAssertEqual(
-            nextRectangle(from: "current", moving: .right, among: candidates),
-            "right"
-        )
-        XCTAssertEqual(
-            nextRectangle(from: "current", moving: .down, among: candidates),
-            "child-below"
-        )
+        #expect(nextRectangle(from: "current", moving: .right, among: candidates) == "right")
+        #expect(nextRectangle(from: "current", moving: .down, among: candidates) == "child-below")
     }
 
+    @Test
     func testRectangleNavigationReturnsNilAtDirectionalEdge() {
         let candidates = [
             rectangleCandidate("left", x: 20, y: 20, width: 10, height: 10),
-            rectangleCandidate("right", x: 40, y: 20, width: 10, height: 10)
+            rectangleCandidate("right", x: 40, y: 20, width: 10, height: 10),
         ]
 
-        XCTAssertNil(nextRectangle(from: "right", moving: .right, among: candidates))
+        #expect(nextRectangle(from: "right", moving: .right, among: candidates) == nil)
     }
 
     private func nextRectangle(

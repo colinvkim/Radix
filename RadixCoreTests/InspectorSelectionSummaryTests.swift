@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class InspectorSelectionSummaryTests: XCTestCase {
+struct InspectorSelectionSummaryTests {
+    @Test
     func testSiblingSelectionsAreAggregated() {
         let first = makeTestFileNode(id: "/root/first.txt", name: "first.txt", size: 12)
         let second = makeTestFileNode(id: "/root/second.txt", name: "second.txt", size: 5)
@@ -13,14 +16,15 @@ final class InspectorSelectionSummaryTests: XCTestCase {
             fileTreeStore: store
         )
 
-        XCTAssertEqual(summary.selectedCount, 2)
-        XCTAssertEqual(summary.topLevelSelectedNodes.map(\.id), [first.id, second.id])
-        XCTAssertEqual(summary.topLevelSelectedCount, 2)
-        XCTAssertEqual(summary.allocatedSize, 17)
-        XCTAssertFalse(summary.containsOverlappingSelections)
-        XCTAssertEqual(summary.missingSelectedNodeCount, 0)
+        #expect(summary.selectedCount == 2)
+        #expect(summary.topLevelSelectedNodes.map(\.id) == [first.id, second.id])
+        #expect(summary.topLevelSelectedCount == 2)
+        #expect(summary.allocatedSize == 17)
+        #expect(!(summary.containsOverlappingSelections))
+        #expect(summary.missingSelectedNodeCount == 0)
     }
 
+    @Test
     func testNestedSelectionIsCountedOnce() {
         let nestedFile = makeTestFileNode(
             id: "/root/folder/nested.txt",
@@ -34,24 +38,27 @@ final class InspectorSelectionSummaryTests: XCTestCase {
         )
         let sibling = makeTestFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 5)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [folder, sibling])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder, sibling],
-            folder.id: [nestedFile]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder, sibling],
+                folder.id: [nestedFile],
+            ])
 
         let summary = InspectorSelectionSummary(
             selectedNodes: [nestedFile, folder, sibling],
             fileTreeStore: store
         )
 
-        XCTAssertEqual(summary.selectedCount, 3)
-        XCTAssertEqual(summary.topLevelSelectedNodes.map(\.id), [folder.id, sibling.id])
-        XCTAssertEqual(summary.topLevelSelectedCount, 2)
-        XCTAssertEqual(summary.allocatedSize, 25)
-        XCTAssertTrue(summary.containsOverlappingSelections)
-        XCTAssertEqual(summary.missingSelectedNodeCount, 0)
+        #expect(summary.selectedCount == 3)
+        #expect(summary.topLevelSelectedNodes.map(\.id) == [folder.id, sibling.id])
+        #expect(summary.topLevelSelectedCount == 2)
+        #expect(summary.allocatedSize == 25)
+        #expect(summary.containsOverlappingSelections)
+        #expect(summary.missingSelectedNodeCount == 0)
     }
 
+    @Test
     func testMissingSelectionIsNotReportedAsOverlap() {
         let present = makeTestFileNode(id: "/root/present.txt", name: "present.txt", size: 12)
         let stale = makeTestFileNode(id: "/root/stale.txt", name: "stale.txt", size: 30)
@@ -63,14 +70,15 @@ final class InspectorSelectionSummaryTests: XCTestCase {
             fileTreeStore: store
         )
 
-        XCTAssertEqual(summary.selectedCount, 2)
-        XCTAssertEqual(summary.topLevelSelectedNodes.map(\.id), [present.id])
-        XCTAssertEqual(summary.topLevelSelectedCount, 1)
-        XCTAssertEqual(summary.allocatedSize, present.allocatedSize)
-        XCTAssertFalse(summary.containsOverlappingSelections)
-        XCTAssertEqual(summary.missingSelectedNodeCount, 1)
+        #expect(summary.selectedCount == 2)
+        #expect(summary.topLevelSelectedNodes.map(\.id) == [present.id])
+        #expect(summary.topLevelSelectedCount == 1)
+        #expect(summary.allocatedSize == present.allocatedSize)
+        #expect(!(summary.containsOverlappingSelections))
+        #expect(summary.missingSelectedNodeCount == 1)
     }
 
+    @Test
     func testSelectionPresentationCountsKindsAndOrdersLargestItemsFirst() {
         let file = makeTestFileNode(id: "/root/file.txt", name: "file.txt", size: 8)
         let folderChild = makeTestFileNode(id: "/root/folder/child.txt", name: "child.txt", size: 20)
@@ -92,20 +100,15 @@ final class InspectorSelectionSummaryTests: XCTestCase {
             fileTreeStore: nil
         )
 
-        XCTAssertEqual(summary.selectedFolderCount, 1)
-        XCTAssertEqual(summary.selectedFileCount, 1)
-        XCTAssertEqual(summary.selectedPackageCount, 1)
-        XCTAssertEqual(summary.selectedStorageCategoryCount, 0)
-        XCTAssertEqual(
-            summary.selectedNodesByAllocatedSize.map(\.id),
-            [folder.id, package.id, file.id]
-        )
-        XCTAssertEqual(
-            summary.largestSelectedNodes(limit: 2).map(\.id),
-            [folder.id, package.id]
-        )
+        #expect(summary.selectedFolderCount == 1)
+        #expect(summary.selectedFileCount == 1)
+        #expect(summary.selectedPackageCount == 1)
+        #expect(summary.selectedStorageCategoryCount == 0)
+        #expect(summary.selectedNodesByAllocatedSize.map(\.id) == [folder.id, package.id, file.id])
+        #expect(summary.largestSelectedNodes(limit: 2).map(\.id) == [folder.id, package.id])
     }
 
+    @Test
     func testSyntheticStorageAndSharedFilesHaveDistinctPresentationState() {
         let synthetic = makeTestFileNode(
             id: "/root/unattributed",
@@ -125,9 +128,9 @@ final class InspectorSelectionSummaryTests: XCTestCase {
             fileTreeStore: nil
         )
 
-        XCTAssertEqual(summary.selectedFileCount, 1)
-        XCTAssertEqual(summary.selectedStorageCategoryCount, 1)
-        XCTAssertTrue(summary.containsSharedStorageItems)
-        XCTAssertTrue(summary.containsKnownClones)
+        #expect(summary.selectedFileCount == 1)
+        #expect(summary.selectedStorageCategoryCount == 1)
+        #expect(summary.containsSharedStorageItems)
+        #expect(summary.containsKnownClones)
     }
 }

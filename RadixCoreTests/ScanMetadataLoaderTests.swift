@@ -1,27 +1,28 @@
 import Darwin
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanMetadataLoaderTests: XCTestCase {
+struct ScanMetadataLoaderTests {
+    @Test
     func testStatIdentityPreservesSignedDeviceIDs() {
         let cases: [(dev_t, UInt64)] = [
             (0, 0),
             (42, 42),
             (.max, 0x7FFF_FFFF),
             (.min, 0xFFFF_FFFF_8000_0000),
-            (-1, UInt64.max)
+            (-1, UInt64.max),
         ]
         for (device, expectedDevice) in cases {
             var status = stat()
             status.st_dev = device
             status.st_ino = 42
-            XCTAssertEqual(
-                FileIdentity(fileSystemStatus: status),
-                FileIdentity(device: expectedDevice, inode: 42)
-            )
+            #expect(FileIdentity(fileSystemStatus: status) == FileIdentity(device: expectedDevice, inode: 42))
         }
     }
 
+    @Test
     func testStatusPreservesSignedDeviceIdentityAndClampsAllocation() {
         var fileStat = stat()
         fileStat.st_dev = -1
@@ -30,15 +31,16 @@ final class ScanMetadataLoaderTests: XCTestCase {
         fileStat.st_flags = UInt32(SF_DATALESS)
         fileStat.st_blocks = .max
         let status = ScanMetadataLoader.FileStatus(fileStat)
-        XCTAssertEqual(status.fileIdentity, FileIdentity(device: UInt64.max, inode: 42))
-        XCTAssertTrue(status.isDirectory)
-        XCTAssertEqual(status.fileFlags, UInt32(SF_DATALESS))
-        XCTAssertEqual(status.allocatedSize, Int64.max)
-        XCTAssertEqual(status.linkCount, 1)
+        #expect(status.fileIdentity == FileIdentity(device: UInt64.max, inode: 42))
+        #expect(status.isDirectory)
+        #expect(status.fileFlags == UInt32(SF_DATALESS))
+        #expect(status.allocatedSize == Int64.max)
+        #expect(status.linkCount == 1)
         fileStat.st_blocks = -1
-        XCTAssertEqual(ScanMetadataLoader.FileStatus(fileStat).allocatedSize, 0)
+        #expect(ScanMetadataLoader.FileStatus(fileStat).allocatedSize == 0)
     }
 
+    @Test
     func testMetadataReusesStatusIdentityAndAllocationFallback() {
         let counters = MetadataProbeCounters()
         let identity = FileIdentity(device: 7, inode: 42)
@@ -46,13 +48,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
             linkCountCapabilityCache: LinkCountCapabilityCache { _ in
                 .init(volumeRootPath: "/virtual", supportsHardLinks: true)
             },
-            cloneMappingCapabilityCache: CloneMappingCapabilityCache(probeProvider: { _ in
-                .init(identity: nil, supportsCloneMapping: false)
-            }, volumeRootProvider: { _ in "/virtual" }),
+            cloneMappingCapabilityCache: CloneMappingCapabilityCache(
+                probeProvider: { _ in
+                    .init(identity: nil, supportsCloneMapping: false)
+                }, volumeRootProvider: { _ in "/virtual" }),
             fileStatusProvider: { _ in
                 counters.recordLstat()
-                return .init(fileFlags: UInt32(SF_DATALESS), isDirectory: false,
-                             fileIdentity: identity, linkCount: 3, allocatedSize: 8_192)
+                return .init(
+                    fileFlags: UInt32(SF_DATALESS), isDirectory: false,
+                    fileIdentity: identity, linkCount: 3, allocatedSize: 8_192)
             }
         )
 
@@ -61,14 +65,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: URLResourceValues()
         )
 
-        XCTAssertTrue(metadata.isDataless)
-        XCTAssertEqual(metadata.fileIdentity, identity)
-        XCTAssertEqual(metadata.linkCount, 3)
-        XCTAssertEqual(metadata.allocatedSize, 8_192)
-        XCTAssertEqual(metadata.dataAllocatedSize, 8_192)
-        XCTAssertEqual(counters.lstatCount, 1)
+        #expect(metadata.isDataless)
+        #expect(metadata.fileIdentity == identity)
+        #expect(metadata.linkCount == 3)
+        #expect(metadata.allocatedSize == 8_192)
+        #expect(metadata.dataAllocatedSize == 8_192)
+        #expect(counters.lstatCount == 1)
     }
 
+    @Test
     func testExplicitProviderFailuresDoNotFallThroughToStatusFields() {
         let loader = ScanMetadataLoader(
             linkCountCapabilityCache: LinkCountCapabilityCache { _ in
@@ -77,49 +82,53 @@ final class ScanMetadataLoaderTests: XCTestCase {
             fileSystemInfoProvider: { _, _ in (nil, 3) },
             fileAllocatedSizeProvider: { _ in nil },
             fileStatusProvider: { _ in
-                .init(fileFlags: 0, isDirectory: false,
-                      fileIdentity: FileIdentity(device: 7, inode: 42), linkCount: 7, allocatedSize: 8_192)
+                .init(
+                    fileFlags: 0, isDirectory: false,
+                    fileIdentity: FileIdentity(device: 7, inode: 42), linkCount: 7, allocatedSize: 8_192)
             }
         )
         let metadata = loader.metadata(
             for: URL(filePath: "/virtual/file", directoryHint: .notDirectory),
             prefetchedResourceValues: URLResourceValues()
         )
-        XCTAssertNil(metadata.fileIdentity)
-        XCTAssertEqual(metadata.linkCount, 3)
-        XCTAssertEqual(metadata.allocatedSize, 0)
+        #expect(metadata.fileIdentity == nil)
+        #expect(metadata.linkCount == 3)
+        #expect(metadata.allocatedSize == 0)
     }
 
+    @Test
     func testReusedStatusDoesNotMaskDirectoryReplacement() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let directory = root.appending(path: "directory", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         let loader = ScanMetadataLoader()
-        let original = try XCTUnwrap(loader.metadata(for: directory).fileIdentity)
+        let original = try #require(loader.metadata(for: directory).fileIdentity)
         try FileManager.default.moveItem(at: directory, to: root.appending(path: "old"))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
 
-        XCTAssertThrowsError(try loader.validateFileSystemIdentity(original, at: directory))
-        XCTAssertNotEqual(try loader.metadata(for: directory).fileIdentity, original)
+        #expect(throws: (any Error).self) { try loader.validateFileSystemIdentity(original, at: directory) }
+        #expect(try loader.metadata(for: directory).fileIdentity != original)
     }
 
+    @Test
     func testFileSystemIdentityValidationUsesTheDedicatedProvider() throws {
         let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
         let expectedIdentity = FileIdentity(device: 7, inode: 42)
         let counters = MetadataProbeCounters()
         let loader = ScanMetadataLoader(fileSystemInfoProvider: { requestedURL, _ in
-            XCTAssertEqual(requestedURL, url)
+            #expect(requestedURL == url)
             counters.recordLstat()
             return (expectedIdentity, 1)
         })
 
-        XCTAssertEqual(try loader.fileSystemIdentity(at: url), expectedIdentity)
-        XCTAssertNoThrow(try loader.validateFileSystemIdentity(expectedIdentity, at: url))
-        XCTAssertEqual(counters.lstatCount, 2)
+        #expect(try loader.fileSystemIdentity(at: url) == expectedIdentity)
+        #expect(throws: Never.self) { try loader.validateFileSystemIdentity(expectedIdentity, at: url) }
+        #expect(counters.lstatCount == 2)
     }
 
-    func testFileSystemIdentityValidationFailsClosedForMissingOrChangedIdentity() {
+    @Test
+    func testFileSystemIdentityValidationFailsClosedForMissingOrChangedIdentity() throws {
         let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
         let expectedIdentity = FileIdentity(device: 7, inode: 42)
         for currentIdentity in [nil, FileIdentity(device: 7, inode: 43)] {
@@ -127,31 +136,30 @@ final class ScanMetadataLoaderTests: XCTestCase {
                 (currentIdentity, 1)
             })
 
-            XCTAssertThrowsError(
-                try loader.validateFileSystemIdentity(expectedIdentity, at: url)
-            ) { error in
+            #expect { try loader.validateFileSystemIdentity(expectedIdentity, at: url) } throws: { error in
                 let nsError = error as NSError
-                XCTAssertEqual(nsError.domain, NSPOSIXErrorDomain)
-                XCTAssertEqual(nsError.code, Int(ESTALE))
-                XCTAssertEqual(nsError.userInfo[NSURLErrorKey] as? URL, url)
+                #expect(nsError.domain == NSPOSIXErrorDomain)
+                #expect(nsError.code == Int(ESTALE))
+                #expect(nsError.userInfo[NSURLErrorKey] as? URL == url)
+                return true
             }
         }
     }
 
+    @Test
     func testCloneProbeRequestsPhysicalDeviceIdentity() {
-        XCTAssertNotEqual(
-            ScanMetadataLoader.cloneProbeOptions & UInt32(FSOPT_RETURN_REALDEV),
-            0
-        )
+        #expect(ScanMetadataLoader.cloneProbeOptions & UInt32(FSOPT_RETURN_REALDEV) != 0)
     }
 
+    @Test
     func testDatalessFlagClassification() {
-        XCTAssertTrue(ScanMetadataLoader.isDataless(fileFlags: UInt32(SF_DATALESS)))
-        XCTAssertFalse(ScanMetadataLoader.isDataless(fileFlags: nil))
-        XCTAssertFalse(ScanMetadataLoader.isDataless(fileFlags: 0))
-        XCTAssertFalse(ScanMetadataLoader.isDataless(fileFlags: UInt32(UF_HIDDEN)))
+        #expect(ScanMetadataLoader.isDataless(fileFlags: UInt32(SF_DATALESS)))
+        #expect(!(ScanMetadataLoader.isDataless(fileFlags: nil)))
+        #expect(!(ScanMetadataLoader.isDataless(fileFlags: 0)))
+        #expect(!(ScanMetadataLoader.isDataless(fileFlags: UInt32(UF_HIDDEN))))
     }
 
+    @Test
     func testMetadataCarriesDatalessFlag() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -160,7 +168,7 @@ final class ScanMetadataLoaderTests: XCTestCase {
         try Data([0xA5]).write(to: fileURL)
         let loader = ScanMetadataLoader(
             fileStatusProvider: { requestedURL in
-                XCTAssertEqual(requestedURL, fileURL)
+                #expect(requestedURL == fileURL)
                 return ScanMetadataLoader.FileStatus(
                     fileFlags: UInt32(SF_DATALESS),
                     isDirectory: false
@@ -168,14 +176,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
             }
         )
 
-        XCTAssertTrue(try loader.metadata(for: fileURL).isDataless)
+        #expect(try loader.metadata(for: fileURL).isDataless)
     }
 
+    @Test
     func testDatalessStatusUsesFileTypeFromLstatProvider() {
         let urlWithoutDirectoryHint = URL(filePath: "/virtual/cloud-folder", directoryHint: .notDirectory)
         let loader = ScanMetadataLoader(
             fileStatusProvider: { requestedURL in
-                XCTAssertEqual(requestedURL, urlWithoutDirectoryHint)
+                #expect(requestedURL == urlWithoutDirectoryHint)
                 return ScanMetadataLoader.FileStatus(
                     fileFlags: UInt32(SF_DATALESS),
                     isDirectory: true
@@ -183,10 +192,11 @@ final class ScanMetadataLoaderTests: XCTestCase {
             }
         )
 
-        XCTAssertFalse(urlWithoutDirectoryHint.hasDirectoryPath)
-        XCTAssertTrue(loader.datalessStatus(at: urlWithoutDirectoryHint)?.isDirectory == true)
+        #expect(!(urlWithoutDirectoryHint.hasDirectoryPath))
+        #expect(loader.datalessStatus(at: urlWithoutDirectoryHint)?.isDirectory == true)
     }
 
+    @Test
     func testLogicalSizeIncludesResourceForkData() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -199,29 +209,31 @@ final class ScanMetadataLoaderTests: XCTestCase {
             at: fileURL
         )
         let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .totalFileSizeKey])
-        let totalFileSize = try XCTUnwrap(values.totalFileSize)
+        let totalFileSize = try #require(values.totalFileSize)
 
         let metadata = try ScanMetadataLoader().metadata(for: fileURL)
 
-        XCTAssertGreaterThan(totalFileSize, values.fileSize ?? 0)
-        XCTAssertEqual(metadata.logicalSize, Int64(totalFileSize))
+        #expect(totalFileSize > values.fileSize ?? 0)
+        #expect(metadata.logicalSize == Int64(totalFileSize))
     }
 
+    @Test
     func testMissingAllocatedSizeUsesFileSystemBlockFallback() {
         let url = URL(filePath: "/virtual/sparse.bin")
         let loader = ScanMetadataLoader(
             fileAllocatedSizeProvider: { requestedURL in
-                XCTAssertEqual(requestedURL, url)
+                #expect(requestedURL == url)
                 return 8_192
             }
         )
 
         let metadata = loader.metadata(for: url, prefetchedResourceValues: URLResourceValues())
 
-        XCTAssertEqual(metadata.allocatedSize, 8_192)
-        XCTAssertEqual(metadata.dataAllocatedSize, 8_192)
+        #expect(metadata.allocatedSize == 8_192)
+        #expect(metadata.dataAllocatedSize == 8_192)
     }
 
+    @Test
     func testUnsupportedCloneMappingVolumeIsProbedOnlyOnce() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -247,11 +259,12 @@ final class ScanMetadataLoaderTests: XCTestCase {
         let firstMetadata = try loader.metadata(for: firstURL)
         let secondMetadata = try loader.metadata(for: secondURL)
 
-        XCTAssertNil(firstMetadata.cloneIdentity)
-        XCTAssertNil(secondMetadata.cloneIdentity)
-        XCTAssertEqual(counters.probeCount, 1)
+        #expect(firstMetadata.cloneIdentity == nil)
+        #expect(secondMetadata.cloneIdentity == nil)
+        #expect(counters.probeCount == 1)
     }
 
+    @Test
     func testRootVolumeCloneCacheDoesNotMaskMountedVolume() {
         let counters = MetadataProbeCounters()
         let cache = CloneMappingCapabilityCache(
@@ -267,12 +280,13 @@ final class ScanMetadataLoaderTests: XCTestCase {
             }
         )
 
-        XCTAssertNil(cache.cloneMetadata(for: URL(filePath: "/Users/example/first.bin")).identity)
-        XCTAssertNil(cache.cloneMetadata(for: URL(filePath: "/Volumes/External/second.bin")).identity)
+        #expect(cache.cloneMetadata(for: URL(filePath: "/Users/example/first.bin")).identity == nil)
+        #expect(cache.cloneMetadata(for: URL(filePath: "/Volumes/External/second.bin")).identity == nil)
 
-        XCTAssertEqual(counters.probeCount, 2)
+        #expect(counters.probeCount == 2)
     }
 
+    @Test
     func testCloneCapabilityCacheNormalizesPathsAndPreservesVolumeBoundaries() {
         let counters = MetadataProbeCounters()
         let rootPath = "/Volumes/Audit Disk #1"
@@ -291,17 +305,21 @@ final class ScanMetadataLoaderTests: XCTestCase {
         )
 
         for path in [rootPath + "/first.bin", rootPath + "/nested/../second.bin"] {
-            XCTAssertNil(cache.cloneMetadata(for: URL(filePath: path, directoryHint: .notDirectory)).identity)
+            #expect(cache.cloneMetadata(for: URL(filePath: path, directoryHint: .notDirectory)).identity == nil)
         }
-        XCTAssertEqual(counters.probeCount, 1)
+        #expect(counters.probeCount == 1)
 
-        XCTAssertNil(cache.cloneMetadata(for: URL(
-            filePath: siblingRootPath + "/third.bin",
-            directoryHint: .notDirectory
-        )).identity)
-        XCTAssertEqual(counters.probeCount, 2)
+        #expect(
+            cache.cloneMetadata(
+                for: URL(
+                    filePath: siblingRootPath + "/third.bin",
+                    directoryHint: .notDirectory
+                )
+            ).identity == nil)
+        #expect(counters.probeCount == 2)
     }
 
+    @Test
     func testHardLinksDeduplicateAcrossBulkAndFoundationMetadata() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -311,35 +329,37 @@ final class ScanMetadataLoaderTests: XCTestCase {
         try FileManager.default.linkItem(at: originalURL, to: linkedURL)
 
         let loader = ScanMetadataLoader()
-        let bulk = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: loader,
-            cancellationCheck: {}
-        ))
-        let nativeMetadata = try XCTUnwrap(bulk.entries.first { $0.url == originalURL }?.metadata)
-        XCTAssertGreaterThan(nativeMetadata.allocatedSize, 0)
-        let nativeClaim = try XCTUnwrap(SharedAllocationDeduplicator.claim(
-            for: nativeMetadata, ownerNodeID: originalURL.path, path: originalURL.path
-        ))
+        let bulkValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: loader,
+                cancellationCheck: {}
+            ))
+        let bulk = try #require(bulkValue)
+        let nativeMetadata = try #require(bulk.entries.first { $0.url == originalURL }?.metadata)
+        #expect(nativeMetadata.allocatedSize > 0)
+        let nativeClaim = try #require(
+            SharedAllocationDeduplicator.claim(
+                for: nativeMetadata, ownerNodeID: originalURL.path, path: originalURL.path
+            ))
 
         for fallbackMetadata in [
             try loader.metadata(for: linkedURL),
-            try loader.atomicSummaryMetadata(for: linkedURL)
+            try loader.atomicSummaryMetadata(for: linkedURL),
         ] {
-            XCTAssertEqual(fallbackMetadata.linkCount, 2)
-            XCTAssertEqual(fallbackMetadata.fileIdentity, nativeMetadata.fileIdentity)
-            let fallbackClaim = try XCTUnwrap(SharedAllocationDeduplicator.claim(
-                for: fallbackMetadata, ownerNodeID: linkedURL.path, path: linkedURL.path
-            ))
+            #expect(fallbackMetadata.linkCount == 2)
+            #expect(fallbackMetadata.fileIdentity == nativeMetadata.fileIdentity)
+            let fallbackClaim = try #require(
+                SharedAllocationDeduplicator.claim(
+                    for: fallbackMetadata, ownerNodeID: linkedURL.path, path: linkedURL.path
+                ))
             let accumulator = SharedAllocationOwnerAccumulator([nativeClaim, fallbackClaim])
-            XCTAssertEqual(
-                accumulator.duplicateAllocatedSizeByOwner,
-                [linkedURL.path: nativeMetadata.allocatedSize]
-            )
+            #expect(accumulator.duplicateAllocatedSizeByOwner == [linkedURL.path: nativeMetadata.allocatedSize])
         }
     }
 
+    @Test
     func testMissingLinkCountMetadataUsesLstatFallback() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -355,10 +375,11 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: originalURL)
         )
 
-        XCTAssertEqual(metadata.linkCount, 2)
-        XCTAssertNotNil(metadata.fileIdentity)
+        #expect(metadata.linkCount == 2)
+        #expect(metadata.fileIdentity != nil)
     }
 
+    @Test
     func testFailedLinkCountFallbackUsesConservativeCount() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -375,10 +396,11 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: sourceURL)
         )
 
-        XCTAssertEqual(metadata.linkCount, 1)
-        XCTAssertNil(metadata.fileIdentity)
+        #expect(metadata.linkCount == 1)
+        #expect(metadata.fileIdentity == nil)
     }
 
+    @Test
     func testMissingLinkCountOnVolumeWithoutHardLinksSkipsLstatAfterProbe() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -415,14 +437,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: secondURL)
         )
 
-        XCTAssertEqual(firstMetadata.linkCount, 1)
-        XCTAssertNil(firstMetadata.fileIdentity)
-        XCTAssertEqual(secondMetadata.linkCount, 1)
-        XCTAssertNil(secondMetadata.fileIdentity)
-        XCTAssertEqual(counters.probeCount, 1)
-        XCTAssertEqual(counters.lstatCount, 0)
+        #expect(firstMetadata.linkCount == 1)
+        #expect(firstMetadata.fileIdentity == nil)
+        #expect(secondMetadata.linkCount == 1)
+        #expect(secondMetadata.fileIdentity == nil)
+        #expect(counters.probeCount == 1)
+        #expect(counters.lstatCount == 0)
     }
 
+    @Test
     func testMissingLinkCountOnHardLinkCapableVolumeStillUsesLstatWithCachedProbe() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -462,14 +485,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: secondURL)
         )
 
-        XCTAssertEqual(firstMetadata.linkCount, 2)
-        XCTAssertNotNil(firstMetadata.fileIdentity)
-        XCTAssertEqual(secondMetadata.linkCount, 2)
-        XCTAssertNotNil(secondMetadata.fileIdentity)
-        XCTAssertEqual(counters.probeCount, 1)
-        XCTAssertEqual(counters.lstatCount, 2)
+        #expect(firstMetadata.linkCount == 2)
+        #expect(firstMetadata.fileIdentity != nil)
+        #expect(secondMetadata.linkCount == 2)
+        #expect(secondMetadata.fileIdentity != nil)
+        #expect(counters.probeCount == 1)
+        #expect(counters.lstatCount == 2)
     }
 
+    @Test
     func testNoHardLinkProbeWithoutVolumeRootDoesNotCacheWholeRoot() throws {
         let rootWithoutVolumeURL = try makeTemporaryDirectory()
         let rootWithVolumeURL = try makeTemporaryDirectory()
@@ -516,14 +540,15 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: fileWithVolumeURL)
         )
 
-        XCTAssertEqual(metadataWithoutVolume.linkCount, 1)
-        XCTAssertNil(metadataWithoutVolume.fileIdentity)
-        XCTAssertEqual(metadataWithVolume.linkCount, 2)
-        XCTAssertNotNil(metadataWithVolume.fileIdentity)
-        XCTAssertEqual(counters.probeCount, 2)
-        XCTAssertEqual(counters.lstatCount, 1)
+        #expect(metadataWithoutVolume.linkCount == 1)
+        #expect(metadataWithoutVolume.fileIdentity == nil)
+        #expect(metadataWithVolume.linkCount == 2)
+        #expect(metadataWithVolume.fileIdentity != nil)
+        #expect(counters.probeCount == 2)
+        #expect(counters.lstatCount == 1)
     }
 
+    @Test
     func testVisibleSymlinkMetadataUsesLstatIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -547,34 +572,38 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: symlinkURL)
         )
 
-        XCTAssertTrue(metadata.isSymbolicLink)
-        XCTAssertEqual(metadata.fileIdentity, FileIdentity(device: 1, inode: 42))
-        XCTAssertEqual(counters.lstatCount, 1)
+        #expect(metadata.isSymbolicLink)
+        #expect(metadata.fileIdentity == FileIdentity(device: 1, inode: 42))
+        #expect(counters.lstatCount == 1)
     }
 
+    @Test
     func testVolumeTokenDoesNotSplitNativeHardLinkIdentity() {
         let native = FileIdentity(device: 7, inode: 42)
         let enriched = FileIdentity(device: 7, inode: 42, volumeToken: 123)
-        XCTAssertEqual(native, enriched)
-        XCTAssertEqual(Set([native, enriched]).count, 1)
-        XCTAssertEqual([native: "owner"][enriched], "owner")
+        #expect(native == enriched)
+        #expect(Set([native, enriched]).count == 1)
+        #expect([native: "owner"][enriched] == "owner")
     }
 
+    @Test
     func testVolumeTokenPreservationRequiresMatchingFileIDAndKnownEncoding() {
         let native = FileIdentity(device: 7, inode: 42)
         let data = [UInt64(42).littleEndian, UInt64(123).littleEndian].withUnsafeBytes { Data($0) }
         let resource = FileIdentity(resourceIdentifier: data)
-        XCTAssertEqual(native.preservingVolumeIdentity(from: resource).darwinIdentity,
-                       FileIdentity.DarwinIdentity(fileID: 42, volumeToken: 123))
-        XCTAssertNil(FileIdentity(device: 7, inode: 43).preservingVolumeIdentity(from: resource).darwinIdentity)
-        XCTAssertNil(native.preservingVolumeIdentity(from: nil).darwinIdentity)
+        #expect(
+            native.preservingVolumeIdentity(from: resource).darwinIdentity
+                == FileIdentity.DarwinIdentity(fileID: 42, volumeToken: 123))
+        #expect(FileIdentity(device: 7, inode: 43).preservingVolumeIdentity(from: resource).darwinIdentity == nil)
+        #expect(native.preservingVolumeIdentity(from: nil).darwinIdentity == nil)
         for length in [0, 8, 15, 17, 32] {
             let unfamiliar = FileIdentity(resourceIdentifier: Data(repeating: 0, count: length))
-            XCTAssertNil(unfamiliar.darwinIdentity)
-            XCTAssertNil(native.preservingVolumeIdentity(from: unfamiliar).darwinIdentity)
+            #expect(unfamiliar.darwinIdentity == nil)
+            #expect(native.preservingVolumeIdentity(from: unfamiliar).darwinIdentity == nil)
         }
     }
 
+    @Test
     func testDirectoryMetadataUsesFileSystemIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -590,12 +619,13 @@ final class ScanMetadataLoaderTests: XCTestCase {
 
         let metadata = try loader.metadata(for: rootURL)
 
-        XCTAssertTrue(metadata.isDirectory)
-        XCTAssertEqual(metadata.fileIdentity, FileIdentity(device: 7, inode: 42))
-        XCTAssertEqual(metadata.linkCount, 1)
-        XCTAssertEqual(counters.lstatCount, 1)
+        #expect(metadata.isDirectory)
+        #expect(metadata.fileIdentity == FileIdentity(device: 7, inode: 42))
+        #expect(metadata.linkCount == 1)
+        #expect(counters.lstatCount == 1)
     }
 
+    @Test
     func testAtomicSummarySymlinkMetadataSkipsLstatIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -619,10 +649,10 @@ final class ScanMetadataLoaderTests: XCTestCase {
             prefetchedResourceValues: try resourceValuesWithoutIdentity(for: symlinkURL)
         )
 
-        XCTAssertTrue(metadata.isSymbolicLink)
-        XCTAssertNil(metadata.fileIdentity)
-        XCTAssertEqual(metadata.linkCount, 1)
-        XCTAssertEqual(counters.lstatCount, 0)
+        #expect(metadata.isSymbolicLink)
+        #expect(metadata.fileIdentity == nil)
+        #expect(metadata.linkCount == 1)
+        #expect(counters.lstatCount == 0)
     }
 
     private func resourceValuesWithoutIdentity(for url: URL) throws -> URLResourceValues {
@@ -635,7 +665,7 @@ final class ScanMetadataLoaderTests: XCTestCase {
             .fileSizeKey,
             .totalFileSizeKey,
             .contentModificationDateKey,
-            .isReadableKey
+            .isReadableKey,
         ])
     }
 

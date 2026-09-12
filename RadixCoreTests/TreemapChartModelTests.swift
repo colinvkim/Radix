@@ -1,8 +1,11 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class TreemapChartModelTests: XCTestCase {
+struct TreemapChartModelTests {
+    @Test
     func testSpatialSelectionStartsAmongTopLevelTiles() async {
         let topLevel = makeTreemapSegment(
             id: "top-level",
@@ -27,16 +30,15 @@ final class TreemapChartModelTests: XCTestCase {
             layoutID: "layout"
         )
 
-        XCTAssertEqual(
+        #expect(
             model.spatialSelectionNodeID(
                 from: nil,
                 moving: .right,
                 in: CGSize(width: 600, height: 300)
-            ),
-            topLevel.id
-        )
+            ) == topLevel.id)
     }
 
+    @Test
     func testSpatialSelectionSkipsItemsMovingToTrash() async {
         let moving = makeTreemapSegment(
             id: "moving",
@@ -59,17 +61,16 @@ final class TreemapChartModelTests: XCTestCase {
             layoutID: "layout"
         )
 
-        XCTAssertEqual(
+        #expect(
             model.spatialSelectionNodeID(
                 from: nil,
                 moving: .right,
                 in: CGSize(width: 600, height: 300),
                 excludingMovingToTrashNodeIDs: [moving.id]
-            ),
-            available.id
-        )
+            ) == available.id)
     }
 
+    @Test
     func testSpatialSelectionDoesNotTreatNestedTileAsSidewaysFromContainerHeader() async {
         let container = makeTreemapSegment(
             id: "container",
@@ -101,24 +102,21 @@ final class TreemapChartModelTests: XCTestCase {
             layoutID: "layout"
         )
 
-        XCTAssertEqual(
+        #expect(
             model.spatialSelectionNodeID(
                 from: container.id,
                 moving: .right,
                 in: CGSize(width: 600, height: 300)
-            ),
-            rightSibling.id
-        )
-        XCTAssertEqual(
+            ) == rightSibling.id)
+        #expect(
             model.spatialSelectionNodeID(
                 from: container.id,
                 moving: .down,
                 in: CGSize(width: 600, height: 300)
-            ),
-            child.id
-        )
+            ) == child.id)
     }
 
+    @Test
     func testSpatialSelectionDoesNotMoveSidewaysIntoAncestorHeaders() async {
         let ancestor = makeTreemapSegment(
             id: "ancestor",
@@ -161,31 +159,27 @@ final class TreemapChartModelTests: XCTestCase {
             layoutID: "layout"
         )
 
-        XCTAssertEqual(
+        #expect(
             model.spatialSelectionNodeID(
                 from: current.id,
                 moving: .right,
                 in: CGSize(width: 600, height: 300)
-            ),
-            rightSibling.id
-        )
-        XCTAssertNil(
+            ) == rightSibling.id)
+        #expect(
             model.spatialSelectionNodeID(
                 from: current.id,
                 moving: .left,
                 in: CGSize(width: 600, height: 300)
-            )
-        )
-        XCTAssertEqual(
+            ) == nil)
+        #expect(
             model.spatialSelectionNodeID(
                 from: current.id,
                 moving: .up,
                 in: CGSize(width: 600, height: 300)
-            ),
-            ancestor.id
-        )
+            ) == ancestor.id)
     }
 
+    @Test
     func testSpatialSelectionMeasuresDistanceInCurrentDisplayedAspectRatio() async {
         let current = makeTreemapSegment(
             id: "current",
@@ -213,23 +207,21 @@ final class TreemapChartModelTests: XCTestCase {
             layoutID: "wide-layout"
         )
 
-        XCTAssertEqual(
+        #expect(
             model.spatialSelectionNodeID(
                 from: current.id,
                 moving: .right,
                 in: CGSize(width: 1_000, height: 250)
-            ),
-            displayedFavorite.id
-        )
-        XCTAssertNil(
+            ) == displayedFavorite.id)
+        #expect(
             model.spatialSelectionNodeID(
                 from: current.id,
                 moving: .right,
                 in: CGSize(width: 250, height: 1_000)
-            )
-        )
+            ) == nil)
     }
 
+    @Test
     func testSpatialSelectionUsesExposedContainerHeaderInsteadOfCoveredCenter() async {
         let parent = makeTreemapSegment(
             id: "parent",
@@ -260,16 +252,15 @@ final class TreemapChartModelTests: XCTestCase {
             layoutID: "layout"
         )
 
-        XCTAssertEqual(
+        #expect(
             model.spatialSelectionNodeID(
                 from: child.id,
                 moving: .down,
                 in: CGSize(width: 600, height: 300)
-            ),
-            lowerSibling.id
-        )
+            ) == lowerSibling.id)
     }
 
+    @Test
     func testSelectedSegmentDoesNotIncludeAncestorOverlays() async {
         let ancestor = makeTreemapSegment(id: "ancestor", depth: 0)
         let selected = makeTreemapSegment(id: "selected", depth: 1)
@@ -287,14 +278,15 @@ final class TreemapChartModelTests: XCTestCase {
         )
         let selectedSegment = model.selectedSegment(nodeID: selected.nodeID)
 
-        XCTAssertTrue(didApply)
-        XCTAssertEqual(selectedSegment?.id, selected.id)
-        XCTAssertEqual(model.layoutReadiness.renderedLayoutID, "layout")
-        XCTAssertFalse(model.layoutReadiness.isRenderingPending(layoutID: "layout"))
-        XCTAssertNil(model.selectedSegment(nodeID: "missing"))
-        XCTAssertNil(model.selectedSegment(nodeID: nil))
+        #expect(didApply)
+        #expect(selectedSegment?.id == selected.id)
+        #expect(model.layoutReadiness.renderedLayoutID == "layout")
+        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "layout")))
+        #expect(model.selectedSegment(nodeID: "missing") == nil)
+        #expect(model.selectedSegment(nodeID: nil) == nil)
     }
 
+    @Test
     func testStaleLayoutResultDoesNotReplaceNewerTiles() async {
         let service = ControllableTreemapLayoutService()
         let model = TreemapChartModel(layoutService: service)
@@ -325,18 +317,19 @@ final class TreemapChartModelTests: XCTestCase {
         let newSegment = makeTreemapSegment(id: "new")
         let didCompleteNewRequest = await service.completeRequest(id: 1, with: [newSegment])
         let didApplyNewLayout = await newTask.value
-        XCTAssertTrue(didCompleteNewRequest)
-        XCTAssertTrue(didApplyNewLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
+        #expect(didCompleteNewRequest)
+        #expect(didApplyNewLayout)
+        #expect(model.renderedSegments.map(\.id) == [newSegment.id])
 
         let oldSegment = makeTreemapSegment(id: "old")
         let didCompleteOldRequest = await service.completeRequest(id: 0, with: [oldSegment])
         let didApplyOldLayout = await oldTask.value
-        XCTAssertTrue(didCompleteOldRequest)
-        XCTAssertFalse(didApplyOldLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
+        #expect(didCompleteOldRequest)
+        #expect(!(didApplyOldLayout))
+        #expect(model.renderedSegments.map(\.id) == [newSegment.id])
     }
 
+    @Test
     func testStartingNewLayoutCancelsPreviousLayoutWork() async {
         let service = ControllableTreemapLayoutService(resumesOnCancellation: true)
         let model = TreemapChartModel(layoutService: service)
@@ -366,17 +359,18 @@ final class TreemapChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(2)
 
         let didApplyOldLayout = await oldTask.value
-        XCTAssertFalse(didApplyOldLayout)
+        #expect(!(didApplyOldLayout))
 
         let newSegment = makeTreemapSegment(id: "new-segment")
         let didCompleteNewRequest = await service.completeRequest(id: 1, with: [newSegment])
-        XCTAssertTrue(didCompleteNewRequest)
+        #expect(didCompleteNewRequest)
         let didApplyNewLayout = await newTask.value
-        XCTAssertTrue(didApplyNewLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
-        XCTAssertEqual(model.renderedLayoutVersion, 1)
+        #expect(didApplyNewLayout)
+        #expect(model.renderedSegments.map(\.id) == [newSegment.id])
+        #expect(model.renderedLayoutVersion == 1)
     }
 
+    @Test
     func testLayoutFailurePreservesLastRenderAndPublishesError() async {
         let service = ControllableTreemapLayoutService()
         let model = TreemapChartModel(layoutService: service)
@@ -394,9 +388,9 @@ final class TreemapChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(1)
         let initialSegment = makeTreemapSegment(id: "initial")
         let didCompleteInitialRequest = await service.completeRequest(id: 0, with: [initialSegment])
-        XCTAssertTrue(didCompleteInitialRequest)
+        #expect(didCompleteInitialRequest)
         let didApplyInitialLayout = await initialTask.value
-        XCTAssertTrue(didApplyInitialLayout)
+        #expect(didApplyInitialLayout)
         let initialVersion = model.renderedLayoutVersion
 
         let failingTask = Task {
@@ -410,19 +404,20 @@ final class TreemapChartModelTests: XCTestCase {
         }
         await service.waitForIssuedRequestCount(2)
         let didFailRequest = await service.failRequest(id: 1, with: TestTreemapLayoutError.failed)
-        XCTAssertTrue(didFailRequest)
+        #expect(didFailRequest)
 
         let didApplyFailingLayout = await failingTask.value
-        XCTAssertFalse(didApplyFailingLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [initialSegment.id])
-        XCTAssertEqual(model.renderedLayoutVersion, initialVersion)
-        XCTAssertEqual(model.layoutReadiness.failure?.message, TestTreemapLayoutError.failed.localizedDescription)
-        XCTAssertFalse(model.layoutReadiness.isPending)
-        XCTAssertEqual(model.layoutReadiness.renderedLayoutID, "initial")
-        XCTAssertEqual(model.layoutReadiness.failedLayoutID, "failing")
-        XCTAssertFalse(model.layoutReadiness.isRenderingPending(layoutID: "failing"))
+        #expect(!(didApplyFailingLayout))
+        #expect(model.renderedSegments.map(\.id) == [initialSegment.id])
+        #expect(model.renderedLayoutVersion == initialVersion)
+        #expect(model.layoutReadiness.failure?.message == TestTreemapLayoutError.failed.localizedDescription)
+        #expect(!(model.layoutReadiness.isPending))
+        #expect(model.layoutReadiness.renderedLayoutID == "initial")
+        #expect(model.layoutReadiness.failedLayoutID == "failing")
+        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "failing")))
     }
 
+    @Test
     func testStaleLayoutFailureDoesNotReplaceNewerSuccessOrPublishError() async {
         let service = ControllableTreemapLayoutService()
         let model = TreemapChartModel(layoutService: service)
@@ -451,19 +446,20 @@ final class TreemapChartModelTests: XCTestCase {
 
         let currentSegment = makeTreemapSegment(id: "current")
         let didCompleteCurrentRequest = await service.completeRequest(id: 1, with: [currentSegment])
-        XCTAssertTrue(didCompleteCurrentRequest)
+        #expect(didCompleteCurrentRequest)
         let didApplyCurrentLayout = await currentTask.value
-        XCTAssertTrue(didApplyCurrentLayout)
+        #expect(didApplyCurrentLayout)
         let didFailStaleRequest = await service.failRequest(id: 0, with: TestTreemapLayoutError.failed)
-        XCTAssertTrue(didFailStaleRequest)
+        #expect(didFailStaleRequest)
 
         let didApplyStaleLayout = await staleTask.value
-        XCTAssertFalse(didApplyStaleLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [currentSegment.id])
-        XCTAssertNil(model.layoutReadiness.failure)
-        XCTAssertFalse(model.layoutReadiness.isPending)
+        #expect(!(didApplyStaleLayout))
+        #expect(model.renderedSegments.map(\.id) == [currentSegment.id])
+        #expect(model.layoutReadiness.failure == nil)
+        #expect(!(model.layoutReadiness.isPending))
     }
 
+    @Test
     func testRetryClearsFailureAndAppliesSuccessfulLayout() async {
         let service = ControllableTreemapLayoutService()
         let model = TreemapChartModel(layoutService: service)
@@ -480,10 +476,10 @@ final class TreemapChartModelTests: XCTestCase {
         }
         await service.waitForIssuedRequestCount(1)
         let didFailRequest = await service.failRequest(id: 0, with: TestTreemapLayoutError.failed)
-        XCTAssertTrue(didFailRequest)
+        #expect(didFailRequest)
         let didApplyFailingLayout = await failingTask.value
-        XCTAssertFalse(didApplyFailingLayout)
-        XCTAssertNotNil(model.layoutReadiness.failure)
+        #expect(!(didApplyFailingLayout))
+        #expect(model.layoutReadiness.failure != nil)
 
         let retryTask = Task {
             await model.loadLayout(
@@ -495,18 +491,19 @@ final class TreemapChartModelTests: XCTestCase {
             )
         }
         await service.waitForIssuedRequestCount(2)
-        XCTAssertNil(model.layoutReadiness.failure)
-        XCTAssertTrue(model.layoutReadiness.isPending)
+        #expect(model.layoutReadiness.failure == nil)
+        #expect(model.layoutReadiness.isPending)
 
         let retrySegment = makeTreemapSegment(id: "retry")
         let didCompleteRetryRequest = await service.completeRequest(id: 1, with: [retrySegment])
-        XCTAssertTrue(didCompleteRetryRequest)
+        #expect(didCompleteRetryRequest)
         let didApplyRetryLayout = await retryTask.value
-        XCTAssertTrue(didApplyRetryLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [retrySegment.id])
-        XCTAssertNil(model.layoutReadiness.failure)
+        #expect(didApplyRetryLayout)
+        #expect(model.renderedSegments.map(\.id) == [retrySegment.id])
+        #expect(model.layoutReadiness.failure == nil)
     }
 
+    @Test
     func testSameSemanticLayoutCancellationPreservesResolvedRender() async {
         let service = ControllableTreemapLayoutService(resumesOnCancellation: true)
         let model = TreemapChartModel(layoutService: service)
@@ -524,9 +521,9 @@ final class TreemapChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(1)
         let initialSegment = makeTreemapSegment(id: "initial")
         let didCompleteInitialRequest = await service.completeRequest(id: 0, with: [initialSegment])
-        XCTAssertTrue(didCompleteInitialRequest)
+        #expect(didCompleteInitialRequest)
         let didApplyInitialLayout = await initialTask.value
-        XCTAssertTrue(didApplyInitialLayout)
+        #expect(didApplyInitialLayout)
 
         let cancelledTask = Task {
             await model.loadLayout(
@@ -542,12 +539,12 @@ final class TreemapChartModelTests: XCTestCase {
         await service.waitForCancelledRequest(id: 1)
 
         let didApplyCancelledLayout = await cancelledTask.value
-        XCTAssertFalse(didApplyCancelledLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [initialSegment.id])
-        XCTAssertNil(model.layoutReadiness.failure)
-        XCTAssertFalse(model.layoutReadiness.isPending)
-        XCTAssertFalse(model.layoutReadiness.isRenderingPending(layoutID: "initial"))
-        XCTAssertTrue(model.layoutReadiness.isRenderingPending(layoutID: "different"))
+        #expect(!(didApplyCancelledLayout))
+        #expect(model.renderedSegments.map(\.id) == [initialSegment.id])
+        #expect(model.layoutReadiness.failure == nil)
+        #expect(!(model.layoutReadiness.isPending))
+        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "initial")))
+        #expect(model.layoutReadiness.isRenderingPending(layoutID: "different"))
     }
 }
 
@@ -655,7 +652,8 @@ private actor ControllableTreemapLayoutService: TreemapLayouting {
     private func handleCancellation(id requestID: Int) {
         cancelledRequestIDs.insert(requestID)
         if resumesOnCancellation,
-           let continuation = continuations.removeValue(forKey: requestID) {
+            let continuation = continuations.removeValue(forKey: requestID)
+        {
             continuation.resume(throwing: CancellationError())
         }
 

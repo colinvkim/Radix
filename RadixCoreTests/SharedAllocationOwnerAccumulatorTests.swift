@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
+struct SharedAllocationOwnerAccumulatorTests {
+    @Test
     func testWinnerAndCorrectionsAreIndependentOfArrivalOrder() throws {
         let identity = FileIdentity(device: 1, inode: 42)
         let expectedWinner = claim(identity, owner: "/owner-a", path: "/a", size: 100)
@@ -19,34 +22,38 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
         for order in orders {
             let accumulator = SharedAllocationOwnerAccumulator(order)
 
-            let winner = try XCTUnwrap(accumulator.winner(for: identity))
-            XCTAssertEqual(winner.path, expectedWinner.path)
-            XCTAssertEqual(winner.ownerNodeID, expectedWinner.ownerNodeID)
-            XCTAssertEqual(accumulator.duplicateAllocatedSizeByOwner, [
-                tiedPathLoser.ownerNodeID: 100,
-                laterPathLoser.ownerNodeID: 100,
-            ])
+            let winner = try #require(accumulator.winner(for: identity))
+            #expect(winner.path == expectedWinner.path)
+            #expect(winner.ownerNodeID == expectedWinner.ownerNodeID)
+            #expect(
+                accumulator.duplicateAllocatedSizeByOwner == [
+                    tiedPathLoser.ownerNodeID: 100,
+                    laterPathLoser.ownerNodeID: 100,
+                ])
         }
     }
 
+    @Test
     func testRecordingEarlierWinnerMovesPreviousWinnerIntoCorrections() throws {
         let identity = FileIdentity(device: 2, inode: 7)
         var accumulator = SharedAllocationOwnerAccumulator()
 
         accumulator.record(claim(identity, owner: "/z-owner", path: "/z", size: 80))
-        XCTAssertTrue(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
+        #expect(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
 
         accumulator.record(claim(identity, owner: "/m-owner", path: "/m", size: 80))
         accumulator.record(claim(identity, owner: "/a-owner", path: "/a", size: 80))
 
-        XCTAssertEqual(try XCTUnwrap(accumulator.winner(for: identity)).path, "/a")
-        XCTAssertEqual(accumulator.duplicateAllocatedSizeByOwner, [
-            "/m-owner": 80,
-            "/z-owner": 80,
-        ])
-        XCTAssertEqual(accumulator.identityCount, 1)
+        #expect(try #require(accumulator.winner(for: identity)).path == "/a")
+        #expect(
+            accumulator.duplicateAllocatedSizeByOwner == [
+                "/m-owner": 80,
+                "/z-owner": 80,
+            ])
+        #expect(accumulator.identityCount == 1)
     }
 
+    @Test
     func testMergingLocalAccumulatorsMatchesDirectAccumulationInEitherOrder() throws {
         let firstIdentity = FileIdentity(device: 3, inode: 10)
         let secondIdentity = FileIdentity(device: 3, inode: 11)
@@ -68,15 +75,16 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
         reverse.merge(firstLocal)
         let direct = SharedAllocationOwnerAccumulator(firstClaims + secondClaims)
 
-        XCTAssertEqual(forward.duplicateAllocatedSizeByOwner, direct.duplicateAllocatedSizeByOwner)
-        XCTAssertEqual(reverse.duplicateAllocatedSizeByOwner, direct.duplicateAllocatedSizeByOwner)
-        XCTAssertEqual(try XCTUnwrap(forward.winner(for: firstIdentity)).path, "/a")
-        XCTAssertEqual(try XCTUnwrap(reverse.winner(for: firstIdentity)).path, "/a")
-        XCTAssertEqual(try XCTUnwrap(forward.winner(for: secondIdentity)).path, "/b")
-        XCTAssertEqual(forward.duplicateAllocatedSizeByOwner["/shared-owner"], 32)
-        XCTAssertEqual(forward.identityCount, 2)
+        #expect(forward.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
+        #expect(reverse.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
+        #expect(try #require(forward.winner(for: firstIdentity)).path == "/a")
+        #expect(try #require(reverse.winner(for: firstIdentity)).path == "/a")
+        #expect(try #require(forward.winner(for: secondIdentity)).path == "/b")
+        #expect(forward.duplicateAllocatedSizeByOwner["/shared-owner"] == 32)
+        #expect(forward.identityCount == 2)
     }
 
+    @Test
     func testNonpositiveClaimsDoNotCreateOwnersOrCorrections() {
         let identity = FileIdentity(device: 4, inode: 9)
         let accumulator = SharedAllocationOwnerAccumulator([
@@ -84,22 +92,24 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
             claim(identity, owner: "/negative", path: "/negative", size: -1),
         ])
 
-        XCTAssertTrue(accumulator.isEmpty)
-        XCTAssertEqual(accumulator.identityCount, 0)
-        XCTAssertTrue(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
-        XCTAssertNil(accumulator.winner(for: identity))
+        #expect(accumulator.isEmpty)
+        #expect(accumulator.identityCount == 0)
+        #expect(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
+        #expect(accumulator.winner(for: identity) == nil)
     }
 
+    @Test
     func testRepeatedIdenticalClaimsPreserveExistingDeduplicationSemantics() throws {
         let identity = FileIdentity(device: 5, inode: 20)
         let repeated = claim(identity, owner: "/owner", path: "/file", size: 128)
         let accumulator = SharedAllocationOwnerAccumulator([repeated, repeated, repeated])
 
-        XCTAssertEqual(try XCTUnwrap(accumulator.winner(for: identity)).ownerNodeID, repeated.ownerNodeID)
-        XCTAssertEqual(accumulator.duplicateAllocatedSizeByOwner, [repeated.ownerNodeID: 256])
+        #expect(try #require(accumulator.winner(for: identity)).ownerNodeID == repeated.ownerNodeID)
+        #expect(accumulator.duplicateAllocatedSizeByOwner == [repeated.ownerNodeID: 256])
     }
 
-    func testCorrectionMaterializationChecksCancellationDuringTraversal() {
+    @Test
+    func testCorrectionMaterializationChecksCancellationDuringTraversal() throws {
         let claims = (0..<512).map { index in
             claim(
                 FileIdentity(device: 6, inode: UInt64(index)),
@@ -111,18 +121,19 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
         let accumulator = SharedAllocationOwnerAccumulator(claims)
         var checkCount = 0
 
-        XCTAssertThrowsError(try accumulator.duplicateAllocatedSizeByOwner {
-            checkCount += 1
-            if checkCount == 2 {
-                throw CancellationError()
+        #expect(throws: CancellationError.self) {
+            try accumulator.duplicateAllocatedSizeByOwner {
+                checkCount += 1
+                if checkCount == 2 {
+                    throw CancellationError()
+                }
             }
-        }) { error in
-            XCTAssertTrue(error is CancellationError)
         }
-        XCTAssertEqual(checkCount, 2)
+        #expect(checkCount == 2)
     }
 
-    func testStandaloneCloneCorrectionMaterializationChecksCancellationDuringTraversal() {
+    @Test
+    func testStandaloneCloneCorrectionMaterializationChecksCancellationDuringTraversal() throws {
         let claims = (0..<512).flatMap { index in
             let cloneIdentity = CloneIdentity(device: 7, cloneID: UInt64(index))
             return [
@@ -147,18 +158,19 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
         let accumulator = SharedAllocationOwnerAccumulator(claims)
         var checkCount = 0
 
-        XCTAssertThrowsError(try accumulator.duplicateAllocatedSizeByOwner {
-            checkCount += 1
-            if checkCount == 2 {
-                throw CancellationError()
+        #expect(throws: CancellationError.self) {
+            try accumulator.duplicateAllocatedSizeByOwner {
+                checkCount += 1
+                if checkCount == 2 {
+                    throw CancellationError()
+                }
             }
-        }) { error in
-            XCTAssertTrue(error is CancellationError)
         }
-        XCTAssertEqual(checkCount, 2)
+        #expect(checkCount == 2)
     }
 
-    func testMixedCloneCorrectionChecksCancellationDuringHardLinkReduction() {
+    @Test
+    func testMixedCloneCorrectionChecksCancellationDuringHardLinkReduction() throws {
         let claims = (0..<768).flatMap { index in
             let device = UInt64(8)
             let cloneIdentity = CloneIdentity(device: device, cloneID: UInt64(index))
@@ -186,17 +198,18 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
         let accumulator = SharedAllocationOwnerAccumulator(claims)
         var checkCount = 0
 
-        XCTAssertThrowsError(try accumulator.duplicateAllocatedSizeByOwner {
-            checkCount += 1
-            if checkCount == 3 {
-                throw CancellationError()
+        #expect(throws: CancellationError.self) {
+            try accumulator.duplicateAllocatedSizeByOwner {
+                checkCount += 1
+                if checkCount == 3 {
+                    throw CancellationError()
+                }
             }
-        }) { error in
-            XCTAssertTrue(error is CancellationError)
         }
-        XCTAssertEqual(checkCount, 3)
+        #expect(checkCount == 3)
     }
 
+    @Test
     func testZeroDataCloneDoesNotCreateCloneAccountingState() {
         let device = UInt64(9)
         let cloneIdentity = CloneIdentity(device: device, cloneID: 1)
@@ -207,7 +220,7 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
                 owner: "/standalone",
                 totalSize: 32,
                 dataSize: 0
-            ),
+            )
         ])
         let hardLinkIdentity = FileIdentity(device: device, inode: 2)
         let hardLinked = SharedAllocationOwnerAccumulator([
@@ -218,17 +231,18 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
                 owner: "/hard-link",
                 totalSize: 32,
                 dataSize: 0
-            ),
+            )
         ])
 
-        XCTAssertTrue(standalone.isEmpty)
-        XCTAssertEqual(standalone.identityCount, 0)
-        XCTAssertTrue(standalone.duplicateAllocatedSizeByOwner.isEmpty)
-        XCTAssertFalse(hardLinked.isEmpty)
-        XCTAssertEqual(hardLinked.identityCount, 1)
-        XCTAssertTrue(hardLinked.duplicateAllocatedSizeByOwner.isEmpty)
+        #expect(standalone.isEmpty)
+        #expect(standalone.identityCount == 0)
+        #expect(standalone.duplicateAllocatedSizeByOwner.isEmpty)
+        #expect(!(hardLinked.isEmpty))
+        #expect(hardLinked.identityCount == 1)
+        #expect(hardLinked.duplicateAllocatedSizeByOwner.isEmpty)
     }
 
+    @Test
     func testHardLinkedCloneEntersCloneAccountingOnlyOnce() {
         let fileIdentity = FileIdentity(device: 1, inode: 10)
         let cloneIdentity = CloneIdentity(device: 1, cloneID: 99)
@@ -258,12 +272,14 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
 
         let accumulator = SharedAllocationOwnerAccumulator([source, hardLink, cloneWithResourceFork])
 
-        XCTAssertEqual(accumulator.duplicateAllocatedSizeByOwner, [
-            "/b-hard-link": 100,
-            "/z-clone": 80,
-        ])
+        #expect(
+            accumulator.duplicateAllocatedSizeByOwner == [
+                "/b-hard-link": 100,
+                "/z-clone": 80,
+            ])
     }
 
+    @Test
     func testStandaloneCloneWinsAcrossMultipleHardLinkedInodes() {
         let cloneIdentity = CloneIdentity(device: 1, cloneID: 100)
         let firstHardLinkIdentity = FileIdentity(device: 1, inode: 20)
@@ -308,13 +324,15 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
 
         let accumulator = SharedAllocationOwnerAccumulator(claims)
 
-        XCTAssertEqual(accumulator.duplicateAllocatedSizeByOwner, [
-            "/hard-link-b": 80,
-            "/hard-link-c": 80,
-            "/hard-link-d": 130,
-        ])
+        #expect(
+            accumulator.duplicateAllocatedSizeByOwner == [
+                "/hard-link-b": 80,
+                "/hard-link-c": 80,
+                "/hard-link-d": 130,
+            ])
     }
 
+    @Test
     func testStandaloneCloneGroupRetainsOneIdentityAndAccumulatesLosers() {
         let cloneIdentity = CloneIdentity(device: 1, cloneID: 99)
         let claims = (0..<10_000).map { index in
@@ -330,12 +348,14 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
 
         let accumulator = SharedAllocationOwnerAccumulator(claims.reversed())
 
-        XCTAssertEqual(accumulator.identityCount, 1)
-        XCTAssertEqual(accumulator.duplicateAllocatedSizeByOwner, [
-            "/summary": 9_999 * 80,
-        ])
+        #expect(accumulator.identityCount == 1)
+        #expect(
+            accumulator.duplicateAllocatedSizeByOwner == [
+                "/summary": 9_999 * 80
+            ])
     }
 
+    @Test
     func testStandaloneCloneMergeMatchesDirectAccumulationInEitherOrder() {
         let cloneIdentity = CloneIdentity(device: 2, cloneID: 7)
         let firstClaims = [
@@ -364,7 +384,7 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
                 path: "/a",
                 totalSize: 100,
                 dataSize: 80
-            ),
+            )
         ]
         let first = SharedAllocationOwnerAccumulator(firstClaims)
         let second = SharedAllocationOwnerAccumulator(secondClaims)
@@ -375,13 +395,14 @@ final class SharedAllocationOwnerAccumulatorTests: XCTestCase {
         reverse.merge(first)
         let direct = SharedAllocationOwnerAccumulator(firstClaims + secondClaims)
 
-        XCTAssertEqual(forward.duplicateAllocatedSizeByOwner, direct.duplicateAllocatedSizeByOwner)
-        XCTAssertEqual(reverse.duplicateAllocatedSizeByOwner, direct.duplicateAllocatedSizeByOwner)
-        XCTAssertEqual(forward.duplicateAllocatedSizeByOwner, [
-            "/summary-a": 160,
-        ])
-        XCTAssertEqual(forward.identityCount, 1)
-        XCTAssertEqual(reverse.identityCount, 1)
+        #expect(forward.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
+        #expect(reverse.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
+        #expect(
+            forward.duplicateAllocatedSizeByOwner == [
+                "/summary-a": 160
+            ])
+        #expect(forward.identityCount == 1)
+        #expect(reverse.identityCount == 1)
     }
 
     private func claim(

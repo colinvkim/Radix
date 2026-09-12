@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanExclusionMatcherTests: XCTestCase {
+struct ScanExclusionMatcherTests {
+    @Test
     func testCommonBasenamePatternsPreserveExactAndSimpleGlobSemantics() {
         let rootPath = "/tmp/RadixProject"
         let matcher = ScanExclusionMatcher(
@@ -9,17 +12,18 @@ final class ScanExclusionMatcherTests: XCTestCase {
             rootPath: rootPath
         )
 
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/Packages/node_modules", isDirectory: true))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath("\(rootPath)/Packages/node_modules", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/Logs/debug.log", isDirectory: false))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath("\(rootPath)/Logs/debug.log.1", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/.DS_Store", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/Project/build", isDirectory: true))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath("\(rootPath)/Project/build", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/Project/DerivedData", isDirectory: true))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath("\(rootPath)/Sources/App.swift", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/Packages/node_modules", isDirectory: true))
+        #expect(!(matcher.excludesKnownNormalizedPath("\(rootPath)/Packages/node_modules", isDirectory: false)))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/Logs/debug.log", isDirectory: false))
+        #expect(!(matcher.excludesKnownNormalizedPath("\(rootPath)/Logs/debug.log.1", isDirectory: false)))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/.DS_Store", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/Project/build", isDirectory: true))
+        #expect(!(matcher.excludesKnownNormalizedPath("\(rootPath)/Project/build", isDirectory: false)))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/Project/DerivedData", isDirectory: true))
+        #expect(!(matcher.excludesKnownNormalizedPath("\(rootPath)/Sources/App.swift", isDirectory: false)))
     }
 
+    @Test
     func testKnownChildMatchingPreservesBasenameAndPathRules() {
         let rootPath = "/Users/alex"
         let matcher = ScanExclusionMatcher(
@@ -33,28 +37,27 @@ final class ScanExclusionMatcherTests: XCTestCase {
         ]
 
         for (name, parentPath, isDirectory, expected) in cases {
-            XCTAssertEqual(
+            #expect(
                 matcher.excludesKnownNormalizedChild(
                     named: name,
                     under: parentPath,
                     isDirectory: isDirectory
-                ),
-                expected,
-                parentPath == "/" ? "/\(name)" : "\(parentPath)/\(name)"
-            )
+                ) == expected, Comment(rawValue: parentPath == "/" ? "/\(name)" : "\(parentPath)/\(name)"))
         }
 
         let filesystemRootMatcher = ScanExclusionMatcher(
             patterns: ["System/**"],
             rootPath: "/"
         )
-        XCTAssertTrue(filesystemRootMatcher.excludesKnownNormalizedChild(
-            named: "System",
-            under: "/",
-            isDirectory: true
-        ))
+        #expect(
+            filesystemRootMatcher.excludesKnownNormalizedChild(
+                named: "System",
+                under: "/",
+                isDirectory: true
+            ))
     }
 
+    @Test
     func testSimpleBasenameGlobStrategiesPreserveWildcardSemantics() {
         let rootPath = "/tmp/RadixProject"
         let matcher = ScanExclusionMatcher(
@@ -62,13 +65,14 @@ final class ScanExclusionMatcherTests: XCTestCase {
             rootPath: rootPath
         )
 
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/debug-output", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/image-cache", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/my-temporary-file", isDirectory: false))
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/file1.txt", isDirectory: false))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath("\(rootPath)/file10.txt", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/debug-output", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/image-cache", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/my-temporary-file", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/file1.txt", isDirectory: false))
+        #expect(!(matcher.excludesKnownNormalizedPath("\(rootPath)/file10.txt", isDirectory: false)))
     }
 
+    @Test
     func testPathGlobSingleStarStillDoesNotCrossDirectorySeparators() {
         let rootPath = "/tmp/RadixProject"
         let matcher = ScanExclusionMatcher(
@@ -76,10 +80,11 @@ final class ScanExclusionMatcherTests: XCTestCase {
             rootPath: rootPath
         )
 
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath("\(rootPath)/Library/Caches", isDirectory: true))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath("\(rootPath)/Library/Caches/file.bin", isDirectory: false))
+        #expect(matcher.excludesKnownNormalizedPath("\(rootPath)/Library/Caches", isDirectory: true))
+        #expect(!(matcher.excludesKnownNormalizedPath("\(rootPath)/Library/Caches/file.bin", isDirectory: false)))
     }
 
+    @Test
     func testComplexGlobUsesBoundedMatchingAndPreservesGlobstarSemantics() {
         let rootPath = "/tmp/RadixProject"
         let matcher = ScanExclusionMatcher(
@@ -87,94 +92,73 @@ final class ScanExclusionMatcherTests: XCTestCase {
             rootPath: rootPath
         )
 
-        XCTAssertTrue(matcher.excludesKnownNormalizedPath(
-            "\(rootPath)/Sources/cache/nested/file1.txt",
-            isDirectory: false
-        ))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath(
-            "\(rootPath)/Sources/cache/nested/file10.txt",
-            isDirectory: false
-        ))
-        XCTAssertFalse(matcher.excludesKnownNormalizedPath(
-            "\(rootPath)/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            isDirectory: false
-        ))
+        #expect(
+            matcher.excludesKnownNormalizedPath(
+                "\(rootPath)/Sources/cache/nested/file1.txt",
+                isDirectory: false
+            ))
+        #expect(
+            !(matcher.excludesKnownNormalizedPath(
+                "\(rootPath)/Sources/cache/nested/file10.txt",
+                isDirectory: false
+            )))
+        #expect(
+            !(matcher.excludesKnownNormalizedPath(
+                "\(rootPath)/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                isDirectory: false
+            )))
     }
 
-    func testMatcherHandlesManyExcludedChildren() {
+    @Test(arguments: [
+        ("Packages/pkg/node_modules", true, true),
+        ("Logs/./debug.log", false, true),
+        ("Library/Caches/build/artifact.o", false, true),
+        ("Sources/App.swift", false, false),
+    ])
+    func testURLMatchingNormalizesPaths(relativePath: String, isDirectory: Bool, excluded: Bool) {
         let rootPath = "/tmp/RadixProject"
         let matcher = ScanExclusionMatcher(
-            patterns: [
-                "node_modules/",
-                "*.log",
-                "Library/Caches/**"
-            ],
-            rootPath: rootPath
-        )
-
-        for index in 0..<512 {
-            XCTAssertTrue(
-                matcher.excludes(
-                    URL(filePath: "\(rootPath)/Packages/pkg\(index)/node_modules", directoryHint: .isDirectory),
-                    isDirectory: true
-                )
-            )
-            XCTAssertTrue(
-                matcher.excludes(
-                    URL(filePath: "\(rootPath)/Logs/./debug-\(index).log"),
-                    isDirectory: false
-                )
-            )
-        }
-
-        XCTAssertTrue(
-            matcher.excludes(
-                URL(filePath: "\(rootPath)/Library/Caches/build/artifact.o"),
-                isDirectory: false
-            )
-        )
-        XCTAssertFalse(
-            matcher.excludes(
-                URL(filePath: "\(rootPath)/Sources/App.swift"),
-                isDirectory: false
-            )
-        )
+            patterns: ["node_modules/", "*.log", "Library/Caches/**"], rootPath: rootPath)
+        #expect(matcher.excludes(URL(filePath: "\(rootPath)/\(relativePath)"), isDirectory: isDirectory) == excluded)
     }
 
+    @Test
     func testCloudStorageLocationRecognizesManagedRootsWithoutNearPrefixMatches() {
-        XCTAssertTrue(CloudStorageLocation.contains(path: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"))
-        XCTAssertTrue(CloudStorageLocation.contains(path: "/Users/blair/Library/Mobile Documents/com~apple~CloudDocs/file.bin"))
-        XCTAssertFalse(CloudStorageLocation.contains(path: "/Users/alex/Library/CloudStorageBackup/file.bin"))
-        XCTAssertFalse(CloudStorageLocation.contains(path: "/Users/alex/Library/Mobile Documents Backup/file.bin"))
-        XCTAssertFalse(CloudStorageLocation.contains(path: "/Library/CloudStorage/file.bin"))
+        #expect(CloudStorageLocation.contains(path: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"))
+        #expect(
+            CloudStorageLocation.contains(path: "/Users/blair/Library/Mobile Documents/com~apple~CloudDocs/file.bin"))
+        #expect(!(CloudStorageLocation.contains(path: "/Users/alex/Library/CloudStorageBackup/file.bin")))
+        #expect(!(CloudStorageLocation.contains(path: "/Users/alex/Library/Mobile Documents Backup/file.bin")))
+        #expect(!(CloudStorageLocation.contains(path: "/Library/CloudStorage/file.bin")))
     }
 
+    @Test
     func testCloudStorageLocationClassifiesDirectItemsWithoutRootLookup() {
         let impact = CloudStorageLocation.impact(
             of: URL(filePath: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"),
             cloudRootExists: { _ in
-                XCTFail("Direct cloud items should not require a root existence check.")
+                Issue.record("Direct cloud items should not require a root existence check.")
                 return false
             }
         )
 
-        XCTAssertEqual(impact, .storedInCloud)
+        #expect(impact == .storedInCloud)
     }
 
+    @Test
     func testCloudStorageLocationOnlyClassifiesAncestorsWhenManagedRootExists() {
         let libraryURL = URL(filePath: "/Users/alex/Library", directoryHint: .isDirectory)
 
-        XCTAssertNil(CloudStorageLocation.impact(of: libraryURL, cloudRootExists: { _ in false }))
-        XCTAssertEqual(
+        #expect(CloudStorageLocation.impact(of: libraryURL, cloudRootExists: { _ in false }) == nil)
+        #expect(
             CloudStorageLocation.impact(
                 of: libraryURL,
                 cloudRootExists: { $0.path == "/Users/alex/Library/CloudStorage" }
-            ),
-            .containsCloudStorage
-        )
-        XCTAssertNil(CloudStorageLocation.impact(
-            of: URL(filePath: "/Users/alex/Documents"),
-            cloudRootExists: { _ in true }
-        ))
+            ) == .containsCloudStorage)
+        #expect(
+            CloudStorageLocation.impact(
+                of: URL(filePath: "/Users/alex/Documents"),
+                cloudRootExists: { _ in true }
+            ) == nil)
     }
 }

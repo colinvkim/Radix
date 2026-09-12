@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ChartViewportTransformTests: XCTestCase {
+struct ChartViewportTransformTests {
+    @Test
     func testZoomExpandsChartAroundBaseCenter() {
         let baseFrame = CGRect(x: 10, y: 20, width: 200, height: 100)
         let transform = ChartViewportTransform().zoomed(
@@ -10,11 +13,12 @@ final class ChartViewportTransformTests: XCTestCase {
             in: baseFrame
         )
 
-        XCTAssertEqual(transform.scale, 2)
-        XCTAssertEqual(transform.offset, .zero)
-        XCTAssertEqual(transform.frame(for: baseFrame), CGRect(x: -90, y: -30, width: 400, height: 200))
+        #expect(transform.scale == 2)
+        #expect(transform.offset == .zero)
+        #expect(transform.frame(for: baseFrame) == CGRect(x: -90, y: -30, width: 400, height: 200))
     }
 
+    @Test
     func testZoomAroundAnchorKeepsAnchoredPointStable() throws {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 200)
         let anchor = CGPoint(x: 150, y: 100)
@@ -24,13 +28,14 @@ final class ChartViewportTransformTests: XCTestCase {
             in: baseFrame
         )
 
-        let localChartPoint = try XCTUnwrap(transform.localChartPoint(for: anchor, in: baseFrame))
+        let localChartPoint = try #require(transform.localChartPoint(for: anchor, in: baseFrame))
 
-        XCTAssertEqual(transform.offset, CGSize(width: -50, height: 0))
-        XCTAssertEqual(localChartPoint.point, CGPoint(x: 300, y: 200))
-        XCTAssertEqual(localChartPoint.size, CGSize(width: 400, height: 400))
+        #expect(transform.offset == CGSize(width: -50, height: 0))
+        #expect(localChartPoint.point == CGPoint(x: 300, y: 200))
+        #expect(localChartPoint.size == CGSize(width: 400, height: 400))
     }
 
+    @Test
     func testZoomAroundAnchorKeepsPannedContentStable() throws {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 100)
         let anchor = CGPoint(x: 60, y: 40)
@@ -38,33 +43,26 @@ final class ChartViewportTransformTests: XCTestCase {
             scale: 2,
             offset: CGSize(width: 30, height: -10)
         )
-        let originalPoint = try XCTUnwrap(
-            transform.localChartPoint(for: anchor, in: baseFrame)
-        )
+        let originalPoint = try #require(transform.localChartPoint(for: anchor, in: baseFrame))
 
         let zoomed = transform.zoomed(
             by: 1.5,
             anchor: anchor,
             in: baseFrame
         )
-        let zoomedPoint = try XCTUnwrap(
-            zoomed.localChartPoint(for: anchor, in: baseFrame)
-        )
+        let zoomedPoint = try #require(zoomed.localChartPoint(for: anchor, in: baseFrame))
 
-        XCTAssertEqual(zoomed.scale, 3)
-        XCTAssertEqual(zoomed.offset, CGSize(width: 65, height: -10))
-        XCTAssertEqual(
-            zoomedPoint.point.x / zoomedPoint.size.width,
-            originalPoint.point.x / originalPoint.size.width,
-            accuracy: 0.000_001
-        )
-        XCTAssertEqual(
-            zoomedPoint.point.y / zoomedPoint.size.height,
-            originalPoint.point.y / originalPoint.size.height,
-            accuracy: 0.000_001
-        )
+        #expect(zoomed.scale == 3)
+        #expect(zoomed.offset == CGSize(width: 65, height: -10))
+        #expect(
+            abs((zoomedPoint.point.x / zoomedPoint.size.width) - (originalPoint.point.x / originalPoint.size.width))
+                <= 0.000_001)
+        #expect(
+            abs((zoomedPoint.point.y / zoomedPoint.size.height) - (originalPoint.point.y / originalPoint.size.height))
+                <= 0.000_001)
     }
 
+    @Test
     func testInverseMappingCombinesZoomAndPanInNonSquareViewport() throws {
         let baseFrame = CGRect(x: 0, y: 0, width: 300, height: 120)
         let transform = ChartViewportTransform(
@@ -73,24 +71,15 @@ final class ChartViewportTransformTests: XCTestCase {
         )
         let pointer = CGPoint(x: 80, y: 60)
 
-        let chartPoint = try XCTUnwrap(
-            transform.localChartPoint(for: pointer, in: baseFrame)
-        )
+        let chartPoint = try #require(transform.localChartPoint(for: pointer, in: baseFrame))
 
-        XCTAssertEqual(chartPoint.point, CGPoint(x: 375, y: 115))
-        XCTAssertEqual(chartPoint.size, CGSize(width: 750, height: 300))
-        XCTAssertEqual(
-            chartPoint.point.x / chartPoint.size.width,
-            0.5,
-            accuracy: 0.000_001
-        )
-        XCTAssertEqual(
-            chartPoint.point.y / chartPoint.size.height,
-            115 / 300,
-            accuracy: 0.000_001
-        )
+        #expect(chartPoint.point == CGPoint(x: 375, y: 115))
+        #expect(chartPoint.size == CGSize(width: 750, height: 300))
+        #expect(abs((chartPoint.point.x / chartPoint.size.width) - (0.5)) <= 0.000_001)
+        #expect(abs((chartPoint.point.y / chartPoint.size.height) - (115 / 300)) <= 0.000_001)
     }
 
+    @Test
     func testPanOffsetIsConstrainedToKeepBaseFrameCovered() {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 100)
         let transform = ChartViewportTransform(scale: 2).panned(
@@ -98,10 +87,11 @@ final class ChartViewportTransformTests: XCTestCase {
             in: baseFrame
         )
 
-        XCTAssertEqual(transform.offset, CGSize(width: 100, height: -50))
-        XCTAssertTrue(transform.frame(for: baseFrame).contains(baseFrame))
+        #expect(transform.offset == CGSize(width: 100, height: -50))
+        #expect(transform.frame(for: baseFrame).contains(baseFrame))
     }
 
+    @Test
     func testRevealingPointPansZoomedViewportIntoSafeFrame() {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 200)
         let transform = ChartViewportTransform(scale: 2)
@@ -112,9 +102,10 @@ final class ChartViewportTransformTests: XCTestCase {
             padding: 10
         )
 
-        XCTAssertEqual(revealed.offset, CGSize(width: -90, height: 0))
+        #expect(revealed.offset == CGSize(width: -90, height: 0))
     }
 
+    @Test
     func testRevealingVisiblePointPreservesViewport() {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 200)
         let transform = ChartViewportTransform(
@@ -122,16 +113,15 @@ final class ChartViewportTransformTests: XCTestCase {
             offset: CGSize(width: 20, height: -10)
         )
 
-        XCTAssertEqual(
+        #expect(
             transform.revealing(
                 point: CGPoint(x: 100, y: 100),
                 within: baseFrame,
                 padding: 10
-            ),
-            transform
-        )
+            ) == transform)
     }
 
+    @Test
     func testConstrainedShrinksOffsetForSmallerFrame() {
         let smallerFrame = CGRect(x: 0, y: 0, width: 120, height: 80)
         let transform = ChartViewportTransform(
@@ -139,10 +129,11 @@ final class ChartViewportTransformTests: XCTestCase {
             offset: CGSize(width: 100, height: -100)
         ).constrained(to: smallerFrame)
 
-        XCTAssertEqual(transform.offset, CGSize(width: 60, height: -40))
-        XCTAssertTrue(transform.frame(for: smallerFrame).contains(smallerFrame))
+        #expect(transform.offset == CGSize(width: 60, height: -40))
+        #expect(transform.frame(for: smallerFrame).contains(smallerFrame))
     }
 
+    @Test
     func testZoomOutToMinimumResetsOffset() {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 100)
         let transform = ChartViewportTransform(
@@ -154,9 +145,10 @@ final class ChartViewportTransformTests: XCTestCase {
             in: baseFrame
         )
 
-        XCTAssertEqual(transform, .identity)
+        #expect(transform == .identity)
     }
 
+    @Test
     func testZoomRespectsCustomMaximumScale() {
         let baseFrame = CGRect(x: 0, y: 0, width: 200, height: 100)
         let transform = ChartViewportTransform().zoomed(
@@ -166,6 +158,6 @@ final class ChartViewportTransformTests: XCTestCase {
             maximumScale: 2
         )
 
-        XCTAssertEqual(transform.scale, 2)
+        #expect(transform.scale == 2)
     }
 }

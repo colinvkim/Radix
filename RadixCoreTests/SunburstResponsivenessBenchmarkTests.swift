@@ -1,15 +1,17 @@
 import CoreGraphics
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
 private typealias ChartBenchmarkSupport = ChartResponsivenessBenchmarkSupport
 
 @MainActor
-final class SunburstResponsivenessBenchmarkTests: XCTestCase {
+struct SunburstResponsivenessBenchmarkTests {
+    @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_SUNBURST"] == "1"))
     func testLargeScanSunburstResponsivenessBenchmark() async throws {
         guard ProcessInfo.processInfo.environment["RADIX_BENCH_SUNBURST"] == "1" else {
-            throw XCTSkip(
+            throw TestFixtureError(
                 "Set RADIX_BENCH_SUNBURST=1 to run the large-scan Sunburst benchmark."
             )
         }
@@ -28,13 +30,14 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
             Self.makeDenseFixture(fileCount: denseFileCount)
         }
         let denseFixture = fixtureMeasurement.value
-        XCTAssertEqual(denseFixture.store.nodeCount, denseFileCount + 2)
+        #expect(denseFixture.store.nodeCount == denseFileCount + 2)
         Self.report(
             phase: "fixture",
             seconds: fixtureMeasurement.seconds,
             count: denseFixture.store.nodeCount,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "rss_delta=\(BenchmarkSupport.byteDelta(from: initialPeakRSS, to: BenchmarkSupport.peakResidentBytes()))"
+            extra:
+                "rss_delta=\(BenchmarkSupport.byteDelta(from: initialPeakRSS, to: BenchmarkSupport.peakResidentBytes()))"
         )
 
         let denseDiskMapStore = DiskMapTreeStore(denseFixture.store)
@@ -49,21 +52,21 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                     cancellationCheck: {}
                 )
             }
-            largeLayoutSamples.append(ChartBenchmarkSupport.LayoutSample(
-                seconds: measurement.seconds,
-                segmentCount: measurement.value.count,
-                fingerprint: Self.segmentFingerprint(measurement.value)
-            ))
+            largeLayoutSamples.append(
+                ChartBenchmarkSupport.LayoutSample(
+                    seconds: measurement.seconds,
+                    segmentCount: measurement.value.count,
+                    fingerprint: Self.segmentFingerprint(measurement.value)
+                ))
         }
-        let expectedLargeCount = try XCTUnwrap(largeLayoutSamples.first?.segmentCount)
-        let expectedLargeFingerprint = try XCTUnwrap(largeLayoutSamples.first?.fingerprint)
-        XCTAssertTrue(largeLayoutSamples.allSatisfy {
-            $0.segmentCount == expectedLargeCount
-                && $0.fingerprint == expectedLargeFingerprint
-        })
-        let largeLayoutMedian = try XCTUnwrap(
-            BenchmarkSupport.median(largeLayoutSamples.map(\.seconds))
-        )
+        let expectedLargeCount = try #require(largeLayoutSamples.first?.segmentCount)
+        let expectedLargeFingerprint = try #require(largeLayoutSamples.first?.fingerprint)
+        #expect(
+            largeLayoutSamples.allSatisfy {
+                $0.segmentCount == expectedLargeCount
+                    && $0.fingerprint == expectedLargeFingerprint
+            })
+        let largeLayoutMedian = try #require(BenchmarkSupport.median(largeLayoutSamples.map(\.seconds)))
         Self.report(
             phase: "layout_large_scan",
             seconds: largeLayoutMedian,
@@ -82,8 +85,8 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
             )
         }
         let denseSegments = denseLayoutMeasurement.value
-        XCTAssertEqual(denseSegments.count, 1)
-        XCTAssertTrue(try XCTUnwrap(denseSegments.first).isAggregate)
+        #expect(denseSegments.count == 1)
+        #expect(try #require(denseSegments.first).isAggregate)
         let denseFingerprint = Self.segmentFingerprint(denseSegments)
         Self.report(
             phase: "layout_dense_root",
@@ -107,7 +110,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
             )
         }
         let interactionSegments = interactionLayoutMeasurement.value
-        XCTAssertEqual(interactionSegments.count, branchCount * renderedDepth)
+        #expect(interactionSegments.count == branchCount * renderedDepth)
         let interactionFingerprint = Self.segmentFingerprint(interactionSegments)
         Self.report(
             phase: "layout_interaction_geometry",
@@ -128,11 +131,8 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 layoutID: "interaction-publication"
             )
         }
-        XCTAssertTrue(publicationMeasurement.value)
-        XCTAssertEqual(
-            Self.segmentFingerprint(publicationModel.renderedSegments),
-            interactionFingerprint
-        )
+        #expect(publicationMeasurement.value)
+        #expect(Self.segmentFingerprint(publicationModel.renderedSegments) == interactionFingerprint)
         Self.report(
             phase: "render_state_publication",
             seconds: publicationMeasurement.seconds,
@@ -148,7 +148,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 publicationModel.segment(at: point, in: chartSize)?.id
             }
         }
-        XCTAssertGreaterThan(hitTestMeasurement.value.selectionCount, 0)
+        #expect(hitTestMeasurement.value.selectionCount > 0)
         Self.report(
             phase: "hit_testing",
             seconds: hitTestMeasurement.seconds,
@@ -170,10 +170,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 iterationCount: overlayIterationCount
             )
         }
-        XCTAssertEqual(
-            coldOverlayMeasurement.value.selectionCount,
-            overlayIterationCount * renderedDepth
-        )
+        #expect(coldOverlayMeasurement.value.selectionCount == overlayIterationCount * renderedDepth)
         Self.report(
             phase: "selection_overlay_alternating",
             seconds: coldOverlayMeasurement.seconds,
@@ -186,14 +183,11 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         let cacheHitOverlayMeasurement = try BenchmarkSupport.measure {
             Self.runSelectionOverlays(
                 model: publicationModel,
-                inputs: [try XCTUnwrap(overlayInputs.first)],
+                inputs: [try #require(overlayInputs.first)],
                 iterationCount: overlayIterationCount
             )
         }
-        XCTAssertEqual(
-            cacheHitOverlayMeasurement.value.selectionCount,
-            overlayIterationCount * renderedDepth
-        )
+        #expect(cacheHitOverlayMeasurement.value.selectionCount == overlayIterationCount * renderedDepth)
         Self.report(
             phase: "selection_overlay_same_selection",
             seconds: cacheHitOverlayMeasurement.seconds,
@@ -209,7 +203,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 iterationCount: keyboardIterationCount
             )
         }
-        XCTAssertEqual(keyboardMeasurement.value.selectionCount, keyboardIterationCount)
+        #expect(keyboardMeasurement.value.selectionCount == keyboardIterationCount)
         Self.report(
             phase: "keyboard_selection",
             seconds: keyboardMeasurement.seconds,
@@ -229,11 +223,10 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                 cancellationCheck: Task.checkCancellation
             )
         }
-        XCTAssertTrue(
+        #expect(
             cancellationMeasurement.wasCancelled
                 || cancellationMeasurement.completedBeforeCancellation,
-            "Large layout returned normally after cancellation was requested."
-        )
+            "Large layout returned normally after cancellation was requested.")
         Self.report(
             phase: "cancel_layout",
             seconds: cancellationMeasurement.seconds,
@@ -247,15 +240,12 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
             fixture: denseFixture,
             diskMapStore: denseDiskMapStore
         )
-        XCTAssertEqual(rapidChangeMeasurement.appliedCount, 1)
-        XCTAssertEqual(rapidChangeMeasurement.completedCount, 1)
-        XCTAssertEqual(
-            rapidChangeMeasurement.cancelledCount,
-            rapidChangeMeasurement.requestCount - 1
-        )
-        XCTAssertEqual(rapidChangeMeasurement.renderedLayoutID, "root-depth-final")
-        XCTAssertEqual(rapidChangeMeasurement.segmentCount, denseSegments.count)
-        XCTAssertEqual(rapidChangeMeasurement.fingerprint, denseFingerprint)
+        #expect(rapidChangeMeasurement.appliedCount == 1)
+        #expect(rapidChangeMeasurement.completedCount == 1)
+        #expect(rapidChangeMeasurement.cancelledCount == rapidChangeMeasurement.requestCount - 1)
+        #expect(rapidChangeMeasurement.renderedLayoutID == "root-depth-final")
+        #expect(rapidChangeMeasurement.segmentCount == denseSegments.count)
+        #expect(rapidChangeMeasurement.fingerprint == denseFingerprint)
         Self.report(
             phase: "rapid_root_depth_changes",
             seconds: rapidChangeMeasurement.latestRequestSeconds,
@@ -272,7 +262,8 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
             seconds: 0,
             count: denseFixture.store.nodeCount,
             peakRSS: BenchmarkSupport.peakResidentBytes(),
-            extra: "rss_delta=\(BenchmarkSupport.byteDelta(from: initialPeakRSS, to: BenchmarkSupport.peakResidentBytes()))"
+            extra:
+                "rss_delta=\(BenchmarkSupport.byteDelta(from: initialPeakRSS, to: BenchmarkSupport.peakResidentBytes()))"
         )
     }
 
@@ -419,7 +410,7 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         )
         var denseChildren: [FileTreeNodeIndex] = []
         denseChildren.reserveCapacity(fileCount)
-        var parentIndices = Array<FileTreeNodeIndex?>(
+        var parentIndices = [FileTreeNodeIndex?](
             repeating: nil,
             count: fileCount + 2
         )
@@ -428,13 +419,14 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         for fileOffset in 0..<fileCount {
             let fileID = String(format: "%@/item-%07d.dat", denseDirectoryID, fileOffset)
             let fileIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-            nodes.append(ChartBenchmarkSupport.node(
-                id: fileID,
-                name: String(format: "item-%07d.dat", fileOffset),
-                isDirectory: false,
-                allocatedSize: 1,
-                descendantFileCount: 1
-            ))
+            nodes.append(
+                ChartBenchmarkSupport.node(
+                    id: fileID,
+                    name: String(format: "item-%07d.dat", fileOffset),
+                    isDirectory: false,
+                    allocatedSize: 1,
+                    descendantFileCount: 1
+                ))
             denseChildren.append(fileIndex)
             parentIndices[Int(fileIndex.rawValue)] = denseIndex
         }
@@ -471,19 +463,21 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         let rootID = "/sunburst-interaction"
         let rootIndex = FileTreeNodeIndex(rawValue: 0)
         let nodeCount = 1 + (branchCount * renderedDepth)
-        var nodes = [ChartBenchmarkSupport.node(
-            id: rootID,
-            name: "sunburst-interaction",
-            isDirectory: true,
-            allocatedSize: Int64(branchCount),
-            descendantFileCount: branchCount
-        )]
+        var nodes = [
+            ChartBenchmarkSupport.node(
+                id: rootID,
+                name: "sunburst-interaction",
+                isDirectory: true,
+                allocatedSize: Int64(branchCount),
+                descendantFileCount: branchCount
+            )
+        ]
         nodes.reserveCapacity(nodeCount)
         var childIndicesByIndex = Array(
             repeating: [FileTreeNodeIndex](),
             count: nodeCount
         )
-        var parentIndices = Array<FileTreeNodeIndex?>(
+        var parentIndices = [FileTreeNodeIndex?](
             repeating: nil,
             count: nodeCount
         )
@@ -498,15 +492,16 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
                     depth: depth
                 )
                 let index = FileTreeNodeIndex(rawValue: UInt32(nodes.count))
-                nodes.append(ChartBenchmarkSupport.node(
-                    id: id,
-                    name: depth == 0
-                        ? String(format: "branch-%03d", branchOffset)
-                        : String(format: "level-%02d", depth),
-                    isDirectory: depth + 1 < renderedDepth,
-                    allocatedSize: 1,
-                    descendantFileCount: 1
-                ))
+                nodes.append(
+                    ChartBenchmarkSupport.node(
+                        id: id,
+                        name: depth == 0
+                            ? String(format: "branch-%03d", branchOffset)
+                            : String(format: "level-%02d", depth),
+                        isDirectory: depth + 1 < renderedDepth,
+                        allocatedSize: 1,
+                        descendantFileCount: 1
+                    ))
                 parentIndices[Int(index.rawValue)] = parentIndex
                 childIndicesByIndex[Int(parentIndex.rawValue)].append(index)
                 parentIndex = index
@@ -539,13 +534,14 @@ final class SunburstResponsivenessBenchmarkTests: XCTestCase {
         renderedDepth: Int
     ) -> [OverlayInput] {
         (0..<branchCount).map { branchOffset in
-            let ancestorIDs = Set((0..<(renderedDepth - 1)).map { depth in
-                interactionNodeID(
-                    rootID: rootID,
-                    branchOffset: branchOffset,
-                    depth: depth
-                )
-            })
+            let ancestorIDs = Set(
+                (0..<(renderedDepth - 1)).map { depth in
+                    interactionNodeID(
+                        rootID: rootID,
+                        branchOffset: branchOffset,
+                        depth: depth
+                    )
+                })
             return OverlayInput(
                 selectedNodeID: interactionNodeID(
                     rootID: rootID,

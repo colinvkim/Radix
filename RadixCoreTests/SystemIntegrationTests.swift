@@ -1,32 +1,35 @@
 import AppKit
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class SystemIntegrationTests: XCTestCase {
-    func testOpenThrowsWhenWorkspaceDeclinesURL() {
+struct SystemIntegrationTests {
+    @Test
+    func testOpenThrowsWhenWorkspaceDeclinesURL() throws {
         let url = URL(filePath: "/tmp/missing.txt")
         let workspace = WorkspaceSpy(openResult: false)
 
-        XCTAssertThrowsError(
-            try SystemIntegration.open(url, workspace: workspace)
-        ) { error in
+        #expect { try SystemIntegration.open(url, workspace: workspace) } throws: { error in
             guard let integrationError = error as? SystemIntegration.SystemIntegrationError else {
-                XCTFail("Expected SystemIntegrationError, got \(error).")
-                return
+                Issue.record("Expected SystemIntegrationError, got \(error).")
+                return false
             }
 
             guard case .openFailed(let path) = integrationError else {
-                XCTFail("Expected openFailed, got \(integrationError).")
-                return
+                Issue.record("Expected openFailed, got \(integrationError).")
+                return false
             }
 
-            XCTAssertEqual(path, url.path)
-            XCTAssertEqual(error.localizedDescription, "macOS could not open the item at \(url.path).")
+            #expect(path == url.path)
+            #expect(error.localizedDescription == "macOS could not open the item at \(url.path).")
+            return true
         }
-        XCTAssertEqual(workspace.openedURLs, [url])
+        #expect(workspace.openedURLs == [url])
     }
 
+    @Test
     func testOpenInTerminalOpensDirectoryWithTerminal() async throws {
         let directoryURL = URL(filePath: "/tmp/example", directoryHint: .isDirectory)
         let terminalURL = URL(filePath: "/System/Applications/Utilities/Terminal.app")
@@ -34,34 +37,33 @@ final class SystemIntegrationTests: XCTestCase {
 
         try await SystemIntegration.openInTerminal(directoryURL, workspace: workspace)
 
-        XCTAssertEqual(workspace.requestedApplicationBundleIdentifiers, ["com.apple.Terminal"])
-        XCTAssertEqual(workspace.applicationOpenedURLs, [[directoryURL]])
-        XCTAssertEqual(workspace.openedApplicationURLs, [terminalURL])
-        XCTAssertEqual(workspace.openConfigurationsActivate, [true])
+        #expect(workspace.requestedApplicationBundleIdentifiers == ["com.apple.Terminal"])
+        #expect(workspace.applicationOpenedURLs == [[directoryURL]])
+        #expect(workspace.openedApplicationURLs == [terminalURL])
+        #expect(workspace.openConfigurationsActivate == [true])
     }
 
-    func testOpenInTerminalThrowsWhenTerminalIsUnavailable() async {
+    @Test
+    func testOpenInTerminalThrowsWhenTerminalIsUnavailable() async throws {
         let directoryURL = URL(filePath: "/tmp/example", directoryHint: .isDirectory)
         let workspace = WorkspaceSpy(openResult: true, terminalApplicationURL: nil)
 
         do {
             try await SystemIntegration.openInTerminal(directoryURL, workspace: workspace)
-            XCTFail("Expected opening Terminal to fail.")
+            Issue.record("Expected opening Terminal to fail.")
         } catch {
             guard let integrationError = error as? SystemIntegration.SystemIntegrationError else {
-                XCTFail("Expected SystemIntegrationError, got \(error).")
+                Issue.record("Expected SystemIntegrationError, got \(error).")
                 return
             }
 
-            XCTAssertEqual(
-                integrationError.localizedDescription,
-                "macOS could not open Terminal at \(directoryURL.path)."
-            )
+            #expect(integrationError.localizedDescription == "macOS could not open Terminal at \(directoryURL.path).")
         }
-        XCTAssertTrue(workspace.applicationOpenedURLs.isEmpty)
+        #expect(workspace.applicationOpenedURLs.isEmpty)
     }
 
-    func testOpenInTerminalThrowsWhenWorkspaceReportsFailure() async {
+    @Test
+    func testOpenInTerminalThrowsWhenWorkspaceReportsFailure() async throws {
         let directoryURL = URL(filePath: "/tmp/example", directoryHint: .isDirectory)
         let terminalURL = URL(filePath: "/System/Applications/Utilities/Terminal.app")
         let workspace = WorkspaceSpy(
@@ -72,86 +74,88 @@ final class SystemIntegrationTests: XCTestCase {
 
         do {
             try await SystemIntegration.openInTerminal(directoryURL, workspace: workspace)
-            XCTFail("Expected opening Terminal to fail.")
+            Issue.record("Expected opening Terminal to fail.")
         } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "macOS could not open Terminal at \(directoryURL.path)."
-            )
+            #expect(error.localizedDescription == "macOS could not open Terminal at \(directoryURL.path).")
         }
-        XCTAssertEqual(workspace.applicationOpenedURLs, [[directoryURL]])
+        #expect(workspace.applicationOpenedURLs == [[directoryURL]])
     }
 
+    @Test
     func testRevealSelectsRequestedURL() {
         let url = URL(filePath: "/tmp/example.txt")
         let workspace = WorkspaceSpy(openResult: true)
 
         SystemIntegration.reveal(url, workspace: workspace)
 
-        XCTAssertEqual(workspace.revealedSelections, [[url]])
+        #expect(workspace.revealedSelections == [[url]])
     }
 
+    @Test
     func testRevealSelectsRequestedURLs() {
         let urls = [
             URL(filePath: "/tmp/first.txt"),
-            URL(filePath: "/tmp/second.txt")
+            URL(filePath: "/tmp/second.txt"),
         ]
         let workspace = WorkspaceSpy(openResult: true)
 
         SystemIntegration.reveal(urls, workspace: workspace)
 
-        XCTAssertEqual(workspace.revealedSelections, [urls])
+        #expect(workspace.revealedSelections == [urls])
     }
 
+    @Test
     func testCopyPathWritesPathAndFileURLToPasteboard() throws {
         let url = URL(filePath: "/tmp/example.txt")
         let pasteboard = PasteboardSpy()
 
         try SystemIntegration.copyPath(url, pasteboard: pasteboard)
 
-        XCTAssertEqual(pasteboard.clearCount, 1)
-        XCTAssertEqual(pasteboard.writtenStrings[.string], url.path)
-        XCTAssertEqual(pasteboard.writtenStrings[.fileURL], url.absoluteString)
+        #expect(pasteboard.clearCount == 1)
+        #expect(pasteboard.writtenStrings[.string] == url.path)
+        #expect(pasteboard.writtenStrings[.fileURL] == url.absoluteString)
     }
 
-    func testCopyPathThrowsWhenPasteboardRejectsARepresentation() {
+    @Test
+    func testCopyPathThrowsWhenPasteboardRejectsARepresentation() throws {
         let url = URL(filePath: "/tmp/example.txt")
         let pasteboard = PasteboardSpy(rejectedTypes: [.fileURL])
 
-        XCTAssertThrowsError(
-            try SystemIntegration.copyPath(url, pasteboard: pasteboard)
-        ) { error in
+        #expect { try SystemIntegration.copyPath(url, pasteboard: pasteboard) } throws: { error in
             guard let integrationError = error as? SystemIntegration.SystemIntegrationError else {
-                XCTFail("Expected SystemIntegrationError, got \(error).")
-                return
+                Issue.record("Expected SystemIntegrationError, got \(error).")
+                return false
             }
 
             guard case .copyPathFailed(let path) = integrationError else {
-                XCTFail("Expected copyPathFailed, got \(integrationError).")
-                return
+                Issue.record("Expected copyPathFailed, got \(integrationError).")
+                return false
             }
 
-            XCTAssertEqual(path, url.path)
+            #expect(path == url.path)
+            return true
         }
-        XCTAssertEqual(pasteboard.clearCount, 1)
-        XCTAssertEqual(pasteboard.writtenStrings[.string], url.path)
-        XCTAssertEqual(pasteboard.writtenStrings[.fileURL], url.absoluteString)
+        #expect(pasteboard.clearCount == 1)
+        #expect(pasteboard.writtenStrings[.string] == url.path)
+        #expect(pasteboard.writtenStrings[.fileURL] == url.absoluteString)
     }
 
+    @Test
     func testCopyPathsWritesNewlineSeparatedPaths() throws {
         let urls = [
             URL(filePath: "/tmp/first.txt"),
-            URL(filePath: "/tmp/second.txt")
+            URL(filePath: "/tmp/second.txt"),
         ]
         let pasteboard = PasteboardSpy()
 
         try SystemIntegration.copyPaths(urls, pasteboard: pasteboard)
 
-        XCTAssertEqual(pasteboard.clearCount, 1)
-        XCTAssertEqual(pasteboard.writtenStrings[.string], "/tmp/first.txt\n/tmp/second.txt")
-        XCTAssertNil(pasteboard.writtenStrings[.fileURL])
+        #expect(pasteboard.clearCount == 1)
+        #expect(pasteboard.writtenStrings[.string] == "/tmp/first.txt\n/tmp/second.txt")
+        #expect(pasteboard.writtenStrings[.fileURL] == nil)
     }
 
+    @Test
     func testTargetCapacityDescriptionsSkipsUnavailableVolumes() {
         let describedURL = URL(filePath: "/Volumes/Example", directoryHint: .isDirectory)
         let missingURL = URL(filePath: "/Volumes/Missing", directoryHint: .isDirectory)
@@ -163,11 +167,13 @@ final class SystemIntegrationTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(descriptions, [
-            describedURL.standardizedFileURL.path: "1 GB free of 2 GB"
-        ])
+        #expect(
+            descriptions == [
+                describedURL.standardizedFileURL.path: "1 GB free of 2 GB"
+            ])
     }
 
+    @Test
     func testCapacityDescriptionPrefersGeneralAvailableCapacityWhenImportantUsageIsZero() {
         let description = SystemIntegration.capacityDescription(
             totalCapacity: 2_000_000_000_000,
@@ -175,53 +181,45 @@ final class SystemIntegrationTests: XCTestCase {
             availableCapacityForImportantUsage: 0
         )
 
-        XCTAssertEqual(description, "512 GB free of 2 TB")
+        #expect(description == "512 GB free of 2 TB")
     }
 
+    @Test
     func testFullDiskAccessStatusUsesInjectedProbes() {
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 userTCCDatabaseProbe: nil,
                 protectedDataVaultProbes: []
-            ),
-            .unknown
-        )
+            ) == .unknown)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 userTCCDatabaseProbe: nil,
                 protectedDataVaultProbes: [successfulProbe, successfulProbe]
-            ),
-            .notGranted
-        )
+            ) == .notGranted)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 userTCCDatabaseProbe: failedProbe,
                 protectedDataVaultProbes: [successfulProbe, successfulProbe]
-            ),
-            .notGranted
-        )
+            ) == .notGranted)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 userTCCDatabaseProbe: successfulProbe,
                 protectedDataVaultProbes: [successfulProbe, failedProbe]
-            ),
-            .notGranted
-        )
+            ) == .notGranted)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 userTCCDatabaseProbe: successfulProbe,
                 protectedDataVaultProbes: [successfulProbe, successfulProbe]
-            ),
-            .granted
-        )
+            ) == .granted)
     }
 
+    @Test
     func testFullDiskAccessStatusKeepsLegacyLogicBeforeMacOS27() {
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 26,
                 userTCCDatabaseProbe: nil,
@@ -229,11 +227,9 @@ final class SystemIntegrationTests: XCTestCase {
                 timeMachinePreferencesProbe: successfulProbe,
                 stocksContainerProbe: successfulProbe,
                 systemTCCDatabaseProbe: successfulProbe
-            ),
-            .notGranted
-        )
+            ) == .notGranted)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 26,
                 userTCCDatabaseProbe: successfulProbe,
@@ -241,13 +237,12 @@ final class SystemIntegrationTests: XCTestCase {
                 timeMachinePreferencesProbe: failedProbe,
                 stocksContainerProbe: failedProbe,
                 systemTCCDatabaseProbe: failedProbe
-            ),
-            .granted
-        )
+            ) == .granted)
     }
 
+    @Test
     func testFullDiskAccessStatusUsesMacOS27PrimarySentinels() {
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 27,
                 userTCCDatabaseProbe: nil,
@@ -255,11 +250,9 @@ final class SystemIntegrationTests: XCTestCase {
                 timeMachinePreferencesProbe: successfulProbe,
                 stocksContainerProbe: successfulProbe,
                 systemTCCDatabaseProbe: nil
-            ),
-            .granted
-        )
+            ) == .granted)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 27,
                 userTCCDatabaseProbe: successfulProbe,
@@ -267,13 +260,12 @@ final class SystemIntegrationTests: XCTestCase {
                 timeMachinePreferencesProbe: successfulProbe,
                 stocksContainerProbe: failedProbe,
                 systemTCCDatabaseProbe: successfulProbe
-            ),
-            .notGranted
-        )
+            ) == .notGranted)
     }
 
+    @Test
     func testFullDiskAccessStatusUsesMacOS27SystemTCCOnlyAsFallbackEvidence() {
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 27,
                 userTCCDatabaseProbe: nil,
@@ -281,11 +273,9 @@ final class SystemIntegrationTests: XCTestCase {
                 timeMachinePreferencesProbe: successfulProbe,
                 stocksContainerProbe: nil,
                 systemTCCDatabaseProbe: successfulProbe
-            ),
-            .granted
-        )
+            ) == .granted)
 
-        XCTAssertEqual(
+        #expect(
             SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 27,
                 userTCCDatabaseProbe: nil,
@@ -293,43 +283,42 @@ final class SystemIntegrationTests: XCTestCase {
                 timeMachinePreferencesProbe: successfulProbe,
                 stocksContainerProbe: nil,
                 systemTCCDatabaseProbe: failedProbe
-            ),
-            .unknown
-        )
+            ) == .unknown)
     }
 
-    func testMoveToTrashPreflightRejectsProtectedLocations() {
-        XCTAssertThrowsError(
+    @Test
+    func testMoveToTrashPreflightRejectsProtectedLocations() throws {
+        #expect {
             try SystemIntegration.validateCanMoveToTrash(
                 URL(filePath: "/System", directoryHint: .isDirectory)
             )
-        ) { error in
+        } throws: { error in
             guard let integrationError = error as? SystemIntegration.SystemIntegrationError else {
-                XCTFail("Expected SystemIntegrationError, got \(error).")
-                return
+                Issue.record("Expected SystemIntegrationError, got \(error).")
+                return false
             }
 
             guard case .protectedTrashLocation(let path) = integrationError else {
-                XCTFail("Expected protectedTrashLocation, got \(integrationError).")
-                return
+                Issue.record("Expected protectedTrashLocation, got \(integrationError).")
+                return false
             }
 
-            XCTAssertEqual(path, "/System")
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Radix will not move the protected location at /System to the Trash."
+            #expect(path == "/System")
+            #expect(error.localizedDescription == "Radix will not move the protected location at /System to the Trash.")
+            return true
+        }
+    }
+
+    @Test
+    func testMoveToTrashPreflightAllowsDescendantsOfProtectedLocations() throws {
+        #expect(throws: Never.self) {
+            try SystemIntegration.validateCanMoveToTrash(
+                URL(filePath: "/Applications/Example.app", directoryHint: .isDirectory)
             )
         }
     }
 
-    func testMoveToTrashPreflightAllowsDescendantsOfProtectedLocations() {
-        XCTAssertNoThrow(
-            try SystemIntegration.validateCanMoveToTrash(
-                URL(filePath: "/Applications/Example.app", directoryHint: .isDirectory)
-            )
-        )
-    }
-
+    @Test
     func testIdentityBoundTrashMoveDoesNotMutateReplacementAtScannedPath() throws {
         let node = trashTestNode()
         var operationOrder: [String] = []
@@ -347,10 +336,11 @@ final class SystemIntegrationTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(result, .mismatch)
-        XCTAssertEqual(operationOrder, ["verify:\(node.id)"])
+        #expect(result == .mismatch)
+        #expect(operationOrder == ["verify:\(node.id)"])
     }
 
+    @Test
     func testIdentityBoundTrashMoveVerifiesImmediatelyBeforeNativeMutation() throws {
         let node = trashTestNode()
         var operationOrder: [String] = []
@@ -366,8 +356,8 @@ final class SystemIntegrationTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(result, .matches)
-        XCTAssertEqual(operationOrder, ["verify", "trash:\(node.url.path)"])
+        #expect(result == .matches)
+        #expect(operationOrder == ["verify", "trash:\(node.url.path)"])
     }
 
     private func trashTestNode() -> FileNodeRecord {

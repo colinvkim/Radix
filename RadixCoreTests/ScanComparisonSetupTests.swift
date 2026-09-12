@@ -1,8 +1,10 @@
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
-final class ScanComparisonSetupTests: XCTestCase {
+struct ScanComparisonSetupTests {
+    @Test
     func testWarnsAndAllowsDifferentScanSettings() {
         var beforeOptions = ScanOptions()
         beforeOptions.includeHiddenFiles = true
@@ -10,139 +12,157 @@ final class ScanComparisonSetupTests: XCTestCase {
         afterOptions.treatPackagesAsDirectories = true
 
         let setup = ScanComparisonSetup(
-            before: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example/Documents",
-                fileSize: 10,
-                scanOptions: beforeOptions
-            )),
-            after: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example/Documents",
-                fileSize: 20,
-                scanOptions: afterOptions
-            ))
+            before: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example/Documents",
+                    fileSize: 10,
+                    scanOptions: beforeOptions
+                )),
+            after: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example/Documents",
+                    fileSize: 20,
+                    scanOptions: afterOptions
+                ))
         )
 
-        XCTAssertTrue(setup.canCompare)
-        XCTAssertNil(setup.validationMessage)
-        XCTAssertEqual(
-            setup.coverageWarningMessage,
-            "Coverage warning: Scan settings differ, so added or removed items may reflect coverage changes rather than disk changes."
+        #expect(setup.canCompare)
+        #expect(setup.validationMessage == nil)
+        #expect(
+            setup.coverageWarningMessage
+                == "Coverage warning: Scan settings differ, so added or removed items may reflect coverage changes rather than disk changes."
         )
     }
 
+    @Test
     func testWarnsAndAllowsMissingScanSettings() {
         let setup = ScanComparisonSetup(
-            before: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example/Documents",
-                fileSize: 10,
-                scanOptions: nil
-            )),
-            after: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example/Documents",
-                fileSize: 20,
-                scanOptions: ScanOptions()
-            ))
+            before: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example/Documents",
+                    fileSize: 10,
+                    scanOptions: nil
+                )),
+            after: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example/Documents",
+                    fileSize: 20,
+                    scanOptions: ScanOptions()
+                ))
         )
 
-        XCTAssertTrue(setup.canCompare)
-        XCTAssertNil(setup.validationMessage)
-        XCTAssertEqual(
-            setup.coverageWarningMessage,
-            "Coverage warning: Scan settings are unavailable for one or both scans, so some changes may be caused by different scan coverage."
+        #expect(setup.canCompare)
+        #expect(setup.validationMessage == nil)
+        #expect(
+            setup.coverageWarningMessage
+                == "Coverage warning: Scan settings are unavailable for one or both scans, so some changes may be caused by different scan coverage."
         )
     }
 
+    @Test
     func testWarnsAndAllowsLegacyCloudSemantics() throws {
         let legacyOptions = try JSONDecoder().decode(
             ScanOptions.self,
-            from: Data("""
-            {
-              "autoSummarizeDirectories": true,
-              "cloudStorageRootPath": "/Users/example/Library/CloudStorage",
-              "exclusionPatterns": [],
-              "iCloudDriveRootPath": "/Users/example/Library/Mobile Documents",
-              "includeCloudStorage": false,
-              "includeHiddenFiles": false,
-              "treatPackagesAsDirectories": false
-            }
-            """.utf8)
+            from: Data(
+                """
+                {
+                  "autoSummarizeDirectories": true,
+                  "cloudStorageRootPath": "/Users/example/Library/CloudStorage",
+                  "exclusionPatterns": [],
+                  "iCloudDriveRootPath": "/Users/example/Library/Mobile Documents",
+                  "includeCloudStorage": false,
+                  "includeHiddenFiles": false,
+                  "treatPackagesAsDirectories": false
+                }
+                """.utf8)
         )
         let setup = ScanComparisonSetup(
-            before: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example",
+            before: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example",
+                    fileSize: 10,
+                    scanOptions: legacyOptions
+                )),
+            after: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example",
+                    fileSize: 20,
+                    scanOptions: ScanOptions()
+                ))
+        )
+
+        #expect(setup.canCompare)
+        #expect(setup.validationMessage == nil)
+        #expect(
+            setup.coverageWarningMessage
+                == "Coverage warning: Scan settings differ, so added or removed items may reflect coverage changes rather than disk changes."
+        )
+    }
+
+    @Test
+    func testBlocksSelectingTheSameScanTwice() {
+        let candidate = ScanComparisonCandidate(
+            snapshot: makeComparisonSnapshot(
+                rootPath: "/Users/example/Documents",
                 fileSize: 10,
-                scanOptions: legacyOptions
-            )),
-            after: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example",
-                fileSize: 20,
                 scanOptions: ScanOptions()
             ))
-        )
-
-        XCTAssertTrue(setup.canCompare)
-        XCTAssertNil(setup.validationMessage)
-        XCTAssertEqual(
-            setup.coverageWarningMessage,
-            "Coverage warning: Scan settings differ, so added or removed items may reflect coverage changes rather than disk changes."
-        )
-    }
-
-    func testBlocksSelectingTheSameScanTwice() {
-        let candidate = ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-            rootPath: "/Users/example/Documents",
-            fileSize: 10,
-            scanOptions: ScanOptions()
-        ))
         let setup = ScanComparisonSetup(before: candidate, after: candidate)
 
-        XCTAssertFalse(setup.canCompare)
-        XCTAssertEqual(setup.validationMessage, "Choose two different scans.")
-        XCTAssertNil(setup.coverageWarningMessage)
+        #expect(!(setup.canCompare))
+        #expect(setup.validationMessage == "Choose two different scans.")
+        #expect(setup.coverageWarningMessage == nil)
     }
 
+    @Test
     func testBlocksDifferentRootsWithMatchingScanOptions() {
         var options = ScanOptions()
         options.exclusionPatterns = ["*.tmp"]
 
         let setup = ScanComparisonSetup(
-            before: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example",
-                fileSize: 10,
-                scanOptions: options
-            )),
-            after: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example/Documents",
-                fileSize: 20,
-                scanOptions: options
-            ))
+            before: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example",
+                    fileSize: 10,
+                    scanOptions: options
+                )),
+            after: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example/Documents",
+                    fileSize: 20,
+                    scanOptions: options
+                ))
         )
 
-        XCTAssertFalse(setup.canCompare)
-        XCTAssertEqual(setup.validationMessage, "Choose scans of the same location.")
+        #expect(!(setup.canCompare))
+        #expect(setup.validationMessage == "Choose scans of the same location.")
     }
 
+    @Test
     func testBlocksDifferentTargetKinds() {
         let options = ScanOptions()
         let setup = ScanComparisonSetup(
-            before: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example",
-                fileSize: 10,
-                scanOptions: options,
-                targetKind: .folder
-            )),
-            after: ScanComparisonCandidate(snapshot: makeComparisonSnapshot(
-                rootPath: "/Users/example",
-                fileSize: 20,
-                scanOptions: options,
-                targetKind: .volume
-            ))
+            before: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example",
+                    fileSize: 10,
+                    scanOptions: options,
+                    targetKind: .folder
+                )),
+            after: ScanComparisonCandidate(
+                snapshot: makeComparisonSnapshot(
+                    rootPath: "/Users/example",
+                    fileSize: 20,
+                    scanOptions: options,
+                    targetKind: .volume
+                ))
         )
 
-        XCTAssertFalse(setup.canCompare)
-        XCTAssertEqual(setup.validationMessage, "Choose scans of the same location.")
+        #expect(!(setup.canCompare))
+        #expect(setup.validationMessage == "Choose scans of the same location.")
     }
 
+    @Test
     func testDoesNotOfferCurrentScanInBothSlots() {
         let currentSnapshot = makeComparisonSnapshot(
             rootPath: "/Users/example",
@@ -153,7 +173,7 @@ final class ScanComparisonSetupTests: XCTestCase {
             after: ScanComparisonCandidate(snapshot: currentSnapshot)
         )
 
-        XCTAssertFalse(setup.canAssignCurrentScan(to: .before))
-        XCTAssertTrue(setup.canAssignCurrentScan(to: .after))
+        #expect(!(setup.canAssignCurrentScan(to: .before)))
+        #expect(setup.canAssignCurrentScan(to: .after))
     }
 }

@@ -1,113 +1,61 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class ArchiveWorkflowCoordinatorTests: XCTestCase {
-    func testSupersededSuccessCannotApplyOrFinishNewWorkflow() async throws {
+struct ArchiveWorkflowCoordinatorTests {
+    @Test(arguments: [false, true])
+    func testSupersededResultCannotApplyFinishOrClearCurrentOperation(staleFails: Bool) async throws {
         let probe = ControlledArchiveWorkProbe()
         let coordinator = ArchiveWorkflowCoordinator()
+        defer {
+            coordinator.cancel()
+            Task { await probe.cancelAll() }
+        }
         var successes: [Int] = []
-        var finishes: [String] = []
-
-        coordinator.start(
-            work: { try await probe.value(for: 0) },
-            onSuccess: { successes.append($0) },
-            onFailure: { _ in XCTFail("Unexpected failure") },
-            onFinish: { finishes.append("old") }
-        )
-        await probe.waitForIssuedRequestCount(1)
-        coordinator.start(
-            work: { try await probe.value(for: 1) },
-            onSuccess: { successes.append($0) },
-            onFailure: { _ in XCTFail("Unexpected failure") },
-            onFinish: { finishes.append("new") }
-        )
-        await probe.waitForIssuedRequestCount(2)
-
-        let didCompleteOldRequest = await probe.complete(id: 0, with: 10)
-        XCTAssertTrue(didCompleteOldRequest)
-        await Task.yield()
-        XCTAssertEqual(successes, [])
-        XCTAssertEqual(finishes, [])
-        XCTAssertTrue(coordinator.isRunning)
-
-        let didCompleteNewRequest = await probe.complete(id: 1, with: 20)
-        XCTAssertTrue(didCompleteNewRequest)
-        try await waitUntil("new archive workflow success") { !coordinator.isRunning }
-        XCTAssertEqual(successes, [20])
-        XCTAssertEqual(finishes, ["new"])
-    }
-
-    func testSupersededFailureCannotPublishFailureOrFinishNewWorkflow() async throws {
-        let probe = ControlledArchiveWorkProbe()
-        let coordinator = ArchiveWorkflowCoordinator()
         var failures: [String] = []
         var finishes: [String] = []
+        var oldCleanupCount = 0
 
         coordinator.start(
+            kind: .importPreview, title: "Old", message: "Old",
             work: { try await probe.value(for: 0) },
-            onSuccess: { _ in XCTFail("Unexpected success") },
+            onSuccess: { successes.append($0) },
             onFailure: { failures.append($0.localizedDescription) },
-            onFinish: { finishes.append("old") }
+            onFinish: { finishes.append("old") },
+            onCleanup: { oldCleanupCount += 1 }
         )
-        await probe.waitForIssuedRequestCount(1)
+        try await probe.waitForIssuedRequestCount(1)
         coordinator.start(
+            kind: .compare, title: "Current", message: "Current",
             work: { try await probe.value(for: 1) },
-            onSuccess: { _ in },
+            onSuccess: { successes.append($0) },
             onFailure: { failures.append($0.localizedDescription) },
             onFinish: { finishes.append("new") }
         )
-        await probe.waitForIssuedRequestCount(2)
+        try await probe.waitForIssuedRequestCount(2)
 
-        let didFailOldRequest = await probe.fail(id: 0, with: TestArchiveWorkflowError.failed)
-        XCTAssertTrue(didFailOldRequest)
-        await Task.yield()
-        XCTAssertEqual(failures, [])
-        XCTAssertEqual(finishes, [])
-        XCTAssertTrue(coordinator.isRunning)
+        let staleResult: Result<Int, any Error> =
+            staleFails
+            ? .failure(TestArchiveWorkflowError.failed) : .success(10)
+        try #require(await probe.complete(id: 0, with: staleResult))
+        // Cleanup is called after the coordinator handles the result. A yield
+        // alone does not establish that the stale callbacks have been rejected.
+        try await waitUntil("superseded archive task cleanup") { oldCleanupCount == 1 }
+        #expect(successes.isEmpty)
+        #expect(failures.isEmpty)
+        #expect(finishes.isEmpty)
+        #expect(coordinator.operation?.title == "Current")
+        #expect(coordinator.operation?.kind == .compare)
+        #expect(coordinator.isRunning)
 
-        let didCompleteNewRequest = await probe.complete(id: 1, with: 1)
-        XCTAssertTrue(didCompleteNewRequest)
-        try await waitUntil("new archive workflow success after stale failure") { !coordinator.isRunning }
-        XCTAssertEqual(failures, [])
-        XCTAssertEqual(finishes, ["new"])
-    }
-
-    func testSupersededOnFinishDoesNotClearCurrentOperationState() async throws {
-        let probe = ControlledArchiveWorkProbe()
-        let coordinator = ArchiveWorkflowCoordinator()
-        var staleFinishCount = 0
-
-        coordinator.start(
-            kind: .importPreview,
-            title: "Old",
-            message: "Old",
-            work: { try await probe.value(for: 0) },
-            onSuccess: { _ in },
-            onFailure: { _ in },
-            onFinish: { staleFinishCount += 1 }
-        )
-        await probe.waitForIssuedRequestCount(1)
-        coordinator.start(
-            kind: .compare,
-            title: "Current",
-            message: "Current",
-            work: { try await probe.value(for: 1) },
-            onSuccess: { _ in },
-            onFailure: { _ in }
-        )
-        await probe.waitForIssuedRequestCount(2)
-
-        let didCompleteOldRequest = await probe.complete(id: 0, with: 0)
-        XCTAssertTrue(didCompleteOldRequest)
-        await Task.yield()
-        XCTAssertEqual(staleFinishCount, 0)
-        XCTAssertEqual(coordinator.operation?.title, "Current")
-        XCTAssertTrue(coordinator.isRunning)
-
-        let didCompleteNewRequest = await probe.complete(id: 1, with: 1)
-        XCTAssertTrue(didCompleteNewRequest)
+        try #require(await probe.complete(id: 1, with: .success(20)))
         try await waitUntil("current archive workflow completion") { !coordinator.isRunning }
+        #expect(successes == [20])
+        #expect(failures.isEmpty)
+        #expect(finishes == ["new"])
+        #expect(coordinator.operation == nil)
     }
 }
 
@@ -118,51 +66,28 @@ private enum TestArchiveWorkflowError: LocalizedError {
 }
 
 private actor ControlledArchiveWorkProbe {
-    private struct Waiter {
-        let count: Int
-        let continuation: CheckedContinuation<Void, Never>
-    }
-
-    private var issuedIDs: [Int] = []
+    private var issuedCount = 0
     private var continuations: [Int: CheckedContinuation<Int, any Error>] = [:]
-    private var waiters: [Waiter] = []
 
     func value(for id: Int) async throws -> Int {
-        issuedIDs.append(id)
-        resumeWaiters()
-        return try await withCheckedThrowingContinuation { continuation in
-            continuations[id] = continuation
-        }
+        issuedCount += 1
+        // Ignore task cancellation so the coordinator must handle stale results.
+        return try await withCheckedThrowingContinuation { continuations[id] = $0 }
     }
 
-    func waitForIssuedRequestCount(_ count: Int) async {
-        guard issuedIDs.count < count else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(Waiter(count: count, continuation: continuation))
-        }
+    func waitForIssuedRequestCount(_ count: Int) async throws {
+        try await waitUntil("archive worker request count") { await self.issuedCount >= count }
     }
 
-    func complete(id: Int, with value: Int) -> Bool {
+    func complete(id: Int, with result: Result<Int, any Error>) -> Bool {
         guard let continuation = continuations.removeValue(forKey: id) else { return false }
-        continuation.resume(returning: value)
+        continuation.resume(with: result)
         return true
     }
 
-    func fail(id: Int, with error: any Error) -> Bool {
-        guard let continuation = continuations.removeValue(forKey: id) else { return false }
-        continuation.resume(throwing: error)
-        return true
-    }
-
-    private func resumeWaiters() {
-        var pending: [Waiter] = []
-        for waiter in waiters {
-            if issuedIDs.count >= waiter.count {
-                waiter.continuation.resume()
-            } else {
-                pending.append(waiter)
-            }
-        }
-        waiters = pending
+    func cancelAll() {
+        let pending = continuations.values
+        continuations.removeAll()
+        for continuation in pending { continuation.resume(throwing: CancellationError()) }
     }
 }

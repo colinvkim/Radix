@@ -31,7 +31,7 @@ SwiftUI, and Xcode 26+.
   native integration: `Radix/Services/QuickLookIntegration.swift`
 - Feature UI: `Radix/Features/`; reusable UI: `Radix/Shared/`;
   menu commands: `Radix/App/RadixCommands.swift`
-- Tests: `RadixCoreTests/`
+- Swift Testing core and integration tests: `RadixCoreTests/`
 
 `Package.swift` defines the non-UI `RadixCore` target. When adding or moving a
 non-UI Swift file, update its explicit source list. The Xcode project builds

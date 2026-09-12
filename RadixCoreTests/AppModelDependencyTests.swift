@@ -1,40 +1,44 @@
 import AppKit
 import Combine
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class AppModelDependencyTests: XCTestCase {
-    @MainActor
+@MainActor
+struct AppModelDependencyTests {
+    @Test
     func testOnboardingResumesAtAccessAndTourChoiceControlsTheWorkspaceHandoff() {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: false, onboardingPage: .access)
         )
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
         defer { model.cleanup() }
-        XCTAssertTrue(model.showsOnboarding)
-        XCTAssertEqual(model.onboardingPage, .access)
+        #expect(model.showsOnboarding)
+        #expect(model.onboardingPage == .access)
 
         model.onboardingPage = .tour
-        XCTAssertEqual(preferences.preferences.onboardingPage, .tour)
+        #expect(preferences.preferences.onboardingPage == .tour)
         model.completeOnboarding(startsTour: false)
-        XCTAssertTrue(preferences.preferences.didCompleteOnboarding)
-        XCTAssertFalse(model.workspaceTour.isActive)
+        #expect(preferences.preferences.didCompleteOnboarding)
+        #expect(!(model.workspaceTour.isActive))
 
         model.presentOnboarding()
-        XCTAssertEqual(model.onboardingPage, .welcome)
+        #expect(model.onboardingPage == .welcome)
         model.completeOnboarding(startsTour: true)
-        XCTAssertFalse(model.showsOnboarding)
-        XCTAssertEqual(model.workspaceTour.step, .scan)
-        XCTAssertNil(model.scanState.snapshot)
-        XCTAssertFalse(model.scanState.isScanning)
+        #expect(!(model.showsOnboarding))
+        #expect(model.workspaceTour.step == .scan)
+        #expect(model.scanState.snapshot == nil)
+        #expect(!(model.scanState.isScanning))
     }
 
-    @MainActor
+    @Test
     func testTourObservesCommittedMarksAndPreservesPreexistingPileItems() async throws {
         let existing = makeTestFileNode(id: "/tour/existing.txt", name: "existing.txt", size: 20)
         let practice = makeTestFileNode(id: "/tour/practice.txt", name: "practice.txt", size: 10)
         let root = makeTestDirectoryNode(id: "/tour", name: "tour", children: [existing, practice])
-        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [existing, practice]]))
+        let snapshot = makeTestSnapshot(
+            root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [existing, practice]]))
         var trashCalls = 0
         var actions = AppSystemActions.inert
         actions.moveToTrash = { _ in
@@ -46,30 +50,30 @@ final class AppModelDependencyTests: XCTestCase {
         model.dismissOnboarding()
         model.scanState.restoreCompletedSnapshot(snapshot)
         try await waitUntil("restored scan") { model.navigation.state.snapshotID == snapshot.id }
-        XCTAssertTrue(model.addNodesToDiscardPile([existing]))
+        #expect(model.addNodesToDiscardPile([existing]))
 
         model.workspaceTour.start(snapshotID: snapshot.id, isReady: true)
         for _ in 0..<6 { model.workspaceTour.advance() }
-        XCTAssertEqual(model.workspaceTour.step, .markForReview)
-        XCTAssertFalse(model.addNodeIDsToDiscardPile([practice.id], snapshotID: UUID()))
-        XCTAssertEqual(model.workspaceTour.step, .markForReview)
+        #expect(model.workspaceTour.step == .markForReview)
+        #expect(!(model.addNodeIDsToDiscardPile([practice.id], snapshotID: UUID())))
+        #expect(model.workspaceTour.step == .markForReview)
         model.dismissErrorPresentation()
-        XCTAssertTrue(model.addNodeIDsToDiscardPile([practice.id], snapshotID: snapshot.id))
-        XCTAssertEqual(model.workspaceTour.step, .review)
+        #expect(model.addNodeIDsToDiscardPile([practice.id], snapshotID: snapshot.id))
+        #expect(model.workspaceTour.step == .review)
         model.workspaceTour.reviewOpened()
         model.removeDiscardPileNodes(ids: [practice.id])
 
-        XCTAssertEqual(Set(model.discardPile.nodeIDs), [existing.id])
-        XCTAssertEqual(model.workspaceTour.step, .removeMark)
-        XCTAssertNotNil(model.scanState.fileTreeStore?.node(id: practice.id))
-        XCTAssertEqual(trashCalls, 0)
+        #expect(Set(model.discardPile.nodeIDs) == [existing.id])
+        #expect(model.workspaceTour.step == .removeMark)
+        #expect(model.scanState.fileTreeStore?.node(id: practice.id) != nil)
+        #expect(trashCalls == 0)
         model.workspaceTour.advance()
-        XCTAssertEqual(model.workspaceTour.step, .finished)
+        #expect(model.workspaceTour.step == .finished)
         model.workspaceTour.stop()
-        XCTAssertEqual(Set(model.discardPile.nodeIDs), [existing.id])
+        #expect(Set(model.discardPile.nodeIDs) == [existing.id])
     }
 
-    @MainActor
+    @Test
     func testProductionAndDefaultDependenciesUseIncrementalScanning() {
         let defaultDependencies = AppDependencies(
             preferences: SpyAppPreferencesStore(preferences: .defaults),
@@ -80,11 +84,11 @@ final class AppModelDependencyTests: XCTestCase {
             systemActions: .inert
         )
 
-        XCTAssertTrue(defaultDependencies.scanService is IncrementalScanService)
-        XCTAssertTrue(AppDependencies.live.scanService is IncrementalScanService)
+        #expect(defaultDependencies.scanService is IncrementalScanService)
+        #expect(AppDependencies.live.scanService is IncrementalScanService)
     }
 
-    @MainActor
+    @Test
     func testInitializesFromInjectedPreferencesTargetsAndRecentStore() async throws {
         let availableRecent = makeTestTarget("/recent/available")
         let missingRecent = makeTestTarget("/recent/missing")
@@ -121,26 +125,26 @@ final class AppModelDependencyTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(model.showHiddenFiles)
-        XCTAssertTrue(model.treatPackagesAsDirectories)
-        XCTAssertEqual(model.maxRenderedDepth, 8)
-        XCTAssertFalse(model.autoSummarizeDirectories)
-        XCTAssertTrue(model.showFreeSpaceInDiskMaps)
-        XCTAssertEqual(model.scanVisualizationMode, .treemap)
-        XCTAssertTrue(model.useScanExclusions)
-        XCTAssertEqual(model.exclusionPatterns, ["*.log"])
-        XCTAssertFalse(model.showsOnboarding)
-        XCTAssertEqual(model.availableTargets, [defaultTarget])
-        XCTAssertEqual(model.smartTargets, [defaultTarget])
-        XCTAssertEqual(model.recentTargets, [availableRecent])
+        #expect(!(model.showHiddenFiles))
+        #expect(model.treatPackagesAsDirectories)
+        #expect(model.maxRenderedDepth == 8)
+        #expect(!(model.autoSummarizeDirectories))
+        #expect(model.showFreeSpaceInDiskMaps)
+        #expect(model.scanVisualizationMode == .treemap)
+        #expect(model.useScanExclusions)
+        #expect(model.exclusionPatterns == ["*.log"])
+        #expect(!(model.showsOnboarding))
+        #expect(model.availableTargets == [defaultTarget])
+        #expect(model.smartTargets == [defaultTarget])
+        #expect(model.recentTargets == [availableRecent])
         try await waitUntil("full disk access becomes notGranted") {
             model.fullDiskAccessStatus == .notGranted
         }
-        XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
-        XCTAssertEqual(recentPersistence.savedTargets, [[availableRecent]])
+        #expect(model.fullDiskAccessStatus == .notGranted)
+        #expect(recentPersistence.savedTargets == [[availableRecent]])
     }
 
-    @MainActor
+    @Test
     func testRemoveRecentTargetPersistsRemainingTargets() {
         let first = makeTestTarget("/recent/first")
         let removed = makeTestTarget("/recent/removed")
@@ -155,12 +159,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.removeRecentTarget(removed)
 
-        XCTAssertEqual(model.recentTargets, [first, last])
-        XCTAssertEqual(model.recentScanTargets, [first, last])
-        XCTAssertEqual(recentPersistence.savedTargets, [[first, last]])
+        #expect(model.recentTargets == [first, last])
+        #expect(model.recentScanTargets == [first, last])
+        #expect(recentPersistence.savedTargets == [[first, last]])
     }
 
-    @MainActor
+    @Test
     func testClearRecentTargetsClearsActiveSidebarTarget() {
         let first = makeTestTarget("/recent/first")
         let recentPersistence = SpyRecentTargetPersistence(targets: [first])
@@ -174,13 +178,13 @@ final class AppModelDependencyTests: XCTestCase {
         model.sidebar.setActiveTargetID(first.id)
         model.clearRecentTargets()
 
-        XCTAssertNil(model.sidebar.activeTargetID)
-        XCTAssertTrue(model.recentTargets.isEmpty)
-        XCTAssertTrue(model.recentScanTargets.isEmpty)
-        XCTAssertTrue(recentPersistence.didClear)
+        #expect(model.sidebar.activeTargetID == nil)
+        #expect(model.recentTargets.isEmpty)
+        #expect(model.recentScanTargets.isEmpty)
+        #expect(recentPersistence.didClear)
     }
 
-    @MainActor
+    @Test
     func testRestoreDefaultPreferencesPreservesRecentScansStatsAndPermissions() async throws {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(
@@ -201,13 +205,14 @@ final class AppModelDependencyTests: XCTestCase {
         let usageStats = SpyAppUsageStatsStore(stats: stats)
         var actions = AppSystemActions.inert
         actions.fullDiskAccessStatus = { .notGranted }
-        let model = AppModel(dependencies: makeDependencies(
-            preferences: preferences,
-            recentPersistence: recentPersistence,
-            availableRecentIDs: [recent.id],
-            systemActions: actions,
-            usageStats: usageStats
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                preferences: preferences,
+                recentPersistence: recentPersistence,
+                availableRecentIDs: [recent.id],
+                systemActions: actions,
+                usageStats: usageStats
+            ))
         defer { model.cleanup() }
         try await waitUntil("initial permission status") { model.fullDiskAccessStatus == .notGranted }
 
@@ -216,17 +221,17 @@ final class AppModelDependencyTests: XCTestCase {
         try await waitUntil("default preferences persisted") {
             preferences.savedScanPreferences == [.defaults]
         }
-        XCTAssertEqual(model.recentTargets, [recent])
-        XCTAssertFalse(recentPersistence.didClear)
-        XCTAssertEqual(model.usageStats, stats)
-        XCTAssertFalse(usageStats.didClear)
-        XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
-        XCTAssertTrue(preferences.preferences.didCompleteOnboarding)
-        XCTAssertEqual(preferences.preferences.onboardingPage, .access)
-        XCTAssertFalse(model.showsOnboarding)
+        #expect(model.recentTargets == [recent])
+        #expect(!(recentPersistence.didClear))
+        #expect(model.usageStats == stats)
+        #expect(!(usageStats.didClear))
+        #expect(model.fullDiskAccessStatus == .notGranted)
+        #expect(preferences.preferences.didCompleteOnboarding)
+        #expect(preferences.preferences.onboardingPage == .access)
+        #expect(!(model.showsOnboarding))
     }
 
-    @MainActor
+    @Test
     func testPreferenceChangesPersistThroughInjectedStore() async throws {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
@@ -255,28 +260,28 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         model.dismissOnboarding()
-        XCTAssertFalse(model.showsOnboarding)
-        XCTAssertEqual(preferences.markOnboardingCompleteCount, 1)
+        #expect(!(model.showsOnboarding))
+        #expect(preferences.markOnboardingCompleteCount == 1)
 
         model.presentOnboarding()
-        XCTAssertTrue(model.showsOnboarding)
-        XCTAssertEqual(preferences.markOnboardingCompleteCount, 1)
+        #expect(model.showsOnboarding)
+        #expect(preferences.markOnboardingCompleteCount == 1)
     }
 
-    @MainActor
+    @Test
     func testEmptyDiscardPileCanPresentReview() {
         let model = AppModel(dependencies: makeDependencies())
         model.dismissOnboarding()
 
-        XCTAssertTrue(model.discardPile.isEmpty)
+        #expect(model.discardPile.isEmpty)
 
         model.presentDiscardPileReview()
 
-        XCTAssertTrue(model.showsDiscardPileReview)
-        XCTAssertEqual(model.presentationCoordinator.activeSheet, .discardPileReview)
+        #expect(model.showsDiscardPileReview)
+        #expect(model.presentationCoordinator.activeSheet == .discardPileReview)
     }
 
-    @MainActor
+    @Test
     func testVisualizationModeUpdatePublishesAfterViewUpdate() async throws {
         let model = AppModel(dependencies: makeDependencies())
         var publicationCount = 0
@@ -286,17 +291,17 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.setScanVisualizationModeAfterViewUpdate(.treemap)
 
-        XCTAssertEqual(model.scanVisualizationMode, .sunburst)
-        XCTAssertEqual(publicationCount, 0)
+        #expect(model.scanVisualizationMode == .sunburst)
+        #expect(publicationCount == 0)
 
         try await waitUntil("deferred visualization mode") {
             model.scanVisualizationMode == .treemap
         }
-        XCTAssertGreaterThanOrEqual(publicationCount, 1)
+        #expect(publicationCount >= 1)
         withExtendedLifetime(cancellable) {}
     }
 
-    @MainActor
+    @Test
     func testVisualizationModeUpdateCoalescesToLatestRequest() async throws {
         let model = AppModel(dependencies: makeDependencies())
 
@@ -305,10 +310,10 @@ final class AppModelDependencyTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertEqual(model.scanVisualizationMode, .sunburst)
+        #expect(model.scanVisualizationMode == .sunburst)
     }
 
-    @MainActor
+    @Test
     func testCleanupFlushesPendingPreferencePersistence() {
         let preferences = SpyAppPreferencesStore(preferences: .defaults)
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
@@ -326,10 +331,10 @@ final class AppModelDependencyTests: XCTestCase {
         model.showHiddenFiles = false
         model.cleanup()
 
-        XCTAssertEqual(preferences.savedScanPreferences, [expectedPreferences])
+        #expect(preferences.savedScanPreferences == [expectedPreferences])
     }
 
-    @MainActor
+    @Test
     func testCachedFreeSpaceCapacityRequiresEnabledActiveVolumeRootAndDoesNotRequery() async throws {
         var requestedURLs: [URL] = []
         var actions = AppSystemActions.inert
@@ -347,7 +352,7 @@ final class AppModelDependencyTests: XCTestCase {
             store: store
         )
 
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == nil)
 
         model.scanState.replaceCurrentSnapshot(volumeSnapshot)
         model.showFreeSpaceInDiskMaps = true
@@ -355,18 +360,18 @@ final class AppModelDependencyTests: XCTestCase {
             model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == 123
         }
 
-        XCTAssertEqual(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot), 123)
-        XCTAssertEqual(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot), 123)
-        XCTAssertEqual(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot), 123)
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: child))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == 123)
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == 123)
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == 123)
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: child) == nil)
 
         let folderSnapshot = makeTestSnapshot(root: volumeRoot, store: store)
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: folderSnapshot, focusNode: volumeRoot))
-        XCTAssertEqual(requestedURLs, [volumeRoot.url])
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: folderSnapshot, focusNode: volumeRoot) == nil)
+        #expect(requestedURLs == [volumeRoot.url])
     }
 
-    @MainActor
-    func testCapturedFreeSpaceCapacityAvoidsLiveRequery() async throws {
+    @Test
+    func testCapturedFreeSpaceCapacityAvoidsLiveRequery() async {
         var requestedURLs: [URL] = []
         var actions = AppSystemActions.inert
         actions.volumeAvailableCapacityForImportantUsage = { url in
@@ -389,12 +394,12 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.showFreeSpaceInDiskMaps = true
 
-        XCTAssertEqual(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root), 321)
-        XCTAssertTrue(requestedURLs.isEmpty)
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == 321)
+        #expect(requestedURLs.isEmpty)
     }
 
-    @MainActor
-    func testOverlappingVolumeAllocationsSuppressFreeSpaceComposition() {
+    @Test
+    func testOverlappingVolumeAllocationsSuppressFreeSpaceComposition() throws {
         var requestedURLs: [URL] = []
         var actions = AppSystemActions.inert
         actions.volumeAvailableCapacityForImportantUsage = { url in
@@ -425,12 +430,12 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.showFreeSpaceInDiskMaps = true
 
-        XCTAssertEqual(snapshot.overlappingAllocatedBytes, 100 * 1_024 * 1_024)
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root))
-        XCTAssertTrue(requestedURLs.isEmpty)
+        #expect(try #require(snapshot.overlappingAllocatedBytes) == Int64(100 * 1_024 * 1_024))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == nil)
+        #expect(requestedURLs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testAsyncFreeSpaceCapacityLoadDoesNotBlockMainActor() async throws {
         let probe = ControlledCapacityLoader()
         var actions = AppSystemActions.inert
@@ -450,17 +455,17 @@ final class AppModelDependencyTests: XCTestCase {
         try await probe.waitForIssuedRequestCount(1)
 
         model.showHiddenFiles = false
-        XCTAssertFalse(model.showHiddenFiles)
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root))
+        #expect(!(model.showHiddenFiles))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == nil)
 
         let didCompleteRequest = await probe.completeRequest(id: 0, with: 456)
-        XCTAssertTrue(didCompleteRequest)
+        #expect(didCompleteRequest)
         try await waitUntil("async free-space capacity applies") {
             model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == 456
         }
     }
 
-    @MainActor
+    @Test
     func testStaleFreeSpaceCapacityResultCannotOverwriteNewSnapshot() async throws {
         let probe = ControlledCapacityLoader()
         var actions = AppSystemActions.inert
@@ -488,19 +493,19 @@ final class AppModelDependencyTests: XCTestCase {
         try await probe.waitForIssuedRequestCount(2)
 
         let didCompleteCurrentRequest = await probe.completeRequest(id: 1, with: 222)
-        XCTAssertTrue(didCompleteCurrentRequest)
+        #expect(didCompleteCurrentRequest)
         try await waitUntil("current free-space capacity applies") {
             model.cachedFreeSpaceAvailableCapacity(for: secondSnapshot, focusNode: secondRoot) == 222
         }
         let didCompleteStaleRequest = await probe.completeRequest(id: 0, with: 111)
-        XCTAssertTrue(didCompleteStaleRequest)
+        #expect(didCompleteStaleRequest)
         await Task.yield()
 
-        XCTAssertEqual(model.cachedFreeSpaceAvailableCapacity(for: secondSnapshot, focusNode: secondRoot), 222)
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: firstSnapshot, focusNode: firstRoot))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: secondSnapshot, focusNode: secondRoot) == 222)
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: firstSnapshot, focusNode: firstRoot) == nil)
     }
 
-    @MainActor
+    @Test
     func testCleanupCancelsFreeSpaceCapacityLoadAndClearsCache() async throws {
         let probe = ControlledCapacityLoader()
         var actions = AppSystemActions.inert
@@ -521,36 +526,37 @@ final class AppModelDependencyTests: XCTestCase {
         model.cleanup()
         try await probe.waitForCancelledRequest(id: 0)
 
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == nil)
         let didCompleteCancelledRequest = await probe.completeRequest(id: 0, with: 999)
-        XCTAssertTrue(didCompleteCancelledRequest)
+        #expect(didCompleteCancelledRequest)
         await Task.yield()
-        XCTAssertNil(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root))
+        #expect(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == nil)
     }
 
-    @MainActor
+    @Test
     func testUsageStatsLoadAndRecordSunburstSegmentClicksThroughInjectedStore() {
         var storedStats = AppUsageStats.empty
         storedStats.sunburstSegmentsClicked = 4
         let usageStats = SpyAppUsageStatsStore(stats: storedStats)
         let model = AppModel(dependencies: makeDependencies(usageStats: usageStats))
 
-        XCTAssertEqual(model.usageStats.sunburstSegmentsClicked, 4)
+        #expect(model.usageStats.sunburstSegmentsClicked == 4)
 
         model.recordSunburstSegmentClick()
 
-        XCTAssertEqual(model.usageStats.sunburstSegmentsClicked, 5)
-        XCTAssertEqual(usageStats.savedStats.last?.sunburstSegmentsClicked, 5)
+        #expect(model.usageStats.sunburstSegmentsClicked == 5)
+        #expect(usageStats.savedStats.last?.sunburstSegmentsClicked == 5)
     }
 
-    @MainActor
+    @Test
     func testCompletedScansRecordUsageStats() async throws {
         let scanService = ControlledAppModelScanService()
         let usageStats = SpyAppUsageStatsStore()
-        let model = AppModel(dependencies: makeDependencies(
-            scanService: scanService,
-            usageStats: usageStats
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                scanService: scanService,
+                usageStats: usageStats
+            ))
         let target = makeTestTarget("/stats-scan")
         let file = makeTestFileNode(id: "/stats-scan/file.bin", name: "file.bin", size: 120)
         let root = makeTestDirectoryNode(id: "/stats-scan", name: "stats-scan", children: [file])
@@ -577,14 +583,14 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.totalScansRun == 1
         }
 
-        XCTAssertEqual(model.usageStats.totalBytesScanned, 120)
-        XCTAssertEqual(model.usageStats.largestScanBytes, 120)
-        XCTAssertEqual(model.usageStats.averageScanBytesPerSecond, 40)
-        XCTAssertEqual(model.usageStats.fastestScanBytesPerSecond, 40)
-        XCTAssertEqual(usageStats.savedStats.last?.totalScansRun, 1)
+        #expect(model.usageStats.totalBytesScanned == 120)
+        #expect(model.usageStats.largestScanBytes == 120)
+        #expect(model.usageStats.averageScanBytesPerSecond == 40)
+        #expect(model.usageStats.fastestScanBytesPerSecond == 40)
+        #expect(usageStats.savedStats.last?.totalScansRun == 1)
     }
 
-    @MainActor
+    @Test
     func testFullDiskAccessFromOnboardingShowsWelcomeAfterRelaunch() {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(
@@ -601,21 +607,21 @@ final class AppModelDependencyTests: XCTestCase {
         actions.fullDiskAccessStatus = { .notGranted }
         let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
 
-        XCTAssertFalse(model.showsOnboarding)
+        #expect(!(model.showsOnboarding))
 
         model.presentOnboarding()
         model.prepareAndOpenFullDiskAccessSettingsFromOnboarding()
 
-        XCTAssertTrue(model.showsOnboarding)
-        XCTAssertEqual(openSettingsCount, 1)
-        XCTAssertEqual(preferences.markOnboardingIncompleteCount, 1)
-        XCTAssertFalse(preferences.preferences.didCompleteOnboarding)
+        #expect(model.showsOnboarding)
+        #expect(openSettingsCount == 1)
+        #expect(preferences.markOnboardingIncompleteCount == 1)
+        #expect(!(preferences.preferences.didCompleteOnboarding))
 
         let relaunchedModel = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
-        XCTAssertTrue(relaunchedModel.showsOnboarding)
+        #expect(relaunchedModel.showsOnboarding)
     }
 
-    @MainActor
+    @Test
     func testSelectedFileActionsUseInjectedSystemActions() async {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -642,16 +648,16 @@ final class AppModelDependencyTests: XCTestCase {
         model.previewSelectedWithQuickLook()
         model.toggleQuickLookForSelected()
 
-        XCTAssertEqual(recorder.revealedURLs, [file.url])
-        XCTAssertEqual(recorder.openedURLs, [file.url])
-        XCTAssertEqual(recorder.terminalDirectoryURLs, [file.url.deletingLastPathComponent()])
-        XCTAssertEqual(recorder.copiedPathURLs, [file.url])
-        XCTAssertEqual(recorder.presentedQuickLookURLs, [file.url])
-        XCTAssertEqual(recorder.toggledQuickLookURLs, [file.url])
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(recorder.revealedURLs == [file.url])
+        #expect(recorder.openedURLs == [file.url])
+        #expect(recorder.terminalDirectoryURLs == [file.url.deletingLastPathComponent()])
+        #expect(recorder.copiedPathURLs == [file.url])
+        #expect(recorder.presentedQuickLookURLs == [file.url])
+        #expect(recorder.toggledQuickLookURLs == [file.url])
+        #expect(model.lastErrorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testMultiSelectedFileActionsUseInjectedBulkSystemActions() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -672,12 +678,12 @@ final class AppModelDependencyTests: XCTestCase {
         model.revealSelectedInFinder()
         model.copySelectedPath()
 
-        XCTAssertEqual(recorder.revealedManyURLs, [[first.url, second.url]])
-        XCTAssertEqual(recorder.copiedPathManyURLs, [[first.url, second.url]])
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(recorder.revealedManyURLs == [[first.url, second.url]])
+        #expect(recorder.copiedPathManyURLs == [[first.url, second.url]])
+        #expect(model.lastErrorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testPrimarySelectedFileActionsUseOnlyPrimarySelection() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -701,15 +707,15 @@ final class AppModelDependencyTests: XCTestCase {
         model.copyPrimarySelectionPath()
         model.requestMovePrimarySelectionToTrash()
 
-        XCTAssertEqual(recorder.revealedURLs, [first.url])
-        XCTAssertTrue(recorder.revealedManyURLs.isEmpty)
-        XCTAssertEqual(recorder.copiedPathURLs, [first.url])
-        XCTAssertTrue(recorder.copiedPathManyURLs.isEmpty)
-        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [first.id])
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(recorder.revealedURLs == [first.url])
+        #expect(recorder.revealedManyURLs.isEmpty)
+        #expect(recorder.copiedPathURLs == [first.url])
+        #expect(recorder.copiedPathManyURLs.isEmpty)
+        #expect(model.pendingTrashSelection?.nodes.map(\.id) == [first.id])
+        #expect(model.lastErrorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testInstallsQuickLookKeyMonitorOnInit() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -717,11 +723,11 @@ final class AppModelDependencyTests: XCTestCase {
 
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
-        XCTAssertEqual(recorder.quickLookKeyHandlers.count, 1)
+        #expect(recorder.quickLookKeyHandlers.count == 1)
         withExtendedLifetime(model) {}
     }
 
-    @MainActor
+    @Test
     func testCleanupRemovesQuickLookKeyMonitorOnce() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -733,25 +739,25 @@ final class AppModelDependencyTests: XCTestCase {
         model?.cleanup()
         model = nil
 
-        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 1)
+        #expect(recorder.quickLookMonitorRemovalCount == 1)
     }
 
-    @MainActor
+    @Test
     func testDeinitRemovesQuickLookKeyMonitor() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         installRecordingQuickLookMonitor(on: &actions, recorder: recorder)
 
         var model: AppModel? = AppModel(dependencies: makeDependencies(systemActions: actions))
-        XCTAssertNotNil(model)
-        XCTAssertEqual(recorder.quickLookKeyHandlers.count, 1)
+        #expect(model != nil)
+        #expect(recorder.quickLookKeyHandlers.count == 1)
 
         model = nil
 
-        XCTAssertEqual(recorder.quickLookMonitorRemovalCount, 1)
+        #expect(recorder.quickLookMonitorRemovalCount == 1)
     }
 
-    @MainActor
+    @Test
     func testQuickLookKeyMonitorSpaceTogglesSelectedItemThroughDependency() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -777,12 +783,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didHandleEvent = recorder.quickLookKeyHandlers.first?(makeSpaceKeyEvent(windowNumber: 100))
 
-        XCTAssertEqual(didHandleEvent, true)
-        XCTAssertEqual(recorder.toggledQuickLookURLs, [file.url])
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(didHandleEvent == true)
+        #expect(recorder.toggledQuickLookURLs == [file.url])
+        #expect(model.lastErrorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testQuickLookKeyMonitorIgnoresSpaceOutsideWorkspaceWindow() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -808,11 +814,11 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didHandleEvent = recorder.quickLookKeyHandlers.first?(makeSpaceKeyEvent(windowNumber: 200))
 
-        XCTAssertEqual(didHandleEvent, false)
-        XCTAssertTrue(recorder.toggledQuickLookURLs.isEmpty)
+        #expect(didHandleEvent == false)
+        #expect(recorder.toggledQuickLookURLs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testUnavailableSelectionClearsSelectionAndSkipsInjectedAction() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -823,15 +829,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.openSelected()
 
-        XCTAssertTrue(recorder.openedURLs.isEmpty)
-        XCTAssertNil(model.navigation.selectedNodeID)
-        XCTAssertEqual(
-            model.lastErrorMessage,
-            "The item at \(file.url.path) is no longer available."
-        )
+        #expect(recorder.openedURLs.isEmpty)
+        #expect(model.navigation.selectedNodeID == nil)
+        #expect(model.lastErrorMessage == "The item at \(file.url.path) is no longer available.")
     }
 
-    @MainActor
+    @Test
     func testZoomIntoCollapsedPackageMentionsSettingsToggle() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -857,15 +860,15 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.zoomIntoSelection()
 
-        XCTAssertEqual(model.errorAlertTitle, "Package Contents Hidden")
-        XCTAssertEqual(
-            model.lastErrorMessage,
-            "Radix scanned this package as a single item. To zoom into it, turn on “Expand packages” in Settings, then rescan this location."
+        #expect(model.errorAlertTitle == "Package Contents Hidden")
+        #expect(
+            model.lastErrorMessage
+                == "Radix scanned this package as a single item. To zoom into it, turn on “Expand packages” in Settings, then rescan this location."
         )
-        XCTAssertEqual(model.navigation.currentFocusNode?.id, root.id)
+        #expect(model.navigation.currentFocusNode?.id == root.id)
     }
 
-    @MainActor
+    @Test
     func testQuickLookVisibleSelectionChangesUpdateAndCloseThroughDependency() {
         let recorder = AppModelActionRecorder()
         recorder.isQuickLookVisible = true
@@ -882,13 +885,13 @@ final class AppModelDependencyTests: XCTestCase {
         let file = installSelection(on: model, selectNode: false)
 
         model.select(nodeID: file.id)
-        XCTAssertEqual(recorder.updatedQuickLookURLs, [file.url])
+        #expect(recorder.updatedQuickLookURLs == [file.url])
 
         model.select(nodeID: nil)
-        XCTAssertEqual(recorder.quickLookCloseCount, 1)
+        #expect(recorder.quickLookCloseCount == 1)
     }
 
-    @MainActor
+    @Test
     func testAppModelActionsUseNarrowStateOwners() {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model, selectNode: false)
@@ -897,12 +900,12 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.selectedTarget = target
         model.select(nodeID: file.id)
 
-        XCTAssertEqual(model.scanState.selectedTarget, target)
-        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
-        XCTAssertEqual(model.navigation.selectedNode?.id, file.id)
+        #expect(model.scanState.selectedTarget == target)
+        #expect(model.navigation.selectedNodeID == file.id)
+        #expect(model.navigation.selectedNode?.id == file.id)
     }
 
-    @MainActor
+    @Test
     func testAppModelDoesNotRebroadcastNarrowStateOwnerChanges() {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model, selectNode: false)
@@ -919,18 +922,21 @@ final class AppModelDependencyTests: XCTestCase {
         model.sidebar.setActiveTargetID("/sidebar")
         model.sidebar.replaceTargetCapacityDescriptions(["/": "128 GB free of 1 TB"])
 
-        XCTAssertEqual(observedAppModelChanges, 0)
+        #expect(observedAppModelChanges == 0)
         withExtendedLifetime(cancellable) {}
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashUsesInjectedFileActionsAndRefreshesTargets() async throws {
         let recorder = AppModelActionRecorder()
         let refreshedTarget = makeTestTarget("/refreshed")
         recorder.defaultTargets = [refreshedTarget]
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         actions.defaultTargets = {
             recorder.defaultTargetsCallCount += 1
             return recorder.defaultTargets
@@ -944,13 +950,13 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(recorder.movedToTrashURLs, [file.url])
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertEqual(model.availableTargets, [refreshedTarget])
-        XCTAssertEqual(recorder.defaultTargetsCallCount, 2)
+        #expect(recorder.movedToTrashURLs == [file.url])
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.availableTargets == [refreshedTarget])
+        #expect(recorder.defaultTargetsCallCount == 2)
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashUsesAsyncTrashActionWithoutBlockingDismissal() async throws {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
@@ -966,30 +972,28 @@ final class AppModelDependencyTests: XCTestCase {
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashSelection)
+        #expect(model.pendingTrashSelection == nil)
 
         try await probe.waitUntilStarted()
         let movedURLs = await probe.movedURLs()
-        XCTAssertEqual(movedURLs, [file.url])
-        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: file.id))
-        XCTAssertEqual(model.movingToTrashRootNodeIDs, [file.id])
-        XCTAssertTrue(model.discardPileRootNodeIDs.isEmpty)
-        XCTAssertTrue(model.workspaceHiddenNodeIDs.contains(file.id))
+        #expect(movedURLs == [file.url])
+        #expect(model.scanState.snapshot?.treeStore.node(id: file.id) != nil)
+        #expect(model.movingToTrashRootNodeIDs == [file.id])
+        #expect(model.discardPileRootNodeIDs.isEmpty)
+        #expect(model.workspaceHiddenNodeIDs.contains(file.id))
 
         await probe.finish()
 
         try await waitUntil("async trash completed", timeout: 2) {
-            model.scanState.snapshot?.treeStore.node(id: file.id) == nil ||
-                model.lastErrorMessage != nil
+            model.scanState.snapshot?.treeStore.node(id: file.id) == nil || model.lastErrorMessage != nil
         }
-        XCTAssertNil(model.lastErrorMessage)
-        XCTAssertNil(
-            model.scanState.snapshot?.treeStore.node(id: file.id),
-            "selected target: \(model.scanState.selectedTarget?.id ?? "nil")"
-        )
+        #expect(model.lastErrorMessage == nil)
+        #expect(
+            model.scanState.snapshot?.treeStore.node(id: file.id) == nil,
+            "selected target: \(model.scanState.selectedTarget?.id ?? "nil")")
     }
 
-    @MainActor
+    @Test
     func testAsyncTrashFailureRestoresOptimisticallyHiddenNode() async throws {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
@@ -1006,20 +1010,20 @@ final class AppModelDependencyTests: XCTestCase {
         model.confirmMovePendingSelectionToTrash()
 
         try await probe.waitUntilStarted()
-        XCTAssertEqual(model.movingToTrashRootNodeIDs, [file.id])
-        XCTAssertTrue(model.workspaceHiddenNodeIDs.contains(file.id))
+        #expect(model.movingToTrashRootNodeIDs == [file.id])
+        #expect(model.workspaceHiddenNodeIDs.contains(file.id))
 
         await probe.finish()
 
         try await waitUntil("async trash failure reported", timeout: 2) {
             model.lastErrorMessage != nil
         }
-        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: file.id))
-        XCTAssertFalse(model.workspaceHiddenNodeIDs.contains(file.id))
-        XCTAssertTrue(model.movingToTrashRootNodeIDs.isEmpty)
+        #expect(model.scanState.snapshot?.treeStore.node(id: file.id) != nil)
+        #expect(!(model.workspaceHiddenNodeIDs.contains(file.id)))
+        #expect(model.movingToTrashRootNodeIDs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testOptimisticTrashVisibilityMutationsPublishThroughAppModel() {
         let model = AppModel(dependencies: makeDependencies())
         let snapshotID = UUID()
@@ -1029,23 +1033,25 @@ final class AppModelDependencyTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertTrue(model.trashFlow.replaceOptimisticTrashVisibility(
-            nodeIDs: ["/selection/file.txt"],
-            snapshotID: snapshotID
-        ))
-        XCTAssertEqual(publicationCount, 1)
+        #expect(
+            model.trashFlow.replaceOptimisticTrashVisibility(
+                nodeIDs: ["/selection/file.txt"],
+                snapshotID: snapshotID
+            ))
+        #expect(publicationCount == 1)
 
-        XCTAssertFalse(model.trashFlow.replaceOptimisticTrashVisibility(
-            nodeIDs: ["/selection/file.txt"],
-            snapshotID: snapshotID
-        ))
-        XCTAssertEqual(publicationCount, 1)
+        #expect(
+            !(model.trashFlow.replaceOptimisticTrashVisibility(
+                nodeIDs: ["/selection/file.txt"],
+                snapshotID: snapshotID
+            )))
+        #expect(publicationCount == 1)
 
-        XCTAssertTrue(model.trashFlow.clearOptimisticTrashVisibility())
-        XCTAssertEqual(publicationCount, 2)
+        #expect(model.trashFlow.clearOptimisticTrashVisibility())
+        #expect(publicationCount == 2)
     }
 
-    @MainActor
+    @Test
     func testCancellationStopsTrashBatchAfterUninterruptibleMove() async throws {
         let probe = AsyncTrashActionProbe()
         var movedIDs: [String] = []
@@ -1074,14 +1080,14 @@ final class AppModelDependencyTests: XCTestCase {
         try await waitUntil("completed move reconciled after cancellation") {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
         }
-        XCTAssertEqual(movedIDs, [first.id])
-        XCTAssertEqual(model.usageStats.bytesMovedToTrash, first.allocatedSize)
-        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: second.id))
-        XCTAssertFalse(model.workspaceHiddenNodeIDs.contains(second.id))
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(movedIDs == [first.id])
+        #expect(model.usageStats.bytesMovedToTrash == first.allocatedSize)
+        #expect(model.scanState.snapshot?.treeStore.node(id: second.id) != nil)
+        #expect(!(model.workspaceHiddenNodeIDs.contains(second.id)))
+        #expect(model.lastErrorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testAsyncDiscardPileTrashDoesNotRemoveNewSnapshotListEntry() async throws {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
@@ -1099,7 +1105,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(oldSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
         model.addNodesToDiscardPile([oldFile])
-        XCTAssertTrue(model.requestMoveDiscardPileToTrash())
+        #expect(model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
         try await probe.waitUntilStarted()
 
@@ -1116,12 +1122,12 @@ final class AppModelDependencyTests: XCTestCase {
         try await waitUntil("old async trash completion recorded", timeout: 2) {
             model.usageStats.bytesMovedToTrash == oldFile.allocatedSize
         }
-        XCTAssertEqual(model.discardPile.snapshotID, newSnapshot.id)
-        XCTAssertEqual(model.discardPile.nodeIDs, [newFile.id])
-        XCTAssertEqual(model.discardPileSnapshot.summary.totalAllocatedSize, newFile.allocatedSize)
+        #expect(model.discardPile.snapshotID == newSnapshot.id)
+        #expect(model.discardPile.nodeIDs == [newFile.id])
+        #expect(model.discardPileSnapshot.summary.totalAllocatedSize == newFile.allocatedSize)
     }
 
-    @MainActor
+    @Test
     func testSuspendingMainWindowCancelsInFlightAsyncDiscardPileTrashMove() async throws {
         let probe = AsyncTrashActionProbe()
         var actions = AppSystemActions.inert
@@ -1143,16 +1149,16 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([first, second])
-        XCTAssertTrue(model.requestMoveDiscardPileToTrash())
+        #expect(model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
 
         try await probe.waitUntilStarted()
         let startedURLs = await probe.movedURLs()
-        XCTAssertEqual(startedURLs, [second.url])
-        XCTAssertTrue(model.workspaceHiddenNodeIDs.contains(first.id))
-        XCTAssertTrue(model.workspaceHiddenNodeIDs.contains(second.id))
-        XCTAssertEqual(model.movingToTrashRootNodeIDs, [first.id, second.id])
-        XCTAssertEqual(model.discardPileRootNodeIDs, [first.id, second.id])
+        #expect(startedURLs == [second.url])
+        #expect(model.workspaceHiddenNodeIDs.contains(first.id))
+        #expect(model.workspaceHiddenNodeIDs.contains(second.id))
+        #expect(model.movingToTrashRootNodeIDs == [first.id, second.id])
+        #expect(model.discardPileRootNodeIDs == [first.id, second.id])
 
         model.suspendMainWindowActivity()
         await probe.finish()
@@ -1160,11 +1166,11 @@ final class AppModelDependencyTests: XCTestCase {
         try await waitUntil("cancelled trash move reconciled", timeout: 2) {
             model.usageStats.bytesMovedToTrash == first.allocatedSize
         }
-        XCTAssertNil(model.lastErrorMessage)
-        XCTAssertEqual(model.discardPile.nodeIDs, [second.id])
+        #expect(model.lastErrorMessage == nil)
+        #expect(model.discardPile.nodeIDs == [second.id])
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashRecordsTrashUsageStats() async throws {
         let recorder = AppModelActionRecorder()
         let usageStats = SpyAppUsageStatsStore()
@@ -1176,16 +1182,22 @@ final class AppModelDependencyTests: XCTestCase {
             children: [first, second]
         )
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [first, second]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [first, second],
+            ])
         var actions = AppSystemActions.inert
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            usageStats: usageStats
-        ))
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                usageStats: usageStats
+            ))
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -1196,16 +1208,16 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
-        XCTAssertEqual(model.usageStats.filesDeleted, 2)
-        XCTAssertEqual(model.usageStats.foldersDeleted, 1)
-        XCTAssertEqual(model.usageStats.bytesMovedToTrash, 100)
-        XCTAssertEqual(model.usageStats.largestTrashMoveBytes, 100)
-        XCTAssertEqual(usageStats.savedStats.last?.filesDeleted, 2)
-        XCTAssertEqual(usageStats.savedStats.last?.foldersDeleted, 1)
+        #expect(recorder.movedToTrashURLs == [folder.url])
+        #expect(model.usageStats.filesDeleted == 2)
+        #expect(model.usageStats.foldersDeleted == 1)
+        #expect(model.usageStats.bytesMovedToTrash == 100)
+        #expect(model.usageStats.largestTrashMoveBytes == 100)
+        #expect(usageStats.savedStats.last?.filesDeleted == 2)
+        #expect(usageStats.savedStats.last?.foldersDeleted == 1)
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashAllowsMatchingIdentity() async throws {
         let recorder = AppModelActionRecorder()
         let identity = FileIdentity(device: 12, inode: 34)
@@ -1230,12 +1242,12 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(verifiedNodeIDs, [file.id])
-        XCTAssertEqual(recorder.movedToTrashURLs, [file.url])
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(verifiedNodeIDs == [file.id])
+        #expect(recorder.movedToTrashURLs == [file.url])
+        #expect(model.lastErrorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashBlocksMismatchedIdentity() async throws {
         let recorder = AppModelActionRecorder()
         let file = makeTestFileNode(
@@ -1254,14 +1266,13 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(
-            model.lastErrorMessage,
-            "The item at \(file.url.path) changed since this scan. Rescan before moving it to Trash."
-        )
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(
+            model.lastErrorMessage
+                == "The item at \(file.url.path) changed since this scan. Rescan before moving it to Trash.")
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashBlocksMissingScannedIdentity() async throws {
         let recorder = AppModelActionRecorder()
         let file = makeTestFileNode(id: "/selection/unverified.txt", name: "unverified.txt")
@@ -1276,14 +1287,14 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(
-            model.lastErrorMessage,
-            "Radix could not verify the scanned identity for \(file.url.path). Rescan before moving it to Trash."
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(
+            model.lastErrorMessage
+                == "Radix could not verify the scanned identity for \(file.url.path). Rescan before moving it to Trash."
         )
     }
 
-    @MainActor
+    @Test
     func testConfirmPendingTrashBatchReconcilesMovedPrefixAfterLaterFailure() async throws {
         let recorder = AppModelActionRecorder()
         let first = makeTestFileNode(
@@ -1318,25 +1329,27 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(verifiedNodeIDs, [first.id, second.id])
-        XCTAssertEqual(recorder.movedToTrashURLs, [first.url])
-        XCTAssertEqual(
-            model.lastErrorMessage,
-            "The item at \(second.url.path) changed since this scan. Rescan before moving it to Trash."
-        )
+        #expect(verifiedNodeIDs == [first.id, second.id])
+        #expect(recorder.movedToTrashURLs == [first.url])
+        #expect(
+            model.lastErrorMessage
+                == "The item at \(second.url.path) changed since this scan. Rescan before moving it to Trash.")
         try await waitUntil("partially successful trash batch reconciled", timeout: 2) {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
         }
-        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: second.id))
-        XCTAssertFalse(model.workspaceHiddenNodeIDs.contains(second.id))
+        #expect(model.scanState.snapshot?.treeStore.node(id: second.id) != nil)
+        #expect(!(model.workspaceHiddenNodeIDs.contains(second.id)))
     }
 
-    @MainActor
+    @Test
     func testRequestMoveSelectedToTrashRejectsProtectedRoots() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let protectedRoot = makeTestDirectoryNode(
             id: "/Applications",
@@ -1351,12 +1364,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.requestMoveSelectedToTrash()
 
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(model.pendingTrashSelection == nil)
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
+    @Test
     func testRequestMoveNodesToTrashKeepsOnlyTopLevelSelectedNodes() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1364,20 +1377,22 @@ final class AppModelDependencyTests: XCTestCase {
         let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [child]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [child],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.requestMoveNodesToTrash([folder, child])
 
-        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
+        #expect(model.pendingTrashSelection?.nodes.map(\.id) == [folder.id])
     }
 
-    @MainActor
+    @Test
     func testAddingResidentCloudFileToDiscardPileRequiresConfirmation() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1397,25 +1412,28 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.addNodesToDiscardPile([cloudFile]))
+        #expect(model.addNodesToDiscardPile([cloudFile]))
 
-        XCTAssertTrue(model.discardPile.isEmpty)
-        XCTAssertEqual(model.pendingCloudFileAction?.kind, .addToDiscardPile)
-        XCTAssertEqual(model.pendingCloudFileAction?.nodes.map(\.id), [cloudFile.id])
-        XCTAssertEqual(model.pendingCloudFileAction?.cloudImpact, .storedInCloud)
+        #expect(model.discardPile.isEmpty)
+        #expect(model.pendingCloudFileAction?.kind == .addToDiscardPile)
+        #expect(model.pendingCloudFileAction?.nodes.map(\.id) == [cloudFile.id])
+        #expect(model.pendingCloudFileAction?.cloudImpact == .storedInCloud)
 
         model.confirmPendingCloudFileAction()
 
-        XCTAssertEqual(model.discardPile.nodeIDs, [cloudFile.id])
-        XCTAssertNil(model.pendingCloudFileAction)
+        #expect(model.discardPile.nodeIDs == [cloudFile.id])
+        #expect(model.pendingCloudFileAction == nil)
     }
 
-    @MainActor
+    @Test
     func testMovingResidentCloudFileToTrashRequiresSecondConfirmation() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let cloudFile = makeTestFileNode(
             id: "/Users/alex/Library/CloudStorage/Dropbox/file.bin",
@@ -1432,33 +1450,33 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.requestMoveNodesToTrash([cloudFile]))
+        #expect(model.requestMoveNodesToTrash([cloudFile]))
 
         model.confirmMovePendingSelectionToTrash()
 
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertEqual(
-            model.pendingCloudFileAction?.kind,
-            .moveToTrash(allowsHiddenNodes: false)
-        )
-        XCTAssertEqual(model.pendingCloudFileAction?.cloudImpact, .storedInCloud)
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.pendingCloudFileAction?.kind == .moveToTrash(allowsHiddenNodes: false))
+        #expect(model.pendingCloudFileAction?.cloudImpact == .storedInCloud)
 
         model.confirmPendingCloudFileAction()
         try await waitUntil("confirmed trash action completed") {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(recorder.movedToTrashURLs, [cloudFile.url])
-        XCTAssertNil(model.pendingCloudFileAction)
+        #expect(recorder.movedToTrashURLs == [cloudFile.url])
+        #expect(model.pendingCloudFileAction == nil)
     }
 
-    @MainActor
+    @Test
     func testMovingVisibleNodeToTrashDoesNotMoveDiscardPileNodes() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let queued = makeTestFileNode(id: "/selection/queued.txt", name: "queued.txt", size: 40)
         let visible = makeTestFileNode(id: "/selection/visible.txt", name: "visible.txt", size: 80)
@@ -1469,29 +1487,32 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
-        XCTAssertTrue(model.requestMoveNodesToTrash([visible]))
+        #expect(model.addNodesToDiscardPile([queued]))
+        #expect(model.requestMoveNodesToTrash([visible]))
         model.confirmMovePendingSelectionToTrash()
         try await waitUntil("confirmed trash action completed") {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(recorder.movedToTrashURLs, [visible.url])
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
+        #expect(recorder.movedToTrashURLs == [visible.url])
+        #expect(model.discardPile.nodeIDs == [queued.id])
         try await waitUntil("visible node removed from snapshot", timeout: 2) {
             model.scanState.snapshot?.treeStore.node(id: visible.id) == nil
         }
-        XCTAssertNotNil(model.scanState.snapshot?.treeStore.node(id: queued.id))
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
-        XCTAssertEqual(model.discardPile.snapshotID, snapshot.id)
+        #expect(model.scanState.snapshot?.treeStore.node(id: queued.id) != nil)
+        #expect(model.discardPile.nodeIDs == [queued.id])
+        #expect(model.discardPile.snapshotID == snapshot.id)
     }
 
-    @MainActor
+    @Test
     func testPrimaryTrashDoesNotClearUnrelatedDiscardPileNodes() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let firstQueued = makeTestFileNode(id: "/selection/firstQueued.txt", name: "firstQueued.txt", size: 40)
         let secondQueued = makeTestFileNode(id: "/selection/secondQueued.txt", name: "secondQueued.txt", size: 60)
@@ -1507,7 +1528,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.addNodesToDiscardPile([firstQueued, secondQueued]))
+        #expect(model.addNodesToDiscardPile([firstQueued, secondQueued]))
         model.select(nodeID: visible.id)
         model.requestMovePrimarySelectionToTrash()
         model.confirmMovePendingSelectionToTrash()
@@ -1515,110 +1536,128 @@ final class AppModelDependencyTests: XCTestCase {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(recorder.movedToTrashURLs, [visible.url])
+        #expect(recorder.movedToTrashURLs == [visible.url])
 
         try await waitUntil("visible node removed from snapshot", timeout: 2) {
             model.scanState.snapshot?.treeStore.node(id: visible.id) == nil
         }
-        XCTAssertEqual(model.discardPile.nodeIDs, [firstQueued.id, secondQueued.id])
-        XCTAssertEqual(model.discardPile.snapshotID, snapshot.id)
+        #expect(model.discardPile.nodeIDs == [firstQueued.id, secondQueued.id])
+        #expect(model.discardPile.snapshotID == snapshot.id)
     }
 
-    @MainActor
+    @Test
     func testContextTrashRejectsAncestorOfDiscardPileNode() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let queued = makeTestFileNode(id: "/selection/folder/queued.txt", name: "queued.txt", size: 40)
         let sibling = makeTestFileNode(id: "/selection/folder/sibling.txt", name: "sibling.txt", size: 80)
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [queued, sibling])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [queued, sibling]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [queued, sibling],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
-        XCTAssertFalse(model.requestMoveNodesToTrash([folder]))
+        #expect(model.addNodesToDiscardPile([queued]))
+        #expect(!(model.requestMoveNodesToTrash([folder])))
 
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(model.pendingTrashSelection == nil)
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.discardPile.nodeIDs == [queued.id])
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
+    @Test
     func testPrimaryTrashRejectsAncestorOfDiscardPileNode() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let queued = makeTestFileNode(id: "/selection/folder/queued.txt", name: "queued.txt", size: 40)
         let sibling = makeTestFileNode(id: "/selection/folder/sibling.txt", name: "sibling.txt", size: 80)
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [queued, sibling])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [queued, sibling]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [queued, sibling],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+        #expect(model.addNodesToDiscardPile([queued]))
         model.select(nodeID: folder.id)
         model.requestMovePrimarySelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(model.pendingTrashSelection == nil)
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.discardPile.nodeIDs == [queued.id])
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
+    @Test
     func testPendingTrashRejectsNewDiscardPileDescendantBeforeConfirm() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let queued = makeTestFileNode(id: "/selection/folder/queued.txt", name: "queued.txt", size: 40)
         let sibling = makeTestFileNode(id: "/selection/folder/sibling.txt", name: "sibling.txt", size: 80)
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [queued, sibling])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [queued, sibling]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [queued, sibling],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        XCTAssertTrue(model.requestMoveNodesToTrash([folder]))
-        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+        #expect(model.requestMoveNodesToTrash([folder]))
+        #expect(model.addNodesToDiscardPile([queued]))
         model.confirmMovePendingSelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(model.pendingTrashSelection == nil)
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.discardPile.nodeIDs == [queued.id])
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
+    @Test
     func testPrimaryTrashRejectsStaleDiscardPileSelection() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let queued = makeTestFileNode(id: "/selection/queued.txt", name: "queued.txt", size: 40)
         let visible = makeTestFileNode(id: "/selection/visible.txt", name: "visible.txt", size: 80)
@@ -1628,18 +1667,18 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+        #expect(model.addNodesToDiscardPile([queued]))
 
         model.navigation.select(nodeID: queued.id)
         model.requestMovePrimarySelectionToTrash()
 
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertEqual(model.navigation.selectedNodeIDs, [queued.id])
-        XCTAssertTrue(recorder.movedToTrashURLs.isEmpty)
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.navigation.selectedNodeIDs == [queued.id])
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.discardPile.nodeIDs == [queued.id])
     }
 
-    @MainActor
+    @Test
     func testSelectedTrashFiltersStaleDiscardPileSelection() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1652,16 +1691,16 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.scanState.selectedTarget = snapshot.target
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        XCTAssertTrue(model.addNodesToDiscardPile([queued]))
+        #expect(model.addNodesToDiscardPile([queued]))
 
         model.navigation.select(nodeIDs: [queued.id, visible.id], primaryNodeID: visible.id)
         model.requestMoveSelectedToTrash()
 
-        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [visible.id])
-        XCTAssertEqual(model.discardPile.nodeIDs, [queued.id])
+        #expect(model.pendingTrashSelection?.nodes.map(\.id) == [visible.id])
+        #expect(model.discardPile.nodeIDs == [queued.id])
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddsValidNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1670,14 +1709,14 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodesToDiscardPile([file])
 
-        XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
-        XCTAssertEqual(model.discardPileSnapshot.nodes.map(\.id), [file.id])
-        XCTAssertEqual(model.discardPileSnapshot.summary.itemCount, 1)
-        XCTAssertEqual(model.discardPileSnapshot.summary.totalAllocatedSize, file.allocatedSize)
+        #expect(didAdd)
+        #expect(model.discardPile.nodeIDs == [file.id])
+        #expect(model.discardPileSnapshot.nodes.map(\.id) == [file.id])
+        #expect(model.discardPileSnapshot.summary.itemCount == 1)
+        #expect(model.discardPileSnapshot.summary.totalAllocatedSize == file.allocatedSize)
     }
 
-    @MainActor
+    @Test
     func testDiscardPileBulkRemovalPublishesOnceAndPreservesRemainingOrder() {
         let model = AppModel(dependencies: makeDependencies())
         let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
@@ -1692,7 +1731,7 @@ final class AppModelDependencyTests: XCTestCase {
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        XCTAssertTrue(model.addNodesToDiscardPile([first, second, third]))
+        #expect(model.addNodesToDiscardPile([first, second, third]))
 
         var publicationCount = 0
         let cancellable = model.trashFlow.$discardPile.dropFirst().sink { _ in
@@ -1702,12 +1741,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.removeDiscardPileNodes(ids: [first.id, third.id])
 
-        XCTAssertEqual(model.discardPile.nodeIDs, [second.id])
-        XCTAssertEqual(model.discardPile.snapshotID, snapshot.id)
-        XCTAssertEqual(publicationCount, 1)
+        #expect(model.discardPile.nodeIDs == [second.id])
+        #expect(model.discardPile.snapshotID == snapshot.id)
+        #expect(publicationCount == 1)
     }
 
-    @MainActor
+    @Test
     func testPrimaryDiscardPileAddAfterViewUpdateDefersMutation() async throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1716,16 +1755,15 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.addPrimarySelectionToDiscardPileAfterViewUpdate()
 
-        XCTAssertTrue(model.discardPile.isEmpty)
-        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+        #expect(model.discardPile.isEmpty)
+        #expect(model.navigation.selectedNodeID == file.id)
 
         try await waitUntil("deferred discard pile add") {
-            model.discardPile.nodeIDs == [file.id] &&
-                model.navigation.selectedNodeID == file.id
+            model.discardPile.nodeIDs == [file.id] && model.navigation.selectedNodeID == file.id
         }
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddDefersLivePathValidationUntilTrashRequest() {
         var fileExistsCallCount = 0
         var actions = AppSystemActions.inert
@@ -1738,18 +1776,18 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodesToDiscardPile([file])
 
-        XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
-        XCTAssertEqual(fileExistsCallCount, 0)
+        #expect(didAdd)
+        #expect(model.discardPile.nodeIDs == [file.id])
+        #expect(fileExistsCallCount == 0)
 
         let didRequestTrash = model.requestMoveDiscardPileToTrash()
 
-        XCTAssertFalse(didRequestTrash)
-        XCTAssertEqual(fileExistsCallCount, 1)
-        XCTAssertEqual(model.discardPile.nodeIDs, [file.id])
+        #expect(!(didRequestTrash))
+        #expect(fileExistsCallCount == 1)
+        #expect(model.discardPile.nodeIDs == [file.id])
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddsResolvedNodeIDs() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1764,11 +1802,11 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodeIDsToDiscardPile([first.id, second.id], snapshotID: snapshot.id)
 
-        XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.discardPile.nodeIDs, [first.id, second.id])
+        #expect(didAdd)
+        #expect(model.discardPile.nodeIDs == [first.id, second.id])
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddsLargeSiblingBatch() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1788,12 +1826,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodeIDsToDiscardPile(files.map(\.id), snapshotID: snapshot.id)
 
-        XCTAssertTrue(didAdd)
-        XCTAssertEqual(model.discardPile.nodeIDs.count, files.count)
-        XCTAssertEqual(Set(model.discardPile.nodeIDs), Set(files.map(\.id)))
+        #expect(didAdd)
+        #expect(model.discardPile.nodeIDs.count == files.count)
+        #expect(Set(model.discardPile.nodeIDs) == Set(files.map(\.id)))
     }
 
-    @MainActor
+    @Test
     func testDiscardPileRejectsUnresolvedDroppedNodeIDBatch() throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1803,15 +1841,15 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodeIDsToDiscardPile(
             [file.id, "/selection/missing.txt"],
-            snapshotID: try XCTUnwrap(snapshotID)
+            snapshotID: try #require(snapshotID)
         )
 
-        XCTAssertFalse(didAdd)
-        XCTAssertTrue(model.discardPile.isEmpty)
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(!(didAdd))
+        #expect(model.discardPile.isEmpty)
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
+    @Test
     func testDiscardPileRejectsNodeIDsFromDifferentSnapshot() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1820,12 +1858,12 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodeIDsToDiscardPile([file.id], snapshotID: UUID())
 
-        XCTAssertFalse(didAdd)
-        XCTAssertTrue(model.discardPile.isEmpty)
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(!(didAdd))
+        #expect(model.discardPile.isEmpty)
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
+    @Test
     func testDiscardPileRejectsUnsupportedNode() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1854,56 +1892,36 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didAdd = model.addNodesToDiscardPile([syntheticNode])
 
-        XCTAssertFalse(didAdd)
-        XCTAssertTrue(model.discardPile.isEmpty)
-        XCTAssertEqual(model.lastErrorMessage, "This item does not support that action.")
+        #expect(!(didAdd))
+        #expect(model.discardPile.isEmpty)
+        #expect(model.lastErrorMessage == "This item does not support that action.")
     }
 
-    @MainActor
-    func testDiscardPileParentDedupRemovesQueuedChildren() {
+    @Test(arguments: [false, true])
+    func testDiscardPileKeepsOnlyParentRegardlessOfInsertionOrder(parentFirst: Bool) {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [child]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [child],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        model.addNodesToDiscardPile([child])
-        model.addNodesToDiscardPile([folder])
+        model.addNodesToDiscardPile([parentFirst ? folder : child])
+        model.addNodesToDiscardPile([parentFirst ? child : folder])
 
-        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
+        #expect(model.discardPile.nodeIDs == [folder.id])
     }
 
-    @MainActor
-    func testDiscardPileChildAddNoOpsWhenAncestorQueued() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
-        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
-        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [child]
-        ])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-
-        model.addNodesToDiscardPile([folder])
-        model.addNodesToDiscardPile([child])
-
-        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
-    }
-
-    @MainActor
+    @Test
     func testWorkspaceHiddenNodeIDsTrackCurrentSnapshot() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1912,31 +1930,31 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.addNodesToDiscardPile([file])
 
-        XCTAssertEqual(model.workspaceHiddenNodeIDs, [file.id])
+        #expect(model.workspaceHiddenNodeIDs == [file.id])
 
         let nextFile = makeTestFileNode(id: "/next/file.txt", name: "file.txt")
         let nextRoot = makeTestDirectoryNode(id: "/next", name: "next", children: [nextFile])
         let nextStore = FileTreeStore(root: nextRoot, childrenByID: [nextRoot.id: [nextFile]])
         model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: nextRoot, store: nextStore))
 
-        XCTAssertTrue(model.workspaceHiddenNodeIDs.isEmpty)
+        #expect(model.workspaceHiddenNodeIDs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddPreservesSelectionForInspection() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
-        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
+        #expect(model.navigation.selectedNodeID == file.id)
 
         model.addNodesToDiscardPile([file])
 
-        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
-        XCTAssertEqual(model.navigation.selectedNodeIDs, [file.id])
+        #expect(model.navigation.selectedNodeID == file.id)
+        #expect(model.navigation.selectedNodeIDs == [file.id])
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddClearsQueuedMultiSelection() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1956,11 +1974,11 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.addSelectedNodesToDiscardPile()
 
-        XCTAssertTrue(model.navigation.selectedNodeIDs.isEmpty)
-        XCTAssertNil(model.navigation.selectedNodeID)
+        #expect(model.navigation.selectedNodeIDs.isEmpty)
+        #expect(model.navigation.selectedNodeID == nil)
     }
 
-    @MainActor
+    @Test
     func testDiscardPileNodeCanBeSelectedButNotFocused() throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
@@ -1968,7 +1986,7 @@ final class AppModelDependencyTests: XCTestCase {
         actions.reveal = { recorder.revealedURLs.append($0) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
-        let rootID = try XCTUnwrap(model.scanState.snapshot?.root.id)
+        let rootID = try #require(model.scanState.snapshot?.root.id)
 
         model.addNodesToDiscardPile([file])
         model.clearSelection()
@@ -1976,14 +1994,14 @@ final class AppModelDependencyTests: XCTestCase {
         model.focus(nodeID: file.id)
         model.revealPrimarySelectionInFinder()
 
-        XCTAssertEqual(model.navigation.selectedNodeID, file.id)
-        XCTAssertEqual(model.navigation.focusedNodeID, rootID)
-        XCTAssertFalse(model.canZoomIntoSelection)
-        XCTAssertTrue(model.selectionIncludesHiddenNodes)
-        XCTAssertEqual(recorder.revealedURLs, [file.url])
+        #expect(model.navigation.selectedNodeID == file.id)
+        #expect(model.navigation.focusedNodeID == rootID)
+        #expect(!(model.canZoomIntoSelection))
+        #expect(model.selectionIncludesHiddenNodes)
+        #expect(recorder.revealedURLs == [file.url])
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddMovesHiddenFocusToVisibleAncestor() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1991,10 +2009,12 @@ final class AppModelDependencyTests: XCTestCase {
         let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [child]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [child],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -2003,13 +2023,13 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.addNodesToDiscardPile([folder])
 
-        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
-        XCTAssertEqual(model.navigation.selectedNodeID, child.id)
-        XCTAssertEqual(model.navigation.selectedNodeIDs, [child.id])
-        XCTAssertFalse(model.navigation.canNavigateBack)
+        #expect(model.navigation.focusedNodeID == root.id)
+        #expect(model.navigation.selectedNodeID == child.id)
+        #expect(model.navigation.selectedNodeIDs == [child.id])
+        #expect(!(model.navigation.canNavigateBack))
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddPrunesQueuedFolderFromBackHistory() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2039,12 +2059,12 @@ final class AppModelDependencyTests: XCTestCase {
         model.addNodesToDiscardPile([queued])
         model.navigateBack()
 
-        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
-        XCTAssertFalse(model.navigation.canNavigateBack)
-        XCTAssertTrue(model.navigation.canNavigateForward)
+        #expect(model.navigation.focusedNodeID == root.id)
+        #expect(!(model.navigation.canNavigateBack))
+        #expect(model.navigation.canNavigateForward)
     }
 
-    @MainActor
+    @Test
     func testDiscardPileAddPrunesQueuedDescendantFromForwardHistory() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2064,10 +2084,12 @@ final class AppModelDependencyTests: XCTestCase {
             name: "selection",
             children: [queued]
         )
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [queued],
-            queued.id: [descendant],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [queued],
+                queued.id: [descendant],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -2076,13 +2098,13 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.addNodesToDiscardPile([queued])
 
-        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
-        XCTAssertFalse(model.navigation.canNavigateForward)
+        #expect(model.navigation.focusedNodeID == root.id)
+        #expect(!(model.navigation.canNavigateForward))
         model.navigateForward()
-        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+        #expect(model.navigation.focusedNodeID == root.id)
     }
 
-    @MainActor
+    @Test
     func testDiscardPilePublishesAfterHiddenFocusReconciles() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2090,10 +2112,12 @@ final class AppModelDependencyTests: XCTestCase {
         let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [child]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [child],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -2108,10 +2132,10 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.addNodesToDiscardPile([folder])
 
-        XCTAssertEqual(observedFocusID, root.id)
+        #expect(observedFocusID == root.id)
     }
 
-    @MainActor
+    @Test
     func testDeferredDiscardPileAddMovesFocusedSelectionToVisibleAncestor() async throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2120,10 +2144,12 @@ final class AppModelDependencyTests: XCTestCase {
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
         let sibling = makeTestFileNode(id: "/selection/sibling.txt", name: "sibling.txt")
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder, sibling])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder, sibling],
-            folder.id: [child]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder, sibling],
+                folder.id: [child],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -2133,13 +2159,12 @@ final class AppModelDependencyTests: XCTestCase {
         model.addPrimarySelectionToDiscardPileAfterViewUpdate()
 
         try await waitUntil("deferred focused discard pile add") {
-            model.discardPile.nodeIDs == [folder.id] &&
-                model.navigation.focusedNodeID == root.id &&
-                model.navigation.selectedNodeID == folder.id
+            model.discardPile.nodeIDs == [folder.id] && model.navigation.focusedNodeID == root.id
+                && model.navigation.selectedNodeID == folder.id
         }
     }
 
-    @MainActor
+    @Test
     func testDiscardPileClearsWhenActiveSnapshotIsReplaced() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2158,23 +2183,28 @@ final class AppModelDependencyTests: XCTestCase {
         let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
         model.scanState.replaceCurrentSnapshot(secondSnapshot)
 
-        XCTAssertTrue(model.discardPile.isEmpty)
+        #expect(model.discardPile.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testDiscardPileReviewMoveRequestsResolvedTopLevelNodesAndClearsAfterMove() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { recorder.movedToTrashURLs.append($0.url); return .matches }
+        actions.moveToTrash = {
+            recorder.movedToTrashURLs.append($0.url)
+            return .matches
+        }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [child]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [child],
+            ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
@@ -2183,20 +2213,20 @@ final class AppModelDependencyTests: XCTestCase {
 
         let didRequestTrash = model.requestMoveDiscardPileToTrash()
 
-        XCTAssertTrue(didRequestTrash)
-        XCTAssertEqual(model.pendingTrashSelection?.nodes.map(\.id), [folder.id])
-        XCTAssertEqual(model.discardPile.nodeIDs, [folder.id])
+        #expect(didRequestTrash)
+        #expect(model.pendingTrashSelection?.nodes.map(\.id) == [folder.id])
+        #expect(model.discardPile.nodeIDs == [folder.id])
 
         model.confirmMovePendingSelectionToTrash()
         try await waitUntil("confirmed trash action completed") {
             model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(recorder.movedToTrashURLs, [folder.url])
-        XCTAssertTrue(model.discardPile.isEmpty)
+        #expect(recorder.movedToTrashURLs == [folder.url])
+        #expect(model.discardPile.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testDiscardPileReconcilesUnavailableQueuedIDsOut() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2209,7 +2239,7 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([first, second])
-        XCTAssertEqual(model.discardPile.nodeIDs, [first.id, second.id])
+        #expect(model.discardPile.nodeIDs == [first.id, second.id])
 
         let updatedRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first])
         let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [updatedRoot.id: [first]])
@@ -2226,10 +2256,10 @@ final class AppModelDependencyTests: XCTestCase {
         )
         model.scanState.replaceCurrentSnapshot(updatedSnapshot)
 
-        XCTAssertEqual(model.discardPile.nodeIDs, [first.id])
+        #expect(model.discardPile.nodeIDs == [first.id])
     }
 
-    @MainActor
+    @Test
     func testFullDiskAccessFailureUsesInjectedActionResult() {
         var actions = AppSystemActions.inert
         actions.prepareAndOpenFullDiskAccessSettings = { false }
@@ -2237,10 +2267,10 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.prepareAndOpenFullDiskAccessSettings()
 
-        XCTAssertEqual(model.lastErrorMessage, "Radix could not open Full Disk Access settings.")
+        #expect(model.lastErrorMessage == "Radix could not open Full Disk Access settings.")
     }
 
-    @MainActor
+    @Test
     func testFullDiskAccessStatusCanRefreshThroughInjectedProbe() async throws {
         var statuses: [FullDiskAccessStatus] = [.notGranted, .granted]
         var actions = AppSystemActions.inert
@@ -2252,17 +2282,17 @@ final class AppModelDependencyTests: XCTestCase {
         try await waitUntil("full disk access becomes notGranted") {
             model.fullDiskAccessStatus == .notGranted
         }
-        XCTAssertEqual(model.fullDiskAccessStatus, .notGranted)
+        #expect(model.fullDiskAccessStatus == .notGranted)
 
         model.refreshFullDiskAccessStatus()
 
         try await waitUntil("full disk access becomes granted") {
             model.fullDiskAccessStatus == .granted
         }
-        XCTAssertEqual(model.fullDiskAccessStatus, .granted)
+        #expect(model.fullDiskAccessStatus == .granted)
     }
 
-    @MainActor
+    @Test
     func testFullDiskAccessRefreshIgnoresSupersededProbe() async throws {
         let oldProbe = AsyncValueProbe<FullDiskAccessStatus>()
         var callCount = 0
@@ -2285,10 +2315,10 @@ final class AppModelDependencyTests: XCTestCase {
         await oldProbe.resume(returning: .notGranted)
         try await waitUntil("superseded permission probe returns") { oldProbeReturned }
 
-        XCTAssertEqual(model.fullDiskAccessStatus, .granted)
+        #expect(model.fullDiskAccessStatus == .granted)
     }
 
-    @MainActor
+    @Test
     func testAsyncFullDiskAccessRefreshAppliesLatestProbe() async throws {
         var actions = AppSystemActions.inert
         actions.fullDiskAccessStatus = {
@@ -2296,14 +2326,14 @@ final class AppModelDependencyTests: XCTestCase {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
-        XCTAssertEqual(model.fullDiskAccessStatus, .unknown)
+        #expect(model.fullDiskAccessStatus == .unknown)
 
         try await waitUntil("async full disk access refresh applies") {
             model.fullDiskAccessStatus == .granted
         }
     }
 
-    @MainActor
+    @Test
     func testAsyncCapacityDescriptionsDoNotDelayAvailableTargets() async throws {
         let probe = AsyncValueProbe<[String: String]>()
         let loadedTarget = makeTestTarget("/async-loaded")
@@ -2316,8 +2346,8 @@ final class AppModelDependencyTests: XCTestCase {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
-        XCTAssertEqual(model.availableTargets, [loadedTarget])
-        XCTAssertTrue(model.targetCapacityDescriptions.isEmpty)
+        #expect(model.availableTargets == [loadedTarget])
+        #expect(model.targetCapacityDescriptions.isEmpty)
 
         try await waitUntil("async capacity description refresh starts") {
             await probe.isWaiting
@@ -2330,7 +2360,7 @@ final class AppModelDependencyTests: XCTestCase {
         }
     }
 
-    @MainActor
+    @Test
     func testMountedVolumeRefreshUpdatesTrashSafetyPolicy() async throws {
         let mountedVolumeURL = URL(filePath: "/Volumes/Injected", directoryHint: .isDirectory)
         let mountedVolumeNode = makeTestDirectoryNode(id: mountedVolumeURL.path, name: "Injected", children: [])
@@ -2350,7 +2380,7 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        XCTAssertTrue(mountedVolumeNode.supportsMoveToTrash(trashSafetyPolicy: model.scanState.trashSafetyPolicy))
+        #expect(mountedVolumeNode.supportsMoveToTrash(trashSafetyPolicy: model.scanState.trashSafetyPolicy))
 
         protectsMountedVolume = true
         mountedVolumeEvents.send(())
@@ -2360,7 +2390,7 @@ final class AppModelDependencyTests: XCTestCase {
         }
     }
 
-    @MainActor
+    @Test
     func testCleanupCancelsAsyncCapacityDescriptionRefresh() async throws {
         let probe = AsyncValueProbe<[String: String]>()
         let loadedTarget = makeTestTarget("/async-loaded")
@@ -2382,11 +2412,11 @@ final class AppModelDependencyTests: XCTestCase {
 
         try await Task.sleep(for: .milliseconds(40))
 
-        XCTAssertEqual(model.availableTargets, [loadedTarget])
-        XCTAssertTrue(model.targetCapacityDescriptions.isEmpty)
+        #expect(model.availableTargets == [loadedTarget])
+        #expect(model.targetCapacityDescriptions.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testImportScanSnapshotRestoresReadOnlyImportedSnapshot() async throws {
         let archiveURL = URL(filePath: "/tmp/imported.radixscan", directoryHint: .isDirectory)
         let file = makeTestFileNode(id: "/imported/file.txt", name: "file.txt")
@@ -2399,11 +2429,12 @@ final class AppModelDependencyTests: XCTestCase {
             finishedAt: Date(timeIntervalSince1970: 2),
             scanWarnings: [],
             isComplete: true,
-            source: .imported(ImportedSnapshotContext(
-                sourceURL: archiveURL,
-                pathMode: .absolute,
-                liveActionCapability: .pathValidation
-            ))
+            source: .imported(
+                ImportedSnapshotContext(
+                    sourceURL: archiveURL,
+                    pathMode: .absolute,
+                    liveActionCapability: .pathValidation
+                ))
         )
         let manifest = try ScanArchiveDocument(
             exportedAt: Date(timeIntervalSince1970: 3),
@@ -2443,10 +2474,10 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         let previewedURLs = await archiveService.previewedURLsSnapshot()
-        XCTAssertEqual(previewedURLs, [archiveURL])
+        #expect(previewedURLs == [archiveURL])
         let importedURLsBeforeConfirm = await archiveService.importedURLsSnapshot()
-        XCTAssertTrue(importedURLsBeforeConfirm.isEmpty)
-        XCTAssertNil(model.scanState.snapshot)
+        #expect(importedURLsBeforeConfirm.isEmpty)
+        #expect(model.scanState.snapshot == nil)
 
         model.confirmImportPreview()
 
@@ -2455,20 +2486,20 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         let importedURLs = await archiveService.importedURLsSnapshot()
-        XCTAssertEqual(importedURLs, [archiveURL])
-        XCTAssertNil(model.pendingImportPreview)
-        XCTAssertEqual(model.scanState.selectedTarget, importedSnapshot.target)
-        XCTAssertNil(model.scanState.completedScanSnapshot)
-        XCTAssertFalse(model.scanState.snapshotSource.allowsFileMutation)
-        XCTAssertEqual(model.navigation.focusedNodeID, importedSnapshot.root.id)
+        #expect(importedURLs == [archiveURL])
+        #expect(model.pendingImportPreview == nil)
+        #expect(model.scanState.selectedTarget == importedSnapshot.target)
+        #expect(model.scanState.completedScanSnapshot == nil)
+        #expect(!(model.scanState.snapshotSource.allowsFileMutation))
+        #expect(model.navigation.focusedNodeID == importedSnapshot.root.id)
 
         model.select(nodeID: file.id)
         model.requestMoveSelectedToTrash()
-        XCTAssertNil(model.pendingTrashSelection)
-        XCTAssertEqual(model.lastErrorMessage, "Imported snapshots are read-only.")
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.lastErrorMessage == "Imported snapshots are read-only.")
     }
 
-    @MainActor
+    @Test
     func testImportPreviewDisablesStartingAnotherImport() async throws {
         let archiveURL = URL(filePath: "/tmp/import-preview.radixscan", directoryHint: .isDirectory)
         let file = makeTestFileNode(id: "/import-preview/file.txt", name: "file.txt")
@@ -2481,11 +2512,12 @@ final class AppModelDependencyTests: XCTestCase {
             finishedAt: Date(timeIntervalSince1970: 2),
             scanWarnings: [],
             isComplete: true,
-            source: .imported(ImportedSnapshotContext(
-                sourceURL: archiveURL,
-                pathMode: .absolute,
-                liveActionCapability: .pathValidation
-            ))
+            source: .imported(
+                ImportedSnapshotContext(
+                    sourceURL: archiveURL,
+                    pathMode: .absolute,
+                    liveActionCapability: .pathValidation
+                ))
         )
         let manifest = try ScanArchiveDocument(
             exportedAt: Date(timeIntervalSince1970: 3),
@@ -2518,14 +2550,14 @@ final class AppModelDependencyTests: XCTestCase {
             model.pendingImportPreview?.archiveURL == archiveURL
         }
 
-        XCTAssertFalse(model.canImportScanSnapshot)
+        #expect(!(model.canImportScanSnapshot))
 
         model.cancelImportPreview()
 
-        XCTAssertTrue(model.canImportScanSnapshot)
+        #expect(model.canImportScanSnapshot)
     }
 
-    @MainActor
+    @Test
     func testImportScanSnapshotDefersWideRootTableMaterializationUntilAfterSnapshotPublish() async throws {
         let archiveURL = URL(filePath: "/tmp/wide-imported.radixscan", directoryHint: .isDirectory)
         let childCount = 20_000
@@ -2545,11 +2577,12 @@ final class AppModelDependencyTests: XCTestCase {
             finishedAt: Date(timeIntervalSince1970: 2),
             scanWarnings: [],
             isComplete: true,
-            source: .imported(ImportedSnapshotContext(
-                sourceURL: archiveURL,
-                pathMode: .absolute,
-                liveActionCapability: .pathValidation
-            ))
+            source: .imported(
+                ImportedSnapshotContext(
+                    sourceURL: archiveURL,
+                    pathMode: .absolute,
+                    liveActionCapability: .pathValidation
+                ))
         )
         let manifest = try ScanArchiveDocument(
             exportedAt: Date(timeIntervalSince1970: 3),
@@ -2597,8 +2630,8 @@ final class AppModelDependencyTests: XCTestCase {
             model.scanState.snapshot?.id == importedSnapshot.id
         }
 
-        XCTAssertEqual(tableNodeCountAtSnapshotPublish, 0)
-        XCTAssertEqual(model.navigation.focusedNodeID, root.id)
+        #expect(tableNodeCountAtSnapshotPublish == 0)
+        #expect(model.navigation.focusedNodeID == root.id)
 
         try await waitUntil("wide imported table materialized") {
             model.navigation.tableNodes.count == childCount
@@ -2607,7 +2640,7 @@ final class AppModelDependencyTests: XCTestCase {
         withExtendedLifetime(snapshotCancellable) {}
     }
 
-    @MainActor
+    @Test
     func testURLImportWhileScanningShowsError() async throws {
         let scanService = NeverFinishingScanService()
         let model = AppModel(dependencies: makeDependencies(scanService: scanService))
@@ -2625,10 +2658,10 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.importScanSnapshot(from: URL(filePath: "/tmp/opened.radixscan", directoryHint: .isDirectory))
 
-        XCTAssertEqual(model.lastErrorMessage, "Stop the current scan before importing a snapshot.")
+        #expect(model.lastErrorMessage == "Stop the current scan before importing a snapshot.")
     }
 
-    @MainActor
+    @Test
     func testExportCurrentScanUsesInjectedPanelAndArchiveService() async throws {
         let archiveURL = URL(filePath: "/tmp/export.radixscan", directoryHint: .isDirectory)
         let archiveService = SpyScanArchiveService()
@@ -2661,24 +2694,24 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         let exportRequests = await archiveService.exportRequestsSnapshot()
-        XCTAssertEqual(exportRequests.map(\.snapshotID), [snapshot.id])
-        XCTAssertEqual(exportRequests.map(\.destinationURL), [archiveURL])
-        XCTAssertEqual(exportRequests.map(\.pathMode), [.absolute])
-        XCTAssertEqual(requestedDefaultFileNames.count, 1)
-        XCTAssertTrue(requestedDefaultFileNames[0].hasPrefix("Export "))
-        XCTAssertFalse(requestedDefaultFileNames[0].hasSuffix(".radixscan"))
-        XCTAssertNil(model.lastErrorMessage)
+        #expect(exportRequests.map(\.snapshotID) == [snapshot.id])
+        #expect(exportRequests.map(\.destinationURL) == [archiveURL])
+        #expect(exportRequests.map(\.pathMode) == [.absolute])
+        #expect(requestedDefaultFileNames.count == 1)
+        #expect(requestedDefaultFileNames[0].hasPrefix("Export "))
+        #expect(!(requestedDefaultFileNames[0].hasSuffix(".radixscan")))
+        #expect(model.lastErrorMessage == nil)
         try await waitUntil("export confirmation presented") {
             model.exportConfirmation?.archiveURL == archiveURL
         }
 
         model.revealExportedSnapshotInFinder()
 
-        XCTAssertEqual(recorder.revealedURLs, [archiveURL])
-        XCTAssertNil(model.exportConfirmation)
+        #expect(recorder.revealedURLs == [archiveURL])
+        #expect(model.exportConfirmation == nil)
     }
 
-    @MainActor
+    @Test
     func testSupersededExportPanelCannotClearOrOutliveRestartedRequest() async throws {
         let staleURL = URL(filePath: "/tmp/stale-export.radixscan", directoryHint: .isDirectory)
         let currentURL = URL(filePath: "/tmp/current-export.radixscan", directoryHint: .isDirectory)
@@ -2691,21 +2724,23 @@ final class AppModelDependencyTests: XCTestCase {
             panelRequestCount += 1
             return await (panelRequestCount == 1 ? firstPanel : secondPanel).wait()
         }
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            scanArchiveService: archiveService
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                scanArchiveService: archiveService
+            ))
         let file = makeTestFileNode(id: "/export-race/file.txt", name: "file.txt")
         let root = makeTestDirectoryNode(id: "/export-race", name: "Export Race", children: [file])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
-        model.scanState.restoreCompletedSnapshot(ScanSnapshot(
-            target: ScanTarget(id: root.id, url: root.url, displayName: "Export Race", kind: .folder),
-            treeStore: store,
-            startedAt: Date(timeIntervalSince1970: 1),
-            finishedAt: Date(timeIntervalSince1970: 2),
-            scanWarnings: [],
-            isComplete: true
-        ))
+        model.scanState.restoreCompletedSnapshot(
+            ScanSnapshot(
+                target: ScanTarget(id: root.id, url: root.url, displayName: "Export Race", kind: .folder),
+                treeStore: store,
+                startedAt: Date(timeIntervalSince1970: 1),
+                finishedAt: Date(timeIntervalSince1970: 2),
+                scanWarnings: [],
+                isComplete: true
+            ))
 
         model.exportCurrentScan()
         try await waitUntil("first export panel") {
@@ -2719,18 +2754,18 @@ final class AppModelDependencyTests: XCTestCase {
 
         await firstPanel.resume(returning: staleURL)
         try await Task.sleep(for: .milliseconds(20))
-        XCTAssertTrue(model.isExportPanelPresented)
+        #expect(model.isExportPanelPresented)
 
         model.cleanup()
         await secondPanel.resume(returning: currentURL)
         try await Task.sleep(for: .milliseconds(20))
 
-        XCTAssertFalse(model.isExportPanelPresented)
+        #expect(!(model.isExportPanelPresented))
         let exportRequests = await archiveService.exportRequestsSnapshot()
-        XCTAssertTrue(exportRequests.isEmpty)
+        #expect(exportRequests.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testExportFailureUsesExportSpecificAlertTitle() async throws {
         let archiveURL = URL(filePath: "/tmp/export.invalid", directoryHint: .isDirectory)
         var actions = AppSystemActions.inert
@@ -2755,11 +2790,11 @@ final class AppModelDependencyTests: XCTestCase {
             model.lastErrorMessage != nil
         }
 
-        XCTAssertEqual(model.errorAlertTitle, "Export Failed")
-        XCTAssertNil(model.exportConfirmation)
+        #expect(model.errorAlertTitle == "Export Failed")
+        #expect(model.exportConfirmation == nil)
     }
 
-    @MainActor
+    @Test
     func testExportShowsCancellableArchiveOperationWithoutClearingSnapshot() async throws {
         let archiveURL = URL(filePath: "/tmp/export-blocked.radixscan", directoryHint: .isDirectory)
         let exportProbe = AsyncValueProbe<Void>()
@@ -2786,9 +2821,9 @@ final class AppModelDependencyTests: XCTestCase {
             model.archiveOperation?.kind == .export
         }
 
-        XCTAssertFalse(model.canExportCurrentScan)
-        XCTAssertFalse(model.canImportScanSnapshot)
-        XCTAssertEqual(model.scanState.snapshot?.id, snapshot.id)
+        #expect(!(model.canExportCurrentScan))
+        #expect(!(model.canImportScanSnapshot))
+        #expect(model.scanState.snapshot?.id == snapshot.id)
 
         try await waitUntil("export request waiting") {
             await exportProbe.isWaiting
@@ -2800,7 +2835,7 @@ final class AppModelDependencyTests: XCTestCase {
         }
     }
 
-    @MainActor
+    @Test
     func testCancelArchiveOperationCancelsExportWork() async throws {
         let archiveURL = URL(filePath: "/tmp/export-cancelled.radixscan", directoryHint: .isDirectory)
         let exportProbe = AsyncValueProbe<Void>()
@@ -2833,10 +2868,10 @@ final class AppModelDependencyTests: XCTestCase {
             await archiveService.exportCancellationStatesSnapshot().count == 1
         }
         let states = await archiveService.exportCancellationStatesSnapshot()
-        XCTAssertEqual(states, [true])
+        #expect(states == [true])
     }
 
-    @MainActor
+    @Test
     func testCancelArchiveOperationCancelsImportPreviewWork() async throws {
         let archiveURL = URL(filePath: "/tmp/preview-cancelled.radixscan", directoryHint: .isDirectory)
         let previewProbe = AsyncValueProbe<Void>()
@@ -2857,25 +2892,25 @@ final class AppModelDependencyTests: XCTestCase {
             await archiveService.previewCancellationStatesSnapshot().count == 1
         }
         let states = await archiveService.previewCancellationStatesSnapshot()
-        XCTAssertEqual(states, [true])
-        XCTAssertNil(model.pendingImportPreview)
+        #expect(states == [true])
+        #expect(model.pendingImportPreview == nil)
     }
 
-    @MainActor
+    @Test
     func testDocumentOpenWaitsUntilOnboardingDismissesBeforeReadingArchive() async throws {
         let archiveURL = URL(filePath: "/tmp/onboarding-open.radixscan", directoryHint: .isDirectory)
         let previewProbe = AsyncValueProbe<Void>()
         let archiveService = SpyScanArchiveService(previewWaitProbe: previewProbe)
         let model = AppModel(dependencies: makeDependencies(scanArchiveService: archiveService))
 
-        XCTAssertTrue(model.showsOnboarding)
-        XCTAssertEqual(model.presentationCoordinator.activeSheet, .onboarding)
+        #expect(model.showsOnboarding)
+        #expect(model.presentationCoordinator.activeSheet == .onboarding)
 
         model.openScanSnapshotArchive(archiveURL)
 
         let previewStartedDuringOnboarding = await previewProbe.isWaiting
-        XCTAssertFalse(previewStartedDuringOnboarding)
-        XCTAssertEqual(model.presentationCoordinator.activeSheet, .onboarding)
+        #expect(!(previewStartedDuringOnboarding))
+        #expect(model.presentationCoordinator.activeSheet == .onboarding)
 
         model.dismissOnboarding()
         try await waitUntil("queued document open starts after onboarding") {
@@ -2886,7 +2921,7 @@ final class AppModelDependencyTests: XCTestCase {
         await previewProbe.resume(returning: ())
     }
 
-    @MainActor
+    @Test
     func testCancelArchiveOperationCancelsImportWork() async throws {
         let archiveURL = URL(filePath: "/tmp/import-cancelled.radixscan", directoryHint: .isDirectory)
         let file = makeTestFileNode(id: "/import-cancelled/file.txt", name: "file.txt")
@@ -2899,11 +2934,12 @@ final class AppModelDependencyTests: XCTestCase {
             finishedAt: Date(timeIntervalSince1970: 2),
             scanWarnings: [],
             isComplete: true,
-            source: .imported(ImportedSnapshotContext(
-                sourceURL: archiveURL,
-                pathMode: .absolute,
-                liveActionCapability: .pathValidation
-            ))
+            source: .imported(
+                ImportedSnapshotContext(
+                    sourceURL: archiveURL,
+                    pathMode: .absolute,
+                    liveActionCapability: .pathValidation
+                ))
         )
         let manifest = try ScanArchiveDocument(
             exportedAt: Date(timeIntervalSince1970: 3),
@@ -2955,11 +2991,11 @@ final class AppModelDependencyTests: XCTestCase {
             await archiveService.importCancellationStatesSnapshot().count == 1
         }
         let states = await archiveService.importCancellationStatesSnapshot()
-        XCTAssertEqual(states, [true])
-        XCTAssertNil(model.scanState.snapshot)
+        #expect(states == [true])
+        #expect(model.scanState.snapshot == nil)
     }
 
-    @MainActor
+    @Test
     func testStartingScanCancelsPendingImportBeforeItRestoresSnapshot() async throws {
         let archiveURL = URL(filePath: "/tmp/import-race.radixscan", directoryHint: .isDirectory)
         let importedFile = makeTestFileNode(id: "/import-race/file.txt", name: "file.txt")
@@ -2972,11 +3008,12 @@ final class AppModelDependencyTests: XCTestCase {
             finishedAt: Date(timeIntervalSince1970: 2),
             scanWarnings: [],
             isComplete: true,
-            source: .imported(ImportedSnapshotContext(
-                sourceURL: archiveURL,
-                pathMode: .absolute,
-                liveActionCapability: .pathValidation
-            ))
+            source: .imported(
+                ImportedSnapshotContext(
+                    sourceURL: archiveURL,
+                    pathMode: .absolute,
+                    liveActionCapability: .pathValidation
+                ))
         )
         let manifest = try ScanArchiveDocument(
             exportedAt: Date(timeIntervalSince1970: 3),
@@ -3010,11 +3047,12 @@ final class AppModelDependencyTests: XCTestCase {
         var actions = AppSystemActions.inert
         actions.presentImportScanPanel = { archiveURL }
         let scanService = NeverFinishingScanService()
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            scanService: scanService,
-            scanArchiveService: archiveService
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                scanService: scanService,
+                scanArchiveService: archiveService
+            ))
 
         model.importScanSnapshot()
         try await waitUntil("import preview presented") {
@@ -3042,12 +3080,12 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         let states = await archiveService.importCancellationStatesSnapshot()
-        XCTAssertEqual(states, [true])
-        XCTAssertEqual(model.scanState.selectedTarget, liveTarget)
-        XCTAssertNotEqual(model.scanState.snapshot?.id, importedSnapshot.id)
+        #expect(states == [true])
+        #expect(model.scanState.selectedTarget == liveTarget)
+        #expect(model.scanState.snapshot?.id != importedSnapshot.id)
     }
 
-    @MainActor
+    @Test
     func testCompareScanSnapshotsOpensSetupBeforeFileSelection() async throws {
         let oldURL = URL(filePath: "/tmp/old.radixscan", directoryHint: .isDirectory)
         let newURL = URL(filePath: "/tmp/new.radixscan", directoryHint: .isDirectory)
@@ -3081,15 +3119,16 @@ final class AppModelDependencyTests: XCTestCase {
         actions.presentComparisonSnapshotPanel = {
             selectedSnapshotURLs.removeFirst()
         }
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            scanArchiveService: archiveService
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                scanArchiveService: archiveService
+            ))
 
         model.compareScanSnapshots()
-        XCTAssertNotNil(model.pendingComparisonSetup)
-        XCTAssertNil(model.pendingComparisonSetup?.before)
-        XCTAssertNil(model.pendingComparisonSetup?.after)
+        #expect(model.pendingComparisonSetup != nil)
+        #expect(model.pendingComparisonSetup?.before == nil)
+        #expect(model.pendingComparisonSetup?.after == nil)
 
         model.chooseComparisonSnapshot(for: .before)
 
@@ -3104,9 +3143,9 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         let previewedURLs = await archiveService.previewedURLsSnapshot()
-        XCTAssertEqual(previewedURLs, [oldURL, newURL])
+        #expect(previewedURLs == [oldURL, newURL])
         let importedURLsBeforeConfirm = await archiveService.importedURLsSnapshot()
-        XCTAssertTrue(importedURLsBeforeConfirm.isEmpty)
+        #expect(importedURLsBeforeConfirm.isEmpty)
 
         model.confirmComparisonSetup()
 
@@ -3116,27 +3155,28 @@ final class AppModelDependencyTests: XCTestCase {
 
         let importedURLs = await archiveService.importedURLsSnapshot()
         let maximumConcurrentImports = await archiveService.maximumConcurrentImportsSnapshot()
-        XCTAssertEqual(Set(importedURLs), Set([oldURL, newURL]))
-        XCTAssertEqual(maximumConcurrentImports, 2)
-        XCTAssertEqual(model.scanComparison?.before.id, oldSnapshot.id)
-        XCTAssertEqual(model.scanComparison?.after.id, newSnapshot.id)
-        XCTAssertEqual(model.scanComparison?.rows.first?.kind, .grew)
-        XCTAssertEqual(model.scanComparison?.rows.first?.allocatedDelta, 25)
-        XCTAssertNil(model.scanState.snapshot)
+        #expect(Set(importedURLs) == Set([oldURL, newURL]))
+        #expect(maximumConcurrentImports == 2)
+        #expect(model.scanComparison?.before.id == oldSnapshot.id)
+        #expect(model.scanComparison?.after.id == newSnapshot.id)
+        #expect(model.scanComparison?.rows.first?.kind == .grew)
+        #expect(model.scanComparison?.rows.first?.allocatedDelta == 25)
+        #expect(model.scanState.snapshot == nil)
 
-        let activeComparisonID = try XCTUnwrap(model.scanComparison?.id)
+        let activeComparisonID = try #require(model.scanComparison?.id)
 
         model.compareScanSnapshots()
 
-        XCTAssertEqual(model.scanComparison?.id, activeComparisonID)
-        XCTAssertNotNil(model.pendingComparisonSetup)
+        #expect(model.scanComparison?.id == activeComparisonID)
+        #expect(model.pendingComparisonSetup != nil)
 
         model.cancelComparisonSetup()
 
-        XCTAssertEqual(model.scanComparison?.id, activeComparisonID)
-        XCTAssertNil(model.pendingComparisonSetup)
+        #expect(model.scanComparison?.id == activeComparisonID)
+        #expect(model.pendingComparisonSetup == nil)
     }
 
+    @Test
     func testComparisonImportConcurrencyRequiresArchivePairWithinMemoryBudget() throws {
         let oldURL = URL(filePath: "/tmp/old-budget.radixscan", directoryHint: .isDirectory)
         let newURL = URL(filePath: "/tmp/new-budget.radixscan", directoryHint: .isDirectory)
@@ -3161,24 +3201,27 @@ final class AppModelDependencyTests: XCTestCase {
             preview: try makeArchivePreview(archiveURL: newURL, snapshot: newSnapshot)
         )
 
-        XCTAssertTrue(AppModel.shouldLoadComparisonSnapshotsConcurrently(
-            before: oldCandidate,
-            after: newCandidate,
-            physicalMemory: .max
-        ))
-        XCTAssertFalse(AppModel.shouldLoadComparisonSnapshotsConcurrently(
-            before: oldCandidate,
-            after: newCandidate,
-            physicalMemory: 0
-        ))
-        XCTAssertFalse(AppModel.shouldLoadComparisonSnapshotsConcurrently(
-            before: ScanComparisonCandidate(snapshot: oldSnapshot),
-            after: newCandidate,
-            physicalMemory: .max
-        ))
+        #expect(
+            AppModel.shouldLoadComparisonSnapshotsConcurrently(
+                before: oldCandidate,
+                after: newCandidate,
+                physicalMemory: .max
+            ))
+        #expect(
+            !(AppModel.shouldLoadComparisonSnapshotsConcurrently(
+                before: oldCandidate,
+                after: newCandidate,
+                physicalMemory: 0
+            )))
+        #expect(
+            !(AppModel.shouldLoadComparisonSnapshotsConcurrently(
+                before: ScanComparisonCandidate(snapshot: oldSnapshot),
+                after: newCandidate,
+                physicalMemory: .max
+            )))
     }
 
-    @MainActor
+    @Test
     func testSupersededComparisonPanelCannotApplyLateSelection() async throws {
         let oldURL = URL(filePath: "/tmp/superseded.radixscan", directoryHint: .isDirectory)
         let newURL = URL(filePath: "/tmp/current.radixscan", directoryHint: .isDirectory)
@@ -3208,10 +3251,11 @@ final class AppModelDependencyTests: XCTestCase {
             panelRequestCount += 1
             return await (panelRequestCount == 1 ? firstPanel : secondPanel).wait()
         }
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            scanArchiveService: archiveService
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                scanArchiveService: archiveService
+            ))
 
         model.compareScanSnapshots()
         model.chooseComparisonSnapshot(for: .before)
@@ -3230,12 +3274,12 @@ final class AppModelDependencyTests: XCTestCase {
         await firstPanel.resume(returning: oldURL)
         try await Task.sleep(for: .milliseconds(20))
 
-        XCTAssertEqual(model.pendingComparisonSetup?.before?.displayName, newSnapshot.target.displayName)
+        #expect(model.pendingComparisonSetup?.before?.displayName == newSnapshot.target.displayName)
         let previewedURLs = await archiveService.previewedURLsSnapshot()
-        XCTAssertEqual(previewedURLs, [newURL])
+        #expect(previewedURLs == [newURL])
     }
 
-    @MainActor
+    @Test
     func testCompareCurrentScanWithSnapshotUsesCurrentScanAsAfter() async throws {
         let archiveURL = URL(filePath: "/tmp/current-compare.radixscan", directoryHint: .isDirectory)
         let archivedSnapshot = makeComparisonSnapshot(
@@ -3249,27 +3293,28 @@ final class AppModelDependencyTests: XCTestCase {
         )
         let archiveService = try SpyScanArchiveService(
             previewResultsByURL: [
-                archiveURL: makeArchivePreview(archiveURL: archiveURL, snapshot: archivedSnapshot),
+                archiveURL: makeArchivePreview(archiveURL: archiveURL, snapshot: archivedSnapshot)
             ],
             importResultsByURL: [
-                archiveURL: makeArchiveImportResult(archiveURL: archiveURL, snapshot: archivedSnapshot),
+                archiveURL: makeArchiveImportResult(archiveURL: archiveURL, snapshot: archivedSnapshot)
             ]
         )
         var actions = AppSystemActions.inert
         actions.presentComparisonSnapshotPanel = { archiveURL }
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            scanArchiveService: archiveService
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                scanArchiveService: archiveService
+            ))
         model.dismissOnboarding()
         model.scanState.restoreCompletedSnapshot(currentSnapshot)
 
-        XCTAssertTrue(model.canCompareCurrentScanWithSnapshot)
+        #expect(model.canCompareCurrentScanWithSnapshot)
 
         model.compareCurrentScanWithSnapshot()
 
-        XCTAssertNil(model.pendingComparisonSetup?.before)
-        XCTAssertEqual(model.pendingComparisonSetup?.after?.id, currentSnapshot.id)
+        #expect(model.pendingComparisonSetup?.before == nil)
+        #expect(model.pendingComparisonSetup?.after?.id == currentSnapshot.id)
 
         model.chooseComparisonSnapshot(for: .before)
 
@@ -3283,21 +3328,21 @@ final class AppModelDependencyTests: XCTestCase {
             model.scanComparison?.summary.changedCount == 1
         }
 
-        XCTAssertEqual(model.scanComparison?.before.id, archivedSnapshot.id)
-        XCTAssertEqual(model.scanComparison?.after.id, currentSnapshot.id)
-        XCTAssertEqual(model.scanComparison?.rows.first?.kind, .grew)
-        XCTAssertEqual(model.scanComparison?.rows.first?.allocatedDelta, 20)
-        XCTAssertEqual(model.scanState.snapshot?.id, currentSnapshot.id)
-        XCTAssertFalse(model.canUseWorkspaceCommands)
-        XCTAssertTrue(model.isQuickLookKeyboardShortcutBlocked)
+        #expect(model.scanComparison?.before.id == archivedSnapshot.id)
+        #expect(model.scanComparison?.after.id == currentSnapshot.id)
+        #expect(model.scanComparison?.rows.first?.kind == .grew)
+        #expect(model.scanComparison?.rows.first?.allocatedDelta == 20)
+        #expect(model.scanState.snapshot?.id == currentSnapshot.id)
+        #expect(!(model.canUseWorkspaceCommands))
+        #expect(model.isQuickLookKeyboardShortcutBlocked)
 
         model.closeScanComparison()
 
-        XCTAssertTrue(model.canUseWorkspaceCommands)
-        XCTAssertFalse(model.isQuickLookKeyboardShortcutBlocked)
+        #expect(model.canUseWorkspaceCommands)
+        #expect(!(model.isQuickLookKeyboardShortcutBlocked))
     }
 
-    @MainActor
+    @Test
     func testDroppedComparisonSnapshotLoadsIntoRequestedSlot() async throws {
         let archiveURL = URL(filePath: "/tmp/dropped.radixscan", directoryHint: .isDirectory)
         let snapshot = makeComparisonSnapshot(
@@ -3307,7 +3352,7 @@ final class AppModelDependencyTests: XCTestCase {
         )
         let archiveService = try SpyScanArchiveService(
             previewResultsByURL: [
-                archiveURL: makeArchivePreview(archiveURL: archiveURL, snapshot: snapshot),
+                archiveURL: makeArchivePreview(archiveURL: archiveURL, snapshot: snapshot)
             ]
         )
         let model = AppModel(dependencies: makeDependencies(scanArchiveService: archiveService))
@@ -3319,12 +3364,12 @@ final class AppModelDependencyTests: XCTestCase {
             model.pendingComparisonSetup?.after?.displayName == snapshot.target.displayName
         }
 
-        XCTAssertNil(model.pendingComparisonSetup?.before)
+        #expect(model.pendingComparisonSetup?.before == nil)
         let previewedURLs = await archiveService.previewedURLsSnapshot()
-        XCTAssertEqual(previewedURLs, [archiveURL])
+        #expect(previewedURLs == [archiveURL])
     }
 
-    @MainActor
+    @Test
     func testSwapDuringComparisonPreviewLoadLandsResultInSwappedSlot() async throws {
         let archiveURL = URL(filePath: "/tmp/swap-loading.radixscan", directoryHint: .isDirectory)
         let snapshot = makeComparisonSnapshot(
@@ -3335,7 +3380,7 @@ final class AppModelDependencyTests: XCTestCase {
         let previewProbe = AsyncValueProbe<Void>()
         let archiveService = try SpyScanArchiveService(
             previewResultsByURL: [
-                archiveURL: makeArchivePreview(archiveURL: archiveURL, snapshot: snapshot),
+                archiveURL: makeArchivePreview(archiveURL: archiveURL, snapshot: snapshot)
             ],
             previewWaitProbe: previewProbe
         )
@@ -3343,50 +3388,44 @@ final class AppModelDependencyTests: XCTestCase {
         model.scanState.restoreCompletedSnapshot(snapshot)
 
         model.compareScanSnapshots()
-        XCTAssertTrue(model.canExportCurrentScan)
+        #expect(model.canExportCurrentScan)
         model.dropComparisonSnapshot(archiveURL, for: .before)
 
         try await waitUntil("comparison preview load started") {
             await previewProbe.isWaiting
         }
-        XCTAssertEqual(model.pendingComparisonSetup?.loadingSlot, .before)
-        XCTAssertTrue(model.isArchiveOperationInProgress)
-        XCTAssertFalse(model.canExportCurrentScan)
+        #expect(model.pendingComparisonSetup?.loadingSlot == .before)
+        #expect(model.isArchiveOperationInProgress)
+        #expect(!(model.canExportCurrentScan))
 
         model.swapPendingComparisonSetup()
-        XCTAssertEqual(model.pendingComparisonSetup?.loadingSlot, .after)
-        XCTAssertNil(model.pendingComparisonSetup?.before)
-        XCTAssertNil(model.pendingComparisonSetup?.after)
+        #expect(model.pendingComparisonSetup?.loadingSlot == .after)
+        #expect(model.pendingComparisonSetup?.before == nil)
+        #expect(model.pendingComparisonSetup?.after == nil)
 
         await previewProbe.resume(returning: ())
 
         try await waitUntil("swapped comparison preview loaded") {
             model.pendingComparisonSetup?.loadingSlot == nil
         }
-        XCTAssertNil(model.pendingComparisonSetup?.before)
-        XCTAssertEqual(
-            model.pendingComparisonSetup?.after?.displayName,
-            snapshot.target.displayName
-        )
+        #expect(model.pendingComparisonSetup?.before == nil)
+        #expect(model.pendingComparisonSetup?.after?.displayName == snapshot.target.displayName)
     }
 
-    @MainActor
-    func testDroppedComparisonSnapshotRejectsOtherFileTypes() async throws {
+    @Test
+    func testDroppedComparisonSnapshotRejectsOtherFileTypes() async {
         let archiveService = SpyScanArchiveService()
         let model = AppModel(dependencies: makeDependencies(scanArchiveService: archiveService))
 
         model.compareScanSnapshots()
         model.dropComparisonSnapshot(URL(filePath: "/tmp/not-a-scan.zip"), for: .before)
 
-        XCTAssertEqual(
-            model.pendingComparisonSetup?.errorMessage,
-            "Drop a .radixscan saved scan."
-        )
+        #expect(model.pendingComparisonSetup?.errorMessage == "Drop a .radixscan saved scan.")
         let previewedURLs = await archiveService.previewedURLsSnapshot()
-        XCTAssertTrue(previewedURLs.isEmpty)
+        #expect(previewedURLs.isEmpty)
     }
 
-    @MainActor
+    @Test
     func testComparisonSetupRejectsReverseChronologicalOrder() async throws {
         let oldURL = URL(filePath: "/tmp/swap-old.radixscan", directoryHint: .isDirectory)
         let newURL = URL(filePath: "/tmp/swap-new.radixscan", directoryHint: .isDirectory)
@@ -3419,10 +3458,11 @@ final class AppModelDependencyTests: XCTestCase {
         actions.presentComparisonSnapshotPanel = {
             selectedSnapshotURLs.removeFirst()
         }
-        let model = AppModel(dependencies: makeDependencies(
-            systemActions: actions,
-            scanArchiveService: archiveService
-        ))
+        let model = AppModel(
+            dependencies: makeDependencies(
+                systemActions: actions,
+                scanArchiveService: archiveService
+            ))
 
         model.compareScanSnapshots()
         model.chooseComparisonSnapshot(for: .before)
@@ -3435,21 +3475,18 @@ final class AppModelDependencyTests: XCTestCase {
         }
 
         model.swapPendingComparisonSetup()
-        XCTAssertEqual(model.pendingComparisonSetup?.before?.displayName, newSnapshot.target.displayName)
-        XCTAssertFalse(model.pendingComparisonSetup?.canCompare ?? true)
-        XCTAssertEqual(
-            model.pendingComparisonSetup?.validationMessage,
-            "The earlier scan must precede the later scan."
-        )
+        #expect(model.pendingComparisonSetup?.before?.displayName == newSnapshot.target.displayName)
+        #expect(!(model.pendingComparisonSetup?.canCompare ?? true))
+        #expect(model.pendingComparisonSetup?.validationMessage == "The earlier scan must precede the later scan.")
 
         model.swapPendingComparisonSetup()
-        XCTAssertEqual(model.pendingComparisonSetup?.before?.displayName, oldSnapshot.target.displayName)
-        XCTAssertTrue(model.pendingComparisonSetup?.canCompare ?? false)
-        XCTAssertNil(model.pendingComparisonSetup?.validationMessage)
-        XCTAssertNil(model.pendingComparisonSetup?.errorMessage)
+        #expect(model.pendingComparisonSetup?.before?.displayName == oldSnapshot.target.displayName)
+        #expect(model.pendingComparisonSetup?.canCompare ?? false)
+        #expect(model.pendingComparisonSetup?.validationMessage == nil)
+        #expect(model.pendingComparisonSetup?.errorMessage == nil)
     }
 
-    @MainActor
+    @Test
     func testImportedSnapshotCannotBeComparedAsCurrentScan() {
         let archiveURL = URL(filePath: "/tmp/imported-current.radixscan", directoryHint: .isDirectory)
         let importedSnapshot = makeComparisonSnapshot(
@@ -3461,7 +3498,7 @@ final class AppModelDependencyTests: XCTestCase {
 
         model.scanState.restoreCompletedSnapshot(importedSnapshot)
 
-        XCTAssertFalse(model.canCompareCurrentScanWithSnapshot)
+        #expect(!(model.canCompareCurrentScanWithSnapshot))
     }
 
 }
@@ -3673,18 +3710,20 @@ private func installRecordingQuickLookMonitor(
 }
 
 private func makeSpaceKeyEvent(windowNumber: Int = 0) -> NSEvent {
-    guard let event = NSEvent.keyEvent(
-        with: .keyDown,
-        location: .zero,
-        modifierFlags: [],
-        timestamp: 0,
-        windowNumber: windowNumber,
-        context: nil,
-        characters: " ",
-        charactersIgnoringModifiers: " ",
-        isARepeat: false,
-        keyCode: 49
-    ) else {
+    guard
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        )
+    else {
         fatalError("Failed to create Space key event")
     }
     return event
@@ -3866,20 +3905,12 @@ private final class AppModelActionRecorder {
 }
 
 private actor AsyncTrashActionProbe {
-    private enum ProbeError: Error {
-        case timeout
-    }
-
     private var movedURLValues: [URL] = []
-    private var startContinuations: [CheckedContinuation<Void, Never>] = []
     private var finishContinuations: [CheckedContinuation<Void, Never>] = []
     private var isFinished = false
 
     func move(_ url: URL) async {
         movedURLValues.append(url)
-        let continuations = startContinuations
-        startContinuations.removeAll()
-        continuations.forEach { $0.resume() }
         guard !isFinished else { return }
 
         await withCheckedContinuation { continuation in
@@ -3887,19 +3918,8 @@ private actor AsyncTrashActionProbe {
         }
     }
 
-    func waitUntilStarted(timeout: Duration = .seconds(1)) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await self.waitUntilStarted()
-            }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw ProbeError.timeout
-            }
-
-            try await group.next()
-            group.cancelAll()
-        }
+    func waitUntilStarted() async throws {
+        try await waitUntil("trash action started") { await !self.movedURLValues.isEmpty }
     }
 
     func finish() {
@@ -3913,15 +3933,7 @@ private actor AsyncTrashActionProbe {
         movedURLValues
     }
 
-    private func waitUntilStarted() async {
-        guard movedURLValues.isEmpty else { return }
-
-        await withCheckedContinuation { continuation in
-            startContinuations.append(continuation)
-        }
-    }
 }
-
 private actor SpyScanArchiveService: ScanArchiveServicing {
     struct ExportRequest: Sendable {
         let snapshotID: UUID
@@ -3971,11 +3983,12 @@ private actor SpyScanArchiveService: ScanArchiveServicing {
         to destinationURL: URL,
         options: ScanArchiveExportOptions
     ) async throws -> ScanArchiveExportResult {
-        exportRequests.append(ExportRequest(
-            snapshotID: snapshot.id,
-            destinationURL: destinationURL,
-            pathMode: options.pathMode
-        ))
+        exportRequests.append(
+            ExportRequest(
+                snapshotID: snapshot.id,
+                destinationURL: destinationURL,
+                pathMode: options.pathMode
+            ))
         if let exportWaitProbe {
             await exportWaitProbe.wait()
         }

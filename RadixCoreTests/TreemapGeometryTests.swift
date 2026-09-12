@@ -1,8 +1,11 @@
 import CoreGraphics
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class TreemapGeometryTests: XCTestCase {
+struct TreemapGeometryTests {
+    @Test
     func testTopLevelTilesFillBoundsProportionallyWithoutOverlap() {
         let large = makeTestFileNode(id: "/root/large", name: "large", size: 75)
         let small = makeTestFileNode(id: "/root/small", name: "small", size: 25)
@@ -17,14 +20,15 @@ final class TreemapGeometryTests: XCTestCase {
             minimumTileArea: 1
         )
 
-        XCTAssertEqual(segments.count, 2)
+        #expect(segments.count == 2)
         let areaByID = Dictionary(uniqueKeysWithValues: segments.map { ($0.id, $0.rect.area) })
-        XCTAssertEqual(areaByID[large.id] ?? 0, 0.75, accuracy: 0.000_001)
-        XCTAssertEqual(areaByID[small.id] ?? 0, 0.25, accuracy: 0.000_001)
-        XCTAssertEqual(segments.reduce(0) { $0 + $1.rect.area }, 1, accuracy: 0.000_001)
-        XCTAssertTrue(segments[0].rect.intersection(segments[1].rect).area < 0.000_001)
+        #expect(abs((areaByID[large.id] ?? 0) - (0.75)) <= 0.000_001)
+        #expect(abs((areaByID[small.id] ?? 0) - (0.25)) <= 0.000_001)
+        #expect(abs((segments.reduce(0) { $0 + $1.rect.area }) - (1)) <= 0.000_001)
+        #expect(segments[0].rect.intersection(segments[1].rect).area < 0.000_001)
     }
 
+    @Test
     func testNestedDirectoryReservesHeaderAndContainsDescendantTiles() throws {
         let nestedA = makeTestFileNode(id: "/root/folder/a", name: "a", size: 60)
         let nestedB = makeTestFileNode(id: "/root/folder/b", name: "b", size: 40)
@@ -39,7 +43,7 @@ final class TreemapGeometryTests: XCTestCase {
             root: root,
             childrenByID: [
                 root.id: [folder, sibling],
-                folder.id: [nestedA, nestedB]
+                folder.id: [nestedA, nestedB],
             ]
         )
 
@@ -51,19 +55,20 @@ final class TreemapGeometryTests: XCTestCase {
             minimumTileArea: 1
         )
 
-        let folderSegment = try XCTUnwrap(segments.first { $0.id == folder.id })
-        let firstChildSegment = try XCTUnwrap(segments.first { $0.id == nestedA.id })
-        let secondChildSegment = try XCTUnwrap(segments.first { $0.id == nestedB.id })
+        let folderSegment = try #require(segments.first { $0.id == folder.id })
+        let firstChildSegment = try #require(segments.first { $0.id == nestedA.id })
+        let secondChildSegment = try #require(segments.first { $0.id == nestedB.id })
 
-        XCTAssertTrue(folderSegment.showsContainerHeader)
-        XCTAssertEqual(firstChildSegment.depth, 1)
-        XCTAssertEqual(secondChildSegment.depth, 1)
-        XCTAssertTrue(folderSegment.rect.contains(firstChildSegment.rect))
-        XCTAssertTrue(folderSegment.rect.contains(secondChildSegment.rect))
-        XCTAssertGreaterThan(firstChildSegment.rect.minY, folderSegment.rect.minY)
-        XCTAssertGreaterThan(secondChildSegment.rect.minY, folderSegment.rect.minY)
+        #expect(folderSegment.showsContainerHeader)
+        #expect(firstChildSegment.depth == 1)
+        #expect(secondChildSegment.depth == 1)
+        #expect(folderSegment.rect.contains(firstChildSegment.rect))
+        #expect(folderSegment.rect.contains(secondChildSegment.rect))
+        #expect(firstChildSegment.rect.minY > folderSegment.rect.minY)
+        #expect(secondChildSegment.rect.minY > folderSegment.rect.minY)
     }
 
+    @Test
     func testSmallSiblingsCollapseIntoAggregateTile() {
         let large = makeTestFileNode(id: "/root/large", name: "large", size: 10_000)
         let smallNodes = (0..<4).map {
@@ -79,14 +84,15 @@ final class TreemapGeometryTests: XCTestCase {
             size: CGSize(width: 500, height: 300)
         )
 
-        XCTAssertEqual(segments.count, 2)
+        #expect(segments.count == 2)
         let aggregate = segments.first { $0.isAggregate }
-        XCTAssertEqual(aggregate?.label, "Smaller Items")
-        XCTAssertEqual(aggregate?.totalSize, 4)
-        XCTAssertEqual(aggregate?.groupedItemCount, 4)
-        XCTAssertNil(aggregate?.nodeID)
+        #expect(aggregate?.label == "Smaller Items")
+        #expect(aggregate?.totalSize == 4)
+        #expect(aggregate?.groupedItemCount == 4)
+        #expect(aggregate?.nodeID == nil)
     }
 
+    @Test
     func testAggregateSizeDoesNotCountZeroByteLayoutWeightsAsDiskUsage() throws {
         let large = makeTestFileNode(id: "/root/large", name: "large", size: 10_000)
         let empty = (0..<3).map {
@@ -102,11 +108,13 @@ final class TreemapGeometryTests: XCTestCase {
             size: CGSize(width: 500, height: 300)
         )
 
-        let aggregate = try XCTUnwrap(segments.first(where: \.isAggregate))
-        XCTAssertEqual(aggregate.totalSize, 0)
-        XCTAssertEqual(aggregate.groupedItemCount, 3)
+        let aggregateValue = (segments.first(where: \.isAggregate))
+        let aggregate = try #require(aggregateValue)
+        #expect(aggregate.totalSize == 0)
+        #expect(aggregate.groupedItemCount == 3)
     }
 
+    @Test
     func testAggregateTileIsSortedBySizeBeforeSquarification() {
         let large = makeTestFileNode(id: "/root/large", name: "large", size: 10_000)
         let medium = makeTestFileNode(id: "/root/medium", name: "medium", size: 100)
@@ -124,9 +132,10 @@ final class TreemapGeometryTests: XCTestCase {
             size: CGSize(width: 1_000, height: 1_000)
         )
 
-        XCTAssertEqual(segments.map(\.id), [large.id, "treemap-aggregate-\(root.id)", medium.id])
+        #expect(segments.map(\.id) == [large.id, "treemap-aggregate-\(root.id)", medium.id])
     }
 
+    @Test
     func testHitTestingPrefersDeepestContainingTile() throws {
         let nested = makeTestFileNode(id: "/root/folder/nested", name: "nested", size: 100)
         let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
@@ -143,7 +152,7 @@ final class TreemapGeometryTests: XCTestCase {
             size: size,
             minimumTileArea: 1
         )
-        let nestedSegment = try XCTUnwrap(segments.first { $0.id == nested.id })
+        let nestedSegment = try #require(segments.first { $0.id == nested.id })
         let point = CGPoint(
             x: nestedSegment.rect.midX * size.width,
             y: nestedSegment.rect.midY * size.height
@@ -151,9 +160,10 @@ final class TreemapGeometryTests: XCTestCase {
 
         let hit = TreemapHitTestIndex(segments: segments).segment(at: point, in: size)
 
-        XCTAssertEqual(hit?.id, nested.id)
+        #expect(hit?.id == nested.id)
     }
 
+    @Test
     func testHitTestingLeavesStructuralGuttersUnassigned() {
         let left = makeTreemapSegment(
             id: "left",
@@ -166,9 +176,10 @@ final class TreemapGeometryTests: XCTestCase {
         let size = CGSize(width: 600, height: 300)
         let index = TreemapHitTestIndex(segments: [left, right])
 
-        XCTAssertNil(index.segment(at: CGPoint(x: 300, y: 150), in: size))
+        #expect(index.segment(at: CGPoint(x: 300, y: 150), in: size) == nil)
     }
 
+    @Test
     func testRendererMapsSegmentIntoOffsetContentFrame() {
         let segment = makeTreemapSegment(
             id: "mapped",
@@ -176,16 +187,13 @@ final class TreemapGeometryTests: XCTestCase {
         )
         let contentFrame = CGRect(x: -100, y: 50, width: 800, height: 400)
 
-        XCTAssertEqual(
-            TreemapRenderer.rect(for: segment, in: contentFrame),
-            CGRect(x: 100, y: 130, width: 400, height: 160)
-        )
-        XCTAssertEqual(
-            TreemapRenderer.displayRect(for: segment, in: contentFrame),
-            CGRect(x: 100.75, y: 130.75, width: 398.5, height: 158.5)
-        )
+        #expect(TreemapRenderer.rect(for: segment, in: contentFrame) == CGRect(x: 100, y: 130, width: 400, height: 160))
+        #expect(
+            TreemapRenderer.displayRect(for: segment, in: contentFrame)
+                == CGRect(x: 100.75, y: 130.75, width: 398.5, height: 158.5))
     }
 
+    @Test
     func testTransformedPointerHitsRenderedSegment() throws {
         let parent = makeTreemapSegment(
             id: "parent",
@@ -208,20 +216,17 @@ final class TreemapGeometryTests: XCTestCase {
             in: contentFrame
         )
         let pointer = CGPoint(x: renderedRect.midX, y: renderedRect.midY)
-        let chartPoint = try XCTUnwrap(
-            transform.localChartPoint(for: pointer, in: baseFrame)
-        )
+        let chartPoint = try #require(transform.localChartPoint(for: pointer, in: baseFrame))
 
-        XCTAssertTrue(baseFrame.contains(pointer))
-        XCTAssertEqual(
+        #expect(baseFrame.contains(pointer))
+        #expect(
             TreemapHitTestIndex(segments: [parent, child]).segment(
                 at: chartPoint.point,
                 in: chartPoint.size
-            )?.id,
-            child.id
-        )
+            )?.id == child.id)
     }
 
+    @Test
     func testHitTestingMatchesRenderedRectsAcrossFractionalChartSize() {
         let segments = [
             makeTreemapSegment(id: "left", rect: CGRect(x: 0, y: 0, width: 0.6, height: 1)),
@@ -236,15 +241,14 @@ final class TreemapGeometryTests: XCTestCase {
                 let expected = segments.last { segment in
                     TreemapRenderer.displayRect(for: segment, in: size).contains(point)
                 }
-                XCTAssertEqual(
-                    index.segment(at: point, in: size)?.id,
-                    expected?.id,
-                    "Hit-test mismatch at (\(point.x), \(point.y))"
-                )
+                #expect(
+                    index.segment(at: point, in: size)?.id == expected?.id,
+                    "Hit-test mismatch at (\(point.x), \(point.y))")
             }
         }
     }
 
+    @Test
     func testSmallTilesDoNotProduceAnOutOfBoundsSelectionStrokeRect() {
         let segment = makeTreemapSegment(
             id: "tiny",
@@ -252,15 +256,15 @@ final class TreemapGeometryTests: XCTestCase {
         )
         let size = CGSize(width: 500, height: 300)
 
-        XCTAssertNil(
+        #expect(
             TreemapRenderer.strokeRect(
                 for: segment,
                 in: size,
                 lineWidth: 2.75
-            )
-        )
+            ) == nil)
     }
 
+    @Test
     func testDescendantsKeepTopLevelBranchColorFamily() throws {
         let nested = makeTestFileNode(id: "/root/folder/nested", name: "nested", size: 100)
         let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
@@ -277,14 +281,15 @@ final class TreemapGeometryTests: XCTestCase {
             size: CGSize(width: 600, height: 300),
             minimumTileArea: 1
         )
-        let folderSegment = try XCTUnwrap(segments.first { $0.id == folder.id })
-        let nestedSegment = try XCTUnwrap(segments.first { $0.id == nested.id })
+        let folderSegment = try #require(segments.first { $0.id == folder.id })
+        let nestedSegment = try #require(segments.first { $0.id == nested.id })
 
-        XCTAssertEqual(folderSegment.colorToken.branchID, folder.id)
-        XCTAssertEqual(nestedSegment.colorToken.branchID, folder.id)
-        XCTAssertNotEqual(folderSegment.colorToken.localID, nestedSegment.colorToken.localID)
+        #expect(folderSegment.colorToken.branchID == folder.id)
+        #expect(nestedSegment.colorToken.branchID == folder.id)
+        #expect(folderSegment.colorToken.localID != nestedSegment.colorToken.localID)
     }
 
+    @Test
     func testFocusedLayoutPreservesGlobalBranchAndSiblingColorIdentity() throws {
         let first = makeTestFileNode(id: "/root/folder/first", name: "first", size: 200)
         let second = makeTestFileNode(id: "/root/folder/second", name: "second", size: 100)
@@ -321,22 +326,19 @@ final class TreemapGeometryTests: XCTestCase {
             size: size,
             minimumTileArea: 1
         )
-        let rootToken = try XCTUnwrap(
-            rootSegments.first { $0.nodeID == first.id }?.colorToken
-        )
-        let focusedToken = try XCTUnwrap(
-            focusedSegments.first { $0.nodeID == first.id }?.colorToken
-        )
+        let rootToken = try #require(rootSegments.first { $0.nodeID == first.id }?.colorToken)
+        let focusedToken = try #require(focusedSegments.first { $0.nodeID == first.id }?.colorToken)
 
-        XCTAssertEqual(focusedToken.branchID, rootToken.branchID)
-        XCTAssertEqual(focusedToken.branchIndex, rootToken.branchIndex)
-        XCTAssertEqual(focusedToken.branchCount, rootToken.branchCount)
-        XCTAssertEqual(focusedToken.localID, rootToken.localID)
-        XCTAssertEqual(focusedToken.siblingIndex, rootToken.siblingIndex)
-        XCTAssertEqual(focusedToken.siblingCount, rootToken.siblingCount)
-        XCTAssertEqual(focusedToken.role, rootToken.role)
+        #expect(focusedToken.branchID == rootToken.branchID)
+        #expect(focusedToken.branchIndex == rootToken.branchIndex)
+        #expect(focusedToken.branchCount == rootToken.branchCount)
+        #expect(focusedToken.localID == rootToken.localID)
+        #expect(focusedToken.siblingIndex == rootToken.siblingIndex)
+        #expect(focusedToken.siblingCount == rootToken.siblingCount)
+        #expect(focusedToken.role == rootToken.role)
     }
 
+    @Test
     func testGroupedRootPreservesGlobalColorIndexForVisibleBranches() throws {
         let groupedA = makeTestFileNode(
             id: "/root/grouped-a",
@@ -370,16 +372,15 @@ final class TreemapGeometryTests: XCTestCase {
             size: CGSize(width: 100, height: 100),
             minimumTileArea: 20
         )
-        let visibleToken = try XCTUnwrap(
-            segments.first { $0.nodeID == visible.id }?.colorToken
-        )
+        let visibleToken = try #require(segments.first { $0.nodeID == visible.id }?.colorToken)
 
-        XCTAssertEqual(visibleToken.branchID, visible.id)
-        XCTAssertEqual(visibleToken.branchIndex, 0)
-        XCTAssertEqual(visibleToken.branchCount, 3)
+        #expect(visibleToken.branchID == visible.id)
+        #expect(visibleToken.branchIndex == 0)
+        #expect(visibleToken.branchCount == 3)
     }
 
-    func testLayoutStopsWhenCancellationCheckThrows() {
+    @Test
+    func testLayoutStopsWhenCancellationCheckThrows() throws {
         let children = (0..<100).map {
             makeTestFileNode(id: "/root/\($0)", name: "\($0)", size: Int64(100 - $0))
         }
@@ -387,18 +388,21 @@ final class TreemapGeometryTests: XCTestCase {
         let store = FileTreeStore(root: root, childrenByID: [root.id: children])
         var checks = 0
 
-        XCTAssertThrowsError(try TreemapLayout.segments(
-            in: store,
-            rootID: root.id,
-            depthLimit: 3,
-            size: CGSize(width: 800, height: 400),
-            cancellationCheck: {
-                checks += 1
-                if checks > 4 { throw CancellationError() }
-            }
-        ))
+        #expect(throws: (any Error).self) {
+            try TreemapLayout.segments(
+                in: store,
+                rootID: root.id,
+                depthLimit: 3,
+                size: CGSize(width: 800, height: 400),
+                cancellationCheck: {
+                    checks += 1
+                    if checks > 4 { throw CancellationError() }
+                }
+            )
+        }
     }
 
+    @Test
     func testTinyDirectoryTileDoesNotReadUnrenderableChildren() throws {
         let file = makeTestFileNode(id: "/root/folder/file", name: "file", size: 100)
         let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [file])
@@ -409,14 +413,14 @@ final class TreemapGeometryTests: XCTestCase {
             in: tree, rootID: root.id, depthLimit: 3, size: CGSize(width: 40, height: 40),
             cancellationCheck: {}
         )
-        XCTAssertEqual(segments.count, 1)
-        let tile = try XCTUnwrap(segments.first)
-        XCTAssertEqual(tile.nodeID, folder.id)
-        XCTAssertTrue(tile.isDirectory)
-        XCTAssertFalse(tile.showsContainerHeader)
-        XCTAssertEqual(tile.rect, CGRect(x: 0, y: 0, width: 1, height: 1))
-        XCTAssertEqual(tree.childReadCount(for: folder.id), 0)
-        XCTAssertEqual(tree.projectedNodeCount, 1)
+        #expect(segments.count == 1)
+        let tile = try #require(segments.first)
+        #expect(tile.nodeID == folder.id)
+        #expect(tile.isDirectory)
+        #expect(!(tile.showsContainerHeader))
+        #expect(tile.rect == CGRect(x: 0, y: 0, width: 1, height: 1))
+        #expect(tree.childReadCount(for: folder.id) == 0)
+        #expect(tree.projectedNodeCount == 1)
     }
 }
 
@@ -442,8 +446,8 @@ private func makeTreemapSegment(
     )
 }
 
-private extension CGRect {
-    var area: CGFloat {
+extension CGRect {
+    fileprivate var area: CGFloat {
         isNull || isInfinite ? 0 : max(width, 0) * max(height, 0)
     }
 }

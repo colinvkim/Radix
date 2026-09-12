@@ -1,8 +1,11 @@
 import CoreGraphics
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class TreemapTooltipContentTests: XCTestCase {
+struct TreemapTooltipContentTests {
+    @Test
     func testFolderContentIncludesSignificanceLocationAndFileCount() throws {
         let first = makeTestFileNode(id: "/disk/Documents/first", name: "first", size: 300)
         let second = makeTestFileNode(id: "/disk/Documents/second", name: "second", size: 100)
@@ -21,10 +24,10 @@ final class TreemapTooltipContentTests: XCTestCase {
             root: root,
             childrenByID: [
                 root.id: [documents, other],
-                documents.id: [first, second]
+                documents.id: [first, second],
             ]
         )
-        let segment = try XCTUnwrap(segments(in: store, root: root).first { $0.id == documents.id })
+        let segment = try #require(segments(in: store, root: root).first { $0.id == documents.id })
 
         let content = TreemapTooltipContent.content(
             for: segment,
@@ -32,12 +35,12 @@ final class TreemapTooltipContentTests: XCTestCase {
             treeStore: store
         )
 
-        XCTAssertEqual(content.systemImageName, "folder.fill")
-        XCTAssertEqual(content.title, "Documents")
-        XCTAssertTrue(content.sizeAndSignificance.contains("40.0% of Macintosh HD"))
-        XCTAssertEqual(content.location, "Macintosh HD")
-        XCTAssertEqual(content.metadata, "2 files")
-        XCTAssertNil(content.status)
+        #expect(content.systemImageName == "folder.fill")
+        #expect(content.title == "Documents")
+        #expect(content.sizeAndSignificance.contains("40.0% of Macintosh HD"))
+        #expect(content.location == "Macintosh HD")
+        #expect(content.metadata == "2 files")
+        #expect(content.status == nil)
 
         let queuedContent = TreemapTooltipContent.content(
             for: segment,
@@ -45,10 +48,11 @@ final class TreemapTooltipContentTests: XCTestCase {
             treeStore: store,
             discardPileRole: .queuedRoot
         )
-        XCTAssertEqual(queuedContent.status, "In Discard Pile")
-        XCTAssertTrue(queuedContent.accessibilityDescription.contains("In Discard Pile"))
+        #expect(queuedContent.status == "In Discard Pile")
+        #expect(queuedContent.accessibilityDescription.contains("In Discard Pile"))
     }
 
+    @Test
     func testFileContentIncludesParentPathAndModificationDate() throws {
         let modified = Date(timeIntervalSince1970: 1_700_000_000)
         let report = makeTestFileNode(
@@ -78,10 +82,10 @@ final class TreemapTooltipContentTests: XCTestCase {
             childrenByID: [
                 root.id: [documents, other],
                 documents.id: [reports],
-                reports.id: [report]
+                reports.id: [report],
             ]
         )
-        let segment = try XCTUnwrap(segments(in: store, root: root).first { $0.id == report.id })
+        let segment = try #require(segments(in: store, root: root).first { $0.id == report.id })
 
         let content = TreemapTooltipContent.content(
             for: segment,
@@ -89,13 +93,14 @@ final class TreemapTooltipContentTests: XCTestCase {
             treeStore: store
         )
 
-        XCTAssertEqual(content.systemImageName, "doc.fill")
-        XCTAssertEqual(content.title, "annual.pdf")
-        XCTAssertTrue(content.sizeAndSignificance.contains("10.0% of Macintosh HD"))
-        XCTAssertEqual(content.location, "Macintosh HD › Documents › Reports")
-        XCTAssertEqual(content.metadata, "Modified \(RadixFormatters.date(modified))")
+        #expect(content.systemImageName == "doc.fill")
+        #expect(content.title == "annual.pdf")
+        #expect(content.sizeAndSignificance.contains("10.0% of Macintosh HD"))
+        #expect(content.location == "Macintosh HD › Documents › Reports")
+        #expect(content.metadata == "Modified \(RadixFormatters.date(modified))")
     }
 
+    @Test
     func testAggregateContentIncludesContainerPathAndGroupedItemCount() throws {
         let large = makeTestFileNode(id: "/disk/Library/large", name: "large", size: 10_000)
         let small = (0..<4).map {
@@ -111,7 +116,8 @@ final class TreemapTooltipContentTests: XCTestCase {
             root: root,
             childrenByID: [root.id: [library], library.id: [large] + small]
         )
-        let segment = try XCTUnwrap(segments(in: store, root: root).first(where: \.isAggregate))
+        let segmentValue = (segments(in: store, root: root).first(where: \.isAggregate))
+        let segment = try #require(segmentValue)
 
         let content = TreemapTooltipContent.content(
             for: segment,
@@ -119,10 +125,10 @@ final class TreemapTooltipContentTests: XCTestCase {
             treeStore: store
         )
 
-        XCTAssertEqual(content.systemImageName, "square.grid.3x3.fill")
-        XCTAssertEqual(content.title, "Smaller Items")
-        XCTAssertEqual(content.location, "Macintosh HD › Library")
-        XCTAssertEqual(content.metadata, "4 grouped items")
+        #expect(content.systemImageName == "square.grid.3x3.fill")
+        #expect(content.title == "Smaller Items")
+        #expect(content.location == "Macintosh HD › Library")
+        #expect(content.metadata == "4 grouped items")
 
         let containingContent = TreemapTooltipContent.content(
             for: segment,
@@ -130,7 +136,7 @@ final class TreemapTooltipContentTests: XCTestCase {
             treeStore: store,
             discardPileRole: .containsQueuedItem
         )
-        XCTAssertEqual(containingContent.status, "Contains Items in Discard Pile")
+        #expect(containingContent.status == "Contains Items in Discard Pile")
     }
 
     private func segments(

@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class IncrementalRescanPlannerTests: XCTestCase {
+struct IncrementalRescanPlannerTests {
+    @Test
     func testInjectedHistoryProviderFeedsPlannerWithinExplicitCutoff() async throws {
         let fixture = makeFixture()
         let since = ScanIncrementalCheckpoint(volumeUUID: "volume", eventID: 10)
@@ -16,7 +19,7 @@ final class IncrementalRescanPlannerTests: XCTestCase {
                         path: "/scan/folder/new.txt",
                         eventID: 20,
                         flags: [.itemCreated, .itemIsFile]
-                    ),
+                    )
                 ]
             )
         )
@@ -35,45 +38,54 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(cutoff, through)
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [fixture.folder.id],
-            rescanSubtreeIDs: []
-        ))
+        #expect(cutoff == through)
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [fixture.folder.id],
+                    rescanSubtreeIDs: []
+                ))
     }
 
+    @Test
     func testFileEventRelistsContainingDirectory() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event("/scan/folder/new.txt", flags: [.itemCreated, .itemIsFile]),
+                event("/scan/folder/new.txt", flags: [.itemCreated, .itemIsFile])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [fixture.folder.id],
-            rescanSubtreeIDs: []
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [fixture.folder.id],
+                    rescanSubtreeIDs: []
+                ))
     }
 
+    @Test
     func testRootLevelFileEventRelistsScanRoot() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event("/scan/new.txt", flags: [.itemCreated, .itemIsFile]),
+                event("/scan/new.txt", flags: [.itemCreated, .itemIsFile])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [fixture.store.rootID],
-            rescanSubtreeIDs: []
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [fixture.store.rootID],
+                    rescanSubtreeIDs: []
+                ))
     }
 
+    @Test
     func testDisjointRelistAndSubtreeRescanShareOnePlan() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
@@ -88,12 +100,15 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [fixture.folder.id],
-            rescanSubtreeIDs: [fixture.package.id]
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [fixture.folder.id],
+                    rescanSubtreeIDs: [fixture.package.id]
+                ))
     }
 
+    @Test
     func testAncestorRelistWithNestedUpdateFallsBackAtScanRoot() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
@@ -105,9 +120,10 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .fullScan(reason: .changedScanRoot))
+        #expect(plan == .fullScan(reason: .changedScanRoot))
     }
 
+    @Test
     func testBroadRelistPlanFallsBackToFullScan() {
         let directories = (0..<32).map { index in
             directory("/scan/directory-\(index)", children: [])
@@ -126,9 +142,10 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             treeStore: store
         )
 
-        XCTAssertEqual(plan, .fullScan(reason: .incrementalWorkTooBroad))
+        #expect(plan == .fullScan(reason: .incrementalWorkTooBroad))
     }
 
+    @Test
     func testSingleBroadSubtreeFallsBackToFullScan() {
         let changedFiles = (0..<40).map { index in
             file("/scan/changed/file-\(index).dat")
@@ -139,22 +156,25 @@ final class IncrementalRescanPlannerTests: XCTestCase {
         }
         let rootChildren = [changed] + paddingFiles
         let root = directory("/scan", children: rootChildren)
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: rootChildren,
-            changed.id: changedFiles,
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: rootChildren,
+                changed.id: changedFiles,
+            ])
 
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event(changed.id, flags: [.mustScanSubdirectories, .itemIsDirectory]),
+                event(changed.id, flags: [.mustScanSubdirectories, .itemIsDirectory])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: store
         )
 
-        XCTAssertEqual(plan, .fullScan(reason: .incrementalWorkTooBroad))
+        #expect(plan == .fullScan(reason: .incrementalWorkTooBroad))
     }
 
+    @Test
     func testNestedEventsCoalesceToTopLevelChangedSubtree() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
@@ -166,12 +186,15 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [],
-            rescanSubtreeIDs: [fixture.folder.id]
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [],
+                    rescanSubtreeIDs: [fixture.folder.id]
+                ))
     }
 
+    @Test
     func testManyDisjointEventsRemainIndependentRelistsBelowBroadWorkThreshold() {
         let directories = (0..<128).map { index in
             directory("/scan/directory-\(index)", children: [])
@@ -192,12 +215,15 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             treeStore: store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: directories.map(\.id),
-            rescanSubtreeIDs: []
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: directories.map(\.id),
+                    rescanSubtreeIDs: []
+                ))
     }
 
+    @Test
     func testDroppedRootAndMountEventsRequireFullScan() {
         let fixture = makeFixture()
         let target = ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory))
@@ -216,10 +242,11 @@ final class IncrementalRescanPlannerTests: XCTestCase {
                 target: target,
                 treeStore: fixture.store
             )
-            XCTAssertEqual(plan, .fullScan(reason: expectedReason))
+            #expect(plan == .fullScan(reason: expectedReason))
         }
     }
 
+    @Test
     func testChangingExistingCloneMemberRequiresFullScan() {
         let clone = file(
             "/scan/folder/clone.bin",
@@ -227,10 +254,12 @@ final class IncrementalRescanPlannerTests: XCTestCase {
         )
         let folder = directory("/scan/folder", children: [clone])
         let root = directory("/scan", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [clone],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [clone],
+            ])
         let target = ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory))
 
         for flags: FileSystemEventFlags in [
@@ -243,10 +272,11 @@ final class IncrementalRescanPlannerTests: XCTestCase {
                 treeStore: store
             )
 
-            XCTAssertEqual(plan, .fullScan(reason: .cloneTopologyChanged))
+            #expect(plan == .fullScan(reason: .cloneTopologyChanged))
         }
     }
 
+    @Test
     func testHardLinkEventsRequireFullScan() {
         let identity = FileIdentity(device: 1, inode: 42)
         let hardLink = file(
@@ -256,10 +286,12 @@ final class IncrementalRescanPlannerTests: XCTestCase {
         )
         let folder = directory("/scan/folder", children: [hardLink])
         let root = directory("/scan", children: [folder])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder],
-            folder.id: [hardLink],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder],
+                folder.id: [hardLink],
+            ])
         let target = ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory))
 
         let cases: [(FileSystemEventFlags, IncrementalRescanFallbackReason)] = [
@@ -269,7 +301,8 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             ([.itemRemoved, .itemIsFile, .itemIsLastHardLink], .sharedAllocationTopologyChanged),
         ]
         for (flags, expectedReason) in cases {
-            let eventPath = flags.contains(.itemCreated)
+            let eventPath =
+                flags.contains(.itemCreated)
                 ? "/scan/folder/new-link.bin"
                 : hardLink.id
             let plan = IncrementalRescanPlanner().plan(
@@ -278,10 +311,11 @@ final class IncrementalRescanPlannerTests: XCTestCase {
                 treeStore: store
             )
 
-            XCTAssertEqual(plan, .fullScan(reason: expectedReason))
+            #expect(plan == .fullScan(reason: expectedReason))
         }
     }
 
+    @Test
     func testDirectoryLinkCountDoesNotRequireSharedAllocationFallback() {
         let folder = directory("/scan/folder", children: [], linkCount: 12)
         let root = directory("/scan", children: [folder])
@@ -289,47 +323,54 @@ final class IncrementalRescanPlannerTests: XCTestCase {
 
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event(folder.id, flags: [.itemModified, .itemIsDirectory]),
+                event(folder.id, flags: [.itemModified, .itemIsDirectory])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [],
-            rescanSubtreeIDs: [folder.id]
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [],
+                    rescanSubtreeIDs: [folder.id]
+                ))
     }
 
+    @Test
     func testEventInsidePackageUsesMaterializedPackageLeaf() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event("/scan/Tool.app/Contents/MacOS/Tool", flags: [.itemModified, .itemIsFile]),
+                event("/scan/Tool.app/Contents/MacOS/Tool", flags: [.itemModified, .itemIsFile])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .update(
-            relistDirectoryIDs: [],
-            rescanSubtreeIDs: [fixture.package.id]
-        ))
+        #expect(
+            plan
+                == .update(
+                    relistDirectoryIDs: [],
+                    rescanSubtreeIDs: [fixture.package.id]
+                ))
     }
 
+    @Test
     func testEventInsideAutoSummaryFallsBackToFullScan() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event("/scan/cache/shard/payload", flags: [.itemModified, .itemIsFile]),
+                event("/scan/cache/shard/payload", flags: [.itemModified, .itemIsFile])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: fixture.store
         )
 
-        XCTAssertEqual(plan, .fullScan(reason: .autoSummarizedBoundary))
+        #expect(plan == .fullScan(reason: .autoSummarizedBoundary))
     }
 
+    @Test
     func testExcludedKnownEventDoesNotTriggerRescan() {
         let fixture = makeFixture()
         let matcher = ScanExclusionMatcher(
@@ -338,16 +379,17 @@ final class IncrementalRescanPlannerTests: XCTestCase {
         )
         let plan = IncrementalRescanPlanner().plan(
             history: history([
-                event("/scan/folder/debug.log", flags: [.itemModified, .itemIsFile]),
+                event("/scan/folder/debug.log", flags: [.itemModified, .itemIsFile])
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: fixture.store,
             exclusionMatcher: matcher
         )
 
-        XCTAssertEqual(plan, .noChanges)
+        #expect(plan == .noChanges)
     }
 
+    @Test
     func testExcludedSharedAllocationEventDoesNotTriggerFullScan() {
         let fixture = makeFixture()
         let matcher = ScanExclusionMatcher(
@@ -359,14 +401,14 @@ final class IncrementalRescanPlannerTests: XCTestCase {
                 event(
                     "/scan/folder/debug.log",
                     flags: [.itemModified, .itemIsFile, .itemCloned, .itemIsHardLink]
-                ),
+                )
             ]),
             target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
             treeStore: fixture.store,
             exclusionMatcher: matcher
         )
 
-        XCTAssertEqual(plan, .noChanges)
+        #expect(plan == .noChanges)
     }
 
     private func history(_ events: [FileSystemEventRecord]) -> FileSystemEventHistory {
@@ -426,11 +468,13 @@ final class IncrementalRescanPlannerTests: XCTestCase {
             isAutoSummarized: true
         )
         let root = directory("/scan", children: [folder, package, autoSummary])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder, package, autoSummary],
-            folder.id: [nested],
-            nested.id: [payload],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder, package, autoSummary],
+                folder.id: [nested],
+                nested.id: [payload],
+            ])
         return (store, folder, package, autoSummary)
     }
 
@@ -499,8 +543,8 @@ private nonisolated struct FakeFileSystemEventHistoryProvider: FileSystemEventHi
         through: ScanIncrementalCheckpoint
     ) async throws -> FileSystemEventHistory {
         _ = targetURL
-        XCTAssertEqual(since, storedHistory.since)
-        XCTAssertEqual(through, storedHistory.through)
+        #expect(since == storedHistory.since)
+        #expect(through == storedHistory.through)
         return storedHistory
     }
 }

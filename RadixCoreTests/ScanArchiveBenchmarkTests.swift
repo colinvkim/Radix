@@ -1,21 +1,28 @@
 import CryptoKit
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanArchiveBenchmarkTests: XCTestCase {
+struct ScanArchiveBenchmarkTests {
+    private let temporaryFiles = TemporaryTestFiles()
+
     private static let readChunkSize = 1024 * 1024
     private static let maxNodeLineByteCount = 1024 * 1024
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_ARCHIVE"] == "1",
+            "Set RADIX_BENCH_ARCHIVE=1 to run archive export/import benchmarks."))
     func testArchiveExportImportBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_ARCHIVE"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_ARCHIVE=1 to run archive export/import benchmarks.")
-        }
 
         let iterations = Self.integer(from: environment["RADIX_BENCH_ARCHIVE_ITERATIONS"], defaultValue: 3)
         let cases = Self.benchmarkCases(environment: environment)
         let service = ScanArchiveService()
-        let formatVersions = environment["RADIX_BENCH_ARCHIVE_COMPARE_FORMATS"] == "1"
+        let formatVersions =
+            environment["RADIX_BENCH_ARCHIVE_COMPARE_FORMATS"] == "1"
             ? [4, ScanArchiveService.currentFormatVersion]
             : [ScanArchiveService.currentFormatVersion]
 
@@ -46,36 +53,42 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
                     }
 
                     let importedSnapshot = importMeasurement.value.snapshot
-                    XCTAssertEqual(importedSnapshot.treeStore.nodeCount, snapshot.treeStore.nodeCount)
-                    XCTAssertEqual(importedSnapshot.treeStore.childIDsByID, snapshot.treeStore.childIDsByID)
-                    XCTAssertEqual(importedSnapshot.aggregateStats.totalAllocatedSize, snapshot.aggregateStats.totalAllocatedSize)
-                    XCTAssertEqual(importedSnapshot.aggregateStats.fileCount, snapshot.aggregateStats.fileCount)
+                    #expect(importedSnapshot.treeStore.nodeCount == snapshot.treeStore.nodeCount)
+                    #expect(importedSnapshot.treeStore.childIDsByID == snapshot.treeStore.childIDsByID)
+                    #expect(
+                        importedSnapshot.aggregateStats.totalAllocatedSize == snapshot.aggregateStats.totalAllocatedSize
+                    )
+                    #expect(importedSnapshot.aggregateStats.fileCount == snapshot.aggregateStats.fileCount)
 
-                    print(Self.resultLine(
-                        benchmarkCase: benchmarkCase,
-                        formatVersion: formatVersion,
-                        iteration: iteration,
-                        snapshot: snapshot,
-                        export: exportMeasurement,
-                        imported: importMeasurement,
-                        archiveSize: archiveSize,
-                        sectionSizes: sectionSizes
-                    ))
+                    print(
+                        Self.resultLine(
+                            benchmarkCase: benchmarkCase,
+                            formatVersion: formatVersion,
+                            iteration: iteration,
+                            snapshot: snapshot,
+                            export: exportMeasurement,
+                            imported: importMeasurement,
+                            archiveSize: archiveSize,
+                            sectionSizes: sectionSizes
+                        ))
                 }
             }
         }
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_ARCHIVE_PROFILE"] == "1",
+            "Set RADIX_BENCH_ARCHIVE_PROFILE=1 to run archive cost profile benchmarks."))
     func testArchiveCostProfileBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_BENCH_ARCHIVE_PROFILE"] == "1" else {
-            throw XCTSkip("Set RADIX_BENCH_ARCHIVE_PROFILE=1 to run archive cost profile benchmarks.")
-        }
 
         let service = ScanArchiveService()
-        let benchmarkCase = Self.benchmarkCases(environment: environment)
-            .first { $0.name == (environment["RADIX_BENCH_ARCHIVE_PROFILE_CASE"] ?? "large") } ??
-            Self.largeCase(environment: environment)
+        let benchmarkCase =
+            Self.benchmarkCases(environment: environment)
+            .first { $0.name == (environment["RADIX_BENCH_ARCHIVE_PROFILE_CASE"] ?? "large") }
+            ?? Self.largeCase(environment: environment)
         let snapshot = benchmarkCase.makeSnapshot()
         let archiveURL = try makeTemporaryArchiveURL(caseName: "\(benchmarkCase.name)-profile", iteration: 0)
         _ = try await service.export(
@@ -139,25 +152,24 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             try Data(contentsOf: nodesURL)
         }
         let fileWrite = try await Self.measureMemoryAndTime {
-            let writeURL = archiveURL
+            let writeURL =
+                archiveURL
                 .deletingLastPathComponent()
                 .appending(path: "nodes-copy-\(UUID().uuidString).jsonl", directoryHint: .notDirectory)
             try nodesData.write(to: writeURL, options: [.atomic])
             try? FileManager.default.removeItem(at: writeURL)
         }
 
-        XCTAssertEqual(nodeDecode.value.count, snapshot.treeStore.nodeCount)
-        XCTAssertFalse(nodeChecksum.value.isEmpty)
-        XCTAssertEqual(
+        #expect(nodeDecode.value.count == snapshot.treeStore.nodeCount)
+        #expect(!(nodeChecksum.value.isEmpty))
+        #expect(
             try Self.resolvedTopologyForBenchmark(
                 topologyDecode.value,
                 orderedNodeIDs: orderedNodeIDs
-            ).childIDsByID,
-            snapshot.treeStore.childIDsByID
-        )
-        XCTAssertEqual(topologyValidate.value, snapshot.treeStore.parentIDByID.count)
-        XCTAssertEqual(topologyRebuild.value.nodeCount, snapshot.treeStore.nodeCount)
-        XCTAssertEqual(fileRead.value.count, nodesData.count)
+            ).childIDsByID == snapshot.treeStore.childIDsByID)
+        #expect(topologyValidate.value == snapshot.treeStore.parentIDByID.count)
+        #expect(topologyRebuild.value.nodeCount == snapshot.treeStore.nodeCount)
+        #expect(fileRead.value.count == nodesData.count)
 
         print(
             """
@@ -172,10 +184,15 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_IMPORT_PATH"] != nil,
+            "Set RADIX_BENCH_IMPORT_PATH to profile a real snapshot import."))
     func testRealSnapshotImportCostProfileBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let archivePath = environment["RADIX_BENCH_IMPORT_PATH"] else {
-            throw XCTSkip("Set RADIX_BENCH_IMPORT_PATH to profile a real snapshot import.")
+            throw TestFixtureError("Set RADIX_BENCH_IMPORT_PATH to profile a real snapshot import.")
         }
 
         let archiveURL = URL(filePath: archivePath, directoryHint: .isDirectory)
@@ -187,13 +204,10 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             try await service.importSnapshot(from: archiveURL)
         }
         guard imported.value.manifest.formatVersion >= 4 else {
-            throw XCTSkip("Real snapshot import profiling requires a compact v4 or newer archive.")
+            throw TestFixtureError("Real snapshot import profiling requires a compact v4 or newer archive.")
         }
 
-        XCTAssertEqual(
-            imported.value.snapshot.treeStore.nodeCount,
-            imported.value.manifest.snapshot.nodeCount
-        )
+        #expect(imported.value.snapshot.treeStore.nodeCount == imported.value.manifest.snapshot.nodeCount)
         let phaseSummary = importPhases.measurements().map { phase, duration in
             "\(phase.rawValue)=\(Self.secondsString(BenchmarkSupport.durationSeconds(duration)))"
         }.joined(separator: " ")
@@ -206,13 +220,19 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_COMPARISON_BEFORE"] != nil,
+            "Set RADIX_BENCH_COMPARISON_BEFORE and RADIX_BENCH_COMPARISON_AFTER to benchmark real snapshot comparison.")
+    )
     func testRealSnapshotComparisonBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let beforePath = environment["RADIX_BENCH_COMPARISON_BEFORE"],
-              let afterPath = environment["RADIX_BENCH_COMPARISON_AFTER"] else {
-            throw XCTSkip(
-                "Set RADIX_BENCH_COMPARISON_BEFORE and RADIX_BENCH_COMPARISON_AFTER "
-                    + "to benchmark real snapshot comparison."
+            let afterPath = environment["RADIX_BENCH_COMPARISON_AFTER"]
+        else {
+            throw TestFixtureError(
+                "Set RADIX_BENCH_COMPARISON_BEFORE and RADIX_BENCH_COMPARISON_AFTER to benchmark real snapshot comparison."
             )
         }
 
@@ -241,22 +261,14 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(
-            comparison.value.summary.beforeFileCount,
-            imports.value.0.snapshot.aggregateStats.fileCount
-        )
-        XCTAssertEqual(
-            comparison.value.summary.afterFileCount,
-            imports.value.1.snapshot.aggregateStats.fileCount
-        )
-        XCTAssertEqual(
-            comparison.value.rows.count,
-            comparison.value.summary.addedCount
+        #expect(comparison.value.summary.beforeFileCount == imports.value.0.snapshot.aggregateStats.fileCount)
+        #expect(comparison.value.summary.afterFileCount == imports.value.1.snapshot.aggregateStats.fileCount)
+        #expect(
+            comparison.value.rows.count == comparison.value.summary.addedCount
                 + comparison.value.summary.removedCount
                 + comparison.value.summary.grewCount
                 + comparison.value.summary.shrankCount
-                + comparison.value.summary.movedCount
-        )
+                + comparison.value.summary.movedCount)
 
         print(
             """
@@ -416,7 +428,8 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
 
     private static func largeCase(environment: [String: String]) -> BenchmarkCase {
         let directoryCount = integer(from: environment["RADIX_BENCH_ARCHIVE_LARGE_DIRS"], defaultValue: 64)
-        let filesPerDirectory = integer(from: environment["RADIX_BENCH_ARCHIVE_LARGE_FILES_PER_DIR"], defaultValue: 1_000)
+        let filesPerDirectory = integer(
+            from: environment["RADIX_BENCH_ARCHIVE_LARGE_FILES_PER_DIR"], defaultValue: 1_000)
         return BenchmarkCase(name: "large", detail: "dirs=\(directoryCount),files_per_dir=\(filesPerDirectory)") {
             makeLargeFanoutSnapshot(directoryCount: directoryCount, filesPerDirectory: filesPerDirectory)
         }
@@ -491,10 +504,12 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
             isPackage: false,
             isAccessible: true
         )
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [folder, synthetic],
-            folder.id: [fileA, fileB, inaccessible, summarized],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [folder, synthetic],
+                folder.id: [fileA, fileB, inaccessible, summarized],
+            ])
         return makeSnapshot(root: root, store: store, warningPath: inaccessible.id)
     }
 
@@ -523,14 +538,15 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
 
         let rootID = "/deep"
         var nodesByID: [String: FileNodeRecord] = [
-            rootID: makeBenchmarkDirectory(id: rootID, size: 64, descendantFileCount: 1),
+            rootID: makeBenchmarkDirectory(id: rootID, size: 64, descendantFileCount: 1)
         ]
         var childIDsByID: [String: [String]] = [:]
         var parentID = rootID
 
         for index in 1...depth {
             let nodeID = "/deep/node-\(String(format: "%05d", index))"
-            let node = index == depth
+            let node =
+                index == depth
                 ? makeBenchmarkFile(id: nodeID, size: 64)
                 : makeBenchmarkDirectory(id: nodeID, size: 64, descendantFileCount: 1)
             nodesByID[nodeID] = node
@@ -635,10 +651,13 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         )
     }
 
-    private static func makeSnapshot(root: FileNodeRecord, store: FileTreeStore, warningPath: String? = nil) -> ScanSnapshot {
-        let warnings = warningPath.map {
-            [ScanWarning(path: $0, message: "Permission denied", category: .permissionDenied)]
-        } ?? []
+    private static func makeSnapshot(root: FileNodeRecord, store: FileTreeStore, warningPath: String? = nil)
+        -> ScanSnapshot
+    {
+        let warnings =
+            warningPath.map {
+                [ScanWarning(path: $0, message: "Permission denied", category: .permissionDenied)]
+            } ?? []
         return ScanSnapshot(
             id: UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")!,
             target: ScanTarget(id: root.id, url: root.url, displayName: root.name, kind: .folder),
@@ -736,12 +755,13 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         var parentedNodeIDs: Set<String> = []
         var visited: Set<String> = []
         var visiting: Set<String> = []
-        var stack: [(
-            nodeID: String,
-            childIDs: [String],
-            nextChildIndex: Int,
-            seenChildIDs: Set<String>
-        )] = []
+        var stack:
+            [(
+                nodeID: String,
+                childIDs: [String],
+                nextChildIndex: Int,
+                seenChildIDs: Set<String>
+            )] = []
 
         func enter(_ nodeID: String) throws {
             guard nodesByID[nodeID] != nil else {
@@ -760,12 +780,13 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
                 throw ScanArchiveError.topology("non-directory node \(nodeID) has children")
             }
 
-            stack.append((
-                nodeID: nodeID,
-                childIDs: childIDs,
-                nextChildIndex: 0,
-                seenChildIDs: []
-            ))
+            stack.append(
+                (
+                    nodeID: nodeID,
+                    childIDs: childIDs,
+                    nextChildIndex: 0,
+                    seenChildIDs: []
+                ))
         }
 
         try enter(rootID)
@@ -792,8 +813,9 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
                 throw ScanArchiveError.topology("child \(childID) is missing from node payload")
             }
             if let childNode = nodesByID[childID],
-               !childNode.isSynthetic,
-               !Self.path(childNode.url.path, isContainedIn: expectedTargetPath) {
+                !childNode.isSynthetic,
+                !Self.path(childNode.url.path, isContainedIn: expectedTargetPath)
+            {
                 throw ScanArchiveError.topology("child \(childID) path is outside target \(frame.nodeID)")
             }
             guard parentedNodeIDs.insert(childID).inserted else {
@@ -822,7 +844,8 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         childIDsByID.reserveCapacity(topology.childOrdinalsByOrdinal.count)
         for (parentOrdinalKey, childOrdinals) in topology.childOrdinalsByOrdinal {
             guard let parentOrdinal = Int(parentOrdinalKey),
-                  orderedNodeIDs.indices.contains(parentOrdinal) else {
+                orderedNodeIDs.indices.contains(parentOrdinal)
+            else {
                 throw ScanArchiveError.topology("parent ordinal \(parentOrdinalKey) is out of range")
             }
             childIDsByID[orderedNodeIDs[parentOrdinal]] = try childOrdinals.map { childOrdinal in
@@ -868,11 +891,10 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
 
     private func makeTemporaryArchiveURL(caseName: String, iteration: Int) throws -> URL {
         let directoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "radix-archive-bench-\(caseName)-\(iteration)-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(
+                path: "radix-archive-bench-\(caseName)-\(iteration)-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: directoryURL)
-        }
+        temporaryFiles.track(directoryURL)
         return directoryURL.appending(path: "Export.radixscan", directoryHint: .isDirectory)
     }
 
@@ -918,17 +940,18 @@ final class ScanArchiveBenchmarkTests: XCTestCase {
         archiveSize: UInt64,
         sectionSizes: [String: UInt64]
     ) -> String {
-        let sections = sectionSizes
+        let sections =
+            sectionSizes
             .sorted { $0.key < $1.key }
             .map { "section_\($0.key.replacingOccurrences(of: ".", with: "_"))=\($0.value)" }
             .joined(separator: " ")
         return """
-        RADIX_ARCHIVE_BENCH_RESULT case=\(benchmarkCase.name) format_version=\(formatVersion) \
-        detail=\(benchmarkCase.detail) iteration=\(iteration) \
-        nodes=\(snapshot.treeStore.nodeCount) files=\(snapshot.aggregateStats.fileCount) directories=\(snapshot.aggregateStats.directoryCount) \
-        warnings=\(snapshot.scanWarnings.count) export=\(secondsString(export.elapsedSeconds)) import=\(secondsString(imported.elapsedSeconds)) \
-        package_bytes=\(archiveSize) export_peak_rss_delta=\(export.peakDeltaRSS) import_peak_rss_delta=\(imported.peakDeltaRSS) \(sections)
-        """
+            RADIX_ARCHIVE_BENCH_RESULT case=\(benchmarkCase.name) format_version=\(formatVersion) \
+            detail=\(benchmarkCase.detail) iteration=\(iteration) \
+            nodes=\(snapshot.treeStore.nodeCount) files=\(snapshot.aggregateStats.fileCount) directories=\(snapshot.aggregateStats.directoryCount) \
+            warnings=\(snapshot.scanWarnings.count) export=\(secondsString(export.elapsedSeconds)) import=\(secondsString(imported.elapsedSeconds)) \
+            package_bytes=\(archiveSize) export_peak_rss_delta=\(export.peakDeltaRSS) import_peak_rss_delta=\(imported.peakDeltaRSS) \(sections)
+            """
     }
 
     private static func integer(from value: String?, defaultValue: Int) -> Int {

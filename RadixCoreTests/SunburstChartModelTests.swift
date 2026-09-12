@@ -1,9 +1,12 @@
 import Combine
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class SunburstChartModelTests: XCTestCase {
+struct SunburstChartModelTests {
+    @Test
     func testKeyboardSelectionMovesAroundCurrentRingAndWraps() async {
         let first = makeSegment(id: "first", startAngle: 0, endAngle: 1)
         let aggregate = makeSegment(
@@ -18,44 +21,33 @@ final class SunburstChartModelTests: XCTestCase {
             with: [third, aggregate, first, second]
         )
 
-        XCTAssertEqual(
-            model.keyboardSelection(from: first.id, moving: .left)?.nodeID,
-            third.id
-        )
-        XCTAssertEqual(
-            model.keyboardSelection(from: first.id, moving: .right)?.nodeID,
-            second.id
-        )
-        XCTAssertEqual(
-            model.keyboardSelection(from: third.id, moving: .right)?.nodeID,
-            first.id
-        )
+        #expect(model.keyboardSelection(from: first.id, moving: .left)?.nodeID == third.id)
+        #expect(model.keyboardSelection(from: first.id, moving: .right)?.nodeID == second.id)
+        #expect(model.keyboardSelection(from: third.id, moving: .right)?.nodeID == first.id)
     }
 
+    @Test
     func testKeyboardSelectionSkipsItemsMovingToTrash() async {
         let first = makeSegment(id: "first", startAngle: 0, endAngle: 1)
         let moving = makeSegment(id: "moving", startAngle: 1, endAngle: 2)
         let last = makeSegment(id: "last", startAngle: 2, endAngle: 3)
         let model = await loadedModel(with: [first, moving, last])
 
-        XCTAssertEqual(
+        #expect(
             model.keyboardSelection(
                 from: first.id,
                 moving: .right,
                 excludingMovingToTrashNodeIDs: [moving.id]
-            )?.nodeID,
-            last.id
-        )
-        XCTAssertEqual(
+            )?.nodeID == last.id)
+        #expect(
             model.keyboardSelection(
                 from: nil,
                 moving: .right,
                 excludingMovingToTrashNodeIDs: [first.id, moving.id]
-            )?.nodeID,
-            last.id
-        )
+            )?.nodeID == last.id)
     }
 
+    @Test
     func testKeyboardSelectionMovesOneRingInAndOut() async {
         let parent = makeSegment(
             id: "parent",
@@ -91,26 +83,17 @@ final class SunburstChartModelTests: XCTestCase {
                 secondChild,
                 otherParent,
                 firstChild,
-                parent
+                parent,
             ]
         )
 
-        XCTAssertEqual(
-            model.keyboardSelection(from: secondChild.id, moving: .up)?.nodeID,
-            parent.id
-        )
-        XCTAssertEqual(
-            model.keyboardSelection(from: parent.id, moving: .down)?.nodeID,
-            secondChild.id
-        )
-        XCTAssertNil(
-            model.keyboardSelection(from: parent.id, moving: .up)
-        )
-        XCTAssertNil(
-            model.keyboardSelection(from: secondChild.id, moving: .down)
-        )
+        #expect(model.keyboardSelection(from: secondChild.id, moving: .up)?.nodeID == parent.id)
+        #expect(model.keyboardSelection(from: parent.id, moving: .down)?.nodeID == secondChild.id)
+        #expect(model.keyboardSelection(from: parent.id, moving: .up) == nil)
+        #expect(model.keyboardSelection(from: secondChild.id, moving: .down) == nil)
     }
 
+    @Test
     func testKeyboardSelectionStartsAtFirstSegmentInTopLevelRing() async {
         let first = makeSegment(
             id: "first",
@@ -130,16 +113,11 @@ final class SunburstChartModelTests: XCTestCase {
         )
         let model = await loadedModel(with: [deeper, later, first])
 
-        XCTAssertEqual(
-            model.keyboardSelection(from: nil, moving: .right)?.nodeID,
-            first.id
-        )
-        XCTAssertEqual(
-            model.keyboardSelection(from: "missing", moving: .down)?.nodeID,
-            first.id
-        )
+        #expect(model.keyboardSelection(from: nil, moving: .right)?.nodeID == first.id)
+        #expect(model.keyboardSelection(from: "missing", moving: .down)?.nodeID == first.id)
     }
 
+    @Test
     func testKeyboardSelectionUsesIDToOrderEqualAngles() async {
         let laterID = makeSegment(
             id: "b",
@@ -153,16 +131,11 @@ final class SunburstChartModelTests: XCTestCase {
         )
         let model = await loadedModel(with: [laterID, earlierID])
 
-        XCTAssertEqual(
-            model.keyboardSelection(from: nil, moving: .right)?.nodeID,
-            earlierID.id
-        )
-        XCTAssertEqual(
-            model.keyboardSelection(from: earlierID.id, moving: .right)?.nodeID,
-            laterID.id
-        )
+        #expect(model.keyboardSelection(from: nil, moving: .right)?.nodeID == earlierID.id)
+        #expect(model.keyboardSelection(from: earlierID.id, moving: .right)?.nodeID == laterID.id)
     }
 
+    @Test
     func testStartingLayoutPublishesPendingState() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -182,25 +155,26 @@ final class SunburstChartModelTests: XCTestCase {
         }
         await service.waitForIssuedRequestCount(1)
 
-        XCTAssertTrue(model.layoutReadiness.isPending)
-        XCTAssertTrue(model.layoutReadiness.isRenderingPending(layoutID: "layout"))
-        XCTAssertNil(model.layoutReadiness.renderedLayoutID)
-        XCTAssertGreaterThanOrEqual(publishCount, 1)
+        #expect(model.layoutReadiness.isPending)
+        #expect(model.layoutReadiness.isRenderingPending(layoutID: "layout"))
+        #expect(model.layoutReadiness.renderedLayoutID == nil)
+        #expect(publishCount >= 1)
 
         let segment = makeSegment(id: "segment")
         let didCompleteRequest = await service.completeRequest(id: 0, with: [segment])
-        XCTAssertTrue(didCompleteRequest)
+        #expect(didCompleteRequest)
         let didApplyLayout = await layoutTask.value
 
-        XCTAssertTrue(didApplyLayout)
-        XCTAssertFalse(model.layoutReadiness.isPending)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [segment.id])
-        XCTAssertEqual(model.layoutReadiness.renderedLayoutID, "layout")
-        XCTAssertFalse(model.layoutReadiness.isRenderingPending(layoutID: "layout"))
-        XCTAssertGreaterThanOrEqual(publishCount, 2)
+        #expect(didApplyLayout)
+        #expect(!(model.layoutReadiness.isPending))
+        #expect(model.renderedSegments.map(\.id) == [segment.id])
+        #expect(model.layoutReadiness.renderedLayoutID == "layout")
+        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "layout")))
+        #expect(publishCount >= 2)
         withExtendedLifetime(cancellable) {}
     }
 
+    @Test
     func testStartingNewLayoutCancelsPreviousLayoutWork() async {
         let service = ControllableSunburstLayoutService(resumesOnCancellation: true)
         let model = SunburstChartModel(layoutService: service)
@@ -228,16 +202,17 @@ final class SunburstChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(2)
 
         let didApplyOldLayout = await oldTask.value
-        XCTAssertFalse(didApplyOldLayout)
+        #expect(!(didApplyOldLayout))
 
         let newSegment = makeSegment(id: "new-segment")
         let didCompleteNewRequest = await service.completeRequest(id: 1, with: [newSegment])
-        XCTAssertTrue(didCompleteNewRequest)
+        #expect(didCompleteNewRequest)
         let didApplyNewLayout = await newTask.value
-        XCTAssertTrue(didApplyNewLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
+        #expect(didApplyNewLayout)
+        #expect(model.renderedSegments.map(\.id) == [newSegment.id])
     }
 
+    @Test
     func testStartingNewLayoutClearsHoverState() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -255,11 +230,11 @@ final class SunburstChartModelTests: XCTestCase {
 
         let oldSegment = makeSegment(id: "old-segment")
         let didCompleteFirstRequest = await service.completeRequest(id: 0, with: [oldSegment])
-        XCTAssertTrue(didCompleteFirstRequest)
+        #expect(didCompleteFirstRequest)
         let didApplyFirstLayout = await firstTask.value
-        XCTAssertTrue(didApplyFirstLayout)
+        #expect(didApplyFirstLayout)
         model.setHoveredSegmentID(oldSegment.id)
-        XCTAssertEqual(model.hoveredSegmentID, oldSegment.id)
+        #expect(model.hoveredSegmentID == oldSegment.id)
 
         let secondTask = Task {
             await model.loadLayout(
@@ -271,16 +246,17 @@ final class SunburstChartModelTests: XCTestCase {
         }
         await service.waitForIssuedRequestCount(2)
 
-        XCTAssertNil(model.hoveredSegmentID)
-        XCTAssertTrue(model.layoutReadiness.isPending)
+        #expect(model.hoveredSegmentID == nil)
+        #expect(model.layoutReadiness.isPending)
 
         let newSegment = makeSegment(id: "new-segment")
         let didCompleteSecondRequest = await service.completeRequest(id: 1, with: [newSegment])
-        XCTAssertTrue(didCompleteSecondRequest)
+        #expect(didCompleteSecondRequest)
         let didApplySecondLayout = await secondTask.value
-        XCTAssertTrue(didApplySecondLayout)
+        #expect(didApplySecondLayout)
     }
 
+    @Test
     func testStaleLayoutResultDoesNotReplaceNewerSegments() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -308,19 +284,20 @@ final class SunburstChartModelTests: XCTestCase {
 
         let newSegment = makeSegment(id: "new-segment")
         let didCompleteNewRequest = await service.completeRequest(id: 1, with: [newSegment])
-        XCTAssertTrue(didCompleteNewRequest)
+        #expect(didCompleteNewRequest)
         let didApplyNewLayout = await newTask.value
-        XCTAssertTrue(didApplyNewLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
+        #expect(didApplyNewLayout)
+        #expect(model.renderedSegments.map(\.id) == [newSegment.id])
 
         let oldSegment = makeSegment(id: "old-segment")
         let didCompleteOldRequest = await service.completeRequest(id: 0, with: [oldSegment])
-        XCTAssertTrue(didCompleteOldRequest)
+        #expect(didCompleteOldRequest)
         let didApplyOldLayout = await oldTask.value
-        XCTAssertFalse(didApplyOldLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [newSegment.id])
+        #expect(!(didApplyOldLayout))
+        #expect(model.renderedSegments.map(\.id) == [newSegment.id])
     }
 
+    @Test
     func testLayoutFailurePreservesLastRenderAndPublishesError() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -337,9 +314,9 @@ final class SunburstChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(1)
         let initialSegment = makeSegment(id: "initial")
         let didCompleteInitialRequest = await service.completeRequest(id: 0, with: [initialSegment])
-        XCTAssertTrue(didCompleteInitialRequest)
+        #expect(didCompleteInitialRequest)
         let didApplyInitialLayout = await initialTask.value
-        XCTAssertTrue(didApplyInitialLayout)
+        #expect(didApplyInitialLayout)
         let initialVersion = model.renderedLayoutVersion
 
         let failingTask = Task {
@@ -352,19 +329,20 @@ final class SunburstChartModelTests: XCTestCase {
         }
         await service.waitForIssuedRequestCount(2)
         let didFailRequest = await service.failRequest(id: 1, with: TestChartLayoutError.failed)
-        XCTAssertTrue(didFailRequest)
+        #expect(didFailRequest)
 
         let didApplyFailingLayout = await failingTask.value
-        XCTAssertFalse(didApplyFailingLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [initialSegment.id])
-        XCTAssertEqual(model.renderedLayoutVersion, initialVersion)
-        XCTAssertEqual(model.layoutReadiness.failure?.message, TestChartLayoutError.failed.localizedDescription)
-        XCTAssertFalse(model.layoutReadiness.isPending)
-        XCTAssertEqual(model.layoutReadiness.renderedLayoutID, "initial")
-        XCTAssertEqual(model.layoutReadiness.failedLayoutID, "failing")
-        XCTAssertFalse(model.layoutReadiness.isRenderingPending(layoutID: "failing"))
+        #expect(!(didApplyFailingLayout))
+        #expect(model.renderedSegments.map(\.id) == [initialSegment.id])
+        #expect(model.renderedLayoutVersion == initialVersion)
+        #expect(model.layoutReadiness.failure?.message == TestChartLayoutError.failed.localizedDescription)
+        #expect(!(model.layoutReadiness.isPending))
+        #expect(model.layoutReadiness.renderedLayoutID == "initial")
+        #expect(model.layoutReadiness.failedLayoutID == "failing")
+        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "failing")))
     }
 
+    @Test
     func testStaleLayoutFailureDoesNotReplaceNewerSuccessOrPublishError() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -391,19 +369,20 @@ final class SunburstChartModelTests: XCTestCase {
 
         let currentSegment = makeSegment(id: "current")
         let didCompleteCurrentRequest = await service.completeRequest(id: 1, with: [currentSegment])
-        XCTAssertTrue(didCompleteCurrentRequest)
+        #expect(didCompleteCurrentRequest)
         let didApplyCurrentLayout = await currentTask.value
-        XCTAssertTrue(didApplyCurrentLayout)
+        #expect(didApplyCurrentLayout)
         let didFailStaleRequest = await service.failRequest(id: 0, with: TestChartLayoutError.failed)
-        XCTAssertTrue(didFailStaleRequest)
+        #expect(didFailStaleRequest)
 
         let didApplyStaleLayout = await staleTask.value
-        XCTAssertFalse(didApplyStaleLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [currentSegment.id])
-        XCTAssertNil(model.layoutReadiness.failure)
-        XCTAssertFalse(model.layoutReadiness.isPending)
+        #expect(!(didApplyStaleLayout))
+        #expect(model.renderedSegments.map(\.id) == [currentSegment.id])
+        #expect(model.layoutReadiness.failure == nil)
+        #expect(!(model.layoutReadiness.isPending))
     }
 
+    @Test
     func testRetryClearsFailureAndAppliesSuccessfulLayout() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -419,10 +398,10 @@ final class SunburstChartModelTests: XCTestCase {
         }
         await service.waitForIssuedRequestCount(1)
         let didFailRequest = await service.failRequest(id: 0, with: TestChartLayoutError.failed)
-        XCTAssertTrue(didFailRequest)
+        #expect(didFailRequest)
         let didApplyFailingLayout = await failingTask.value
-        XCTAssertFalse(didApplyFailingLayout)
-        XCTAssertNotNil(model.layoutReadiness.failure)
+        #expect(!(didApplyFailingLayout))
+        #expect(model.layoutReadiness.failure != nil)
 
         let retryTask = Task {
             await model.loadLayout(
@@ -433,18 +412,19 @@ final class SunburstChartModelTests: XCTestCase {
             )
         }
         await service.waitForIssuedRequestCount(2)
-        XCTAssertNil(model.layoutReadiness.failure)
-        XCTAssertTrue(model.layoutReadiness.isPending)
+        #expect(model.layoutReadiness.failure == nil)
+        #expect(model.layoutReadiness.isPending)
 
         let retrySegment = makeSegment(id: "retry")
         let didCompleteRetryRequest = await service.completeRequest(id: 1, with: [retrySegment])
-        XCTAssertTrue(didCompleteRetryRequest)
+        #expect(didCompleteRetryRequest)
         let didApplyRetryLayout = await retryTask.value
-        XCTAssertTrue(didApplyRetryLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [retrySegment.id])
-        XCTAssertNil(model.layoutReadiness.failure)
+        #expect(didApplyRetryLayout)
+        #expect(model.renderedSegments.map(\.id) == [retrySegment.id])
+        #expect(model.layoutReadiness.failure == nil)
     }
 
+    @Test
     func testCancellationPreservesLastRenderWithoutPublishingError() async {
         let service = ControllableSunburstLayoutService(resumesOnCancellation: true)
         let model = SunburstChartModel(layoutService: service)
@@ -461,9 +441,9 @@ final class SunburstChartModelTests: XCTestCase {
         await service.waitForIssuedRequestCount(1)
         let initialSegment = makeSegment(id: "initial")
         let didCompleteInitialRequest = await service.completeRequest(id: 0, with: [initialSegment])
-        XCTAssertTrue(didCompleteInitialRequest)
+        #expect(didCompleteInitialRequest)
         let didApplyInitialLayout = await initialTask.value
-        XCTAssertTrue(didApplyInitialLayout)
+        #expect(didApplyInitialLayout)
 
         let cancelledTask = Task {
             await model.loadLayout(
@@ -478,12 +458,13 @@ final class SunburstChartModelTests: XCTestCase {
         await service.waitForCancelledRequest(id: 1)
 
         let didApplyCancelledLayout = await cancelledTask.value
-        XCTAssertFalse(didApplyCancelledLayout)
-        XCTAssertEqual(model.renderedSegments.map(\.id), [initialSegment.id])
-        XCTAssertNil(model.layoutReadiness.failure)
-        XCTAssertFalse(model.layoutReadiness.isPending)
+        #expect(!(didApplyCancelledLayout))
+        #expect(model.renderedSegments.map(\.id) == [initialSegment.id])
+        #expect(model.layoutReadiness.failure == nil)
+        #expect(!(model.layoutReadiness.isPending))
     }
 
+    @Test
     func testSelectionOverlaySegmentsIncludeAncestorsAndSelectedLast() async {
         let firstAncestor = makeSegment(id: "first-ancestor", depth: 0)
         let secondAncestor = makeSegment(id: "second-ancestor", depth: 1)
@@ -502,7 +483,7 @@ final class SunburstChartModelTests: XCTestCase {
             layoutID: "layout"
         )
 
-        XCTAssertTrue(didApplyLayout)
+        #expect(didApplyLayout)
         let overlaySegments = model.selectionOverlaySegments(
             selectedNodeID: selected.nodeID,
             selectedAncestorIDs: Set([
@@ -513,16 +494,11 @@ final class SunburstChartModelTests: XCTestCase {
             ])
         )
 
-        XCTAssertEqual(
-            overlaySegments.map(\.segment.id),
-            [secondAncestor.id, firstAncestor.id, selected.id]
-        )
-        XCTAssertEqual(
-            overlaySegments.map(\.role),
-            [.ancestor, .ancestor, .selected]
-        )
+        #expect(overlaySegments.map(\.segment.id) == [secondAncestor.id, firstAncestor.id, selected.id])
+        #expect(overlaySegments.map(\.role) == [.ancestor, .ancestor, .selected])
     }
 
+    @Test
     func testSelectionOverlayCacheIsInvalidatedByNewLayout() async {
         let service = ControllableSunburstLayoutService()
         let model = SunburstChartModel(layoutService: service)
@@ -542,16 +518,14 @@ final class SunburstChartModelTests: XCTestCase {
             id: 0,
             with: [firstSelected]
         )
-        XCTAssertTrue(didCompleteFirstRequest)
+        #expect(didCompleteFirstRequest)
         let didApplyFirstLayout = await firstTask.value
-        XCTAssertTrue(didApplyFirstLayout)
-        XCTAssertEqual(
+        #expect(didApplyFirstLayout)
+        #expect(
             model.selectionOverlaySegments(
                 selectedNodeID: firstSelected.nodeID,
                 selectedAncestorIDs: []
-            ).last?.segment.depth,
-            0
-        )
+            ).last?.segment.depth == 0)
 
         let secondSelected = makeSegment(id: "selected", depth: 1)
         let secondTask = Task {
@@ -567,17 +541,15 @@ final class SunburstChartModelTests: XCTestCase {
             id: 1,
             with: [secondSelected]
         )
-        XCTAssertTrue(didCompleteSecondRequest)
+        #expect(didCompleteSecondRequest)
         let didApplySecondLayout = await secondTask.value
-        XCTAssertTrue(didApplySecondLayout)
+        #expect(didApplySecondLayout)
 
-        XCTAssertEqual(
+        #expect(
             model.selectionOverlaySegments(
                 selectedNodeID: secondSelected.nodeID,
                 selectedAncestorIDs: []
-            ).last?.segment.depth,
-            1
-        )
+            ).last?.segment.depth == 1)
     }
 
     private func loadedModel(
@@ -702,7 +674,8 @@ private actor ControllableSunburstLayoutService: SunburstLayouting {
     private func handleCancellation(id requestID: Int) {
         cancelledRequestIDs.insert(requestID)
         if resumesOnCancellation,
-           let continuation = continuations.removeValue(forKey: requestID) {
+            let continuation = continuations.removeValue(forKey: requestID)
+        {
             continuation.resume(throwing: CancellationError())
         }
         resumeCancellationWaiters()

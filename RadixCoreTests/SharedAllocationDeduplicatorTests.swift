@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class SharedAllocationDeduplicatorTests: XCTestCase {
+struct SharedAllocationDeduplicatorTests {
+    @Test
     func testClaimEvaluatesPathOnlyForSharedAllocationCandidates() throws {
         let identity = FileIdentity(device: 1, inode: 42)
         var pathEvaluationCount = 0
@@ -22,12 +25,13 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
             linkCount: 1
         )
 
-        XCTAssertNil(SharedAllocationDeduplicator.claim(
-            for: ordinaryMetadata,
-            ownerNodeID: "/root",
-            path: evaluatedPath()
-        ))
-        XCTAssertEqual(pathEvaluationCount, 0)
+        #expect(
+            SharedAllocationDeduplicator.claim(
+                for: ordinaryMetadata,
+                ownerNodeID: "/root",
+                path: evaluatedPath()
+            ) == nil)
+        #expect(pathEvaluationCount == 0)
 
         let hardLinkMetadata = NodeMetadata(
             isDirectory: false,
@@ -41,16 +45,18 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
             fileIdentity: identity,
             linkCount: 2
         )
-        let claim = try XCTUnwrap(SharedAllocationDeduplicator.claim(
-            for: hardLinkMetadata,
-            ownerNodeID: "/root",
-            path: evaluatedPath()
-        ))
+        let claim = try #require(
+            SharedAllocationDeduplicator.claim(
+                for: hardLinkMetadata,
+                ownerNodeID: "/root",
+                path: evaluatedPath()
+            ))
 
-        XCTAssertEqual(pathEvaluationCount, 1)
-        XCTAssertEqual(claim.path, "/root/file.bin")
+        #expect(pathEvaluationCount == 1)
+        #expect(claim.path == "/root/file.bin")
     }
 
+    @Test
     func testHardLinkDedupRebuildsOnlyAffectedAncestorChains() {
         let rootID = "/root"
         let affectedID = "/root/Affected"
@@ -61,7 +67,7 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
         var nodesByID: [String: FileNodeRecord] = [
             affectedID: makeDirectory(id: affectedID, allocatedSize: 200, descendantFileCount: 2),
             firstLinkID: makeFile(id: firstLinkID, allocatedSize: 100),
-            duplicateLinkID: makeFile(id: duplicateLinkID, allocatedSize: 100)
+            duplicateLinkID: makeFile(id: duplicateLinkID, allocatedSize: 100),
         ]
         var childIDsByID: [String: [String]] = [
             affectedID: [firstLinkID, duplicateLinkID]
@@ -69,7 +75,7 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
         var parentIDByID: [String: String] = [
             affectedID: rootID,
             firstLinkID: affectedID,
-            duplicateLinkID: affectedID
+            duplicateLinkID: affectedID,
         ]
         var rootChildIDs = [affectedID]
 
@@ -111,25 +117,25 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
                 inaccessibleItemCount: 0
             ),
             sharedAllocationClaims: [
-                SharedAllocationClaim(identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
-                SharedAllocationClaim(identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100)
+                SharedAllocationClaim(
+                    identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
+                SharedAllocationClaim(
+                    identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100),
             ],
             minimumAllocatedSizeByNodeID: [:]
         )
 
-        XCTAssertEqual(store.node(id: duplicateLinkID)?.allocatedSize, 0)
-        XCTAssertEqual(store.node(id: affectedID)?.allocatedSize, 100)
-        XCTAssertEqual(store.root.allocatedSize, rootAllocatedSize - 100)
+        #expect(store.node(id: duplicateLinkID)?.allocatedSize == 0)
+        #expect(store.node(id: affectedID)?.allocatedSize == 100)
+        #expect(store.root.allocatedSize == rootAllocatedSize - 100)
 
         for index in 0..<unrelatedCount {
             let directoryID = "/root/Unrelated\(index)"
-            XCTAssertEqual(
-                store.childIDsByID[directoryID],
-                ["\(directoryID)/a-small.bin", "\(directoryID)/z-large.bin"]
-            )
+            #expect(store.childIDsByID[directoryID] == ["\(directoryID)/a-small.bin", "\(directoryID)/z-large.bin"])
         }
     }
 
+    @Test
     func testHardLinkDedupRebuildsDeepAncestorsBottomUp() {
         let rootID = "/root"
         let parentID = "/root/Parent"
@@ -148,19 +154,19 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
                 nestedID: makeDirectory(id: nestedID, allocatedSize: 200, descendantFileCount: 2),
                 firstLinkID: makeFile(id: firstLinkID, allocatedSize: 100),
                 duplicateLinkID: makeFile(id: duplicateLinkID, allocatedSize: 100),
-                siblingID: makeFile(id: siblingID, allocatedSize: 50, linkCount: 1)
+                siblingID: makeFile(id: siblingID, allocatedSize: 50, linkCount: 1),
             ],
             childIDsByID: [
                 rootID: [parentID, siblingID],
                 parentID: [nestedID],
-                nestedID: [firstLinkID, duplicateLinkID]
+                nestedID: [firstLinkID, duplicateLinkID],
             ],
             parentIDByID: [
                 parentID: rootID,
                 nestedID: parentID,
                 firstLinkID: nestedID,
                 duplicateLinkID: nestedID,
-                siblingID: rootID
+                siblingID: rootID,
             ],
             aggregateStats: ScanAggregateStats(
                 totalAllocatedSize: totalAllocatedSize,
@@ -171,34 +177,39 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
                 inaccessibleItemCount: 0
             ),
             sharedAllocationClaims: [
-                SharedAllocationClaim(identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
-                SharedAllocationClaim(identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100)
+                SharedAllocationClaim(
+                    identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
+                SharedAllocationClaim(
+                    identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100),
             ],
             minimumAllocatedSizeByNodeID: [:]
         )
 
-        XCTAssertEqual(store.node(id: duplicateLinkID)?.allocatedSize, 0)
-        XCTAssertEqual(store.node(id: nestedID)?.allocatedSize, 100)
-        XCTAssertEqual(store.node(id: parentID)?.allocatedSize, 100)
-        XCTAssertEqual(store.root.allocatedSize, 150)
-        XCTAssertEqual(store.aggregateStats.totalAllocatedSize, 150)
+        #expect(store.node(id: duplicateLinkID)?.allocatedSize == 0)
+        #expect(store.node(id: nestedID)?.allocatedSize == 100)
+        #expect(store.node(id: parentID)?.allocatedSize == 100)
+        #expect(store.root.allocatedSize == 150)
+        #expect(store.aggregateStats.totalAllocatedSize == 150)
     }
 
+    @Test
     func testRemovingWinningOwnerRestoresRemainingHardLinkSize() throws {
         let identity = FileIdentity(device: 1, inode: 42)
         let winner = makeFile(id: "/root/a.bin", allocatedSize: 100, identity: identity)
-        let remaining = makeFile(id: "/root/z.bin", allocatedSize: 0, unduplicatedAllocatedSize: 100, identity: identity)
+        let remaining = makeFile(
+            id: "/root/z.bin", allocatedSize: 0, unduplicatedAllocatedSize: 100, identity: identity)
         let root = makeDirectory(id: "/root", children: [winner, remaining])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [winner, remaining]])
 
-        let updatedStore = try XCTUnwrap(store.removingSubtree(id: winner.id))
+        let updatedStore = try #require(store.removingSubtree(id: winner.id))
 
-        XCTAssertNil(updatedStore.node(id: winner.id))
-        XCTAssertEqual(updatedStore.node(id: remaining.id)?.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.root.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.aggregateStats.totalAllocatedSize, 100)
+        #expect(updatedStore.node(id: winner.id) == nil)
+        #expect(updatedStore.node(id: remaining.id)?.allocatedSize == 100)
+        #expect(updatedStore.root.allocatedSize == 100)
+        #expect(updatedStore.aggregateStats.totalAllocatedSize == 100)
     }
 
+    @Test
     func testRemovingWinningOwnerRepairsAndResortsPromotedOwnerAncestors() throws {
         let identity = FileIdentity(device: 1, inode: 43)
         let winner = makeFile(id: "/root/A/a.bin", allocatedSize: 100, identity: identity)
@@ -212,21 +223,24 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
         let firstDirectory = makeDirectory(id: "/root/A", children: [winner])
         let secondDirectory = makeDirectory(id: "/root/B", children: [sibling, promoted])
         let root = makeDirectory(id: "/root", children: [firstDirectory, secondDirectory])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [firstDirectory, secondDirectory],
-            firstDirectory.id: [winner],
-            secondDirectory.id: [sibling, promoted],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [firstDirectory, secondDirectory],
+                firstDirectory.id: [winner],
+                secondDirectory.id: [sibling, promoted],
+            ])
 
-        let updatedStore = try XCTUnwrap(store.removingSubtree(id: firstDirectory.id))
+        let updatedStore = try #require(store.removingSubtree(id: firstDirectory.id))
 
-        XCTAssertEqual(updatedStore.node(id: promoted.id)?.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.node(id: secondDirectory.id)?.allocatedSize, 150)
-        XCTAssertEqual(updatedStore.childIDs(of: secondDirectory.id), [promoted.id, sibling.id])
-        XCTAssertEqual(updatedStore.root.allocatedSize, 150)
-        XCTAssertEqual(updatedStore.aggregateStats.totalAllocatedSize, 150)
+        #expect(updatedStore.node(id: promoted.id)?.allocatedSize == 100)
+        #expect(updatedStore.node(id: secondDirectory.id)?.allocatedSize == 150)
+        #expect(updatedStore.childIDs(of: secondDirectory.id) == [promoted.id, sibling.id])
+        #expect(updatedStore.root.allocatedSize == 150)
+        #expect(updatedStore.aggregateStats.totalAllocatedSize == 150)
     }
 
+    @Test
     func testBatchRemovalPromotesRemainingHardLinkOwnerOnce() {
         let identity = FileIdentity(device: 1, inode: 142)
         let winner = makeFile(id: "/root/A/a.bin", allocatedSize: 100, identity: identity)
@@ -240,23 +254,26 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
         let firstDirectory = makeDirectory(id: "/root/A", children: [winner])
         let secondDirectory = makeDirectory(id: "/root/B", children: [loser])
         let root = makeDirectory(id: "/root", children: [firstDirectory, secondDirectory, unrelated])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [firstDirectory, secondDirectory, unrelated],
-            firstDirectory.id: [winner],
-            secondDirectory.id: [loser],
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [firstDirectory, secondDirectory, unrelated],
+                firstDirectory.id: [winner],
+                secondDirectory.id: [loser],
+            ])
 
         let updatedStore = store.removingSubtrees(rootedAt: [firstDirectory.id, unrelated.id])
 
-        XCTAssertNil(updatedStore.node(id: firstDirectory.id))
-        XCTAssertNil(updatedStore.node(id: unrelated.id))
-        XCTAssertEqual(updatedStore.node(id: loser.id)?.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.node(id: secondDirectory.id)?.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.root.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.aggregateStats.totalAllocatedSize, 100)
-        XCTAssertEqual(updatedStore.aggregateStats.fileCount, 1)
+        #expect(updatedStore.node(id: firstDirectory.id) == nil)
+        #expect(updatedStore.node(id: unrelated.id) == nil)
+        #expect(updatedStore.node(id: loser.id)?.allocatedSize == 100)
+        #expect(updatedStore.node(id: secondDirectory.id)?.allocatedSize == 100)
+        #expect(updatedStore.root.allocatedSize == 100)
+        #expect(updatedStore.aggregateStats.totalAllocatedSize == 100)
+        #expect(updatedStore.aggregateStats.fileCount == 1)
     }
 
+    @Test
     func testRebalancingAlreadyCorrectOwnersReturnsOriginalStore() throws {
         let identity = FileIdentity(device: 1, inode: 99)
         let winner = makeFile(id: "/root/a.bin", allocatedSize: 100, identity: identity)
@@ -271,10 +288,11 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
 
         let rebalancedStore = try SharedAllocationDeduplicator.rebalancedStore(store)
 
-        XCTAssertEqual(rebalancedStore.contentID, store.contentID)
-        XCTAssertEqual(rebalancedStore.root, store.root)
+        #expect(rebalancedStore.contentID == store.contentID)
+        #expect(rebalancedStore.root == store.root)
     }
 
+    @Test
     func testScopingToHardLinkLoserRestoresVisibleClaimSize() throws {
         let identity = FileIdentity(device: 1, inode: 43)
         let winner = makeFile(id: "/root/A/a.bin", allocatedSize: 100, identity: identity)
@@ -282,29 +300,34 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
         let winnerDirectory = makeDirectory(id: "/root/A", children: [winner])
         let loserDirectory = makeDirectory(id: "/root/Z", children: [loser])
         let root = makeDirectory(id: "/root", children: [winnerDirectory, loserDirectory])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [winnerDirectory, loserDirectory],
-            winnerDirectory.id: [winner],
-            loserDirectory.id: [loser]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [winnerDirectory, loserDirectory],
+                winnerDirectory.id: [winner],
+                loserDirectory.id: [loser],
+            ])
 
-        let scopedStore = try XCTUnwrap(store.subtree(rootedAt: loserDirectory.id))
+        let scopedStore = try #require(store.subtree(rootedAt: loserDirectory.id))
 
-        XCTAssertEqual(scopedStore.root.allocatedSize, 100)
-        XCTAssertEqual(scopedStore.node(id: loser.id)?.allocatedSize, 100)
-        XCTAssertNil(scopedStore.node(id: winner.id))
+        #expect(scopedStore.root.allocatedSize == 100)
+        #expect(scopedStore.node(id: loser.id)?.allocatedSize == 100)
+        #expect(scopedStore.node(id: winner.id) == nil)
     }
 
+    @Test
     func testReplacingSummarizedParentRebalancesVisibleHardLinks() throws {
         let identity = FileIdentity(device: 1, inode: 44)
         let siblingFile = makeFile(id: "/root/sibling/a.bin", allocatedSize: 100, identity: identity)
         let sibling = makeDirectory(id: "/root/sibling", children: [siblingFile])
         let summarized = makeDirectory(id: "/root/folder", allocatedSize: 0, descendantFileCount: 1)
         let root = makeDirectory(id: "/root", children: [sibling, summarized])
-        let store = FileTreeStore(root: root, childrenByID: [
-            root.id: [sibling, summarized],
-            sibling.id: [siblingFile]
-        ])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [
+                root.id: [sibling, summarized],
+                sibling.id: [siblingFile],
+            ])
 
         let replacementFile = makeFile(
             id: "/root/folder/z.bin",
@@ -313,16 +336,18 @@ final class SharedAllocationDeduplicatorTests: XCTestCase {
             identity: identity
         )
         let replacementRoot = makeDirectory(id: summarized.id, children: [replacementFile])
-        let replacementStore = FileTreeStore(root: replacementRoot, childrenByID: [
-            replacementRoot.id: [replacementFile]
-        ])
+        let replacementStore = FileTreeStore(
+            root: replacementRoot,
+            childrenByID: [
+                replacementRoot.id: [replacementFile]
+            ])
 
-        let updatedStore = try XCTUnwrap(store.replacingSubtree(id: summarized.id, with: replacementStore))
+        let updatedStore = try #require(store.replacingSubtree(id: summarized.id, with: replacementStore))
 
-        XCTAssertEqual(updatedStore.node(id: replacementFile.id)?.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.node(id: siblingFile.id)?.allocatedSize, 0)
-        XCTAssertEqual(updatedStore.root.allocatedSize, 100)
-        XCTAssertEqual(updatedStore.aggregateStats.totalAllocatedSize, 100)
+        #expect(updatedStore.node(id: replacementFile.id)?.allocatedSize == 100)
+        #expect(updatedStore.node(id: siblingFile.id)?.allocatedSize == 0)
+        #expect(updatedStore.root.allocatedSize == 100)
+        #expect(updatedStore.aggregateStats.totalAllocatedSize == 100)
     }
 
     private func makeDirectory(

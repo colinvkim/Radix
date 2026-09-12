@@ -1,41 +1,23 @@
 import CoreGraphics
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class TreemapTooltipPlacementTests: XCTestCase {
+struct TreemapTooltipPlacementTests {
     private let bounds = CGRect(x: 0, y: 0, width: 600, height: 400)
     private let tooltipSize = CGSize(width: 200, height: 80)
 
-    func testPlacesTooltipBelowAndRightOfPointerWhenSpaceIsAvailable() {
-        let origin = TreemapTooltipPlacement.origin(
-            for: CGPoint(x: 100, y: 100),
-            tooltipSize: tooltipSize,
-            in: bounds
-        )
-
-        XCTAssertEqual(origin, CGPoint(x: 114, y: 114))
+    @Test(arguments: [
+        (CGPoint(x: 100, y: 100), CGPoint(x: 114, y: 114)),
+        (CGPoint(x: 580, y: 100), CGPoint(x: 366, y: 114)),
+        (CGPoint(x: 100, y: 380), CGPoint(x: 114, y: 286)),
+    ])
+    func testPlacesTooltipBesidePointerAndFlipsAtEdges(pointer: CGPoint, expected: CGPoint) {
+        #expect(TreemapTooltipPlacement.origin(for: pointer, tooltipSize: tooltipSize, in: bounds) == expected)
     }
 
-    func testFlipsTooltipLeftNearRightEdge() {
-        let origin = TreemapTooltipPlacement.origin(
-            for: CGPoint(x: 580, y: 100),
-            tooltipSize: tooltipSize,
-            in: bounds
-        )
-
-        XCTAssertEqual(origin, CGPoint(x: 366, y: 114))
-    }
-
-    func testFlipsTooltipAboveNearBottomEdge() {
-        let origin = TreemapTooltipPlacement.origin(
-            for: CGPoint(x: 100, y: 380),
-            tooltipSize: tooltipSize,
-            in: bounds
-        )
-
-        XCTAssertEqual(origin, CGPoint(x: 114, y: 286))
-    }
-
+    @Test
     func testClampsOversizedTooltipToBoundsMargin() {
         let origin = TreemapTooltipPlacement.origin(
             for: CGPoint(x: 10, y: 10),
@@ -43,9 +25,10 @@ final class TreemapTooltipPlacementTests: XCTestCase {
             in: bounds
         )
 
-        XCTAssertEqual(origin, CGPoint(x: 8, y: 8))
+        #expect(origin == CGPoint(x: 8, y: 8))
     }
 
+    @Test
     func testTinyBoundsDoNotProduceAnInvertedPlacementArea() {
         let origin = TreemapTooltipPlacement.origin(
             for: CGPoint(x: 5, y: 4),
@@ -53,9 +36,10 @@ final class TreemapTooltipPlacementTests: XCTestCase {
             in: CGRect(x: 0, y: 0, width: 10, height: 8)
         )
 
-        XCTAssertEqual(origin, CGPoint(x: 5, y: 4))
+        #expect(origin == CGPoint(x: 5, y: 4))
     }
 
+    @Test
     func testAvoidsViewportControlsWhenAlternatePlacementIsAvailable() {
         let origin = TreemapTooltipPlacement.origin(
             for: CGPoint(x: 350, y: 20),
@@ -64,10 +48,9 @@ final class TreemapTooltipPlacementTests: XCTestCase {
             avoiding: CGRect(x: 440, y: 0, width: 160, height: 56)
         )
 
-        XCTAssertEqual(origin, CGPoint(x: 136, y: 34))
-        XCTAssertFalse(
-            CGRect(origin: origin, size: tooltipSize)
-                .intersects(CGRect(x: 440, y: 0, width: 160, height: 56))
-        )
+        #expect(origin == CGPoint(x: 136, y: 34))
+        #expect(
+            !(CGRect(origin: origin, size: tooltipSize)
+                .intersects(CGRect(x: 440, y: 0, width: 160, height: 56))))
     }
 }

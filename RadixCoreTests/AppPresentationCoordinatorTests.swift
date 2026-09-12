@@ -1,23 +1,27 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class AppPresentationCoordinatorTests: XCTestCase {
+struct AppPresentationCoordinatorTests {
+    @Test
     func testArchiveOpenWaitsForOnboardingToDismiss() {
         let archiveURL = URL(filePath: "/tmp/queued.radixscan")
         let coordinator = AppPresentationCoordinator(
             initialDestination: .sheet(.onboarding)
         )
 
-        XCTAssertEqual(coordinator.requestArchiveImport(archiveURL), .queued)
-        XCTAssertEqual(coordinator.activeSheet, .onboarding)
+        #expect(coordinator.requestArchiveImport(archiveURL) == .queued)
+        #expect(coordinator.activeSheet == .onboarding)
 
         let resumedURL = coordinator.cancel(kind: .onboarding)
 
-        XCTAssertEqual(resumedURL, archiveURL)
-        XCTAssertNil(coordinator.activeDestination)
+        #expect(resumedURL == archiveURL)
+        #expect(coordinator.activeDestination == nil)
     }
 
+    @Test
     func testPresentationsAdvanceInRequestOrder() {
         let coordinator = AppPresentationCoordinator(
             initialDestination: .sheet(.onboarding)
@@ -26,15 +30,16 @@ final class AppPresentationCoordinatorTests: XCTestCase {
         coordinator.present(.sheet(.discardPileReview))
         coordinator.present(.dialog(.trashConfirmation))
 
-        XCTAssertNil(coordinator.cancel(kind: .onboarding))
-        XCTAssertEqual(coordinator.activeSheet, .discardPileReview)
-        XCTAssertNil(coordinator.activeDialog)
+        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.activeSheet == .discardPileReview)
+        #expect(coordinator.activeDialog == nil)
 
-        XCTAssertNil(coordinator.cancel(kind: .discardPileReview))
-        XCTAssertEqual(coordinator.activeDialog, .trashConfirmation)
-        XCTAssertNil(coordinator.activeSheet)
+        #expect(coordinator.cancel(kind: .discardPileReview) == nil)
+        #expect(coordinator.activeDialog == .trashConfirmation)
+        #expect(coordinator.activeSheet == nil)
     }
 
+    @Test
     func testCancellingQueuedPresentationPreventsItFromAppearing() {
         let coordinator = AppPresentationCoordinator(
             initialDestination: .sheet(.onboarding)
@@ -42,13 +47,14 @@ final class AppPresentationCoordinatorTests: XCTestCase {
 
         coordinator.present(.dialog(.error))
         coordinator.present(.sheet(.comparisonSetup(UUID())))
-        XCTAssertNil(coordinator.cancel(kind: .error))
-        XCTAssertNil(coordinator.cancel(kind: .comparisonSetup))
-        XCTAssertNil(coordinator.cancel(kind: .onboarding))
+        #expect(coordinator.cancel(kind: .error) == nil)
+        #expect(coordinator.cancel(kind: .comparisonSetup) == nil)
+        #expect(coordinator.cancel(kind: .onboarding) == nil)
 
-        XCTAssertNil(coordinator.activeDestination)
+        #expect(coordinator.activeDestination == nil)
     }
 
+    @Test
     func testQueuedDestinationKeepsLatestPayload() {
         let firstID = UUID()
         let latestID = UUID()
@@ -58,11 +64,12 @@ final class AppPresentationCoordinatorTests: XCTestCase {
 
         coordinator.present(.sheet(.comparisonSetup(firstID)))
         coordinator.present(.sheet(.comparisonSetup(latestID)))
-        XCTAssertNil(coordinator.cancel(kind: .onboarding))
+        #expect(coordinator.cancel(kind: .onboarding) == nil)
 
-        XCTAssertEqual(coordinator.activeSheet, .comparisonSetup(latestID))
+        #expect(coordinator.activeSheet == .comparisonSetup(latestID))
     }
 
+    @Test
     func testMultipleArchiveOpensResumeOneAtATimeAroundPreview() {
         let firstURL = URL(filePath: "/tmp/first.radixscan")
         let secondURL = URL(filePath: "/tmp/second.radixscan")
@@ -70,12 +77,12 @@ final class AppPresentationCoordinatorTests: XCTestCase {
             initialDestination: .sheet(.onboarding)
         )
 
-        XCTAssertEqual(coordinator.requestArchiveImport(firstURL), .queued)
-        XCTAssertEqual(coordinator.requestArchiveImport(secondURL), .queued)
-        XCTAssertEqual(coordinator.cancel(kind: .onboarding), firstURL)
+        #expect(coordinator.requestArchiveImport(firstURL) == .queued)
+        #expect(coordinator.requestArchiveImport(secondURL) == .queued)
+        #expect(coordinator.cancel(kind: .onboarding) == firstURL)
 
         coordinator.present(.sheet(.importPreview(firstURL)))
-        XCTAssertEqual(coordinator.cancel(kind: .importPreview), secondURL)
-        XCTAssertNil(coordinator.activeDestination)
+        #expect(coordinator.cancel(kind: .importPreview) == secondURL)
+        #expect(coordinator.activeDestination == nil)
     }
 }

@@ -1,8 +1,11 @@
 import Darwin
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanDirectoryDescriptorPoolTests: XCTestCase {
+struct ScanDirectoryDescriptorPoolTests {
+    @Test
     func testOpenChildRefusesDirectoryReplacedBySymlink() throws {
         let rootURL = try makeTemporaryDirectory()
         let outsideURL = try makeTemporaryDirectory()
@@ -17,17 +20,19 @@ final class ScanDirectoryDescriptorPoolTests: XCTestCase {
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
         try FileManager.default.removeItem(at: childURL)
         try FileManager.default.createSymbolicLink(at: childURL, withDestinationURL: outsideURL)
-        let name = try XCTUnwrap(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
+        let name = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
 
-        XCTAssertThrowsError(try pool.openChild(named: name, at: childURL, relativeTo: rootLease)) { error in
+        #expect { try pool.openChild(named: name, at: childURL, relativeTo: rootLease) } throws: { error in
             let code = (error as NSError).code
-            XCTAssertTrue(code == Int(ELOOP) || code == Int(ENOTDIR), "Unexpected error: \(error)")
+            #expect(code == Int(ELOOP) || code == Int(ENOTDIR), "Unexpected error: \(error)")
+            return true
         }
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 1)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 1)
         rootLease.close()
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 0)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
     }
 
+    @Test
     func testOpenChildRejectsIdentityChangedAfterEnumeration() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -36,21 +41,25 @@ final class ScanDirectoryDescriptorPoolTests: XCTestCase {
 
         let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 4)
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
-        let name = try XCTUnwrap(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
+        let name = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
 
-        XCTAssertThrowsError(try pool.openChild(
-            named: name,
-            at: childURL,
-            relativeTo: rootLease,
-            expectedIdentity: FileIdentity(device: 0, inode: 0)
-        )) { error in
-            XCTAssertEqual((error as NSError).code, Int(ESTALE))
+        #expect {
+            try pool.openChild(
+                named: name,
+                at: childURL,
+                relativeTo: rootLease,
+                expectedIdentity: FileIdentity(device: 0, inode: 0)
+            )
+        } throws: { error in
+            #expect((error as NSError).code == Int(ESTALE))
+            return true
         }
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 1)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 1)
         rootLease.close()
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 0)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
     }
 
+    @Test
     func testEMFILEEvictsAnotherLeaseAndRetriesOnce() throws {
         let tracker = RetryingDescriptorTracker()
         let pool = ScanDirectoryDescriptorPool(
@@ -58,33 +67,34 @@ final class ScanDirectoryDescriptorPoolTests: XCTestCase {
             systemCalls: tracker.systemCalls
         )
         let rootURL = URL(filePath: "/virtual/root", directoryHint: .isDirectory)
-        let childName = try XCTUnwrap(
-            BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8))
-        )
+        let childName = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
-        let disposableLease = try lease(from: pool.openChild(
-            named: childName,
-            at: rootURL.appending(path: "Disposable", directoryHint: .isDirectory),
-            relativeTo: rootLease
-        ))
+        let disposableLease = try lease(
+            from: pool.openChild(
+                named: childName,
+                at: rootURL.appending(path: "Disposable", directoryHint: .isDirectory),
+                relativeTo: rootLease
+            ))
         tracker.failNextChildOpenWithEMFILE()
 
-        let retriedLease = try lease(from: pool.openChild(
-            named: childName,
-            at: rootURL.appending(path: "Retried", directoryHint: .isDirectory),
-            relativeTo: rootLease
-        ))
+        let retriedLease = try lease(
+            from: pool.openChild(
+                named: childName,
+                at: rootURL.appending(path: "Retried", directoryHint: .isDirectory),
+                relativeTo: rootLease
+            ))
 
-        XCTAssertFalse(disposableLease.isOpen)
-        XCTAssertTrue(retriedLease.isOpen)
-        XCTAssertEqual(pool.debugCounters.retryCount, 1)
-        XCTAssertEqual(pool.debugCounters.fallbackCount, 0)
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 2)
+        #expect(!(disposableLease.isOpen))
+        #expect(retriedLease.isOpen)
+        #expect(pool.debugCounters.retryCount == 1)
+        #expect(pool.debugCounters.fallbackCount == 0)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 2)
         retriedLease.close()
         rootLease.close()
-        XCTAssertEqual(tracker.openDescriptorCount, 0)
+        #expect(tracker.openDescriptorCount == 0)
     }
 
+    @Test
     func testLowBudgetFallsBackWithoutExceedingPeakAndRecoversAfterClose() throws {
         let tracker = DescriptorTracker()
         let pool = ScanDirectoryDescriptorPool(
@@ -93,42 +103,46 @@ final class ScanDirectoryDescriptorPoolTests: XCTestCase {
         )
         let rootURL = URL(filePath: "/virtual/root", directoryHint: .isDirectory)
         let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
-        let childName = try XCTUnwrap(
-            BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8))
-        )
+        let childName = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
-        let firstChildLease = try lease(from: pool.openChild(
-            named: childName,
-            at: childURL,
-            relativeTo: rootLease
-        ))
+        let firstChildLease = try lease(
+            from: pool.openChild(
+                named: childName,
+                at: childURL,
+                relativeTo: rootLease
+            ))
 
-        guard case .fallback = try pool.openChild(
-            named: childName,
-            at: childURL,
-            relativeTo: rootLease
-        ) else {
-            return XCTFail("Expected descriptor-budget fallback")
+        guard
+            case .fallback = try pool.openChild(
+                named: childName,
+                at: childURL,
+                relativeTo: rootLease
+            )
+        else {
+            Issue.record("Expected descriptor-budget fallback")
+            return
         }
-        XCTAssertEqual(pool.debugCounters.peakOpenDescriptorCount, 2)
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 2)
-        XCTAssertEqual(pool.debugCounters.fallbackCount, 1)
+        #expect(pool.debugCounters.peakOpenDescriptorCount == 2)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 2)
+        #expect(pool.debugCounters.fallbackCount == 1)
 
         firstChildLease.close()
-        let replacementLease = try lease(from: pool.openChild(
-            named: childName,
-            at: childURL,
-            relativeTo: rootLease
-        ))
-        XCTAssertEqual(pool.debugCounters.peakOpenDescriptorCount, 2)
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 2)
+        let replacementLease = try lease(
+            from: pool.openChild(
+                named: childName,
+                at: childURL,
+                relativeTo: rootLease
+            ))
+        #expect(pool.debugCounters.peakOpenDescriptorCount == 2)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 2)
 
         replacementLease.close()
         rootLease.close()
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 0)
-        XCTAssertEqual(tracker.openDescriptorCount, 0)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(tracker.openDescriptorCount == 0)
     }
 
+    @Test
     func testCancellationClosesEveryActiveLeaseAndRejectsNewOpens() throws {
         let tracker = DescriptorTracker()
         let pool = ScanDirectoryDescriptorPool(
@@ -136,58 +150,62 @@ final class ScanDirectoryDescriptorPoolTests: XCTestCase {
             systemCalls: tracker.systemCalls
         )
         let rootURL = URL(filePath: "/virtual/root", directoryHint: .isDirectory)
-        let childName = try XCTUnwrap(
-            BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8))
-        )
+        let childName = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
-        let childLease = try lease(from: pool.openChild(
-            named: childName,
-            at: rootURL.appending(path: "Child", directoryHint: .isDirectory),
-            relativeTo: rootLease
-        ))
+        let childLease = try lease(
+            from: pool.openChild(
+                named: childName,
+                at: rootURL.appending(path: "Child", directoryHint: .isDirectory),
+                relativeTo: rootLease
+            ))
 
         pool.cancel()
 
-        XCTAssertFalse(rootLease.isOpen)
-        XCTAssertFalse(childLease.isOpen)
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 0)
-        XCTAssertEqual(tracker.openDescriptorCount, 0)
+        #expect(!(rootLease.isOpen))
+        #expect(!(childLease.isOpen))
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(tracker.openDescriptorCount == 0)
         guard case .fallback = try pool.openRoot(at: rootURL) else {
-            return XCTFail("An invalidated pool must reject new opens")
+            Issue.record("An invalidated pool must reject new opens")
+            return
         }
     }
 
-    func testCancellationDuringOpenClosesInFlightDescriptor() async throws {
-        let tracker = BlockingDescriptorTracker()
+    @Test
+    func testCancellationDuringOpenClosesInFlightDescriptor() throws {
+        let tracker = DescriptorTracker()
+        let cancellation = TestTaskCancellation()
+        let underlying = tracker.systemCalls
         let pool = ScanDirectoryDescriptorPool(
             maxOpenDescriptorCount: 1,
-            systemCalls: tracker.systemCalls
+            systemCalls: ScanDirectoryDescriptorPool.SystemCalls(
+                openRoot: { url in
+                    let result = underlying.openRoot(url)
+                    #expect(tracker.openDescriptorCount == 1)
+                    // Cancel after the syscall succeeds, before the pool registers its lease.
+                    cancellation.cancel()
+                    return result
+                },
+                openChild: underlying.openChild,
+                fileIdentity: underlying.fileIdentity,
+                close: underlying.close
+            )
         )
-        let openTask = Task {
+        cancellation.install { pool.cancel() }
+
+        #expect(throws: CancellationError.self) {
             try pool.openRoot(at: URL(filePath: "/virtual/root", directoryHint: .isDirectory))
         }
-        XCTAssertEqual(tracker.didEnterOpen.wait(timeout: .now() + 2), .success)
-
-        pool.cancel()
-        tracker.allowOpenToReturn.signal()
-
-        do {
-            _ = try await openTask.value
-            XCTFail("An open completing after cancellation must not vend a lease")
-        } catch is CancellationError {
-            // Expected: registration observes the invalidated pool.
-        }
-        XCTAssertEqual(pool.debugCounters.currentOpenDescriptorCount, 0)
-        XCTAssertEqual(tracker.openDescriptorCount, 0)
+        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(tracker.openDescriptorCount == 0)
     }
 
     private func lease(
         from outcome: ScanDirectoryDescriptorPool.OpenOutcome,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) throws -> ScanDirectoryDescriptorPool.Lease {
         guard case .lease(let lease) = outcome else {
-            XCTFail("Expected descriptor lease", file: file, line: line)
+            Issue.record("Expected descriptor lease", sourceLocation: sourceLocation)
             throw NSError(domain: "ScanDirectoryDescriptorPoolTests", code: 1)
         }
         return lease
@@ -236,31 +254,6 @@ private final class DescriptorTracker: @unchecked Sendable {
         lock.lock()
         openDescriptors.remove(descriptor)
         lock.unlock()
-    }
-}
-
-private final class BlockingDescriptorTracker: @unchecked Sendable {
-    let didEnterOpen = DispatchSemaphore(value: 0)
-    let allowOpenToReturn = DispatchSemaphore(value: 0)
-    private let tracker = DescriptorTracker()
-
-    var systemCalls: ScanDirectoryDescriptorPool.SystemCalls {
-        let underlying = tracker.systemCalls
-        return ScanDirectoryDescriptorPool.SystemCalls(
-            openRoot: { [didEnterOpen, allowOpenToReturn] url in
-                let result = underlying.openRoot(url)
-                didEnterOpen.signal()
-                allowOpenToReturn.wait()
-                return result
-            },
-            openChild: underlying.openChild,
-            fileIdentity: underlying.fileIdentity,
-            close: underlying.close
-        )
-    }
-
-    var openDescriptorCount: Int {
-        tracker.openDescriptorCount
     }
 }
 

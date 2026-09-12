@@ -1,27 +1,35 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
+// A failure watchdog, not a performance assertion: allow for the full suite sharing
+// the main actor and filesystem, including Xcode coverage instrumentation.
 @MainActor
 func waitUntil(
     _ description: String = "asynchronous test condition",
-    timeout: TimeInterval = 1,
-    file: StaticString = #filePath,
-    line: UInt = #line,
+    timeout: TimeInterval = 15,
+    sourceLocation: SourceLocation = #_sourceLocation,
     condition: @escaping @MainActor () async -> Bool
 ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(timeout))
-    while !(await condition()) {
+    while true {
         try Task.checkCancellation()
-        if clock.now >= deadline {
-            XCTFail("Timed out waiting for \(description).", file: file, line: line)
-            return
+        if await condition() { return }
+        guard clock.now < deadline else {
+            throw TestWaitTimeout(condition: description, sourceLocation: sourceLocation)
         }
-
-        await Task.yield()
+        try await Task.sleep(for: .milliseconds(1))
     }
+}
+
+struct TestWaitTimeout: Error, CustomStringConvertible {
+    let condition: String
+    let sourceLocation: SourceLocation
+
+    var description: String { "\(sourceLocation): Timed out waiting for \(condition)." }
 }
 
 func makeTemporaryDirectory() throws -> URL {
@@ -251,11 +259,12 @@ func makeComparisonSnapshot(
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
     let source: ScanSnapshotSource
     if let sourceURL {
-        source = .imported(ImportedSnapshotContext(
-            sourceURL: sourceURL,
-            pathMode: .absolute,
-            liveActionCapability: .pathValidation
-        ))
+        source = .imported(
+            ImportedSnapshotContext(
+                sourceURL: sourceURL,
+                pathMode: .absolute,
+                liveActionCapability: .pathValidation
+            ))
     } else {
         source = .live
     }
@@ -270,4 +279,81 @@ func makeComparisonSnapshot(
         scanOptions: scanOptions,
         source: source
     )
+}
+
+// Invalid opt-in benchmark configurations must fail, not silently skip work.
+struct TestFixtureError: Error, CustomStringConvertible {
+    let description: String
+    init(_ description: String) { self.description = description }
+}
+
+extension Tag {
+    @Tag static var benchmark: Self
+}
+
+/// Each Swift Testing suite instance owns its fixtures, including on thrown requirements.
+final class TemporaryTestFiles {
+    private var urls: [URL] = []
+    func track(_ url: URL) { urls.append(url) }
+    deinit {
+        for url in urls.reversed() { try? FileManager.default.removeItem(at: url) }
+    }
+}
+
+/// Installs a synchronous worker hook's cancellation target before work begins.
+/// The startup gate suspends the task without blocking an executor thread.
+final class TestTaskCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isCancelled = false
+    private var action: (@Sendable () -> Void)?
+
+    func start<Result: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> Result
+    ) -> Task<Result, Error> {
+        let (start, trigger) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            for await _ in start { break }
+            try Task.checkCancellation()
+            return try await operation()
+        }
+        install { task.cancel() }
+        trigger.yield(())
+        trigger.finish()
+        return task
+    }
+
+    func install(_ action: @escaping @Sendable () -> Void) {
+        let shouldCancel = lock.withLock {
+            if isCancelled { return true }
+            self.action = action
+            return false
+        }
+        if shouldCancel { action() }
+    }
+
+    func cancel() {
+        let action = lock.withLock {
+            isCancelled = true
+            defer { self.action = nil }
+            return self.action
+        }
+        action?()
+    }
+}
+
+/// One owner per suite instance keeps persistence tests isolated and cleans up
+/// even when a thrown requirement stops a test early.
+final class TemporaryTestDefaults {
+    private var suiteNames: [String] = []
+
+    func make(sourceLocation: SourceLocation = #_sourceLocation) throws -> UserDefaults {
+        let suiteName = "RadixTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName), sourceLocation: sourceLocation)
+        suiteNames.append(suiteName)
+        return defaults
+    }
+
+    deinit {
+        for suiteName in suiteNames { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+    }
 }

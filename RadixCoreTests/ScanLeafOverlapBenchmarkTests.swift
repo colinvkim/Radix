@@ -1,14 +1,20 @@
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
 /// A feasibility experiment, not the complete scanner: retain native listings for
 /// rollback while preparing nodes in bounded tasks, then publish only on success.
-final class ScanLeafOverlapBenchmarkTests: XCTestCase {
+struct ScanLeafOverlapBenchmarkTests {
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_BENCH_OVERLAP_PATH"] != nil,
+            "Set RADIX_BENCH_OVERLAP_PATH to a flat, ordinary-file fixture."))
     func testNativeLeafOverlapBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["RADIX_BENCH_OVERLAP_PATH"] else {
-            throw XCTSkip("Set RADIX_BENCH_OVERLAP_PATH to a flat, ordinary-file fixture.")
+            throw TestFixtureError("Set RADIX_BENCH_OVERLAP_PATH to a flat, ordinary-file fixture.")
         }
         let root = URL(filePath: path, directoryHint: .isDirectory)
         let overlap = environment["RADIX_BENCH_OVERLAP_MODE"] == "overlap"
@@ -17,9 +23,9 @@ final class ScanLeafOverlapBenchmarkTests: XCTestCase {
         let (nodes, entryCount) = try await Self.prepareNativeLeaves(at: root, overlap: overlap, workers: workers)
         let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
         let peakRSS = BenchmarkSupport.peakResidentBytes()
-        XCTAssertEqual(nodes.count, entryCount, "The fixture must contain only ordinary files or symlinks.")
-        XCTAssertEqual(Set(nodes.map(\.id)).count, entryCount)
-        XCTAssertTrue(nodes.allSatisfy { $0.id == $0.url.path && $0.name == $0.url.lastPathComponent })
+        #expect(nodes.count == entryCount, "The fixture must contain only ordinary files or symlinks.")
+        #expect(Set(nodes.map(\.id)).count == entryCount)
+        #expect(nodes.allSatisfy { $0.id == $0.url.path && $0.name == $0.url.lastPathComponent })
         var fingerprint: UInt64 = 14_695_981_039_346_656_037
         for node in nodes.sorted(by: { $0.id < $1.id }) {
             for byte in node.id.utf8 {
@@ -27,22 +33,25 @@ final class ScanLeafOverlapBenchmarkTests: XCTestCase {
             }
             fingerprint = (fingerprint ^ 0) &* 1_099_511_628_211
         }
-        print("RADIX_BENCH_OVERLAP mode=\(overlap ? "overlap" : "staged") workers=\(workers) seconds=\(BenchmarkSupport.format(seconds)) nodes=\(nodes.count) peak_rss=\(peakRSS) fingerprint=\(String(fingerprint, radix: 16))")
+        print(
+            "RADIX_BENCH_OVERLAP mode=\(overlap ? "overlap" : "staged") workers=\(workers) seconds=\(BenchmarkSupport.format(seconds)) nodes=\(nodes.count) peak_rss=\(peakRSS) fingerprint=\(String(fingerprint, radix: 16))"
+        )
 
         if environment["RADIX_BENCH_OVERLAP_VALIDATE"] == "1" {
             do {
                 _ = try await Self.prepareNativeLeaves(at: root, overlap: true, workers: workers, unavailableAfter: 1)
-                XCTFail("Late native unavailability must discard all provisional nodes.")
+                Issue.record("Late native unavailability must discard all provisional nodes.")
             } catch BulkDirectoryEnumerator.StreamError.unavailable {
             }
             let task = Task<Void, Error> {
-                _ = try await ScanLeafOverlapBenchmarkTests.prepareNativeLeaves(at: root, overlap: true, workers: workers)
+                _ = try await ScanLeafOverlapBenchmarkTests.prepareNativeLeaves(
+                    at: root, overlap: true, workers: workers)
             }
             try await Task.sleep(for: .milliseconds(50))
             task.cancel()
             do {
                 try await task.value
-                XCTFail("Cancellation must not publish provisional nodes.")
+                Issue.record("Cancellation must not publish provisional nodes.")
             } catch is CancellationError {
             }
         }
@@ -97,7 +106,9 @@ final class ScanLeafOverlapBenchmarkTests: XCTestCase {
                     prepared.reserveCapacity(entries.count)
                     for (index, entry) in entries.enumerated() {
                         if index.isMultiple(of: 256) { try Task.checkCancellation() }
-                        guard let metadata = entry.metadata, !metadata.isDirectory || metadata.isSymbolicLink else { continue }
+                        guard let metadata = entry.metadata, !metadata.isDirectory || metadata.isSymbolicLink else {
+                            continue
+                        }
                         prepared.append(engine.makeFileNode(url: entry.url, metadata: metadata))
                     }
                     try Task.checkCancellation()

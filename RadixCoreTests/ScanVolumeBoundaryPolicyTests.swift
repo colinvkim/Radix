@@ -1,7 +1,9 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
-final class ScanVolumeBoundaryPolicyTests: XCTestCase {
+struct ScanVolumeBoundaryPolicyTests {
     private let systemVolumeDevice: UInt64 = 0x0100_0001
     private let dataVolumeDevice: UInt64 = 0x0100_0005
     private let externalVolumeDevice: UInt64 = 0x0200_0002
@@ -42,6 +44,7 @@ final class ScanVolumeBoundaryPolicyTests: XCTestCase {
         ]
     }
 
+    @Test
     func testFirmlinkedSameContainerMountsRemainTraversable() {
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
@@ -49,37 +52,39 @@ final class ScanVolumeBoundaryPolicyTests: XCTestCase {
             mountedFileSystems: makeDefaultMounts()
         )
 
-        XCTAssertFalse(policy.shouldStopDescent(childDeviceID: dataVolumeDevice))
-        XCTAssertFalse(policy.shouldStopDescent(childDeviceID: virtualMemoryVolumeDevice))
+        #expect(!(policy.shouldStopDescent(childDeviceID: dataVolumeDevice)))
+        #expect(!(policy.shouldStopDescent(childDeviceID: virtualMemoryVolumeDevice)))
     }
 
+    @Test
     func testStartupVolumeBulkEntriesRemainTraversable() throws {
         let mounts = ScanEngine.defaultMountedFileSystems()
         guard mounts.contains(where: { $0.mountPath == "/" && $0.fileSystemType == "apfs" }) else {
-            throw XCTSkip("This integration test requires an APFS startup volume.")
+            throw TestFixtureError("This integration test requires an APFS startup volume.")
         }
         let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
         let metadataLoader = ScanMetadataLoader()
         let rootMetadata = try metadataLoader.metadata(for: rootURL)
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: rootURL.path,
-            rootDeviceID: try XCTUnwrap(rootMetadata.fileIdentity?.fileSystemDeviceID),
+            rootDeviceID: try #require(rootMetadata.fileIdentity?.fileSystemDeviceID),
             mountedFileSystems: mounts
         )
-        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
-            at: rootURL,
-            includeHiddenFiles: true,
-            metadataLoader: metadataLoader,
-            cancellationCheck: {}
-        ))
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: metadataLoader,
+                cancellationCheck: {}
+            ))
+        let result = try #require(resultValue)
 
         for name in ["System", "Users", "Library"] {
-            let entry = try XCTUnwrap(result.entries.first { $0.url.lastPathComponent == name })
-            let deviceID = try XCTUnwrap(entry.metadata?.fileIdentity?.fileSystemDeviceID)
-            XCTAssertNil(
-                policy.descentBoundaryError(for: entry.url, childDeviceID: deviceID),
-                "The startup volume must allow traversal into \(entry.url.path)."
-            )
+            let entry = try #require(result.entries.first { $0.url.lastPathComponent == name })
+            let deviceID = try #require(entry.metadata?.fileIdentity?.fileSystemDeviceID)
+            #expect(
+                policy.descentBoundaryError(for: entry.url, childDeviceID: deviceID) == nil,
+                "The startup volume must allow traversal into \(entry.url.path).")
             if name == "System" {
                 // This is an ordinary directory on the sealed volume, so its
                 // bulk identity must also pass descriptor replacement checks.
@@ -90,13 +95,15 @@ final class ScanVolumeBoundaryPolicyTests: XCTestCase {
                     cancellationCheck: {}
                 )
                 guard case .lease(let lease) = outcome else {
-                    return XCTFail("The System directory should open without a fallback.")
+                    Issue.record("The System directory should open without a fallback.")
+                    return
                 }
                 lease.close()
             }
         }
     }
 
+    @Test
     func testForeignContainerMountsBecomeLeaves() {
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
@@ -104,87 +111,94 @@ final class ScanVolumeBoundaryPolicyTests: XCTestCase {
             mountedFileSystems: makeDefaultMounts()
         )
 
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: externalVolumeDevice))
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: diskImageDevice))
+        #expect(policy.shouldStopDescent(childDeviceID: externalVolumeDevice))
+        #expect(policy.shouldStopDescent(childDeviceID: diskImageDevice))
     }
 
+    @Test
     func testDiskImageMountInsideScannedTreeBecomesLeaf() {
         var mounts = makeDefaultMounts()
-        mounts.append(ScanEngine.ScanMountedFileSystem(
-            mountPath: "/System/Volumes/Data/Users/tester/MountedImage",
-            deviceName: "/dev/disk3s4",
-            fileSystemType: "apfs",
-            deviceID: diskImageDevice
-        ))
+        mounts.append(
+            ScanEngine.ScanMountedFileSystem(
+                mountPath: "/System/Volumes/Data/Users/tester/MountedImage",
+                deviceName: "/dev/disk3s4",
+                fileSystemType: "apfs",
+                deviceID: diskImageDevice
+            ))
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/System/Volumes/Data/Users/tester",
             rootDeviceID: dataVolumeDevice,
             mountedFileSystems: mounts
         )
 
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: diskImageDevice))
-        XCTAssertFalse(policy.shouldStopDescent(childDeviceID: dataVolumeDevice))
+        #expect(policy.shouldStopDescent(childDeviceID: diskImageDevice))
+        #expect(!(policy.shouldStopDescent(childDeviceID: dataVolumeDevice)))
     }
 
+    @Test
     func testFolderScanOnExternalVolumeUsesItsOwnContainer() {
         var mounts = makeDefaultMounts()
-        mounts.append(ScanEngine.ScanMountedFileSystem(
-            mountPath: "/Volumes/External/SecondSlice",
-            deviceName: "/dev/disk2s3",
-            fileSystemType: "apfs",
-            deviceID: 0x0200_0003
-        ))
+        mounts.append(
+            ScanEngine.ScanMountedFileSystem(
+                mountPath: "/Volumes/External/SecondSlice",
+                deviceName: "/dev/disk2s3",
+                fileSystemType: "apfs",
+                deviceID: 0x0200_0003
+            ))
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/Volumes/External/scan-me",
             rootDeviceID: externalVolumeDevice,
             mountedFileSystems: mounts
         )
 
-        XCTAssertFalse(policy.shouldStopDescent(childDeviceID: 0x0200_0003))
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: dataVolumeDevice))
+        #expect(!(policy.shouldStopDescent(childDeviceID: 0x0200_0003)))
+        #expect(policy.shouldStopDescent(childDeviceID: dataVolumeDevice))
     }
 
+    @Test
     func testMissingChildDeviceStopsWhenRootDeviceIsKnown() throws {
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
             rootDeviceID: systemVolumeDevice,
             mountedFileSystems: makeDefaultMounts()
         )
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: nil))
+        #expect(policy.shouldStopDescent(childDeviceID: nil))
         let url = URL(filePath: "/unverified", directoryHint: .isDirectory)
-        let error = try XCTUnwrap(
-            policy.descentBoundaryError(for: url, childDeviceID: nil)
-        )
-        XCTAssertEqual(ScanWarningFactory.makeWarning(for: url, error: error).category, .fileSystem)
+        let error = try #require(policy.descentBoundaryError(for: url, childDeviceID: nil))
+        #expect(ScanWarningFactory.makeWarning(for: url, error: error).category == .fileSystem)
     }
 
+    @Test
     func testMissingRootDeviceLeavesBoundaryPolicyUnrestricted() {
         let unresolvedPolicy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
             rootDeviceID: nil,
             mountedFileSystems: makeDefaultMounts()
         )
-        XCTAssertFalse(unresolvedPolicy.shouldStopDescent(childDeviceID: externalVolumeDevice))
-        XCTAssertFalse(unresolvedPolicy.shouldStopDescent(childDeviceID: nil))
+        #expect(!(unresolvedPolicy.shouldStopDescent(childDeviceID: externalVolumeDevice)))
+        #expect(!(unresolvedPolicy.shouldStopDescent(childDeviceID: nil)))
     }
 
+    @Test
     func testNonAPFSMountsWithMatchingDiskPrefixStayBlocked() {
         var mounts = makeDefaultMounts()
-        mounts.append(ScanEngine.ScanMountedFileSystem(
-            mountPath: "/LegacySlice",
-            deviceName: "/dev/disk1s7",
-            fileSystemType: "hfs",
-            deviceID: 0x0100_0007
-        ))
+        mounts.append(
+            ScanEngine.ScanMountedFileSystem(
+                mountPath: "/LegacySlice",
+                deviceName: "/dev/disk1s7",
+                fileSystemType: "hfs",
+                deviceID: 0x0100_0007
+            ))
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
             rootDeviceID: systemVolumeDevice,
             mountedFileSystems: mounts
         )
 
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: 0x0100_0007))
+        #expect(policy.shouldStopDescent(childDeviceID: 0x0100_0007))
     }
 
+    @Test
     func testRootMountMatchesFolderScansBelowSlash() {
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/Users/tester",
@@ -192,23 +206,25 @@ final class ScanVolumeBoundaryPolicyTests: XCTestCase {
             mountedFileSystems: makeDefaultMounts()
         )
 
-        XCTAssertFalse(policy.shouldStopDescent(childDeviceID: virtualMemoryVolumeDevice))
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: externalVolumeDevice))
+        #expect(!(policy.shouldStopDescent(childDeviceID: virtualMemoryVolumeDevice)))
+        #expect(policy.shouldStopDescent(childDeviceID: externalVolumeDevice))
     }
 
+    @Test
     func testSameContainerMountWithoutDeviceIdentityStaysBlocked() {
         var mounts = makeDefaultMounts()
-        mounts.append(ScanEngine.ScanMountedFileSystem(
-            mountPath: "/System/Volumes/Unresolved",
-            deviceName: "/dev/disk1s7",
-            fileSystemType: "apfs"
-        ))
+        mounts.append(
+            ScanEngine.ScanMountedFileSystem(
+                mountPath: "/System/Volumes/Unresolved",
+                deviceName: "/dev/disk1s7",
+                fileSystemType: "apfs"
+            ))
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
             rootDeviceID: systemVolumeDevice,
             mountedFileSystems: mounts
         )
 
-        XCTAssertTrue(policy.shouldStopDescent(childDeviceID: 0x0100_0007))
+        #expect(policy.shouldStopDescent(childDeviceID: 0x0100_0007))
     }
 }

@@ -1,26 +1,31 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class BackgroundReleaseQueueTests: XCTestCase {
+struct BackgroundReleaseQueueTests {
+    @Test
     func testRetiredOwnershipReleasesOffMainThreadAfterMutationUnwinds() async {
-        let releases = BackgroundReleaseQueue()
-        let released = expectation(description: "Retired value released")
-        var value: ReleaseProbe? = ReleaseProbe {
-            XCTAssertFalse(Thread.isMainThread)
-            released.fulfill()
+        weak var weakValue: ReleaseProbe?
+        await confirmation("Retired value released off the main thread") { released in
+            let releases = BackgroundReleaseQueue()
+            var value: ReleaseProbe? = ReleaseProbe {
+                #expect(!Thread.isMainThread)
+                released()
+            }
+            weakValue = value
+            releases.discard(value)
+            value = nil
+            #expect(weakValue != nil)
+            #expect(releases.isReleasing)
+            await releases.waitForPendingReleases()
+            #expect(weakValue == nil)
+            #expect(!releases.isReleasing)
         }
-        weak var weakValue = value
-        releases.discard(value)
-        value = nil
-        XCTAssertNotNil(weakValue)
-        XCTAssertTrue(releases.isReleasing)
-        await releases.waitForPendingReleases()
-        await fulfillment(of: [released], timeout: 1)
-        XCTAssertNil(weakValue)
-        XCTAssertFalse(releases.isReleasing)
     }
 
+    @Test
     func testNavigationAndBrowserWaitForRetiredBuffersBeforePreparingMore() async throws {
         let queue = DispatchQueue(label: "blocked-buffer-release")
         let releases = BackgroundReleaseQueue(queue: queue)
@@ -37,16 +42,16 @@ final class BackgroundReleaseQueueTests: XCTestCase {
         defer { if isSuspended { queue.resume() } }
         browser.setActiveQuery(FileBrowserQuery(itemKind: .folder))
         try await waitUntil { !browser.isRefreshingCurrentContents }
-        XCTAssertTrue(releases.isReleasing)
-        XCTAssertTrue(browser.displayedNodes.isEmpty)
+        #expect(releases.isReleasing)
+        #expect(browser.displayedNodes.isEmpty)
 
         browser.setActiveQuery(FileBrowserQuery())
         navigation.updateScanContext(snapshot: snapshot)
         try await Task.sleep(for: .milliseconds(10))
-        XCTAssertTrue(browser.isRefreshingCurrentContents)
-        XCTAssertTrue(browser.displayedNodes.isEmpty)
-        XCTAssertTrue(navigation.isLoadingTableNodes)
-        XCTAssertTrue(navigation.tableNodes.isEmpty)
+        #expect(browser.isRefreshingCurrentContents)
+        #expect(browser.displayedNodes.isEmpty)
+        #expect(navigation.isLoadingTableNodes)
+        #expect(navigation.tableNodes.isEmpty)
         // Supersede both requests while cleanup remains blocked.
         browser.setActiveQuery(FileBrowserQuery(itemKind: .folder))
         navigation.reset()
@@ -54,12 +59,13 @@ final class BackgroundReleaseQueueTests: XCTestCase {
         isSuspended = false
         await releases.waitForPendingReleases()
         try await waitUntil { !browser.isRefreshingCurrentContents }
-        XCTAssertTrue(browser.displayedNodes.isEmpty)
-        XCTAssertTrue(browser.isDisplayingCurrentResults)
-        XCTAssertFalse(navigation.isLoadingTableNodes)
-        XCTAssertTrue(navigation.tableNodes.isEmpty)
+        #expect(browser.displayedNodes.isEmpty)
+        #expect(browser.isDisplayingCurrentResults)
+        #expect(!(navigation.isLoadingTableNodes))
+        #expect(navigation.tableNodes.isEmpty)
     }
 
+    @Test
     func testSmallScopesRetireTheirLargeBackingStore() async throws {
         let siblings = (0..<600).map { makeTestFileNode(id: "/root/\($0)", name: "\($0)") }
         let leaf = makeTestFileNode(id: "/root/small/file", name: "file")
@@ -67,20 +73,20 @@ final class BackgroundReleaseQueueTests: XCTestCase {
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [folder] + siblings)
         let store = FileTreeStore(root: root, childrenByID: [root.id: [folder] + siblings, folder.id: [leaf]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        let scope = try XCTUnwrap(snapshot.scoped(to: ScanTarget(url: folder.url)))
-        XCTAssertEqual(scope.treeStore.nodeCount, 2)
-        XCTAssertEqual(scope.treeStore.backingNodeCapacity, 603)
+        let scope = try #require(snapshot.scoped(to: ScanTarget(url: folder.url)))
+        #expect(scope.treeStore.nodeCount == 2)
+        #expect(scope.treeStore.backingNodeCapacity == 603)
         let releases = BackgroundReleaseQueue()
         let navigation = WorkspaceNavigationModel(releases: releases)
         let browser = FileBrowserModel(releases: releases)
         navigation.updateScanContext(snapshot: scope)
         browser.updateContent(nodes: [leaf], contentID: folder.id, snapshot: scope, fileTreeStore: scope.treeStore)
-        XCTAssertFalse(releases.isReleasing)
+        #expect(!(releases.isReleasing))
         navigation.reset()
-        XCTAssertTrue(releases.isReleasing)
+        #expect(releases.isReleasing)
         await releases.waitForPendingReleases()
         browser.updateContent(nodes: [], contentID: "empty", snapshot: nil, fileTreeStore: nil)
-        XCTAssertTrue(releases.isReleasing)
+        #expect(releases.isReleasing)
         await releases.waitForPendingReleases()
     }
 }

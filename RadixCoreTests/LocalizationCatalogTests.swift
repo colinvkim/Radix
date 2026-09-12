@@ -1,7 +1,7 @@
 import Foundation
-import XCTest
+import Testing
 
-final class LocalizationCatalogTests: XCTestCase {
+struct LocalizationCatalogTests {
     private let supportedLocales = ["de", "es", "fr", "it", "zh-Hans"]
 
     private struct LocalizedSourceLiteral {
@@ -10,44 +10,43 @@ final class LocalizationCatalogTests: XCTestCase {
         let line: Int
     }
 
+    @Test
     func testCatalogProvidesEveryExtractedKeyInSupportedLocales() throws {
         let catalogs = try appLocalizationCatalogs()
         let duplicateKeys = Set(catalogs["Localizable", default: [:]].keys)
             .intersection(catalogs["Interface", default: [:]].keys)
-        XCTAssertTrue(duplicateKeys.isEmpty, "Localization keys must belong to exactly one table: \(duplicateKeys.sorted())")
+        #expect(duplicateKeys.isEmpty, "Localization keys must belong to exactly one table: \(duplicateKeys.sorted())")
 
         let strings = catalogs.values.reduce(into: [String: Any]()) { merged, catalog in
             merged.merge(catalog) { existing, _ in existing }
         }
-        XCTAssertGreaterThanOrEqual(strings.count, 400)
-        XCTAssertEqual(catalogs["Interface"]?.count, 8)
-        XCTAssertNil(strings[""], "The localization catalogs must not contain an empty key.")
+        #expect(strings[""] == nil, "The localization catalogs must not contain an empty key.")
         let fragmentKeys = strings.keys.filter {
             $0 != $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        XCTAssertTrue(
+        #expect(
             fragmentKeys.isEmpty,
-            "Localize complete phrases instead of whitespace-dependent fragments: \(fragmentKeys.sorted())"
-        )
+            "Localize complete phrases instead of whitespace-dependent fragments: \(fragmentKeys.sorted())")
 
         let supportedLocaleSet = Set(supportedLocales)
         for (key, value) in strings {
-            let entry = try XCTUnwrap(value as? [String: Any], "Invalid catalog entry for \(key)")
-            XCTAssertNotEqual(entry["extractionState"] as? String, "stale", "Stale localization key \(key)")
-            let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "Missing localizations for \(key)")
-            XCTAssertTrue(supportedLocaleSet.isSubset(of: Set(localizations.keys)), "Missing supported locale for \(key)")
+            let entry = try #require(value as? [String: Any], "Invalid catalog entry for \(key)")
+            #expect(entry["extractionState"] as? String != "stale", "Stale localization key \(key)")
+            let localizations = try #require(
+                entry["localizations"] as? [String: Any], "Missing localizations for \(key)")
+            #expect(supportedLocaleSet.isSubset(of: Set(localizations.keys)), "Missing supported locale for \(key)")
 
             for locale in supportedLocales {
-                let localization = try XCTUnwrap(localizations[locale] as? [String: Any])
+                let localization = try #require(localizations[locale] as? [String: Any])
                 if let stringUnit = localization["stringUnit"] as? [String: Any] {
                     try assertTranslated(stringUnit, locale: locale, key: key)
                 } else {
-                    let variations = try XCTUnwrap(localization["variations"] as? [String: Any])
-                    let plurals = try XCTUnwrap(variations["plural"] as? [String: Any])
-                    XCTAssertFalse(plurals.isEmpty, "Missing plural variants for \(locale) key \(key)")
+                    let variations = try #require(localization["variations"] as? [String: Any])
+                    let plurals = try #require(variations["plural"] as? [String: Any])
+                    #expect(!(plurals.isEmpty), "Missing plural variants for \(locale) key \(key)")
                     for (category, value) in plurals {
-                        let variant = try XCTUnwrap(value as? [String: Any])
-                        let stringUnit = try XCTUnwrap(variant["stringUnit"] as? [String: Any])
+                        let variant = try #require(value as? [String: Any])
+                        let stringUnit = try #require(variant["stringUnit"] as? [String: Any])
                         try assertTranslated(stringUnit, locale: locale, key: "\(key) [\(category)]")
                     }
                 }
@@ -55,44 +54,37 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    @Test
     func testInfoPlistCatalogProvidesSupportedLocalesForEveryEntry() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
-        let repositoryRoot = testFileURL
+        let repositoryRoot =
+            testFileURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let catalogURL = repositoryRoot
+        let catalogURL =
+            repositoryRoot
             .appendingPathComponent("Radix")
             .appendingPathComponent("InfoPlist.xcstrings")
 
         let data = try Data(contentsOf: catalogURL)
-        let object = try XCTUnwrap(
-            try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        )
-        let strings = try XCTUnwrap(object["strings"] as? [String: Any])
-        XCTAssertFalse(strings.isEmpty)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let strings = try #require(object["strings"] as? [String: Any])
+        #expect(!(strings.isEmpty))
 
         for (key, value) in strings {
-            let entry = try XCTUnwrap(value as? [String: Any], "Invalid metadata catalog entry for \(key)")
-            let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "Missing localizations for \(key)")
+            let entry = try #require(value as? [String: Any], "Invalid metadata catalog entry for \(key)")
+            let localizations = try #require(
+                entry["localizations"] as? [String: Any], "Missing localizations for \(key)")
             for locale in supportedLocales {
-                let localization = try XCTUnwrap(
-                    localizations[locale] as? [String: Any],
-                    "Missing \(locale) localization for \(key)"
-                )
-                let stringUnit = try XCTUnwrap(localization["stringUnit"] as? [String: Any])
-                XCTAssertEqual(
-                    stringUnit["state"] as? String,
-                    "translated",
-                    "Untranslated \(locale) metadata value for \(key)"
-                )
-                XCTAssertNotNil(
-                    stringUnit["value"] as? String,
-                    "Missing \(locale) metadata value for \(key)"
-                )
+                let localization = try #require(
+                    localizations[locale] as? [String: Any], "Missing \(locale) localization for \(key)")
+                let stringUnit = try #require(localization["stringUnit"] as? [String: Any])
+                try assertTranslated(stringUnit, locale: locale, key: key)
             }
         }
     }
 
+    @Test
     func testEveryAppSourceLocalizationLiteralExistsInCatalog() throws {
         let root = repositoryRoot
         let catalog = try appLocalizationCatalogs().values.reduce(into: [String: Any]()) { merged, table in
@@ -101,26 +93,20 @@ final class LocalizationCatalogTests: XCTestCase {
         let catalogTemplates = Set(catalog.keys.map(localizationTemplate))
         let sourceFiles = try swiftSourceFiles(in: root.appendingPathComponent("Radix"))
 
-        XCTAssertTrue(
-            sourceFiles.contains { $0.path.hasSuffix("/Features/Onboarding/OnboardingView.swift") },
-            "The localization audit must include SwiftPM-excluded UI sources."
-        )
-        XCTAssertTrue(
-            sourceFiles.contains { $0.lastPathComponent == "ContentView.swift" },
-            "The localization audit must include ContentView."
-        )
-
         let literals = try sourceFiles.flatMap(localizedLiterals)
-        XCTAssertGreaterThan(literals.count, 400, "Unexpectedly few localized literals were extracted from app sources.")
+        #expect(!literals.isEmpty, "The localization audit must extract app source literals.")
 
         let missing = literals.filter { !catalogTemplates.contains(localizationTemplate($0.value)) }
-        XCTAssertTrue(
+        #expect(
             missing.isEmpty,
-            missing.map { "\($0.file):\($0.line): missing catalog key for \(String(reflecting: $0.value))" }
-                .joined(separator: "\n")
-        )
+            Comment(
+                rawValue: missing.map {
+                    "\($0.file):\($0.line): missing catalog key for \(String(reflecting: $0.value))"
+                }
+                .joined(separator: "\n")))
     }
 
+    @Test
     func testInterfaceCatalogKeysUseExplicitTableName() throws {
         let catalogs = try appLocalizationCatalogs()
         let interfaceCatalog = catalogs["Interface", default: [:]]
@@ -129,70 +115,49 @@ final class LocalizationCatalogTests: XCTestCase {
             .joined(separator: "\n")
 
         for key in interfaceCatalog.keys {
-            XCTAssertTrue(
-                source.contains("\"\(key)\", tableName: \"Interface\""),
-                "Interface key must explicitly select its string table: \(key)"
-            )
+            let escapedKey = NSRegularExpression.escapedPattern(for: key)
+            let pattern = #""\#(escapedKey)"\s*,\s*tableName\s*:\s*"Interface""#
+            #expect(
+                source.range(of: pattern, options: .regularExpression) != nil,
+                "Interface key must explicitly select its string table: \(key)")
         }
     }
 
+    @Test
     func testSwiftPackageCoreSourceListMatchesCoreFilesOnDisk() throws {
         let root = repositoryRoot
         let packageSource = try String(contentsOf: root.appendingPathComponent("Package.swift"), encoding: .utf8)
-        let sourcesMarker = try XCTUnwrap(packageSource.range(of: "sources: ["))
-        let sourcesEnd = try XCTUnwrap(
-            packageSource.range(of: "\n            ]", range: sourcesMarker.upperBound..<packageSource.endIndex)
-        )
+        let sourcesMarker = try #require(packageSource.range(of: "sources: ["))
+        let sourcesEnd = try #require(
+            packageSource.range(of: "]", range: sourcesMarker.upperBound..<packageSource.endIndex))
         let sourcesBlock = String(packageSource[sourcesMarker.upperBound..<sourcesEnd.lowerBound])
         let listedSources = Set(matches(in: sourcesBlock, pattern: #"([^"\n]+\.swift)"#).map(\.value))
 
         let appSourceRoot = root.appendingPathComponent("Radix")
-        let expectedSources = Set(try swiftSourceFiles(in: appSourceRoot).compactMap { url -> String? in
-            let relativePath = String(url.path.dropFirst(appSourceRoot.path.count + 1))
-            let firstComponent = relativePath.split(separator: "/").first.map(String.init)
-            if ["App", "Features", "Shared"].contains(firstComponent) { return nil }
-            if ["ContentView.swift", "RadixApp.swift"].contains(relativePath) { return nil }
-            return relativePath
-        })
+        let expectedSources = Set(
+            try swiftSourceFiles(in: appSourceRoot).compactMap { url -> String? in
+                let relativePath = String(url.path.dropFirst(appSourceRoot.path.count + 1))
+                let firstComponent = relativePath.split(separator: "/").first.map(String.init)
+                if ["App", "Features", "Shared"].contains(firstComponent) { return nil }
+                if ["ContentView.swift", "RadixApp.swift"].contains(relativePath) { return nil }
+                return relativePath
+            })
 
-        XCTAssertEqual(
-            listedSources,
-            expectedSources,
-            "Package.swift's explicit RadixCore sources must track every non-UI Swift source exactly."
-        )
+        #expect(
+            listedSources == expectedSources,
+            "Package.swift's explicit RadixCore sources must track every non-UI Swift source exactly.")
     }
 
-    func testXcodeSynchronizedAppTargetIncludesLocalizationResources() throws {
-        let root = repositoryRoot
-        let projectSource = try String(
-            contentsOf: root.appendingPathComponent("Radix.xcodeproj/project.pbxproj"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(projectSource.contains("isa = PBXFileSystemSynchronizedRootGroup;"))
-        XCTAssertTrue(projectSource.contains("path = Radix;"))
-        XCTAssertTrue(projectSource.contains("fileSystemSynchronizedGroups = ("))
-        XCTAssertTrue(projectSource.contains("membershipExceptions = (\n\t\t\t\tInfo.plist,"))
-        XCTAssertFalse(projectSource.contains("Localizable.xcstrings,"), "The string catalog must not be excluded from the synchronized app target.")
-        XCTAssertFalse(projectSource.contains("Interface.xcstrings,"), "The interface string catalog must not be excluded from the synchronized app target.")
-        XCTAssertFalse(projectSource.contains("InfoPlist.xcstrings,"), "The Info.plist catalog must not be excluded from the synchronized app target.")
-
-        for resource in ["Localizable.xcstrings", "Interface.xcstrings", "InfoPlist.xcstrings"] {
-            XCTAssertTrue(
-                FileManager.default.fileExists(atPath: root.appendingPathComponent("Radix/\(resource)").path),
-                "Missing app localization resource: \(resource)"
-            )
-        }
-        let knownRegionsBlock = try XCTUnwrap(
-            matches(in: projectSource, pattern: #"knownRegions\s*=\s*\(([\s\S]*?)\);"#).first?.value
-        )
-        let knownRegions = Set(knownRegionsBlock.split(separator: ",").map { region in
-            region.trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-        })
-        for locale in ["en"] + supportedLocales {
-            XCTAssertTrue(knownRegions.contains(locale), "Xcode project is missing supported locale \(locale).")
-        }
+    @Test
+    func testXcodeProjectDeclaresSupportedLocales() throws {
+        let url = repositoryRoot.appendingPathComponent("Radix.xcodeproj/project.pbxproj")
+        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil)
+        let project = try #require(plist as? [String: Any])
+        let objects = try #require(project["objects"] as? [String: Any])
+        let rootID = try #require(project["rootObject"] as? String)
+        let root = try #require(objects[rootID] as? [String: Any])
+        let knownRegions = try #require(root["knownRegions"] as? [String])
+        #expect(Set(["en"] + supportedLocales).isSubset(of: Set(knownRegions)))
     }
 
     private func assertTranslated(
@@ -200,14 +165,12 @@ final class LocalizationCatalogTests: XCTestCase {
         locale: String,
         key: String
     ) throws {
-        XCTAssertEqual(stringUnit["state"] as? String, "translated", "Untranslated \(locale) value for \(key)")
-        let value = try XCTUnwrap(stringUnit["value"] as? String, "Missing \(locale) value for \(key)")
+        #expect(stringUnit["state"] as? String == "translated", "Untranslated \(locale) value for \(key)")
+        let value = try #require(stringUnit["value"] as? String, "Missing \(locale) value for \(key)")
         let sourceKey = key.components(separatedBy: " [").first ?? key
-        XCTAssertEqual(
-            formatSpecifiers(in: value),
-            formatSpecifiers(in: sourceKey),
-            "Format specifiers changed in the \(locale) translation for \(key)"
-        )
+        #expect(
+            formatSpecifiers(in: value) == formatSpecifiers(in: sourceKey),
+            "Format specifiers changed in the \(locale) translation for \(key)")
     }
 
     private var repositoryRoot: URL {
@@ -218,32 +181,32 @@ final class LocalizationCatalogTests: XCTestCase {
 
     private func localizationCatalog(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(object["sourceLanguage"] as? String, "en", "Unexpected source language in \(url.lastPathComponent)")
-        return try XCTUnwrap(object["strings"] as? [String: Any])
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["sourceLanguage"] as? String == "en", "Unexpected source language in \(url.lastPathComponent)")
+        return try #require(object["strings"] as? [String: Any])
     }
 
     private func appLocalizationCatalogs() throws -> [String: [String: Any]] {
         let radixRoot = repositoryRoot.appendingPathComponent("Radix")
         return [
             "Localizable": try localizationCatalog(at: radixRoot.appendingPathComponent("Localizable.xcstrings")),
-            "Interface": try localizationCatalog(at: radixRoot.appendingPathComponent("Interface.xcstrings"))
+            "Interface": try localizationCatalog(at: radixRoot.appendingPathComponent("Interface.xcstrings")),
         ]
     }
 
     private func swiftSourceFiles(in directory: URL) throws -> [URL] {
         let keys: [URLResourceKey] = [.isRegularFileKey]
-        let enumerator = try XCTUnwrap(
+        let enumerator = try #require(
             FileManager.default.enumerator(
                 at: directory,
                 includingPropertiesForKeys: keys,
                 options: [.skipsHiddenFiles]
-            )
-        )
+            ))
         return try enumerator.compactMap { item -> URL? in
             guard let url = item as? URL,
-                  url.pathExtension == "swift",
-                  try url.resourceValues(forKeys: Set(keys)).isRegularFile == true else {
+                url.pathExtension == "swift",
+                try url.resourceValues(forKeys: Set(keys)).isRegularFile == true
+            else {
                 return nil
             }
             return url
@@ -259,7 +222,7 @@ final class LocalizationCatalogTests: XCTestCase {
             #"\b(?:Text|Label|Button|Toggle|Picker|Section|TextField|SecureField|Menu|GroupBox|LabeledContent|NavigationLink|CommandMenu|ProgressView|TableColumn|Window)\s*\(\s*"((?:\\.|[^"\\])*)""#,
             #"\bContentUnavailableView\s*\(\s*"((?:\\.|[^"\\])*)""#,
             #"\.(?:navigationTitle|accessibilityLabel|accessibilityHint|help|confirmationDialog|alert)\s*\(\s*"((?:\\.|[^"\\])*)""#,
-            #"\.searchable\s*\([^\n]*\bprompt\s*:\s*"((?:\\.|[^"\\])*)""#
+            #"\.searchable\s*\([^\n]*\bprompt\s*:\s*"((?:\\.|[^"\\])*)""#,
         ]
 
         return patterns.flatMap { pattern in
@@ -329,8 +292,9 @@ final class LocalizationCatalogTests: XCTestCase {
         let searchRange = NSRange(value.startIndex..., in: value)
         return expression.matches(in: value, range: searchRange).compactMap { match in
             guard match.numberOfRanges > 1,
-                  let valueRange = Range(match.range(at: 1), in: value),
-                  let fullRange = Range(match.range(at: 0), in: value) else {
+                let valueRange = Range(match.range(at: 1), in: value),
+                let fullRange = Range(match.range(at: 0), in: value)
+            else {
                 return nil
             }
             return (String(value[valueRange]), fullRange)

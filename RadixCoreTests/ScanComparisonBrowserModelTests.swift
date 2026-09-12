@@ -1,8 +1,11 @@
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 @MainActor
-final class ScanComparisonBrowserModelTests: XCTestCase {
+struct ScanComparisonBrowserModelTests {
+    @Test
     func testRefreshPreservesPublishedRowsThenReconcilesSelection() async throws {
         let gate = ComparisonProcessorGate()
         let model = ScanComparisonBrowserModel(
@@ -34,17 +37,18 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
         )
         try await waitUntil { await gate.requestCount == 2 }
 
-        XCTAssertTrue(model.isRefreshing)
-        XCTAssertEqual(model.displayedRows.map(\.name), ["first.txt"])
-        XCTAssertEqual(model.selection, [rows[0].id])
+        #expect(model.isRefreshing)
+        #expect(model.displayedRows.map(\.name) == ["first.txt"])
+        #expect(model.selection == [rows[0].id])
 
         await gate.resumeRequest(at: 1)
         try await waitUntil { model.displayedRows.map(\.name) == ["second.txt"] }
-        XCTAssertFalse(model.isRefreshing)
-        XCTAssertTrue(model.selection.isEmpty)
-        XCTAssertTrue(model.aggregateSelection.isEmpty)
+        #expect(!(model.isRefreshing))
+        #expect(model.selection.isEmpty)
+        #expect(model.aggregateSelection.isEmpty)
     }
 
+    @Test
     func testOlderCancelledRefreshCannotOverwriteNewerResult() async throws {
         let gate = ComparisonProcessorGate()
         let model = ScanComparisonBrowserModel(
@@ -76,10 +80,11 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
         await gate.resumeRequest(at: 0)
         await Task.yield()
 
-        XCTAssertEqual(model.displayedRows.map(\.name), ["second.txt"])
-        XCTAssertFalse(model.isRefreshing)
+        #expect(model.displayedRows.map(\.name) == ["second.txt"])
+        #expect(!(model.isRefreshing))
     }
 
+    @Test
     func testCancelledRefreshCanRestartSameRequest() async throws {
         let gate = ComparisonProcessorGate()
         let model = ScanComparisonBrowserModel(
@@ -112,9 +117,10 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
         try await waitUntil { model.displayedRows.map(\.name) == ["first.txt"] }
         await gate.resumeRequest(at: 0)
 
-        XCTAssertFalse(model.isRefreshing)
+        #expect(!(model.isRefreshing))
     }
 
+    @Test
     func testDefaultProcessorFiltersRowsAndBuildsProjection() async throws {
         let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
         let rows = [makeRow("first.txt"), makeRow("second.txt")]
@@ -127,11 +133,12 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
         )
 
         try await waitUntil { !model.isRefreshing }
-        XCTAssertEqual(model.displayedRows.map(\.name), ["second.txt"])
-        XCTAssertTrue(model.projection.roots.isEmpty)
-        XCTAssertEqual(model.projection.changeKinds, [.added])
+        #expect(model.displayedRows.map(\.name) == ["second.txt"])
+        #expect(model.projection.roots.isEmpty)
+        #expect(model.projection.changeKinds == [.added])
     }
 
+    @Test
     func testDefaultProcessorBuildsSearchIndexOnlyForNonemptySearch() async throws {
         let rows = [makeRow("first.txt"), makeRow("second.txt")]
         let emptyOutput = try await ScanComparisonBrowserModel.process(
@@ -143,7 +150,7 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(emptyOutput.searchIndex)
+        #expect(emptyOutput.searchIndex == nil)
 
         let searchOutput = try await ScanComparisonBrowserModel.process(
             ScanComparisonBrowserModel.WorkInput(
@@ -154,10 +161,11 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
             )
         )
 
-        XCTAssertNotNil(searchOutput.searchIndex)
-        XCTAssertEqual(searchOutput.rows.map(\.name), ["second.txt"])
+        #expect(searchOutput.searchIndex != nil)
+        #expect(searchOutput.rows.map(\.name) == ["second.txt"])
     }
 
+    @Test
     func testDefaultProcessorRebuildsSearchIndexForReplacementDataset() async throws {
         let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
 
@@ -168,7 +176,7 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
             query: query("first")
         )
         try await waitUntil { !model.isRefreshing }
-        XCTAssertEqual(model.displayedRows.map(\.name), ["first.txt"])
+        #expect(model.displayedRows.map(\.name) == ["first.txt"])
 
         model.refresh(
             comparisonID: UUID(),
@@ -178,9 +186,10 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
         )
         try await waitUntil { !model.isRefreshing }
 
-        XCTAssertEqual(model.displayedRows.map(\.name), ["second.txt"])
+        #expect(model.displayedRows.map(\.name) == ["second.txt"])
     }
 
+    @Test
     func testRapidSearchChangesDebounceSupersededQuery() async throws {
         let recorder = ComparisonProcessorRecorder()
         let model = ScanComparisonBrowserModel(
@@ -219,9 +228,10 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
 
         try await waitUntil { await recorder.searchTexts.count == 2 }
         let processedSearchTexts = await recorder.searchTexts
-        XCTAssertEqual(processedSearchTexts, ["", "second"])
+        #expect(processedSearchTexts == ["", "second"])
     }
 
+    @Test
     func testProjectionReuseRequiresCompletedMatchingDatasetAndKinds() async throws {
         let recorder = ComparisonProcessorRecorder()
         let model = ScanComparisonBrowserModel(
@@ -236,29 +246,31 @@ final class ScanComparisonBrowserModelTests: XCTestCase {
             (id, .init(searchText: "", sortOrder: [.defaultOrder])),
             (id, query("first")),
             (id, query("first", changeKinds: [.added])),
-            (UUID(), query("first", changeKinds: [.added]))
+            (UUID(), query("first", changeKinds: [.added])),
         ]
         for (comparisonID, query) in requests {
             model.refresh(comparisonID: comparisonID, rows: rows, changeTree: .empty, query: query)
             try await waitUntil { !model.isRefreshing }
         }
         let reused = await recorder.reusedProjections
-        XCTAssertEqual(reused, [false, true, true, true, false, false])
+        #expect(reused == [false, true, true, true, false, false])
         model.cancel()
-        let last = try XCTUnwrap(requests.last)
+        let last = try #require(requests.last)
         model.refresh(comparisonID: last.0, rows: rows, changeTree: .empty, query: last.1)
         try await waitUntil { !model.isRefreshing }
         let reusedAfterCancel = await recorder.reusedProjections.last
-        XCTAssertEqual(reusedAfterCancel, false)
+        #expect(reusedAfterCancel == false)
     }
 
+    @Test
     func testDefaultProcessorUsesSuppliedProjection() async throws {
         let expected = ScanComparisonChangeTree.empty.significantProjection(changeKinds: [.added])
-        let output = try await ScanComparisonBrowserModel.process(.init(
-            rows: [], changeTree: .empty, query: query(""), searchIndex: nil,
-            projection: expected
-        ))
-        XCTAssertEqual(output.projection, expected)
+        let output = try await ScanComparisonBrowserModel.process(
+            .init(
+                rows: [], changeTree: .empty, query: query(""), searchIndex: nil,
+                projection: expected
+            ))
+        #expect(output.projection == expected)
     }
 
     private func query(

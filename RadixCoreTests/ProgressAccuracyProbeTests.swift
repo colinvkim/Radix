@@ -1,12 +1,15 @@
 import Combine
 import Darwin
-import XCTest
+import Foundation
+import Testing
+
 @testable import RadixCore
 
 /// Opt-in, test-target-only measurement of the progress values Radix actually
 /// publishes to `ScanProgressState`. Production progress is work-based; elapsed
 /// time is used only retrospectively here to score the completed curve.
-final class ProgressAccuracyProbeTests: XCTestCase {
+struct ProgressAccuracyProbeTests {
+    @Test
     func testAccuracySummaryIntegratesHeldDisplayedValuesOverTime() {
         var halfway = ScanMetrics()
         halfway.progressFraction = 0.5
@@ -17,22 +20,23 @@ final class ProgressAccuracyProbeTests: XCTestCase {
             samples: [
                 Sample(elapsed: 0, metrics: ScanMetrics()),
                 Sample(elapsed: 0.5, metrics: halfway),
-                Sample(elapsed: 1, metrics: complete)
+                Sample(elapsed: 1, metrics: complete),
             ],
             total: 1
         )
 
-        XCTAssertEqual(summary.timeWeightedMAE, 0.25, accuracy: 0.000_001)
-        XCTAssertEqual(summary.timeWeightedRMSE, sqrt(1.0 / 12.0), accuracy: 0.000_001)
-        XCTAssertEqual(summary.signedBias, -0.25, accuracy: 0.000_001)
-        XCTAssertEqual(summary.maximumLead, 0, accuracy: 0.000_001)
-        XCTAssertEqual(summary.maximumLag, -0.5, accuracy: 0.000_001)
-        XCTAssertEqual(summary.milestone(0.5), 0.5, accuracy: 0.000_001)
-        XCTAssertEqual(summary.completionJump, 0.5, accuracy: 0.000_001)
-        XCTAssertEqual(summary.monotonicViolations, 0)
-        XCTAssertEqual(summary.boundsViolations, 0)
+        #expect(abs((summary.timeWeightedMAE) - (0.25)) <= 0.000_001)
+        #expect(abs((summary.timeWeightedRMSE) - (sqrt(1.0 / 12.0))) <= 0.000_001)
+        #expect(abs((summary.signedBias) - (-0.25)) <= 0.000_001)
+        #expect(abs((summary.maximumLead) - (0)) <= 0.000_001)
+        #expect(abs((summary.maximumLag) - (-0.5)) <= 0.000_001)
+        #expect(abs((summary.milestone(0.5)) - (0.5)) <= 0.000_001)
+        #expect(abs((summary.completionJump) - (0.5)) <= 0.000_001)
+        #expect(summary.monotonicViolations == 0)
+        #expect(summary.boundsViolations == 0)
     }
 
+    @Test
     func testAccuracySummaryPreservesEqualTimestampPublicationOrder() {
         var rising = ScanMetrics()
         rising.progressFraction = 0.6
@@ -46,26 +50,28 @@ final class ProgressAccuracyProbeTests: XCTestCase {
                 Sample(elapsed: 0, metrics: ScanMetrics()),
                 Sample(elapsed: 0.5, metrics: rising),
                 Sample(elapsed: 0.5, metrics: regressed),
-                Sample(elapsed: 1, metrics: complete)
+                Sample(elapsed: 1, metrics: complete),
             ],
             total: 1
         )
 
-        XCTAssertEqual(summary.monotonicViolations, 1)
-        XCTAssertEqual(summary.milestone(0.5), 0.5, accuracy: 0.000_001)
+        #expect(summary.monotonicViolations == 1)
+        #expect(abs((summary.milestone(0.5)) - (0.5)) <= 0.000_001)
     }
 
     @MainActor
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_PROGRESS_PROBE"] == "1",
+            "Set RADIX_PROGRESS_PROBE=1 to run the progress accuracy probe."))
     func testProgressCurve() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_PROGRESS_PROBE"] == "1" else {
-            throw XCTSkip("Set RADIX_PROGRESS_PROBE=1 to run the progress accuracy probe.")
-        }
 
         let path = environment["RADIX_PROGRESS_PROBE_PATH"] ?? "/Applications"
         let targetURL = URL(filePath: path, directoryHint: .isDirectory)
         guard FileManager.default.fileExists(atPath: targetURL.path) else {
-            throw XCTSkip("Progress probe path does not exist: \(targetURL.path)")
+            throw TestFixtureError("Progress probe path does not exist: \(targetURL.path)")
         }
 
         let clock = ContinuousClock()
@@ -79,10 +85,11 @@ final class ProgressAccuracyProbeTests: XCTestCase {
         let progressObservation = coordinator.progress.$metrics
             .dropFirst()
             .sink { metrics in
-                samples.append(Sample(
-                    elapsed: BenchmarkSupport.durationSeconds(start.duration(to: clock.now)),
-                    metrics: metrics
-                ))
+                samples.append(
+                    Sample(
+                        elapsed: BenchmarkSupport.durationSeconds(start.duration(to: clock.now)),
+                        metrics: metrics
+                    ))
             }
 
         coordinator.startScan(
@@ -94,7 +101,7 @@ final class ProgressAccuracyProbeTests: XCTestCase {
         while coordinator.isScanOperationInProgress {
             guard clock.now < deadline else {
                 coordinator.stopScan()
-                XCTFail("Timed out measuring progress for \(targetURL.path).")
+                Issue.record("Timed out measuring progress for \(targetURL.path).")
                 progressObservation.cancel()
                 return
             }
@@ -103,42 +110,44 @@ final class ProgressAccuracyProbeTests: XCTestCase {
 
         let total = BenchmarkSupport.durationSeconds(start.duration(to: clock.now))
         progressObservation.cancel()
-        let snapshot = try XCTUnwrap(
-            coordinator.snapshot,
-            coordinator.scanErrorMessage ?? "Scan finished without a snapshot."
+        let snapshot = try #require(
+            coordinator.snapshot, Comment(rawValue: coordinator.scanErrorMessage ?? "Scan finished without a snapshot.")
         )
         if samples.last?.fraction != 1 {
             samples.append(Sample(elapsed: total, metrics: coordinator.scanMetrics))
         }
         let summary = AccuracySummary(samples: samples, total: total)
 
-        XCTAssertEqual(summary.boundsViolations, 0)
-        XCTAssertEqual(summary.monotonicViolations, 0)
-        XCTAssertEqual(try XCTUnwrap(samples.last?.fraction), 1, accuracy: 0.000_001)
+        #expect(summary.boundsViolations == 0)
+        #expect(summary.monotonicViolations == 0)
+        #expect(abs((try #require(samples.last?.fraction)) - (1)) <= 0.000_001)
 
         if environment["RADIX_PROGRESS_PROBE_VERBOSE"] == "1" {
-            print("PROBE_HEADER elapsed time_fraction reported_fraction percentage weight atomic_weight files directories completed discovered enumerated pending summary_additional_visited atomic_visited atomic_remaining atomic_active finalizing")
+            print(
+                "PROBE_HEADER elapsed time_fraction reported_fraction percentage weight atomic_weight files directories completed discovered enumerated pending summary_additional_visited atomic_visited atomic_remaining atomic_active finalizing"
+            )
             for sample in samples {
-                print(String(
-                    format: "PROBE %.6f %.6f %.6f %d %.6f %.6f %d %d %d %d %d %d %d %d %d %d %d",
-                    sample.elapsed,
-                    total > 0 ? sample.elapsed / total : 0,
-                    sample.fraction,
-                    sample.percentage,
-                    sample.metrics.completedTraversalWeight,
-                    sample.metrics.atomicSummaryCompletedTraversalWeight,
-                    sample.metrics.filesVisited,
-                    sample.metrics.directoriesVisited,
-                    sample.metrics.completedItems,
-                    sample.metrics.discoveredItems,
-                    sample.metrics.enumeratedDirectoryCount,
-                    sample.metrics.pendingDirectoryCount,
-                    sample.metrics.completedSummaryAdditionalVisitedItemCount,
-                    sample.metrics.atomicSummaryVisitedItems,
-                    sample.metrics.atomicSummaryEstimatedRemainingItems,
-                    sample.metrics.activeAtomicSummaryCount,
-                    sample.metrics.isFinalizing ? 1 : 0
-                ))
+                print(
+                    String(
+                        format: "PROBE %.6f %.6f %.6f %d %.6f %.6f %d %d %d %d %d %d %d %d %d %d %d",
+                        sample.elapsed,
+                        total > 0 ? sample.elapsed / total : 0,
+                        sample.fraction,
+                        sample.percentage,
+                        sample.metrics.completedTraversalWeight,
+                        sample.metrics.atomicSummaryCompletedTraversalWeight,
+                        sample.metrics.filesVisited,
+                        sample.metrics.directoriesVisited,
+                        sample.metrics.completedItems,
+                        sample.metrics.discoveredItems,
+                        sample.metrics.enumeratedDirectoryCount,
+                        sample.metrics.pendingDirectoryCount,
+                        sample.metrics.completedSummaryAdditionalVisitedItemCount,
+                        sample.metrics.atomicSummaryVisitedItems,
+                        sample.metrics.atomicSummaryEstimatedRemainingItems,
+                        sample.metrics.activeAtomicSummaryCount,
+                        sample.metrics.isFinalizing ? 1 : 0
+                    ))
             }
         }
 
@@ -175,102 +184,39 @@ final class ProgressAccuracyProbeTests: XCTestCase {
         )
     }
 
+    @Test(
+        .tags(.benchmark),
+        .enabled(
+            if: ProcessInfo.processInfo.environment["RADIX_PROGRESS_PROBE_CANCEL"] == "1",
+            "Set RADIX_PROGRESS_PROBE_CANCEL=1 to run the progress cancellation probe."))
     func testCancellationLatency() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_PROGRESS_PROBE_CANCEL"] == "1" else {
-            throw XCTSkip(
-                "Set RADIX_PROGRESS_PROBE_CANCEL=1 to run the progress cancellation probe."
-            )
+        let result = try await #require(processExitsWith: .success, observing: [\.standardOutputContent]) {
+            // A watchdog on a preemptive queue bounds the worker even if the
+            // cooperative executor deadlocks. The parent remains able to report it.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 15) { _exit(124) }
+            try await ProgressAccuracyProbeTests.measureCancellationLatency()
         }
-
-        let process = Process()
-        let outputURL = FileManager.default.temporaryDirectory.appending(
-            path: "radix-progress-cancellation-\(UUID().uuidString).log",
-            directoryHint: .notDirectory
-        )
-        guard FileManager.default.createFile(
-            atPath: outputURL.path,
-            contents: nil,
-            attributes: [.posixPermissions: 0o600]
-        ) else {
-            XCTFail("Unable to create cancellation probe output file.")
-            return
-        }
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer {
-            try? outputHandle.close()
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        var workerEnvironment = environment
-        workerEnvironment["RADIX_PROGRESS_PROBE_CANCEL_WORKER"] = "1"
-        process.executableURL = URL(filePath: "/usr/bin/xcrun")
-        process.arguments = [
-            "xctest",
-            "-XCTest",
-            "RadixCoreTests.ProgressAccuracyProbeTests/testCancellationLatencyWorker",
-            Bundle(for: Self.self).bundleURL.path
-        ]
-        process.environment = workerEnvironment
-        process.standardOutput = outputHandle
-        process.standardError = outputHandle
-        try process.run()
-
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(15))
-        while process.isRunning, clock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        if process.isRunning {
-            process.terminate()
-            let terminationDeadline = clock.now.advanced(by: .seconds(1))
-            while process.isRunning, clock.now < terminationDeadline {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-            if process.isRunning {
-                _ = Darwin.kill(process.processIdentifier, SIGKILL)
-            }
-        }
-        process.waitUntilExit()
-        try outputHandle.close()
-
-        let capturedOutput = String(
-            decoding: try Data(contentsOf: outputURL),
-            as: UTF8.self
-        )
-        print(capturedOutput, terminator: capturedOutput.hasSuffix("\n") ? "" : "\n")
-        XCTAssertLessThan(
-            clock.now,
-            deadline,
-            "Cancellation probe worker exceeded its 15-second process deadline."
-        )
-        XCTAssertEqual(
-            process.terminationStatus,
-            0,
-            "Cancellation probe worker failed or was terminated."
-        )
+        print(String(decoding: result.standardOutputContent, as: UTF8.self), terminator: "")
     }
 
-    func testCancellationLatencyWorker() async throws {
+    private static func measureCancellationLatency() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["RADIX_PROGRESS_PROBE_CANCEL_WORKER"] == "1" else {
-            throw XCTSkip("Cancellation worker is launched by testCancellationLatency.")
-        }
-
         let path = environment["RADIX_PROGRESS_PROBE_PATH"] ?? "/Applications"
         let targetURL = URL(filePath: path, directoryHint: .isDirectory)
         guard FileManager.default.fileExists(atPath: targetURL.path) else {
-            throw XCTSkip("Progress probe path does not exist: \(targetURL.path)")
+            throw TestFixtureError("Progress probe path does not exist: \(targetURL.path)")
         }
         let cancellationDelayMilliseconds = max(
             environment["RADIX_PROGRESS_PROBE_CANCEL_AFTER_MS"].flatMap(Int.init) ?? 150,
             1
         )
         let workerActivity = ProgressProbeWorkerActivity()
-        let engine = ScanEngine(atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
-            didStart: { _, _ in workerActivity.didStart() },
-            didFinish: { _, _ in workerActivity.didFinish() },
-            didShutdown: { workerActivity.didShutdown() }
-        ))
+        let engine = ScanEngine(
+            atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
+                didStart: { _, _ in workerActivity.didStart() },
+                didFinish: { _, _ in workerActivity.didFinish() },
+                didShutdown: { workerActivity.didShutdown() }
+            ))
         let observation = ProgressProbeCancellationObservation()
         let consumer = Task {
             var emittedFinishedSnapshot = false
@@ -293,18 +239,20 @@ final class ProgressAccuracyProbeTests: XCTestCase {
             } catch {
                 unexpectedError = String(describing: error)
             }
-            await observation.recordTermination(ProgressProbeCancellationOutcome(
-                emittedFinished: emittedFinishedSnapshot,
-                unexpectedError: unexpectedError
-            ))
+            await observation.recordTermination(
+                ProgressProbeCancellationOutcome(
+                    emittedFinished: emittedFinishedSnapshot,
+                    unexpectedError: unexpectedError
+                ))
         }
 
         try await Task.sleep(for: .milliseconds(cancellationDelayMilliseconds))
         let clock = ContinuousClock()
         let progressDeadline = clock.now.advanced(by: .seconds(5))
-        while (!(await observation.didObserveActiveProgress())
-                || !workerActivity.hasActiveWorkers),
-              clock.now < progressDeadline {
+        while !(await observation.didObserveActiveProgress())
+            || !workerActivity.hasActiveWorkers,
+            clock.now < progressDeadline
+        {
             try await Task.sleep(for: .milliseconds(1))
         }
         let progressObserved = await observation.didObserveActiveProgress()
@@ -312,9 +260,10 @@ final class ProgressAccuracyProbeTests: XCTestCase {
         let cancellationStart = clock.now
         consumer.cancel()
         let shutdownDeadline = clock.now.advanced(by: .seconds(5))
-        while ((await observation.terminationOutcome()) == nil
-                || !workerActivity.hasShutdown),
-              clock.now < shutdownDeadline {
+        while (await observation.terminationOutcome()) == nil
+            || !workerActivity.hasShutdown,
+            clock.now < shutdownDeadline
+        {
             try await Task.sleep(for: .milliseconds(1))
         }
         let outcome = await observation.terminationOutcome()
@@ -322,13 +271,13 @@ final class ProgressAccuracyProbeTests: XCTestCase {
         let workersQuiescent = workerActivity.isQuiescent
         let shutdownLatency = BenchmarkSupport.durationSeconds(cancellationStart.duration(to: clock.now))
 
-        XCTAssertTrue(progressObserved, "Cancellation probe never observed active scan work.")
-        XCTAssertTrue(workerActiveAtCancellation, "Cancellation probe did not cancel active summary work.")
-        XCTAssertNotNil(outcome, "Scan stream did not terminate within five seconds of cancellation.")
-        XCTAssertTrue(poolShutdown, "Summary pool did not complete shutdown after cancellation.")
-        XCTAssertTrue(workersQuiescent, "Summary workers did not quiesce after cancellation.")
-        XCTAssertFalse(outcome?.emittedFinished ?? true)
-        XCTAssertNil(outcome?.unexpectedError)
+        #expect(progressObserved, "Cancellation probe never observed active scan work.")
+        #expect(workerActiveAtCancellation, "Cancellation probe did not cancel active summary work.")
+        #expect(outcome != nil, "Scan stream did not terminate within five seconds of cancellation.")
+        #expect(poolShutdown, "Summary pool did not complete shutdown after cancellation.")
+        #expect(workersQuiescent, "Summary workers did not quiesce after cancellation.")
+        #expect(!(outcome?.emittedFinished ?? true))
+        #expect(outcome?.unexpectedError == nil)
         print(
             "RADIX_PROGRESS_CANCELLATION_RESULT path=\(targetURL.path) "
                 + "cancel_after_ms=\(cancellationDelayMilliseconds) "
@@ -445,10 +394,12 @@ final class ProgressAccuracyProbeTests: XCTestCase {
             }
             longestIntegerStall = max(longestIntegerStall, duration - stallStart)
 
-            let fractionBeforeCompletion = orderedSamples
+            let fractionBeforeCompletion =
+                orderedSamples
                 .last(where: { $0.fraction < 1 })?
                 .fraction ?? 0
-            let finalizationStart = orderedSamples
+            let finalizationStart =
+                orderedSamples
                 .first(where: { $0.metrics.isFinalizing })?
                 .elapsed
 
@@ -460,9 +411,10 @@ final class ProgressAccuracyProbeTests: XCTestCase {
             self.longestIntegerStallShare = min(max(longestIntegerStall / duration, 0), 1)
             self.longestUpdateGapShare = min(max(longestUpdateGap / duration, 0), 1)
             self.completionJump = min(max(1 - fractionBeforeCompletion, 0), 1)
-            self.finalizationElapsedShare = finalizationStart.map {
-                min(max((duration - $0) / duration, 0), 1)
-            } ?? 0
+            self.finalizationElapsedShare =
+                finalizationStart.map {
+                    min(max((duration - $0) / duration, 0), 1)
+                } ?? 0
             self.monotonicViolations = monotonicViolations
             self.boundsViolations = boundsViolations
             self.milestoneByFraction = milestoneByFraction
@@ -508,11 +460,13 @@ private actor ProgressProbeCancellationObservation {
     private var outcome: ProgressProbeCancellationOutcome?
 
     func record(_ metrics: ScanMetrics) {
-        guard metrics.filesVisited > 0
-            || metrics.directoriesVisited > 0
-            || metrics.completedItems > 0
-            || metrics.atomicSummaryVisitedItems > 0
-            || metrics.isFinalizing else {
+        guard
+            metrics.filesVisited > 0
+                || metrics.directoriesVisited > 0
+                || metrics.completedItems > 0
+                || metrics.atomicSummaryVisitedItems > 0
+                || metrics.isFinalizing
+        else {
             return
         }
         observedActiveProgress = true

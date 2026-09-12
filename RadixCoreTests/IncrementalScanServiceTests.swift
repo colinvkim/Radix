@@ -1,36 +1,33 @@
 import CoreServices
 import Foundation
-import XCTest
+import Testing
+
 @testable import RadixCore
 
-final class IncrementalScanServiceTests: XCTestCase {
+struct IncrementalScanServiceTests {
+    @Test
     func testFSEventFlagMappingPreservesCloneEvents() {
         let rawFlags = FSEventStreamEventFlags(
-            kFSEventStreamEventFlagItemCreated |
-                kFSEventStreamEventFlagItemIsFile |
-                kFSEventStreamEventFlagItemCloned
+            kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemIsFile | kFSEventStreamEventFlagItemCloned
         )
 
-        XCTAssertEqual(
-            FileSystemEventFlags(fseventRawValue: rawFlags),
-            [.itemCreated, .itemIsFile, .itemCloned]
-        )
+        #expect(FileSystemEventFlags(fseventRawValue: rawFlags) == [.itemCreated, .itemIsFile, .itemCloned])
     }
 
+    @Test
     func testFSEventFlagMappingPreservesHardLinkEvents() {
         let rawFlags = FSEventStreamEventFlags(
-            kFSEventStreamEventFlagItemCreated |
-                kFSEventStreamEventFlagItemIsFile |
-                kFSEventStreamEventFlagItemIsHardlink |
-                kFSEventStreamEventFlagItemIsLastHardlink
+            kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemIsFile
+                | kFSEventStreamEventFlagItemIsHardlink | kFSEventStreamEventFlagItemIsLastHardlink
         )
 
-        XCTAssertEqual(
-            FileSystemEventFlags(fseventRawValue: rawFlags),
-            [.itemCreated, .itemIsFile, .itemIsHardLink, .itemIsLastHardLink]
-        )
+        #expect(
+            FileSystemEventFlags(fseventRawValue: rawFlags) == [
+                .itemCreated, .itemIsFile, .itemIsHardLink, .itemIsLastHardLink,
+            ])
     }
 
+    @Test
     func testDarwinHistoryProviderCapturesCheckpointForLocalDirectory() throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -38,10 +35,11 @@ final class IncrementalScanServiceTests: XCTestCase {
         let checkpoint = try DarwinFileSystemEventHistoryProvider()
             .currentCheckpoint(for: rootURL)
 
-        XCTAssertGreaterThan(checkpoint.eventID, 0)
-        XCTAssertFalse(checkpoint.volumeUUID.isEmpty)
+        #expect(checkpoint.eventID > 0)
+        #expect(!(checkpoint.volumeUUID.isEmpty))
     }
 
+    @Test
     func testDarwinHistoryProviderIncludesFileCreatedAfterCheckpoint() async throws {
         let rootURL = try makeIncrementalFSEventDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -50,10 +48,11 @@ final class IncrementalScanServiceTests: XCTestCase {
         let createdURL = rootURL.appending(path: "created.dat")
 
         try Data([0x1]).write(to: createdURL)
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
         var latestCheckpoint = since
 
-        while ContinuousClock.now < deadline {
+        while true {
+            try Task.checkCancellation()
             latestCheckpoint = try provider.currentCheckpoint(for: rootURL)
             if latestCheckpoint.eventID > since.eventID {
                 let history = try await provider.history(
@@ -69,15 +68,18 @@ final class IncrementalScanServiceTests: XCTestCase {
                     return
                 }
             }
+            // Poll before checking the deadline: parallel fixtures can delay a wakeup
+            // even after the OS has delivered the event.
+            guard ContinuousClock.now < deadline else { break }
             try await Task.sleep(for: .milliseconds(25))
         }
 
-        XCTFail(
-            "FSEvents did not report \(createdURL.path) between event IDs "
-                + "\(since.eventID) and \(latestCheckpoint.eventID)"
+        Issue.record(
+            "FSEvents did not report \(createdURL.path) between event IDs \(since.eventID) and \(latestCheckpoint.eventID)"
         )
     }
 
+    @Test
     func testShallowRelistClassificationBudgetAccountsForConcurrentRelists() {
         var options = ScanOptions()
         options.directoryTraversalWorkerLimit = 4
@@ -88,10 +90,11 @@ final class IncrementalScanServiceTests: XCTestCase {
             relistWorkerLimit: 4
         )
 
-        XCTAssertGreaterThanOrEqual(limit, 1)
-        XCTAssertLessThan(limit, 8)
+        #expect(limit >= 1)
+        #expect(limit < 8)
     }
 
+    @Test
     func testFullScanReportsFullExecutionMode() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -109,11 +112,12 @@ final class IncrementalScanServiceTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.executionModes, [.full])
-        XCTAssertEqual(result.snapshot.incrementalCheckpoint?.eventID, 10)
+        #expect(result.executionModes == [.full])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 10)
     }
 
     @MainActor
+    @Test
     func testFullScanCapturesCheckpointOffMainThread() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -130,9 +134,10 @@ final class IncrementalScanServiceTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(history.checkpointMainThreadObservations, [false])
+        #expect(history.checkpointMainThreadObservations == [false])
     }
 
+    @Test
     func testMissingCheckpointReportsFullFallbackReason() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -154,10 +159,11 @@ final class IncrementalScanServiceTests: XCTestCase {
             from: service.rescan(target: target, options: options, from: baseline)
         )
 
-        XCTAssertEqual(result.executionModes, [.fullFallback(.checkpointUnavailable)])
-        XCTAssertEqual(result.snapshot.incrementalCheckpoint?.eventID, 20)
+        #expect(result.executionModes == [.fullFallback(.checkpointUnavailable)])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
     }
 
+    @Test
     func testChangedOptionsReportFullFallbackReason() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -182,11 +188,12 @@ final class IncrementalScanServiceTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.executionModes, [.fullFallback(.changedScanOptions)])
-        XCTAssertEqual(result.snapshot.scanOptions, changedOptions)
-        XCTAssertEqual(result.snapshot.incrementalCheckpoint?.eventID, 20)
+        #expect(result.executionModes == [.fullFallback(.changedScanOptions)])
+        #expect(result.snapshot.scanOptions == changedOptions)
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
     }
 
+    @Test
     func testUnavailableEventHistoryReportsFullFallbackReason() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -210,10 +217,11 @@ final class IncrementalScanServiceTests: XCTestCase {
             from: service.rescan(target: target, options: options, from: baseline)
         )
 
-        XCTAssertEqual(result.executionModes, [.fullFallback(.eventHistoryUnavailable)])
-        XCTAssertEqual(result.snapshot.incrementalCheckpoint?.eventID, 30)
+        #expect(result.executionModes == [.fullFallback(.eventHistoryUnavailable)])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 30)
     }
 
+    @Test
     func testCancelledEventHistoryDoesNotStartFullFallback() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -244,9 +252,10 @@ final class IncrementalScanServiceTests: XCTestCase {
             }
         }
 
-        XCTAssertTrue(executionModes.isEmpty)
+        #expect(executionModes.isEmpty)
     }
 
+    @Test
     func testPlannerFallbackPreservesExactReason() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -273,10 +282,11 @@ final class IncrementalScanServiceTests: XCTestCase {
             from: service.rescan(target: target, options: options, from: baseline)
         )
 
-        XCTAssertEqual(result.executionModes, [.fullFallback(.userDroppedEvents)])
-        XCTAssertEqual(result.snapshot.incrementalCheckpoint?.eventID, 30)
+        #expect(result.executionModes == [.fullFallback(.userDroppedEvents)])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 30)
     }
 
+    @Test
     func testRootShallowRelistAppliesMixedMembershipChanges() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -340,11 +350,12 @@ final class IncrementalScanServiceTests: XCTestCase {
         )
 
         try assertEquivalent(incremental, full)
-        XCTAssertEqual(incremental.incrementalCheckpoint?.eventID, 20)
-        XCTAssertEqual(incrementalResult.progressMetrics.last?.directoriesVisited, 1)
-        XCTAssertGreaterThan(incrementalResult.progressMetrics.last?.progressFraction ?? 0, 0)
+        #expect(incremental.incrementalCheckpoint?.eventID == 20)
+        #expect(incrementalResult.progressMetrics.last?.directoriesVisited == 1)
+        #expect(incrementalResult.progressMetrics.last?.progressFraction ?? 0 > 0)
     }
 
+    @Test
     func testBatchedShallowRelistsMatchFullScanAcrossDirectories() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -387,9 +398,10 @@ final class IncrementalScanServiceTests: XCTestCase {
         )
 
         try assertEquivalent(incremental, full)
-        XCTAssertEqual(incremental.incrementalCheckpoint?.eventID, 20)
+        #expect(incremental.incrementalCheckpoint?.eventID == 20)
     }
 
+    @Test
     func testShallowRelistPreservesAutoSummaryThresholdSemantics() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -406,7 +418,7 @@ final class IncrementalScanServiceTests: XCTestCase {
                     path: createdURL.path,
                     eventID: 15,
                     flags: [.itemCreated, .itemIsFile]
-                ),
+                )
             ]
         )
         let service = IncrementalScanService(eventHistoryProvider: provider)
@@ -418,7 +430,7 @@ final class IncrementalScanServiceTests: XCTestCase {
         let baseline = try await finishedIncrementalSnapshot(
             from: service.scan(target: target, options: options)
         )
-        XCTAssertEqual(baseline.treeStore.node(id: candidateURL.path)?.isAutoSummarized, false)
+        #expect(baseline.treeStore.node(id: candidateURL.path)?.isAutoSummarized == false)
 
         try Data([0x2]).write(to: createdURL)
         let incremental = try await finishedIncrementalSnapshot(
@@ -429,10 +441,11 @@ final class IncrementalScanServiceTests: XCTestCase {
         )
 
         try assertEquivalent(incremental, full)
-        XCTAssertEqual(incremental.treeStore.node(id: candidateURL.path)?.isAutoSummarized, true)
-        XCTAssertEqual(incremental.incrementalCheckpoint?.eventID, 20)
+        #expect(incremental.treeStore.node(id: candidateURL.path)?.isAutoSummarized == true)
+        #expect(incremental.incrementalCheckpoint?.eventID == 20)
     }
 
+    @Test
     func testFullScanCapturesCheckpointAndIncrementalRescanRelistsChangedDirectory() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -459,21 +472,22 @@ final class IncrementalScanServiceTests: XCTestCase {
         let baseline = try await finishedIncrementalSnapshot(
             from: service.scan(target: target, options: options)
         )
-        XCTAssertEqual(baseline.incrementalCheckpoint?.eventID, 10)
+        #expect(baseline.incrementalCheckpoint?.eventID == 10)
 
-        let untouchedBefore = try XCTUnwrap(baseline.treeStore.node(id: untouchedURL.path))
+        let untouchedBefore = try #require(baseline.treeStore.node(id: untouchedURL.path))
         try Data([0x3]).write(to: changedURL.appending(path: "after.dat"))
         let rescanned = try await finishedIncrementalSnapshot(
             from: service.rescan(target: target, options: options, from: baseline)
         )
 
-        XCTAssertEqual(rescanned.incrementalCheckpoint?.eventID, 20)
-        XCTAssertEqual(rescanned.root.descendantFileCount, 3)
-        XCTAssertEqual(rescanned.treeStore.node(id: changedURL.path)?.descendantFileCount, 2)
-        XCTAssertEqual(rescanned.treeStore.node(id: untouchedURL.path), untouchedBefore)
-        XCTAssertEqual(provider.historyRequestCount, 1)
+        #expect(rescanned.incrementalCheckpoint?.eventID == 20)
+        #expect(rescanned.root.descendantFileCount == 3)
+        #expect(rescanned.treeStore.node(id: changedURL.path)?.descendantFileCount == 2)
+        #expect(rescanned.treeStore.node(id: untouchedURL.path) == untouchedBefore)
+        #expect(provider.historyRequestCount == 1)
     }
 
+    @Test
     func testIncrementalRescanMatchesFullScanForHardLinksAcrossSubtrees() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -515,6 +529,7 @@ final class IncrementalScanServiceTests: XCTestCase {
         try assertEquivalent(incremental, full)
     }
 
+    @Test
     func testMultipleSubtreeRescansReportCumulativeItemCounts() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -556,13 +571,14 @@ final class IncrementalScanServiceTests: XCTestCase {
         let fileCounts = result.progressMetrics.map(\.filesVisited)
         let directoryCounts = result.progressMetrics.map(\.directoriesVisited)
 
-        XCTAssertEqual(result.executionModes, [.incremental])
-        XCTAssertEqual(fileCounts, fileCounts.sorted())
-        XCTAssertEqual(directoryCounts, directoryCounts.sorted())
-        XCTAssertGreaterThanOrEqual(fileCounts.last ?? 0, 8)
-        XCTAssertGreaterThanOrEqual(directoryCounts.last ?? 0, 2)
+        #expect(result.executionModes == [.incremental])
+        #expect(fileCounts == fileCounts.sorted())
+        #expect(directoryCounts == directoryCounts.sorted())
+        #expect(fileCounts.last ?? 0 >= 8)
+        #expect(directoryCounts.last ?? 0 >= 2)
     }
 
+    @Test
     func testNoChangeRescanAdvancesCheckpointWithoutChangingTree() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -586,12 +602,13 @@ final class IncrementalScanServiceTests: XCTestCase {
         )
         let rescanned = result.snapshot
 
-        XCTAssertEqual(result.executionModes, [.incrementalNoChanges])
-        XCTAssertEqual(rescanned.incrementalCheckpoint?.eventID, 40)
-        XCTAssertEqual(rescanned.treeStore.contentID, baseline.treeStore.contentID)
-        XCTAssertNotEqual(rescanned.id, baseline.id)
+        #expect(result.executionModes == [.incrementalNoChanges])
+        #expect(rescanned.incrementalCheckpoint?.eventID == 40)
+        #expect(rescanned.treeStore.contentID == baseline.treeStore.contentID)
+        #expect(rescanned.id != baseline.id)
     }
 
+    @Test
     func testSubtreeDisappearingAfterHistoryPlanningFallsBackToFullScan() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -624,13 +641,10 @@ final class IncrementalScanServiceTests: XCTestCase {
         )
         let rescanned = result.snapshot
 
-        XCTAssertEqual(
-            result.executionModes,
-            [.incremental, .fullFallback(.subtreeRescanFailed)]
-        )
-        XCTAssertNil(rescanned.treeStore.node(id: changedURL.path))
-        XCTAssertEqual(rescanned.incrementalCheckpoint?.eventID, 30)
-        XCTAssertEqual(provider.historyRequestCount, 1)
+        #expect(result.executionModes == [.incremental, .fullFallback(.subtreeRescanFailed)])
+        #expect(rescanned.treeStore.node(id: changedURL.path) == nil)
+        #expect(rescanned.incrementalCheckpoint?.eventID == 30)
+        #expect(provider.historyRequestCount == 1)
     }
 
     private func checkpoint(_ eventID: UInt64) -> ScanIncrementalCheckpoint {
@@ -640,63 +654,33 @@ final class IncrementalScanServiceTests: XCTestCase {
     private func assertEquivalent(
         _ incremental: ScanSnapshot,
         _ full: ScanSnapshot,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) throws {
         let incrementalNodeIDs = incremental.treeStore.indexedNodeIDs()
         let fullNodeIDs = full.treeStore.indexedNodeIDs()
-        XCTAssertEqual(
-            incrementalNodeIDs,
-            fullNodeIDs,
-            file: file,
-            line: line
-        )
+        #expect(incrementalNodeIDs == fullNodeIDs, sourceLocation: sourceLocation)
         for nodeID in fullNodeIDs {
-            XCTAssertEqual(
-                try XCTUnwrap(incremental.treeStore.node(id: nodeID)),
-                try XCTUnwrap(full.treeStore.node(id: nodeID)),
-                nodeID,
-                file: file,
-                line: line
-            )
-            XCTAssertEqual(
-                incremental.treeStore.childIDs(of: nodeID),
-                full.treeStore.childIDs(of: nodeID),
-                nodeID,
-                file: file,
-                line: line
-            )
+            #expect(
+                try #require(incremental.treeStore.node(id: nodeID)) == (try #require(full.treeStore.node(id: nodeID))),
+                Comment(rawValue: nodeID), sourceLocation: sourceLocation)
+            #expect(
+                incremental.treeStore.childIDs(of: nodeID) == full.treeStore.childIDs(of: nodeID),
+                Comment(rawValue: nodeID), sourceLocation: sourceLocation)
         }
-        XCTAssertEqual(
-            incremental.aggregateStats.fileCount,
-            full.aggregateStats.fileCount,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.directoryCount,
-            full.aggregateStats.directoryCount,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.accessibleItemCount,
-            full.aggregateStats.accessibleItemCount,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.aggregateStats.inaccessibleItemCount,
-            full.aggregateStats.inaccessibleItemCount,
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            incremental.scanWarnings.map { "\($0.category.rawValue)|\($0.path)|\($0.message)" }.sorted(),
-            full.scanWarnings.map { "\($0.category.rawValue)|\($0.path)|\($0.message)" }.sorted(),
-            file: file,
-            line: line
-        )
+        #expect(incremental.aggregateStats.fileCount == full.aggregateStats.fileCount, sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.directoryCount == full.aggregateStats.directoryCount,
+            sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.accessibleItemCount == full.aggregateStats.accessibleItemCount,
+            sourceLocation: sourceLocation)
+        #expect(
+            incremental.aggregateStats.inaccessibleItemCount == full.aggregateStats.inaccessibleItemCount,
+            sourceLocation: sourceLocation)
+        #expect(
+            incremental.scanWarnings.map { "\($0.category.rawValue)|\($0.path)|\($0.message)" }.sorted()
+                == full.scanWarnings.map { "\($0.category.rawValue)|\($0.path)|\($0.message)" }.sorted(),
+            sourceLocation: sourceLocation)
     }
 }
 
@@ -766,7 +750,8 @@ private func makeIncrementalFSEventDirectory() throws -> URL {
     let packageRootURL = URL(filePath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-    let url = packageRootURL
+    let url =
+        packageRootURL
         .appending(path: ".build/radix-fsevents-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
@@ -805,6 +790,6 @@ private func incrementalScanResult(
             break
         }
     }
-    XCTFail("Expected a finished incremental scan snapshot")
+    Issue.record("Expected a finished incremental scan snapshot")
     throw CancellationError()
 }
