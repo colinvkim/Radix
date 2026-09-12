@@ -43,10 +43,7 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
                     return (nil, errno)
                 }
                 return (
-                    FileIdentity(
-                        device: UInt64(truncatingIfNeeded: status.st_dev),
-                        inode: UInt64(status.st_ino)
-                    ),
+                    FileIdentity(fileSystemStatus: status),
                     0
                 )
             },

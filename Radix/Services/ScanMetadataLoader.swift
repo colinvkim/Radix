@@ -236,7 +236,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
             self.init(
                 fileFlags: fileStat.st_flags,
                 isDirectory: fileStat.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR),
-                fileIdentity: FileIdentity(device: UInt64(truncatingIfNeeded: fileStat.st_dev), inode: UInt64(fileStat.st_ino)),
+                fileIdentity: FileIdentity(fileSystemStatus: fileStat),
                 linkCount: max(UInt64(fileStat.st_nlink), 1),
                 allocatedSize: overflow ? Int64.max : allocatedSize
             )
@@ -776,6 +776,14 @@ nonisolated enum FileIdentity: Hashable, Sendable {
 
     nonisolated init(device: UInt64, inode: UInt64) {
         self = .fileSystem(device: device, inode: inode)
+    }
+
+    nonisolated init(fileSystemStatus status: stat) {
+        // dev_t is signed; preserve negative device IDs without trapping.
+        self.init(
+            device: UInt64(truncatingIfNeeded: status.st_dev),
+            inode: UInt64(status.st_ino)
+        )
     }
 
     nonisolated init(resourceIdentifier: Data) {

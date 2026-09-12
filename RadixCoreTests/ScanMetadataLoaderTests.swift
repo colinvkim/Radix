@@ -3,6 +3,25 @@ import XCTest
 @testable import RadixCore
 
 final class ScanMetadataLoaderTests: XCTestCase {
+    func testStatIdentityPreservesSignedDeviceIDs() {
+        let cases: [(dev_t, UInt64)] = [
+            (0, 0),
+            (42, 42),
+            (.max, 0x7FFF_FFFF),
+            (.min, 0xFFFF_FFFF_8000_0000),
+            (-1, UInt64.max)
+        ]
+        for (device, expectedDevice) in cases {
+            var status = stat()
+            status.st_dev = device
+            status.st_ino = 42
+            XCTAssertEqual(
+                FileIdentity(fileSystemStatus: status),
+                FileIdentity(device: expectedDevice, inode: 42)
+            )
+        }
+    }
+
     func testStatusPreservesSignedDeviceIdentityAndClampsAllocation() {
         var fileStat = stat()
         fileStat.st_dev = -1

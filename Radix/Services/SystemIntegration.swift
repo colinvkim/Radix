@@ -510,7 +510,7 @@ enum SystemIntegration {
             return .failure(currentIdentityError(errnoCode: errno))
         }
 
-        return .success(FileIdentity(device: UInt64(fileStat.st_dev), inode: UInt64(fileStat.st_ino)))
+        return .success(FileIdentity(fileSystemStatus: fileStat))
     }
 
     private nonisolated static func currentResourceIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
