@@ -283,6 +283,44 @@ final class ScanMetadataLoaderTests: XCTestCase {
         XCTAssertEqual(counters.probeCount, 2)
     }
 
+    func testHardLinksDeduplicateAcrossBulkAndFoundationMetadata() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let originalURL = rootURL.appending(path: "a-original.bin")
+        let linkedURL = rootURL.appending(path: "z-linked.bin")
+        try Data(repeating: 0xA5, count: 8_192).write(to: originalURL)
+        try FileManager.default.linkItem(at: originalURL, to: linkedURL)
+
+        let loader = ScanMetadataLoader()
+        let bulk = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
+            at: rootURL,
+            includeHiddenFiles: true,
+            metadataLoader: loader,
+            cancellationCheck: {}
+        ))
+        let nativeMetadata = try XCTUnwrap(bulk.entries.first { $0.url == originalURL }?.metadata)
+        XCTAssertGreaterThan(nativeMetadata.allocatedSize, 0)
+        let nativeClaim = try XCTUnwrap(SharedAllocationDeduplicator.claim(
+            for: nativeMetadata, ownerNodeID: originalURL.path, path: originalURL.path
+        ))
+
+        for fallbackMetadata in [
+            try loader.metadata(for: linkedURL),
+            try loader.atomicSummaryMetadata(for: linkedURL)
+        ] {
+            XCTAssertEqual(fallbackMetadata.linkCount, 2)
+            XCTAssertEqual(fallbackMetadata.fileIdentity, nativeMetadata.fileIdentity)
+            let fallbackClaim = try XCTUnwrap(SharedAllocationDeduplicator.claim(
+                for: fallbackMetadata, ownerNodeID: linkedURL.path, path: linkedURL.path
+            ))
+            let accumulator = SharedAllocationOwnerAccumulator([nativeClaim, fallbackClaim])
+            XCTAssertEqual(
+                accumulator.duplicateAllocatedSizeByOwner,
+                [linkedURL.path: nativeMetadata.allocatedSize]
+            )
+        }
+    }
+
     func testMissingLinkCountMetadataUsesLstatFallback() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

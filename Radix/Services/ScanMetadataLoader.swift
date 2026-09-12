@@ -531,13 +531,14 @@ nonisolated struct ScanMetadataLoader: Sendable {
             isDirectory: isDirectory,
             isSymbolicLink: isSymbolicLink,
             url: url,
-            fileIdentity: fileIdentity,
             linkCount: values.linkCount,
             linkCountCapabilityCache: linkCountCapabilityCache,
             diagnostics: diagnostics
         ) {
             let fileSystemInfo = fileSystemInfo()
-            fileIdentity = fileIdentity ?? fileSystemInfo.identity
+            // Use the same device/inode identity as bulk enumeration so hard
+            // links still deduplicate when a directory falls back to Foundation.
+            fileIdentity = fileSystemInfo.identity ?? fileIdentity
             linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
         }
         let cloneMetadata = !isDirectory && !isSymbolicLink
@@ -577,7 +578,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
         isDirectory: Bool,
         isSymbolicLink: Bool,
         url: URL,
-        fileIdentity: FileIdentity?,
         linkCount: Int?,
         linkCountCapabilityCache: LinkCountCapabilityCache,
         diagnostics: ScanDiagnosticsContext?
@@ -589,7 +589,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
                 diagnostics: diagnostics
             )
         }
-        return linkCount > 1 && fileIdentity == nil
+        return linkCount > 1
     }
 
     private nonisolated static func defaultFileSystemInfo(
