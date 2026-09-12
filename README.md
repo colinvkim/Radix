@@ -104,7 +104,7 @@ xcodebuild \
   build
 ```
 
-The SwiftPM package contains `RadixCore` and its Swift Testing suite. The shared Xcode scheme runs the same core tests: use **Product → Test** (Cmd-U), or replace `build` with `test` in the command above. See [Testing Radix](docs/testing.md) for focused runs, test conventions, and opt-in benchmarks.
+The SwiftPM package contains `RadixCore` and its Swift Testing suite. The shared Xcode scheme runs the same core tests: use **Product → Test** (Cmd-U), or replace `build` with `test` in the command above.
 
 ## Project Structure
 
