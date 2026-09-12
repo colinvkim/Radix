@@ -1487,11 +1487,15 @@ nonisolated struct ScanComparisonService: Sendable {
 
         return Set(candidatePaths.filter { relativePath in
             guard let beforeNode = beforeNodes[relativePath],
-                  let afterNode = afterNodes[relativePath],
-                  beforeNode.isDirectory,
-                  afterNode.isDirectory else {
+                  let afterNode = afterNodes[relativePath] else {
                 return false
             }
+            // A file/directory replacement is represented by the shared path's delta.
+            // Its indexed descendants must not also contribute additions or removals.
+            if beforeNode.isDirectory != afterNode.isDirectory {
+                return true
+            }
+            guard beforeNode.isDirectory else { return false }
 
             let beforeHasChildren = beforeStore.containsChildren(id: beforeNode.id)
             let afterHasChildren = afterStore.containsChildren(id: afterNode.id)

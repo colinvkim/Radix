@@ -91,6 +91,33 @@ final class ScanComparisonServiceTests: XCTestCase {
         XCTAssertEqual(comparison.summary.changedCount, 1)
     }
 
+    func testFileDirectoryReplacementsKeepComparisonRowsNonOverlapping() async throws {
+        let file = makeTestFileNode(id: "/root/item", name: "item", size: 100)
+        let fileRoot = makeTestDirectoryNode(id: "/root", name: "root", children: [file])
+        let fileSnapshot = makeTestSnapshot(root: fileRoot, store: FileTreeStore(
+            root: fileRoot, childrenByID: [fileRoot.id: [file]]
+        ))
+
+        for rootPath in ["/root", "/other-root"] {
+            for size: Int64 in [100, 200] {
+                let child = makeTestFileNode(id: rootPath + "/item/child", name: "child", size: size)
+                let directory = makeTestDirectoryNode(id: rootPath + "/item", name: "item", children: [child])
+                let root = makeTestDirectoryNode(id: rootPath, name: "root", children: [directory])
+                let directorySnapshot = makeTestSnapshot(root: root, store: FileTreeStore(
+                    root: root, childrenByID: [root.id: [directory], directory.id: [child]]
+                ))
+                for (before, after) in [(fileSnapshot, directorySnapshot), (directorySnapshot, fileSnapshot)] {
+                    let comparison = try await ScanComparisonService().compare(before: before, after: after)
+                    let delta = comparison.summary.allocatedDelta
+                    XCTAssertEqual(comparison.rows.map(\.relativePath), delta == 0 ? [] : ["item"])
+                    XCTAssertEqual(comparison.summary.attributedAllocatedDelta, delta)
+                    XCTAssertEqual(comparison.summary.grossIncreasedAllocatedSize, max(delta, 0))
+                    XCTAssertEqual(comparison.summary.grossReclaimedAllocatedSize, max(-delta, 0))
+                }
+            }
+        }
+    }
+
     func testNestedFileGrowthDoesNotEmitAncestorDirectoryRows() async throws {
         let beforeLeaf = makeTestFileNode(id: "/root/a/b/file.bin", name: "file.bin", size: 10)
         let beforeInner = makeTestDirectoryNode(id: "/root/a/b", name: "b", children: [beforeLeaf])
