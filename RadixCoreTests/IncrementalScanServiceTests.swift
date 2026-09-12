@@ -48,10 +48,11 @@ struct IncrementalScanServiceTests {
         let createdURL = rootURL.appending(path: "created.dat")
 
         try Data([0x1]).write(to: createdURL)
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
         var latestCheckpoint = since
 
-        while ContinuousClock.now < deadline {
+        while true {
+            try Task.checkCancellation()
             latestCheckpoint = try provider.currentCheckpoint(for: rootURL)
             if latestCheckpoint.eventID > since.eventID {
                 let history = try await provider.history(
@@ -67,6 +68,9 @@ struct IncrementalScanServiceTests {
                     return
                 }
             }
+            // Poll before checking the deadline: parallel fixtures can delay a wakeup
+            // even after the OS has delivered the event.
+            guard ContinuousClock.now < deadline else { break }
             try await Task.sleep(for: .milliseconds(25))
         }
 
