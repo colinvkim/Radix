@@ -3,13 +3,6 @@ import XCTest
 @testable import RadixCore
 
 final class BulkDirectoryEnumeratorDescriptorTests: XCTestCase {
-    func testBulkEnumerationRequestsPhysicalDeviceIdentity() {
-        XCTAssertNotEqual(
-            BulkDirectoryEnumerator.attributeOptions & UInt64(FSOPT_RETURN_REALDEV),
-            0
-        )
-    }
-
     func testNativeNameRejectsUnsafeOrLossyComponents() {
         XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: []))
         XCTAssertNil(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array(".".utf8)))

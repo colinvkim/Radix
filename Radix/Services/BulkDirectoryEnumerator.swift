@@ -305,8 +305,8 @@ nonisolated enum BulkDirectoryEnumerator {
 
     private static let bufferCapacity = 64 * 1_024
     private static let unsupportedErrors: Set<Int32> = [EINVAL, ENOTSUP, ENOSYS]
-    static let attributeOptions = UInt64(
-        FSOPT_PACK_INVAL_ATTRS | FSOPT_ATTR_CMN_EXTENDED | FSOPT_RETURN_REALDEV
+    private static let attributeOptions = UInt64(
+        FSOPT_PACK_INVAL_ATTRS | FSOPT_ATTR_CMN_EXTENDED
     )
 
     static func directoryEntries(
@@ -484,7 +484,7 @@ nonisolated enum BulkDirectoryEnumerator {
     }
 
     private static var requiredCloneMappingAttributes: attrgroup_t {
-        attrgroup_t(ATTR_CMNEXT_CLONEID | ATTR_CMNEXT_CLONE_REFCNT)
+        attrgroup_t(ATTR_CMNEXT_REALDEVID | ATTR_CMNEXT_CLONEID | ATTR_CMNEXT_CLONE_REFCNT)
     }
 
     /// Bulk enumeration can succeed even when an individual filesystem cannot
@@ -511,7 +511,7 @@ nonisolated enum BulkDirectoryEnumerator {
         let device: UInt64
         let inode: UInt64
         let linkCount: UInt64
-        let cloneID: UInt64?
+        let cloneIdentity: CloneIdentity?
         let mayShareDataBlocks: Bool
     }
 
@@ -673,7 +673,8 @@ nonisolated enum BulkDirectoryEnumerator {
             fileDataAllocatedSize = dataAllocatedSize
         }
 
-        guard let cloneID: UInt64 = cursor.read(),
+        guard let physicalDeviceID: dev_t = cursor.read(),
+              let cloneID: UInt64 = cursor.read(),
               let extendedFlags: UInt64 = cursor.read(),
               let cloneReferenceCount: UInt32 = cursor.read() else {
             return nil
@@ -711,15 +712,21 @@ nonisolated enum BulkDirectoryEnumerator {
         let logicalSize: off_t = isDirectory ? 0 : fileLogicalSize
         let allocatedSize: off_t = isDirectory ? 0 : fileAllocatedSize
         let dataAllocatedSize: off_t = isDirectory ? 0 : fileDataAllocatedSize
-        let parsedCloneID: UInt64?
+        // Traversal identities must match lstat/fstat's logical APFS device.
+        // Clone IDs are scoped to physical volumes, so request that ID separately
+        // instead of changing ATTR_CMN_DEVID with FSOPT_RETURN_REALDEV.
+        let cloneIdentity: CloneIdentity?
         if !isDirectory,
            !isSymbolicLink,
            returned.forkattr & requiredCloneMappingAttributes == requiredCloneMappingAttributes,
            cloneID > 0,
            cloneReferenceCount > 1 {
-            parsedCloneID = cloneID
+            cloneIdentity = CloneIdentity(
+                device: UInt64(truncatingIfNeeded: physicalDeviceID),
+                cloneID: cloneID
+            )
         } else {
-            parsedCloneID = nil
+            cloneIdentity = nil
         }
         let metadata = ParsedEntryMetadata(
             isSymbolicLink: isSymbolicLink,
@@ -731,7 +738,7 @@ nonisolated enum BulkDirectoryEnumerator {
             device: UInt64(truncatingIfNeeded: deviceID),
             inode: fileID,
             linkCount: isDirectory ? 1 : max(UInt64(fileLinkCount), 1),
-            cloneID: parsedCloneID,
+            cloneIdentity: cloneIdentity,
             mayShareDataBlocks: !isDirectory && !isSymbolicLink &&
                 returned.forkattr & attrgroup_t(ATTR_CMNEXT_EXT_FLAGS) != 0 &&
                 extendedFlags & UInt64(EF_MAY_SHARE_BLOCKS) != 0
@@ -791,9 +798,7 @@ nonisolated enum BulkDirectoryEnumerator {
             volumeCapacity: nil,
             fileIdentity: FileIdentity(device: metadata.device, inode: metadata.inode),
             linkCount: metadata.linkCount,
-            cloneIdentity: metadata.cloneID.map {
-                CloneIdentity(device: metadata.device, cloneID: $0)
-            },
+            cloneIdentity: metadata.cloneIdentity,
             mayShareDataBlocks: metadata.mayShareDataBlocks
         )
         return DirectoryEntry(

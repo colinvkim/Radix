@@ -2961,6 +2961,17 @@ final class ScanEngineTests: XCTestCase {
         XCTAssertTrue(originalMetadata.mayShareDataBlocks)
         XCTAssertTrue(clonedMetadata.mayShareDataBlocks)
 
+        let bulkResult = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
+            at: rootURL,
+            includeHiddenFiles: true,
+            metadataLoader: metadataLoader,
+            cancellationCheck: {}
+        ))
+        XCTAssertEqual(bulkResult.entries.count, 2)
+        for entry in bulkResult.entries {
+            XCTAssertEqual(entry.metadata?.cloneIdentity, originalMetadata.cloneIdentity)
+        }
+
         let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: ScanOptions()

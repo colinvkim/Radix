@@ -53,6 +53,50 @@ final class ScanVolumeBoundaryPolicyTests: XCTestCase {
         XCTAssertFalse(policy.shouldStopDescent(childDeviceID: virtualMemoryVolumeDevice))
     }
 
+    func testStartupVolumeBulkEntriesRemainTraversable() throws {
+        let mounts = ScanEngine.defaultMountedFileSystems()
+        guard mounts.contains(where: { $0.mountPath == "/" && $0.fileSystemType == "apfs" }) else {
+            throw XCTSkip("This integration test requires an APFS startup volume.")
+        }
+        let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
+        let metadataLoader = ScanMetadataLoader()
+        let rootMetadata = try metadataLoader.metadata(for: rootURL)
+        let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
+            rootPath: rootURL.path,
+            rootDeviceID: try XCTUnwrap(rootMetadata.fileIdentity?.fileSystemDeviceID),
+            mountedFileSystems: mounts
+        )
+        let result = try XCTUnwrap(BulkDirectoryEnumerator.directoryEntries(
+            at: rootURL,
+            includeHiddenFiles: true,
+            metadataLoader: metadataLoader,
+            cancellationCheck: {}
+        ))
+
+        for name in ["System", "Users", "Library"] {
+            let entry = try XCTUnwrap(result.entries.first { $0.url.lastPathComponent == name })
+            let deviceID = try XCTUnwrap(entry.metadata?.fileIdentity?.fileSystemDeviceID)
+            XCTAssertNil(
+                policy.descentBoundaryError(for: entry.url, childDeviceID: deviceID),
+                "The startup volume must allow traversal into \(entry.url.path)."
+            )
+            if name == "System" {
+                // This is an ordinary directory on the sealed volume, so its
+                // bulk identity must also pass descriptor replacement checks.
+                let pool = ScanDirectoryDescriptorPool()
+                let outcome = try pool.openRoot(
+                    at: entry.url,
+                    expectedIdentity: entry.metadata?.fileIdentity,
+                    cancellationCheck: {}
+                )
+                guard case .lease(let lease) = outcome else {
+                    return XCTFail("The System directory should open without a fallback.")
+                }
+                lease.close()
+            }
+        }
+    }
+
     func testForeignContainerMountsBecomeLeaves() {
         let policy = ScanEngine.ScanVolumeBoundaryPolicy.resolve(
             rootPath: "/",
