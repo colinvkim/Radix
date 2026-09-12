@@ -159,7 +159,7 @@ nonisolated struct ScanComparisonSummary: Equatable, Sendable {
     /// Net allocated change that can be attributed to final comparison rows.
     ///
     /// This can differ from `allocatedDelta` when incomplete scan coverage suppresses uncertain
-    /// additions or removals.
+    /// additions, removals, or size changes.
     var attributedAllocatedDelta: Int64 {
         grossIncreasedAllocatedSize - grossReclaimedAllocatedSize
     }
@@ -754,7 +754,7 @@ nonisolated struct ScanComparisonService: Sendable {
             let beforeAllocatedSize = allocatedSizes.before[relativePath] ?? beforeNode.allocatedSize
             let afterAllocatedSize = allocatedSizes.after[relativePath] ?? afterNode.allocatedSize
             let delta = afterAllocatedSize - beforeAllocatedSize
-            guard delta != 0 else { continue }
+            guard delta != 0, !warningBoundaryIndex.overlaps(relativePath) else { continue }
             // A normal materialized directory's aggregate is already represented by descendant
             // additions, removals, and size changes. This includes a directory that was empty
             // in one snapshot and gained or lost indexed children in the other; emitting its

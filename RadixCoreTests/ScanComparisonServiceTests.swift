@@ -937,6 +937,41 @@ final class ScanComparisonServiceTests: XCTestCase {
         XCTAssertTrue(additionComparison.coverage.issues.contains(.beforeWarnings(1)))
     }
 
+    func testAccessChangesSuppressSizeRowsButKeepReadableSiblingChanges() async throws {
+        func snapshot(rootPath: String, blocked: Bool) -> ScanSnapshot {
+            let child = makeTestFileNode(id: rootPath + "/private/child", name: "child", size: 100)
+            let directory = makeTestDirectoryNode(
+                id: rootPath + "/private", name: "private",
+                children: blocked ? [] : [child], isAccessible: !blocked
+            )
+            let sibling = makeTestFileNode(
+                id: rootPath + "/privateer", name: "privateer", size: blocked ? 20 : 10
+            )
+            let root = makeTestDirectoryNode(id: rootPath, name: "root", children: [directory, sibling])
+            let store = FileTreeStore(root: root, childrenByID: [
+                root.id: [directory, sibling], directory.id: blocked ? [] : [child],
+            ])
+            return makeTestSnapshot(
+                root: root, store: store,
+                warnings: blocked ? [ScanWarning(
+                    path: directory.id, message: "Permission denied", category: .permissionDenied
+                )] : []
+            )
+        }
+
+        for afterRoot in ["/root", "/other-root"] {
+            let readable = snapshot(rootPath: "/root", blocked: false)
+            let blocked = snapshot(rootPath: afterRoot, blocked: true)
+            for (before, after, delta) in [(readable, blocked, Int64(10)), (blocked, readable, Int64(-10))] {
+                let comparison = try await ScanComparisonService().compare(before: before, after: after)
+                XCTAssertEqual(comparison.rows.map(\.relativePath), ["privateer"])
+                XCTAssertEqual(comparison.summary.attributedAllocatedDelta, delta)
+                XCTAssertEqual(comparison.summary.grossIncreasedAllocatedSize, max(delta, 0))
+                XCTAssertEqual(comparison.summary.grossReclaimedAllocatedSize, max(-delta, 0))
+            }
+        }
+    }
+
     func testWarningBoundaryIndexHandlesAncestorsDescendantsAndSiblingPrefixes() async throws {
         let emptyRoot = makeTestDirectoryNode(id: "/scan", name: "scan", children: [])
         let emptyStore = FileTreeStore(root: emptyRoot, childrenByID: [emptyRoot.id: []])
