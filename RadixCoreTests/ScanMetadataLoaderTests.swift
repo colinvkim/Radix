@@ -560,6 +560,21 @@ final class ScanMetadataLoaderTests: XCTestCase {
         XCTAssertEqual([native: "owner"][enriched], "owner")
     }
 
+    func testVolumeTokenPreservationRequiresMatchingFileIDAndKnownEncoding() {
+        let native = FileIdentity(device: 7, inode: 42)
+        let data = [UInt64(42).littleEndian, UInt64(123).littleEndian].withUnsafeBytes { Data($0) }
+        let resource = FileIdentity(resourceIdentifier: data)
+        XCTAssertEqual(native.preservingVolumeIdentity(from: resource).darwinIdentity,
+                       FileIdentity.DarwinIdentity(fileID: 42, volumeToken: 123))
+        XCTAssertNil(FileIdentity(device: 7, inode: 43).preservingVolumeIdentity(from: resource).darwinIdentity)
+        XCTAssertNil(native.preservingVolumeIdentity(from: nil).darwinIdentity)
+        for length in [0, 8, 15, 17, 32] {
+            let unfamiliar = FileIdentity(resourceIdentifier: Data(repeating: 0, count: length))
+            XCTAssertNil(unfamiliar.darwinIdentity)
+            XCTAssertNil(native.preservingVolumeIdentity(from: unfamiliar).darwinIdentity)
+        }
+    }
+
     func testDirectoryMetadataUsesFileSystemIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

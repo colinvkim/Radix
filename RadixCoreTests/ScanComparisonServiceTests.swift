@@ -118,6 +118,67 @@ final class ScanComparisonServiceTests: XCTestCase {
         }
     }
 
+    func testReplacementAndMaterializationMatrixKeepsAccountingBalanced() async throws {
+        enum Shape: CaseIterable {
+            case missing, emptyFile, file, symlink, emptyDirectory, flat, nested, summarized
+        }
+        func snapshot(rootPath: String, shape: Shape, movedName: String) -> ScanSnapshot {
+            let itemPath = rootPath + "/item"
+            var childrenByID: [String: [FileNodeRecord]] = [:]
+            let item: FileNodeRecord?
+            switch shape {
+            case .missing:
+                item = nil
+            case .emptyFile, .file, .symlink:
+                item = makeTestFileNode(
+                    id: itemPath, name: "item", size: shape == .file ? 100 : 0,
+                    isSymbolicLink: shape == .symlink
+                )
+            case .emptyDirectory:
+                item = makeTestDirectoryNode(id: itemPath, name: "item", children: [])
+            case .flat:
+                let child = makeTestFileNode(id: itemPath + "/child", name: "child", size: 100)
+                item = makeTestDirectoryNode(id: itemPath, name: "item", children: [child])
+                childrenByID[itemPath] = [child]
+            case .nested:
+                let child = makeTestFileNode(id: itemPath + "/nested/child", name: "child", size: 200)
+                let nested = makeTestDirectoryNode(id: itemPath + "/nested", name: "nested", children: [child])
+                item = makeTestDirectoryNode(id: itemPath, name: "item", children: [nested])
+                childrenByID[itemPath] = [nested]
+                childrenByID[nested.id] = [child]
+            case .summarized:
+                item = makeTestSummarizedDirectoryNode(id: itemPath, name: "item", size: 180)
+            }
+            let moved = makeTestFileNode(
+                id: rootPath + "/" + movedName, name: movedName, size: 20,
+                fileIdentity: FileIdentity(device: 1, inode: 1000)
+            )
+            let children = [item, moved].compactMap { $0 }
+            let root = makeTestDirectoryNode(id: rootPath, name: "root", children: children)
+            childrenByID[rootPath] = children
+            return makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: childrenByID))
+        }
+
+        for beforeShape in Shape.allCases {
+            for afterShape in Shape.allCases {
+                for afterRoot in ["/root", "/other-root"] {
+                    let comparison = try await ScanComparisonService().compare(
+                        before: snapshot(rootPath: "/root", shape: beforeShape, movedName: "old"),
+                        after: snapshot(rootPath: afterRoot, shape: afterShape, movedName: "new")
+                    )
+                    let context = "\(beforeShape) -> \(afterShape), \(afterRoot)"
+                    XCTAssertEqual(comparison.summary.attributedAllocatedDelta, comparison.summary.allocatedDelta, context)
+                    XCTAssertEqual(comparison.summary.movedCount, 1, context)
+                    for row in comparison.rows {
+                        XCTAssertFalse(comparison.rows.contains {
+                            $0.relativePath.hasPrefix(row.relativePath + "/")
+                        }, context)
+                    }
+                }
+            }
+        }
+    }
+
     func testNestedFileGrowthDoesNotEmitAncestorDirectoryRows() async throws {
         let beforeLeaf = makeTestFileNode(id: "/root/a/b/file.bin", name: "file.bin", size: 10)
         let beforeInner = makeTestDirectoryNode(id: "/root/a/b", name: "b", children: [beforeLeaf])
@@ -805,9 +866,9 @@ final class ScanComparisonServiceTests: XCTestCase {
     }
 
     func testMoveVolumeIdentityBridgingIsDeviceScopedAndUnambiguous() async throws {
-        func snapshot(name: String, fileIdentity: FileIdentity, rootIdentity: FileIdentity) -> ScanSnapshot {
-            let file = makeTestFileNode(id: "/scan/" + name, name: name, size: 64, fileIdentity: fileIdentity)
-            let root = makeTestDirectoryNode(id: "/scan", name: "scan", children: [file], fileIdentity: rootIdentity)
+        func snapshot(rootPath: String, name: String, fileIdentity: FileIdentity, rootIdentity: FileIdentity) -> ScanSnapshot {
+            let file = makeTestFileNode(id: rootPath + "/" + name, name: name, size: 64, fileIdentity: fileIdentity)
+            let root = makeTestDirectoryNode(id: rootPath, name: "scan", children: [file], fileIdentity: rootIdentity)
             return makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [file]]))
         }
         let native = FileIdentity(device: 99, inode: 900)
@@ -821,14 +882,75 @@ final class ScanComparisonServiceTests: XCTestCase {
              FileIdentity(device: 100, inode: 900), rootWithToken, false),
             // Reused device numbers with conflicting recorded volume identities are ambiguous.
             (native, rootWithToken, native, FileIdentity(device: 99, inode: 1, volumeToken: 20), false),
+            // A token from another scan does not identify an otherwise unknown native volume.
+            (native, FileIdentity(device: 100, inode: 1, volumeToken: 20),
+             resourceIdentity(fileID: 900, volumeToken: 10), rootWithToken, false),
+            // Device reuse elsewhere must not invalidate a token known in the file's own scan.
+            (resourceIdentity(fileID: 900, volumeToken: 10),
+             FileIdentity(device: 99, inode: 1, volumeToken: 20), native, rootWithToken, true),
+            // The volume token survives reassignment of its device number.
+            (native, rootWithToken, FileIdentity(device: 100, inode: 900),
+             FileIdentity(device: 100, inode: 1, volumeToken: 10), true),
+            // Neither matching devices on different volumes nor matching inodes suffice.
+            (native, rootWithToken, FileIdentity(device: 100, inode: 900),
+             FileIdentity(device: 100, inode: 1, volumeToken: 20), false),
+            (native, rootWithToken, FileIdentity(device: 99, inode: 901), rootWithToken, false),
+            // Native archives without supplementary tokens retain exact identity matching.
+            (native, rootWithoutToken, native, rootWithoutToken, true),
         ]
-        for (beforeFile, beforeRoot, afterFile, afterRoot, moved) in cases {
-            let comparison = try await ScanComparisonService().compare(
-                before: snapshot(name: "old", fileIdentity: beforeFile, rootIdentity: beforeRoot),
-                after: snapshot(name: "new", fileIdentity: afterFile, rootIdentity: afterRoot)
+        for (index, entry) in cases.enumerated() {
+            let (beforeFile, beforeRoot, afterFile, afterRoot, moved) = entry
+            for afterRootPath in ["/scan", "/other-scan"] {
+                let before = snapshot(rootPath: "/scan", name: "old", fileIdentity: beforeFile, rootIdentity: beforeRoot)
+                let after = snapshot(rootPath: afterRootPath, name: "new", fileIdentity: afterFile, rootIdentity: afterRoot)
+                for (earlier, later) in [(before, after), (after, before)] {
+                    let comparison = try await ScanComparisonService().compare(before: earlier, after: later)
+                    XCTAssertEqual(comparison.summary.movedCount, moved ? 1 : 0, "Case \(index)")
+                    XCTAssertEqual(comparison.rows.count, moved ? 1 : 2, "Case \(index)")
+                }
+            }
+        }
+    }
+
+    func testMovesUseContainingVolumesWhenDeviceNumbersSwap() async throws {
+        func snapshot(rootPath: String, renamed: Bool) -> ScanSnapshot {
+            var folders: [FileNodeRecord] = []
+            var childrenByID: [String: [FileNodeRecord]] = [:]
+            for (name, token, device) in [("a", UInt64(10), UInt64(100)), ("b", 20, 200)] {
+                let currentDevice = renamed ? 300 - device : device
+                let folderPath = rootPath + "/" + name
+                let fileName = renamed ? "new" : "old"
+                let file = makeTestFileNode(
+                    id: folderPath + "/" + fileName, name: fileName, size: 64,
+                    fileIdentity: FileIdentity(device: currentDevice, inode: 900)
+                )
+                let folder = makeTestDirectoryNode(
+                    id: folderPath, name: name, children: [file],
+                    fileIdentity: FileIdentity(device: currentDevice, inode: 1, volumeToken: token)
+                )
+                folders.append(folder)
+                childrenByID[folderPath] = [file]
+            }
+            let root = makeTestDirectoryNode(
+                id: rootPath, name: "scan", children: folders,
+                fileIdentity: FileIdentity(device: 1, inode: 1, volumeToken: 1)
             )
-            XCTAssertEqual(comparison.summary.movedCount, moved ? 1 : 0)
-            XCTAssertEqual(comparison.rows.count, moved ? 1 : 2)
+            childrenByID[rootPath] = folders
+            return makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: childrenByID))
+        }
+        for rootPath in ["/scan", "/other-scan"] {
+            let before = snapshot(rootPath: "/scan", renamed: false)
+            let after = snapshot(rootPath: rootPath, renamed: true)
+            for (earlier, later) in [(before, after), (after, before)] {
+                let comparison = try await ScanComparisonService().compare(before: earlier, after: later)
+                XCTAssertEqual(comparison.rows.map(\.kind), [.moved, .moved])
+                XCTAssertEqual(comparison.summary.grossIncreasedAllocatedSize, 0)
+                XCTAssertEqual(comparison.summary.grossReclaimedAllocatedSize, 0)
+                for row in comparison.rows {
+                    XCTAssertEqual(row.movedFromRelativePath?.split(separator: "/").first,
+                                   row.relativePath.split(separator: "/").first)
+                }
+            }
         }
     }
 
@@ -1050,7 +1172,7 @@ final class ScanComparisonServiceTests: XCTestCase {
     }
 
     func testAccessChangesSuppressSizeRowsButKeepReadableSiblingChanges() async throws {
-        func snapshot(rootPath: String, blocked: Bool) -> ScanSnapshot {
+        func snapshot(rootPath: String, blocked: Bool, warningPath: String = "private") -> ScanSnapshot {
             let child = makeTestFileNode(id: rootPath + "/private/child", name: "child", size: 100)
             let directory = makeTestDirectoryNode(
                 id: rootPath + "/private", name: "private",
@@ -1066,20 +1188,25 @@ final class ScanComparisonServiceTests: XCTestCase {
             return makeTestSnapshot(
                 root: root, store: store,
                 warnings: blocked ? [ScanWarning(
-                    path: directory.id, message: "Permission denied", category: .permissionDenied
+                    path: warningPath.isEmpty ? rootPath : rootPath + "/" + warningPath,
+                    message: "Permission denied", category: .permissionDenied
                 )] : []
             )
         }
 
         for afterRoot in ["/root", "/other-root"] {
             let readable = snapshot(rootPath: "/root", blocked: false)
-            let blocked = snapshot(rootPath: afterRoot, blocked: true)
-            for (before, after, delta) in [(readable, blocked, Int64(10)), (blocked, readable, Int64(-10))] {
-                let comparison = try await ScanComparisonService().compare(before: before, after: after)
-                XCTAssertEqual(comparison.rows.map(\.relativePath), ["privateer"])
-                XCTAssertEqual(comparison.summary.attributedAllocatedDelta, delta)
-                XCTAssertEqual(comparison.summary.grossIncreasedAllocatedSize, max(delta, 0))
-                XCTAssertEqual(comparison.summary.grossReclaimedAllocatedSize, max(-delta, 0))
+            for warningPath in ["private", "private/child", ""] {
+                let blocked = snapshot(rootPath: afterRoot, blocked: true, warningPath: warningPath)
+                let expectedPaths = warningPath.isEmpty ? [] : ["privateer"]
+                let expectedDelta: Int64 = warningPath.isEmpty ? 0 : 10
+                for (before, after, delta) in [(readable, blocked, expectedDelta), (blocked, readable, -expectedDelta)] {
+                    let comparison = try await ScanComparisonService().compare(before: before, after: after)
+                    XCTAssertEqual(comparison.rows.map(\.relativePath), expectedPaths)
+                    XCTAssertEqual(comparison.summary.attributedAllocatedDelta, delta)
+                    XCTAssertEqual(comparison.summary.grossIncreasedAllocatedSize, max(delta, 0))
+                    XCTAssertEqual(comparison.summary.grossReclaimedAllocatedSize, max(-delta, 0))
+                }
             }
         }
     }

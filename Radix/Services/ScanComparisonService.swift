@@ -987,6 +987,24 @@ nonisolated struct ScanComparisonService: Sendable {
         var count: Int
     }
 
+    private struct MoveIdentityContext {
+        var volumeTokens: [UInt64: UInt64] = [:]
+        var ambiguousDevices = Set<UInt64>()
+        var nativeIdentities = Set<FileIdentity>()
+
+        mutating func includeVolumeIdentity(_ identity: FileIdentity?) {
+            guard let device = identity?.fileSystemDeviceID,
+                  let token = identity?.darwinIdentity?.volumeToken,
+                  !ambiguousDevices.contains(device) else { return }
+            if let previous = volumeTokens[device], previous != token {
+                volumeTokens.removeValue(forKey: device)
+                ambiguousDevices.insert(device)
+            } else {
+                volumeTokens[device] = token
+            }
+        }
+    }
+
     /// Matches only a one-to-one regular-file identity that is visible as both a removal and an
     /// addition. Hard links, directories, aliases, and synthetic nodes are intentionally
     /// excluded because a path-level move inference would be ambiguous for them.
@@ -999,40 +1017,30 @@ nonisolated struct ScanComparisonService: Sendable {
         afterRootIdentity: FileIdentity?
     ) throws -> [MovedPathPair] {
         guard !removedPaths.isEmpty, !addedPaths.isEmpty else { return [] }
-        var volumeTokens: [UInt64: UInt64] = [:]
-        var ambiguousDevices = Set<UInt64>()
-        func includeVolumeIdentity(_ identity: FileIdentity?) {
-            guard let device = identity?.fileSystemDeviceID,
-                  let token = identity?.darwinIdentity?.volumeToken,
-                  !ambiguousDevices.contains(device) else { return }
-            if let previous = volumeTokens[device], previous != token {
-                volumeTokens.removeValue(forKey: device)
-                ambiguousDevices.insert(device)
-            } else {
-                volumeTokens[device] = token
-            }
-        }
-        // Reuse recorded volume identities across both scans, including older native
-        // archives that lack the token. Conflicting device mappings are never inferred.
-        includeVolumeIdentity(beforeRootIdentity)
-        includeVolumeIdentity(afterRootIdentity)
-        for nodes in [beforeNodes, afterNodes] {
-            for (offset, node) in nodes.values.enumerated() {
-                if offset.isMultiple(of: 256) { try Task.checkCancellation() }
-                includeVolumeIdentity(node.fileIdentity)
-            }
-        }
+        // Device numbers are local to a scan. Inspect the same candidate paths and
+        // ancestors in both comparison strategies, without traversing unrelated nodes.
+        let identityPaths = removedPaths.union(addedPaths).union(changedPathAncestors(
+            addedPaths: addedPaths, removedPaths: removedPaths, sharedPaths: []
+        ))
+        let beforeContext = try moveIdentityContext(
+            in: beforeNodes, paths: identityPaths, candidatePaths: removedPaths,
+            rootIdentity: beforeRootIdentity
+        )
+        let afterContext = try moveIdentityContext(
+            in: afterNodes, paths: identityPaths, candidatePaths: addedPaths,
+            rootIdentity: afterRootIdentity
+        )
         let removedCandidates = try moveCandidateOccurrences(
             in: beforeNodes,
             paths: removedPaths,
-            volumeTokens: volumeTokens,
-            ambiguousDevices: ambiguousDevices
+            context: beforeContext,
+            otherContext: afterContext
         )
         let addedCandidates = try moveCandidateOccurrences(
             in: afterNodes,
             paths: addedPaths,
-            volumeTokens: volumeTokens,
-            ambiguousDevices: ambiguousDevices
+            context: afterContext,
+            otherContext: beforeContext
         )
 
         var pairs = try removedCandidates.compactMap { identity, removedOccurrence -> MovedPathPair? in
@@ -1054,11 +1062,31 @@ nonisolated struct ScanComparisonService: Sendable {
         }
     }
 
+    private static func moveIdentityContext(
+        in nodes: [String: FileNodeRecord],
+        paths: Set<String>,
+        candidatePaths: Set<String>,
+        rootIdentity: FileIdentity?
+    ) throws -> MoveIdentityContext {
+        var context = MoveIdentityContext()
+        context.includeVolumeIdentity(rootIdentity)
+        for path in paths {
+            try Task.checkCancellation()
+            guard let node = nodes[path], let identity = node.fileIdentity else { continue }
+            context.includeVolumeIdentity(identity)
+            if candidatePaths.contains(path), identity.isFileSystemIdentity,
+               movableFileIdentity(for: node) != nil {
+                context.nativeIdentities.insert(identity)
+            }
+        }
+        return context
+    }
+
     private static func moveCandidateOccurrences(
         in nodes: [String: FileNodeRecord],
         paths: Set<String>,
-        volumeTokens: [UInt64: UInt64],
-        ambiguousDevices: Set<UInt64>
+        context: MoveIdentityContext,
+        otherContext: MoveIdentityContext
     ) throws -> [ComparableMoveIdentity: MoveCandidateOccurrence] {
         var occurrences: [ComparableMoveIdentity: MoveCandidateOccurrence] = [:]
         occurrences.reserveCapacity(paths.count)
@@ -1066,7 +1094,7 @@ nonisolated struct ScanComparisonService: Sendable {
             try Task.checkCancellation()
             guard let node = nodes[relativePath],
                   let identity = moveIdentity(
-                    for: node, volumeTokens: volumeTokens, ambiguousDevices: ambiguousDevices
+                    for: node, context: context, otherContext: otherContext
                   ) else {
                 continue
             }
@@ -1085,16 +1113,10 @@ nonisolated struct ScanComparisonService: Sendable {
 
     private static func moveIdentity(
         for node: FileNodeRecord,
-        volumeTokens: [UInt64: UInt64],
-        ambiguousDevices: Set<UInt64>
+        context: MoveIdentityContext,
+        otherContext: MoveIdentityContext
     ) -> ComparableMoveIdentity? {
-        guard !node.isDirectory,
-              !node.isSymbolicLink,
-              !node.isSynthetic,
-              node.linkCount == 1,
-              let identity = node.fileIdentity else {
-            return nil
-        }
+        guard let identity = movableFileIdentity(for: node) else { return nil }
 
         if let darwinIdentity = identity.darwinIdentity {
             return .darwin(darwinIdentity)
@@ -1102,12 +1124,27 @@ nonisolated struct ScanComparisonService: Sendable {
         // Bulk records borrow a preserved token only for their own device;
         // an APFS startup scan may span multiple volumes.
         if case .fileSystem(let device, let inode, _) = identity {
-            guard !ambiguousDevices.contains(device) else { return nil }
-            if let volumeToken = volumeTokens[device] {
+            guard !context.ambiguousDevices.contains(device) else { return nil }
+            if let volumeToken = context.volumeTokens[device] {
+                return .darwin(FileIdentity.DarwinIdentity(fileID: inode, volumeToken: volumeToken))
+            }
+            // Older native archives have no volume token. Preserve their existing
+            // device/inode match only when the other scan has that native identity;
+            // a device number alone cannot bridge them to a legacy resource ID.
+            if otherContext.nativeIdentities.contains(identity),
+               !otherContext.ambiguousDevices.contains(device),
+               let volumeToken = otherContext.volumeTokens[device] {
                 return .darwin(FileIdentity.DarwinIdentity(fileID: inode, volumeToken: volumeToken))
             }
         }
         return .exact(identity)
+    }
+
+    private static func movableFileIdentity(for node: FileNodeRecord) -> FileIdentity? {
+        guard !node.isDirectory, !node.isSymbolicLink, !node.isSynthetic, node.linkCount == 1 else {
+            return nil
+        }
+        return node.fileIdentity
     }
 
     private struct AggregateAccumulator {
