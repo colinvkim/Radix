@@ -14,6 +14,7 @@ final class ManualTestClock {
             try await withCheckedThrowingContinuation { continuation in
                 sleepers[id] = (now.advanced(by: duration), continuation)
             }
+            try Task.checkCancellation()
         } onCancel: {
             Task { @MainActor in
                 self.sleepers.removeValue(forKey: id)?.1.resume(throwing: CancellationError())
