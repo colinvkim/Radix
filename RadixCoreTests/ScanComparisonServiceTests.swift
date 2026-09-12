@@ -730,7 +730,7 @@ final class ScanComparisonServiceTests: XCTestCase {
             id: "/scan",
             name: "scan",
             children: [afterFile],
-            fileIdentity: rootIdentity
+            fileIdentity: FileIdentity(device: 99, inode: 1, volumeToken: volumeToken)
         )
         let afterSnapshot = makeTestSnapshot(
             root: afterRoot,
@@ -745,6 +745,91 @@ final class ScanComparisonServiceTests: XCTestCase {
         XCTAssertEqual(comparison.rows.map(\.kind), [.moved])
         XCTAssertEqual(comparison.rows.first?.movedFromRelativePath, "old-name.bin")
         XCTAssertEqual(comparison.rows.first?.relativePath, "new-name.bin")
+    }
+
+    func testLegacyRenameMatchesCurrentScanAndArchive() async throws {
+        let directoryURL = try makeTemporaryDirectory().resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let oldURL = directoryURL.appending(path: "old.bin")
+        let newURL = directoryURL.appending(path: "new.bin")
+        try Data(repeating: 1, count: 4_096).write(to: oldURL)
+
+        let loader = ScanMetadataLoader()
+        let rootValues = try directoryURL.resourceValues(forKeys: [.isDirectoryKey, .fileResourceIdentifierKey])
+        let legacyRootIdentity = loader.atomicSummaryMetadata(
+            for: directoryURL, prefetchedResourceValues: rootValues
+        ).fileIdentity
+        let legacyMetadata = try loader.metadata(for: oldURL)
+        guard case .resourceIdentifier = legacyRootIdentity,
+              case .resourceIdentifier = legacyMetadata.fileIdentity else {
+            return XCTFail("Expected legacy Foundation resource identities")
+        }
+        let file = makeTestFileNode(
+            id: oldURL.path, name: "old.bin", size: legacyMetadata.allocatedSize,
+            fileIdentity: legacyMetadata.fileIdentity
+        )
+        let root = makeTestDirectoryNode(
+            id: directoryURL.path, name: "root", children: [file], fileIdentity: legacyRootIdentity
+        )
+        let before = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [file]]))
+        try FileManager.default.moveItem(at: oldURL, to: newURL)
+
+        var scanned: ScanSnapshot?
+        for try await event in ScanEngine().scan(target: ScanTarget(url: directoryURL), options: ScanOptions()) {
+            if case .finished(let snapshot) = event { scanned = snapshot }
+        }
+        let after = try XCTUnwrap(scanned)
+        XCTAssertTrue(after.root.fileIdentity?.isFileSystemIdentity == true)
+        XCTAssertEqual(after.root.fileIdentity?.darwinIdentity, legacyRootIdentity?.darwinIdentity)
+        let archivesURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: archivesURL) }
+        var afterSnapshots = [after]
+        for version in [4, 5] {
+            let archiveURL = archivesURL.appending(path: "v\(version).radixscan")
+            let service = ScanArchiveService()
+            _ = try await service.export(
+                snapshot: after, to: archiveURL, options: ScanArchiveExportOptions(formatVersion: version)
+            )
+            let imported = try await service.importSnapshot(from: archiveURL).snapshot
+            XCTAssertEqual(imported.root.fileIdentity?.darwinIdentity, after.root.fileIdentity?.darwinIdentity)
+            afterSnapshots.append(imported)
+        }
+        for after in afterSnapshots {
+            for (earlier, later) in [(before, after), (after, before)] {
+                let comparison = try await ScanComparisonService().compare(before: earlier, after: later)
+                XCTAssertEqual(comparison.rows.map(\.kind), [.moved])
+                XCTAssertEqual(comparison.summary.grossIncreasedAllocatedSize, 0)
+                XCTAssertEqual(comparison.summary.grossReclaimedAllocatedSize, 0)
+            }
+        }
+    }
+
+    func testMoveVolumeIdentityBridgingIsDeviceScopedAndUnambiguous() async throws {
+        func snapshot(name: String, fileIdentity: FileIdentity, rootIdentity: FileIdentity) -> ScanSnapshot {
+            let file = makeTestFileNode(id: "/scan/" + name, name: name, size: 64, fileIdentity: fileIdentity)
+            let root = makeTestDirectoryNode(id: "/scan", name: "scan", children: [file], fileIdentity: rootIdentity)
+            return makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [file]]))
+        }
+        let native = FileIdentity(device: 99, inode: 900)
+        let rootWithoutToken = FileIdentity(device: 99, inode: 1)
+        let rootWithToken = FileIdentity(device: 99, inode: 1, volumeToken: 10)
+        let cases: [(FileIdentity, FileIdentity, FileIdentity, FileIdentity, Bool)] = [
+            // An older native archive can use a token recorded on the same device in the other scan.
+            (native, rootWithoutToken, native, rootWithToken, true),
+            // A root token cannot identify files on another volume with a coincidentally equal inode.
+            (resourceIdentity(fileID: 900, volumeToken: 10), resourceIdentity(fileID: 1, volumeToken: 10),
+             FileIdentity(device: 100, inode: 900), rootWithToken, false),
+            // Reused device numbers with conflicting recorded volume identities are ambiguous.
+            (native, rootWithToken, native, FileIdentity(device: 99, inode: 1, volumeToken: 20), false),
+        ]
+        for (beforeFile, beforeRoot, afterFile, afterRoot, moved) in cases {
+            let comparison = try await ScanComparisonService().compare(
+                before: snapshot(name: "old", fileIdentity: beforeFile, rootIdentity: beforeRoot),
+                after: snapshot(name: "new", fileIdentity: afterFile, rootIdentity: afterRoot)
+            )
+            XCTAssertEqual(comparison.summary.movedCount, moved ? 1 : 0)
+            XCTAssertEqual(comparison.rows.count, moved ? 1 : 2)
+        }
     }
 
     func testAmbiguousFileIdentityDoesNotInferMove() async throws {

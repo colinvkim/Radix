@@ -699,8 +699,8 @@ nonisolated struct ScanComparisonService: Sendable {
             afterNodes: afterNodes,
             removedPaths: coveredRemovedPaths,
             addedPaths: coveredAddedPaths,
-            beforeVolumeToken: Self.darwinResourceIdentityComponents(before.root.fileIdentity)?.volumeToken,
-            afterVolumeToken: Self.darwinResourceIdentityComponents(after.root.fileIdentity)?.volumeToken
+            beforeRootIdentity: before.root.fileIdentity,
+            afterRootIdentity: after.root.fileIdentity
         )
         let movedRemovedPaths = Set(movedPathPairs.map(\.beforeRelativePath))
         let movedAddedPaths = Set(movedPathPairs.map(\.afterRelativePath))
@@ -979,12 +979,7 @@ nonisolated struct ScanComparisonService: Sendable {
 
     private enum ComparableMoveIdentity: Hashable {
         case exact(FileIdentity)
-        case darwin(volumeToken: UInt64, fileID: UInt64)
-    }
-
-    private struct DarwinResourceIdentityComponents {
-        let fileID: UInt64
-        let volumeToken: UInt64
+        case darwin(FileIdentity.DarwinIdentity)
     }
 
     private struct MoveCandidateOccurrence {
@@ -1000,18 +995,44 @@ nonisolated struct ScanComparisonService: Sendable {
         afterNodes: [String: FileNodeRecord],
         removedPaths: Set<String>,
         addedPaths: Set<String>,
-        beforeVolumeToken: UInt64?,
-        afterVolumeToken: UInt64?
+        beforeRootIdentity: FileIdentity?,
+        afterRootIdentity: FileIdentity?
     ) throws -> [MovedPathPair] {
+        guard !removedPaths.isEmpty, !addedPaths.isEmpty else { return [] }
+        var volumeTokens: [UInt64: UInt64] = [:]
+        var ambiguousDevices = Set<UInt64>()
+        func includeVolumeIdentity(_ identity: FileIdentity?) {
+            guard let device = identity?.fileSystemDeviceID,
+                  let token = identity?.darwinIdentity?.volumeToken,
+                  !ambiguousDevices.contains(device) else { return }
+            if let previous = volumeTokens[device], previous != token {
+                volumeTokens.removeValue(forKey: device)
+                ambiguousDevices.insert(device)
+            } else {
+                volumeTokens[device] = token
+            }
+        }
+        // Reuse recorded volume identities across both scans, including older native
+        // archives that lack the token. Conflicting device mappings are never inferred.
+        includeVolumeIdentity(beforeRootIdentity)
+        includeVolumeIdentity(afterRootIdentity)
+        for nodes in [beforeNodes, afterNodes] {
+            for (offset, node) in nodes.values.enumerated() {
+                if offset.isMultiple(of: 256) { try Task.checkCancellation() }
+                includeVolumeIdentity(node.fileIdentity)
+            }
+        }
         let removedCandidates = try moveCandidateOccurrences(
             in: beforeNodes,
             paths: removedPaths,
-            volumeToken: beforeVolumeToken
+            volumeTokens: volumeTokens,
+            ambiguousDevices: ambiguousDevices
         )
         let addedCandidates = try moveCandidateOccurrences(
             in: afterNodes,
             paths: addedPaths,
-            volumeToken: afterVolumeToken
+            volumeTokens: volumeTokens,
+            ambiguousDevices: ambiguousDevices
         )
 
         var pairs = try removedCandidates.compactMap { identity, removedOccurrence -> MovedPathPair? in
@@ -1036,14 +1057,17 @@ nonisolated struct ScanComparisonService: Sendable {
     private static func moveCandidateOccurrences(
         in nodes: [String: FileNodeRecord],
         paths: Set<String>,
-        volumeToken: UInt64?
+        volumeTokens: [UInt64: UInt64],
+        ambiguousDevices: Set<UInt64>
     ) throws -> [ComparableMoveIdentity: MoveCandidateOccurrence] {
         var occurrences: [ComparableMoveIdentity: MoveCandidateOccurrence] = [:]
         occurrences.reserveCapacity(paths.count)
         for relativePath in paths {
             try Task.checkCancellation()
             guard let node = nodes[relativePath],
-                  let identity = moveIdentity(for: node, volumeToken: volumeToken) else {
+                  let identity = moveIdentity(
+                    for: node, volumeTokens: volumeTokens, ambiguousDevices: ambiguousDevices
+                  ) else {
                 continue
             }
             if var occurrence = occurrences[identity] {
@@ -1061,7 +1085,8 @@ nonisolated struct ScanComparisonService: Sendable {
 
     private static func moveIdentity(
         for node: FileNodeRecord,
-        volumeToken: UInt64?
+        volumeTokens: [UInt64: UInt64],
+        ambiguousDevices: Set<UInt64>
     ) -> ComparableMoveIdentity? {
         guard !node.isDirectory,
               !node.isSymbolicLink,
@@ -1071,44 +1096,18 @@ nonisolated struct ScanComparisonService: Sendable {
             return nil
         }
 
-        switch identity {
-        case .resourceIdentifier:
-            guard let components = darwinResourceIdentityComponents(identity) else {
-                return .exact(identity)
+        if let darwinIdentity = identity.darwinIdentity {
+            return .darwin(darwinIdentity)
+        }
+        // Bulk records borrow a preserved token only for their own device;
+        // an APFS startup scan may span multiple volumes.
+        if case .fileSystem(let device, let inode, _) = identity {
+            guard !ambiguousDevices.contains(device) else { return nil }
+            if let volumeToken = volumeTokens[device] {
+                return .darwin(FileIdentity.DarwinIdentity(fileID: inode, volumeToken: volumeToken))
             }
-            return .darwin(
-                volumeToken: components.volumeToken,
-                fileID: components.fileID
-            )
-        case .fileSystem(_, let inode):
-            guard let volumeToken else { return .exact(identity) }
-            return .darwin(volumeToken: volumeToken, fileID: inode)
         }
-    }
-
-    /// Darwin's persisted file resource identifier is a 16-byte pair containing
-    /// the filesystem file ID followed by a stable volume token. Older Radix
-    /// archives store this form, while bulk scans obtain the equivalent file ID
-    /// directly from ATTR_CMN_FILEID. Reject unfamiliar encodings rather than
-    /// making a speculative cross-version match.
-    private static func darwinResourceIdentityComponents(
-        _ identity: FileIdentity?
-    ) -> DarwinResourceIdentityComponents? {
-        guard case .resourceIdentifier(let data) = identity,
-              data.count == MemoryLayout<UInt64>.size * 2 else {
-            return nil
-        }
-        return data.withUnsafeBytes { bytes in
-            let fileID = UInt64(littleEndian: bytes.loadUnaligned(as: UInt64.self))
-            let volumeToken = UInt64(littleEndian: bytes.loadUnaligned(
-                fromByteOffset: MemoryLayout<UInt64>.size,
-                as: UInt64.self
-            ))
-            return DarwinResourceIdentityComponents(
-                fileID: fileID,
-                volumeToken: volumeToken
-            )
-        }
+        return .exact(identity)
     }
 
     private struct AggregateAccumulator {

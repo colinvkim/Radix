@@ -503,12 +503,14 @@ nonisolated struct ScanArchiveFileIdentity: Codable, Sendable {
         case resourceIdentifier = "r"
         case device = "d"
         case inode = "i"
+        case volumeToken = "v"
     }
 
     let kind: Kind
     let resourceIdentifier: String?
     let device: UInt64?
     let inode: UInt64?
+    let volumeToken: UInt64?
 
     init(_ identity: FileIdentity) {
         switch identity {
@@ -517,11 +519,13 @@ nonisolated struct ScanArchiveFileIdentity: Codable, Sendable {
             self.resourceIdentifier = data.base64EncodedString()
             self.device = nil
             self.inode = nil
-        case .fileSystem(let device, let inode):
+            self.volumeToken = nil
+        case .fileSystem(let device, let inode, let volumeToken):
             self.kind = .fileSystem
             self.resourceIdentifier = nil
             self.device = device
             self.inode = inode
+            self.volumeToken = volumeToken
         }
     }
 
@@ -537,7 +541,7 @@ nonisolated struct ScanArchiveFileIdentity: Codable, Sendable {
             guard let device, let inode else {
                 throw ScanArchiveError.nodes(localized: "file identity has incomplete file system identity")
             }
-            return FileIdentity(device: device, inode: inode)
+            return FileIdentity(device: device, inode: inode, volumeToken: volumeToken)
         }
     }
 }

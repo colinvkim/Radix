@@ -552,6 +552,14 @@ final class ScanMetadataLoaderTests: XCTestCase {
         XCTAssertEqual(counters.lstatCount, 1)
     }
 
+    func testVolumeTokenDoesNotSplitNativeHardLinkIdentity() {
+        let native = FileIdentity(device: 7, inode: 42)
+        let enriched = FileIdentity(device: 7, inode: 42, volumeToken: 123)
+        XCTAssertEqual(native, enriched)
+        XCTAssertEqual(Set([native, enriched]).count, 1)
+        XCTAssertEqual([native: "owner"][enriched], "owner")
+    }
+
     func testDirectoryMetadataUsesFileSystemIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

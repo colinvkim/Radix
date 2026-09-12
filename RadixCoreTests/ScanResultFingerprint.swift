@@ -33,7 +33,7 @@ func scanResultFingerprint(_ store: FileTreeStore) -> String {
             case .resourceIdentifier(let data):
                 fingerprint.append(UInt64(0))
                 fingerprint.append(data)
-            case .fileSystem(let device, let inode):
+            case .fileSystem(let device, let inode, _):
                 fingerprint.append(UInt64(1))
                 fingerprint.append(device)
                 fingerprint.append(inode)

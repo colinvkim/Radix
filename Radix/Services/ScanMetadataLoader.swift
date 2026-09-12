@@ -518,7 +518,8 @@ nonisolated struct ScanMetadataLoader: Sendable {
             max(allocatedSize, 0)
         )
         let isReadable = values.isReadable ?? false
-        var fileIdentity = Self.fileIdentity(from: values.fileResourceIdentifier)
+        let resourceIdentity = Self.fileIdentity(from: values.fileResourceIdentifier)
+        var fileIdentity = resourceIdentity
         var linkCount = values.linkCount.map(UInt64.init) ?? 1
         if isSymbolicLink && loadsSymbolicLinkFileSystemInfo {
             let fileSystemInfo = fileSystemInfo()
@@ -541,6 +542,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
             fileIdentity = fileSystemInfo.identity ?? fileIdentity
             linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
         }
+        fileIdentity = fileIdentity?.preservingVolumeIdentity(from: resourceIdentity)
         let cloneMetadata = !isDirectory && !isSymbolicLink
             ? cloneMappingCapabilityCache.cloneMetadata(for: url)
             : (identity: nil, mayShareDataBlocks: false)
@@ -772,10 +774,10 @@ nonisolated struct CloneIdentity: Hashable, Sendable {
 
 nonisolated enum FileIdentity: Hashable, Sendable {
     case resourceIdentifier(Data)
-    case fileSystem(device: UInt64, inode: UInt64)
+    case fileSystem(device: UInt64, inode: UInt64, volumeToken: UInt64? = nil)
 
-    nonisolated init(device: UInt64, inode: UInt64) {
-        self = .fileSystem(device: device, inode: inode)
+    nonisolated init(device: UInt64, inode: UInt64, volumeToken: UInt64? = nil) {
+        self = .fileSystem(device: device, inode: inode, volumeToken: volumeToken)
     }
 
     nonisolated init(fileSystemStatus status: stat) {
@@ -798,10 +800,67 @@ nonisolated enum FileIdentity: Hashable, Sendable {
     }
 
     nonisolated var fileSystemDeviceID: UInt64? {
-        if case .fileSystem(let device, _) = self {
+        if case .fileSystem(let device, _, _) = self {
             return device
         }
         return nil
+    }
+
+    /// Supplementary archive-comparison metadata must not split native and
+    /// Foundation claims for the same hard link during scan accounting.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case let (.resourceIdentifier(lhs), .resourceIdentifier(rhs)):
+            return lhs == rhs
+        case let (.fileSystem(lhsDevice, lhsInode, _), .fileSystem(rhsDevice, rhsInode, _)):
+            return lhsDevice == rhsDevice && lhsInode == rhsInode
+        default:
+            return false
+        }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        switch self {
+        case .resourceIdentifier(let data):
+            hasher.combine(0)
+            hasher.combine(data)
+        case .fileSystem(let device, let inode, _):
+            hasher.combine(1)
+            hasher.combine(device)
+            hasher.combine(inode)
+        }
+    }
+
+    struct DarwinIdentity: Hashable, Sendable {
+        let fileID: UInt64
+        let volumeToken: UInt64
+    }
+
+    /// Darwin's archived resource identifier contains a file ID and volume
+    /// token. Only bridge the known 16-byte encoding; unfamiliar forms retain
+    /// their opaque identity. Native identities can preserve the same token.
+    var darwinIdentity: DarwinIdentity? {
+        switch self {
+        case .fileSystem(_, let inode, let volumeToken):
+            return volumeToken.map { DarwinIdentity(fileID: inode, volumeToken: $0) }
+        case .resourceIdentifier(let data):
+            guard data.count == MemoryLayout<UInt64>.size * 2 else { return nil }
+            return data.withUnsafeBytes { bytes in
+                DarwinIdentity(
+                    fileID: UInt64(littleEndian: bytes.loadUnaligned(as: UInt64.self)),
+                    volumeToken: UInt64(littleEndian: bytes.loadUnaligned(
+                        fromByteOffset: MemoryLayout<UInt64>.size, as: UInt64.self
+                    ))
+                )
+            }
+        }
+    }
+
+    func preservingVolumeIdentity(from resourceIdentity: FileIdentity?) -> Self {
+        guard case .fileSystem(let device, let inode, _) = self,
+              let identity = resourceIdentity?.darwinIdentity,
+              identity.fileID == inode else { return self }
+        return .fileSystem(device: device, inode: inode, volumeToken: identity.volumeToken)
     }
 }
 
