@@ -300,15 +300,6 @@ final class TemporaryTestFiles {
     }
 }
 
-/// Blocking filesystem hooks must not block the cooperative executor running the test.
-func waitForSemaphore(_ semaphore: DispatchSemaphore, timeout: TimeInterval = 2) async -> DispatchTimeoutResult {
-    await withCheckedContinuation { continuation in
-        DispatchQueue.global().async {
-            continuation.resume(returning: semaphore.wait(timeout: .now() + timeout))
-        }
-    }
-}
-
 /// Allows a synchronous worker hook to cancel a task even if it starts before
 /// the creating test has received the task handle. No executor thread blocks.
 final class TestTaskCancellation: @unchecked Sendable {

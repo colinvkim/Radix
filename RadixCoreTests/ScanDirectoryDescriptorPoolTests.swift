@@ -172,25 +172,29 @@ struct ScanDirectoryDescriptorPoolTests {
     }
 
     @Test
-    func testCancellationDuringOpenClosesInFlightDescriptor() async throws {
-        let tracker = BlockingDescriptorTracker()
+    func testCancellationDuringOpenClosesInFlightDescriptor() throws {
+        let tracker = DescriptorTracker()
+        let cancellation = TestTaskCancellation()
+        let underlying = tracker.systemCalls
         let pool = ScanDirectoryDescriptorPool(
             maxOpenDescriptorCount: 1,
-            systemCalls: tracker.systemCalls
+            systemCalls: ScanDirectoryDescriptorPool.SystemCalls(
+                openRoot: { url in
+                    let result = underlying.openRoot(url)
+                    #expect(tracker.openDescriptorCount == 1)
+                    // Cancel after the syscall succeeds, before the pool registers its lease.
+                    cancellation.cancel()
+                    return result
+                },
+                openChild: underlying.openChild,
+                fileIdentity: underlying.fileIdentity,
+                close: underlying.close
+            )
         )
-        let openTask = Task {
+        cancellation.install { pool.cancel() }
+
+        #expect(throws: CancellationError.self) {
             try pool.openRoot(at: URL(filePath: "/virtual/root", directoryHint: .isDirectory))
-        }
-        #expect(await waitForSemaphore(tracker.didEnterOpen) == .success)
-
-        pool.cancel()
-        tracker.allowOpenToReturn.signal()
-
-        do {
-            _ = try await openTask.value
-            Issue.record("An open completing after cancellation must not vend a lease")
-        } catch is CancellationError {
-            // Expected: registration observes the invalidated pool.
         }
         #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
         #expect(tracker.openDescriptorCount == 0)
@@ -250,31 +254,6 @@ private final class DescriptorTracker: @unchecked Sendable {
         lock.lock()
         openDescriptors.remove(descriptor)
         lock.unlock()
-    }
-}
-
-private final class BlockingDescriptorTracker: @unchecked Sendable {
-    let didEnterOpen = DispatchSemaphore(value: 0)
-    let allowOpenToReturn = DispatchSemaphore(value: 0)
-    private let tracker = DescriptorTracker()
-
-    var systemCalls: ScanDirectoryDescriptorPool.SystemCalls {
-        let underlying = tracker.systemCalls
-        return ScanDirectoryDescriptorPool.SystemCalls(
-            openRoot: { [didEnterOpen, allowOpenToReturn] url in
-                let result = underlying.openRoot(url)
-                didEnterOpen.signal()
-                allowOpenToReturn.wait()
-                return result
-            },
-            openChild: underlying.openChild,
-            fileIdentity: underlying.fileIdentity,
-            close: underlying.close
-        )
-    }
-
-    var openDescriptorCount: Int {
-        tracker.openDescriptorCount
     }
 }
 

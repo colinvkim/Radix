@@ -1033,30 +1033,30 @@ struct ScanEngineTests {
         try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
         try Data([0x5A]).write(to: outsideFileURL)
 
-        let blocker = BlockingLiveChildOpen()
+        let live = ScanDirectoryDescriptorPool.SystemCalls.live
         let descriptorPool = ScanDirectoryDescriptorPool(
             maxOpenDescriptorCount: 8,
-            systemCalls: blocker.systemCalls
-        )
-        let scanTask = Task {
-            try await finishedSnapshot(
-                target: ScanTarget(url: rootURL),
-                options: ScanOptions(),
-                engine: ScanEngine(directoryDescriptorPoolFactory: { descriptorPool })
+            systemCalls: ScanDirectoryDescriptorPool.SystemCalls(
+                openRoot: live.openRoot,
+                openChild: { parentDescriptor, name in
+                    // Swap after discovery, immediately before the actual openat call.
+                    do {
+                        try FileManager.default.removeItem(at: childURL)
+                        try FileManager.default.createSymbolicLink(at: childURL, withDestinationURL: outsideURL)
+                    } catch {
+                        Issue.record(error)
+                    }
+                    return live.openChild(parentDescriptor, name)
+                },
+                fileIdentity: live.fileIdentity,
+                close: live.close
             )
-        }
-        defer {
-            blocker.release()
-            scanTask.cancel()
-        }
-        #expect(await waitForSemaphore(blocker.didReachChildOpen) == .success)
-        try FileManager.default.removeItem(at: childURL)
-        try FileManager.default.createSymbolicLink(at: childURL, withDestinationURL: outsideURL)
-        blocker.release()
-
-        let snapshot = try await withTimeout(.seconds(2)) {
-            try await scanTask.value
-        }
+        )
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions(),
+            engine: ScanEngine(directoryDescriptorPoolFactory: { descriptorPool })
+        )
         let childNode = try #require(snapshot.treeStore.node(id: childURL.path))
         #expect(!(childNode.isAccessible))
         #expect(snapshot.treeStore.node(id: childURL.appending(path: "outside.bin").path) == nil)
@@ -1073,10 +1073,21 @@ struct ScanEngineTests {
         try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
         try Data([0x4A]).write(to: childURL.appending(path: "payload.bin"))
 
-        let blocker = BlockingLiveChildOpen()
+        let cancellation = TestTaskCancellation()
+        defer { cancellation.cancel() }
+        let live = ScanDirectoryDescriptorPool.SystemCalls.live
         let descriptorPool = ScanDirectoryDescriptorPool(
             maxOpenDescriptorCount: 8,
-            systemCalls: blocker.systemCalls
+            systemCalls: ScanDirectoryDescriptorPool.SystemCalls(
+                openRoot: live.openRoot,
+                openChild: { parentDescriptor, name in
+                    let result = live.openChild(parentDescriptor, name)
+                    cancellation.cancel()
+                    return result
+                },
+                fileIdentity: live.fileIdentity,
+                close: live.close
+            )
         )
         let engine = ScanEngine(directoryDescriptorPoolFactory: { descriptorPool })
         let scanTask = Task {
@@ -1089,19 +1100,13 @@ struct ScanEngineTests {
             }
             return false
         }
-        defer {
-            blocker.release()
-            scanTask.cancel()
-        }
-        #expect(await waitForSemaphore(blocker.didReachChildOpen) == .success)
-
-        scanTask.cancel()
-        blocker.release()
+        cancellation.install { scanTask.cancel() }
         let didFinish = try await withTimeout(.seconds(2)) {
             try await scanTask.value
         }
 
         #expect(!(didFinish))
+        #expect(descriptorPool.debugCounters.openatCallCount > 0)
         try await waitUntil("cancelled descriptor leases to close") {
             descriptorPool.debugCounters.currentOpenDescriptorCount == 0
         }
@@ -1765,7 +1770,7 @@ struct ScanEngineTests {
             }
         }
 
-        let probe = BlockingAtomicSummaryWorkerProbe()
+        let probe = SuspendingAtomicSummaryWorkerProbe()
         let observer = AtomicSummaryWorkerObserver(
             didStart: probe.didStart,
             didFinish: probe.didFinish
@@ -4984,38 +4989,6 @@ struct ScanEngineTests {
     }
 }
 
-private final class BlockingLiveChildOpen: @unchecked Sendable {
-    let didReachChildOpen = DispatchSemaphore(value: 0)
-    private let allowChildOpen = DispatchSemaphore(value: 0)
-    private let releaseLock = NSLock()
-    private var isReleased = false
-
-    var systemCalls: ScanDirectoryDescriptorPool.SystemCalls {
-        let live = ScanDirectoryDescriptorPool.SystemCalls.live
-        return ScanDirectoryDescriptorPool.SystemCalls(
-            openRoot: live.openRoot,
-            openChild: { [didReachChildOpen, allowChildOpen] parentDescriptor, name in
-                didReachChildOpen.signal()
-                allowChildOpen.wait()
-                return live.openChild(parentDescriptor, name)
-            },
-            fileIdentity: live.fileIdentity,
-            close: live.close
-        )
-    }
-
-    func release() {
-        releaseLock.lock()
-        guard !isReleased else {
-            releaseLock.unlock()
-            return
-        }
-        isReleased = true
-        releaseLock.unlock()
-        allowChildOpen.signal()
-    }
-}
-
 private func makeAtomicSummaryProgressReporter() -> (
     AtomicSummaryProgressReporter,
     AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
@@ -5116,74 +5089,79 @@ private final class DirectoryEnumerationCancellation: @unchecked Sendable {
     }
 }
 
-private final class BlockingAtomicSummaryWorkerProbe: @unchecked Sendable {
-    private let condition = NSCondition()
+private final class SuspendingAtomicSummaryWorkerProbe: @unchecked Sendable {
+    private let lock = NSLock()
     private var activeOwners: Set<String> = []
     private var seenOwners: Set<String> = []
     private var activeWorkers = 0
     private var peakWorkers = 0
     private var maximumDistinctOwners = 0
     private var isReleased = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     var activeWorkerCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return activeWorkers
     }
 
     var peakActiveWorkerCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return peakWorkers
     }
 
     var activeOwnerCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return activeOwners.count
     }
 
     var seenOwnerCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return seenOwners.count
     }
 
     var maximumDistinctActiveOwnerCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return maximumDistinctOwners
     }
 
-    func didStart(ownerNodeID: String, itemURL: URL) {
-        _ = itemURL
-        condition.lock()
-        activeWorkers += 1
-        peakWorkers = max(peakWorkers, activeWorkers)
-        activeOwners.insert(ownerNodeID)
-        seenOwners.insert(ownerNodeID)
-        maximumDistinctOwners = max(maximumDistinctOwners, activeOwners.count)
-        condition.broadcast()
-        while !isReleased {
-            condition.wait()
+    func didStart(ownerNodeID: String, itemURL: URL) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            activeWorkers += 1
+            peakWorkers = max(peakWorkers, activeWorkers)
+            activeOwners.insert(ownerNodeID)
+            seenOwners.insert(ownerNodeID)
+            maximumDistinctOwners = max(maximumDistinctOwners, activeOwners.count)
+            if isReleased {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
         }
-        condition.unlock()
     }
 
     func didFinish(ownerNodeID: String, itemURL: URL) {
         _ = itemURL
-        condition.lock()
+        lock.lock()
         activeWorkers = max(activeWorkers - 1, 0)
         activeOwners.remove(ownerNodeID)
-        condition.broadcast()
-        condition.unlock()
+        lock.unlock()
     }
 
     func releaseAll() {
-        condition.lock()
+        lock.lock()
         isReleased = true
-        condition.broadcast()
-        condition.unlock()
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        pending.forEach { $0.resume() }
     }
 }
 
