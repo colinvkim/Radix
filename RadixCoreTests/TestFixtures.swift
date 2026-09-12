@@ -300,12 +300,27 @@ final class TemporaryTestFiles {
     }
 }
 
-/// Allows a synchronous worker hook to cancel a task even if it starts before
-/// the creating test has received the task handle. No executor thread blocks.
+/// Installs a synchronous worker hook's cancellation target before work begins.
+/// The startup gate suspends the task without blocking an executor thread.
 final class TestTaskCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var isCancelled = false
     private var action: (@Sendable () -> Void)?
+
+    func start<Result: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> Result
+    ) -> Task<Result, Error> {
+        let (start, trigger) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            for await _ in start { break }
+            try Task.checkCancellation()
+            return try await operation()
+        }
+        install { task.cancel() }
+        trigger.yield(())
+        trigger.finish()
+        return task
+    }
 
     func install(_ action: @escaping @Sendable () -> Void) {
         let shouldCancel = lock.withLock {

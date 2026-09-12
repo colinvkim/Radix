@@ -1090,7 +1090,7 @@ struct ScanEngineTests {
             )
         )
         let engine = ScanEngine(directoryDescriptorPoolFactory: { descriptorPool })
-        let scanTask = Task {
+        let scanTask = cancellation.start {
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
                     if case .finished = event { return true }
@@ -1100,7 +1100,6 @@ struct ScanEngineTests {
             }
             return false
         }
-        cancellation.install { scanTask.cancel() }
         let didFinish = try await withTimeout(.seconds(2)) {
             try await scanTask.value
         }
@@ -2710,7 +2709,7 @@ struct ScanEngineTests {
                 didFinish: { _, _ in activity.didFinish() },
                 didShutdown: { activity.didShutdown() }
             ))
-        let scanTask = Task {
+        let scanTask = cancellation.start {
             var didFinish = false
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
@@ -2724,7 +2723,6 @@ struct ScanEngineTests {
             return didFinish
         }
 
-        cancellation.install { scanTask.cancel() }
         let didFinishCancelledScan = try await withTimeout(.seconds(5)) { try await scanTask.value }
 
         #expect(!didFinishCancelledScan)
@@ -2786,7 +2784,7 @@ struct ScanEngineTests {
                 ),
                 atomicSummaryProgressEmissionInterval: 0
             )
-            let scanTask = Task {
+            let scanTask = cancellation.start {
                 var didFinish = false
                 do {
                     for try await event in engine.scan(
@@ -2803,7 +2801,6 @@ struct ScanEngineTests {
                 return didFinish
             }
 
-            cancellation.install { scanTask.cancel() }
             let didFinish = try await withTimeout(.seconds(2)) {
                 try await scanTask.value
             }
@@ -2850,7 +2847,7 @@ struct ScanEngineTests {
             try checkCancellation()
             return contents
         })
-        let scanTask = Task {
+        let scanTask = cancellation.start { [options] in
             var didFinish = false
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
@@ -2864,7 +2861,6 @@ struct ScanEngineTests {
             return didFinish
         }
 
-        cancellation.install { scanTask.cancel() }
         let didFinishCancelledScan = try await withTimeout(.seconds(5)) {
             try await scanTask.value
         }
@@ -2961,10 +2957,7 @@ struct ScanEngineTests {
             guard url == rootURL else { return [] }
             return try probe.contents(for: url, cancellationCheck: cancellationCheck)
         })
-        // Install cancellation before the scanner can enter its synchronous hook.
-        let (start, trigger) = AsyncStream<Void>.makeStream()
-        let scanTask = Task {
-            for await _ in start { break }
+        let scanTask = cancellation.start {
             var didFinish = false
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
@@ -2979,9 +2972,6 @@ struct ScanEngineTests {
         }
 
         defer { scanTask.cancel() }
-        cancellation.install { scanTask.cancel() }
-        trigger.yield(())
-        trigger.finish()
         let didFinishCancelledScan = try await withTimeout(.seconds(5)) {
             try await scanTask.value
         }
