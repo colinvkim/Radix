@@ -54,8 +54,8 @@ struct AppModelDependencyTests {
         #expect(preferences.savedHighestLaunchedVersions.isEmpty)
     }
 
-    @Test
-    func testOnboardingResumesAtAccessAndTourChoiceControlsTheWorkspaceHandoff() {
+    @Test(arguments: [false, true])
+    func testOnboardingResumesAtAccessAndTourChoiceControlsTheWorkspaceHandoff(startsTour: Bool) {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: false, onboardingPage: .access)
         )
@@ -66,17 +66,24 @@ struct AppModelDependencyTests {
 
         model.onboardingPage = .tour
         #expect(preferences.preferences.onboardingPage == .tour)
-        model.completeOnboarding(startsTour: false)
+        model.completeOnboarding(startsTour: startsTour)
         #expect(preferences.preferences.didCompleteOnboarding)
-        #expect(!(model.workspaceTour.isActive))
+        #expect(!(model.showsOnboarding))
+        #expect(model.presentationCoordinator.activeSheet == nil)
+        #expect(model.workspaceTour.isActive == startsTour)
+        if startsTour {
+            #expect(model.workspaceTour.step == .scan)
+        }
+        #expect(model.scanState.snapshot == nil)
+        #expect(!(model.scanState.isScanning))
+
+        let relaunchedModel = AppModel(dependencies: makeDependencies(preferences: preferences))
+        defer { relaunchedModel.cleanup() }
+        #expect(!(relaunchedModel.showsOnboarding))
+        #expect(!(relaunchedModel.workspaceTour.isActive))
 
         model.presentOnboarding()
         #expect(model.onboardingPage == .welcome)
-        model.completeOnboarding(startsTour: true)
-        #expect(!(model.showsOnboarding))
-        #expect(model.workspaceTour.step == .scan)
-        #expect(model.scanState.snapshot == nil)
-        #expect(!(model.scanState.isScanning))
     }
 
     @Test
@@ -310,7 +317,7 @@ struct AppModelDependencyTests {
             preferences.savedScanPreferences == [expectedPreferences]
         }
 
-        model.dismissOnboarding()
+        model.completeOnboarding(startsTour: false)
         #expect(!(model.showsOnboarding))
         #expect(preferences.markOnboardingCompleteCount == 1)
 
@@ -641,12 +648,12 @@ struct AppModelDependencyTests {
         #expect(usageStats.savedStats.last?.totalScansRun == 1)
     }
 
-    @Test
-    func testFullDiskAccessFromOnboardingShowsWelcomeAfterRelaunch() {
+    @Test(arguments: [false, true])
+    func testFullDiskAccessOnboardingResumesAfterSheetDismissalAndRelaunch(didCompleteOnboarding: Bool) {
         let preferences = SpyAppPreferencesStore(
             preferences: AppPreferences(
                 scan: .defaults,
-                didCompleteOnboarding: true
+                didCompleteOnboarding: didCompleteOnboarding
             )
         )
         var actions = AppSystemActions.inert
@@ -658,9 +665,10 @@ struct AppModelDependencyTests {
         actions.fullDiskAccessStatus = { .notGranted }
         let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
 
-        #expect(!(model.showsOnboarding))
+        #expect(model.showsOnboarding == !didCompleteOnboarding)
 
         model.presentOnboarding()
+        model.onboardingPage = .access
         model.prepareAndOpenFullDiskAccessSettingsFromOnboarding()
 
         #expect(model.showsOnboarding)
@@ -668,8 +676,18 @@ struct AppModelDependencyTests {
         #expect(preferences.markOnboardingIncompleteCount == 1)
         #expect(!(preferences.preferences.didCompleteOnboarding))
 
+        // SwiftUI clears the sheet binding during application termination.
+        model.dismissActiveSheet()
+        #expect(!(model.showsOnboarding))
+        #expect(model.presentationCoordinator.activeSheet == nil)
+        #expect(!(preferences.preferences.didCompleteOnboarding))
+        model.cleanup()
+
         let relaunchedModel = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
+        defer { relaunchedModel.cleanup() }
         #expect(relaunchedModel.showsOnboarding)
+        #expect(relaunchedModel.presentationCoordinator.activeSheet == .onboarding)
+        #expect(relaunchedModel.onboardingPage == .access)
     }
 
     @Test

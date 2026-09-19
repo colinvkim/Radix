@@ -528,8 +528,8 @@ final class AppModel: ObservableObject {
     }
 
     func dismissOnboarding() {
+        // Sheets also dismiss during application termination, without completing onboarding.
         showsOnboarding = false
-        dependencies.preferences.markOnboardingComplete()
     }
 
     func presentOnboarding() {
@@ -539,6 +539,7 @@ final class AppModel: ObservableObject {
     }
 
     func completeOnboarding(startsTour: Bool) {
+        dependencies.preferences.markOnboardingComplete()
         dismissOnboarding()
         if startsTour { startWorkspaceTour() }
     }
