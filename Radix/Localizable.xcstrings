@@ -1716,143 +1716,6 @@
         }
       }
     },
-    "%lld locations had limited access or scan warnings." : {
-      "comment" : "Warning summary for locations with limited access or scan warnings. The location count controls pluralization.",
-      "localizations" : {
-        "de" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Standort hatte eingeschränkten Zugriff oder eine Scan-Warnung."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Standorte hatten eingeschränkten Zugriff oder Scan-Warnungen."
-                }
-              }
-            }
-          }
-        },
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld location had limited access or a scan warning."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld locations had limited access or scan warnings."
-                }
-              }
-            }
-          }
-        },
-        "es" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld ubicación tuvo acceso limitado o una advertencia de análisis."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld ubicaciones tuvieron acceso limitado o advertencias de análisis."
-                }
-              }
-            }
-          }
-        },
-        "fr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld emplacement avait un accès limité ou un avertissement d’analyse."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld emplacements avaient un accès limité ou des avertissements d’analyse."
-                }
-              }
-            }
-          }
-        },
-        "it" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld posizione aveva un accesso limitato o un avviso di scansione."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld posizioni avevano un accesso limitato o avvisi di scansione."
-                }
-              }
-            }
-          }
-        },
-        "ru" : {
-          "variations" : {
-            "plural" : {
-              "few" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Для %lld расположений был ограничен доступ или есть предупреждения сканирования."
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Для %lld расположений был ограничен доступ или есть предупреждения сканирования."
-                }
-              },
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Для %lld расположения был ограничен доступ или есть предупреждение сканирования."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Для %lld расположения был ограничен доступ или есть предупреждения сканирования."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld 个位置访问受限或有扫描警告。"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "%lld locations in this selection couldn’t be read. Its allocated size and contents may be incomplete." : {
       "comment" : "Inspector warning summary for unreadable locations within the current selection.",
       "localizations" : {
@@ -8941,46 +8804,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关闭"
-          }
-        }
-      }
-    },
-    "Dismiss warning" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Warnung schließen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cerrar advertencia"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignorer l’avertissement"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignora avviso"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скрыть предупреждение"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭警告"
           }
         }
       }
@@ -17769,46 +17592,6 @@
         }
       }
     },
-    "Open Full Disk Access" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Festplattenvollzugriff öffnen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abrir Acceso total al disco"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ouvrir l’accès complet au disque"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apri Accesso completo al disco"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открыть настройки полного доступа к диску"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开完全磁盘访问权限"
-          }
-        }
-      }
-    },
     "Open Full Disk Access Settings" : {
       "localizations" : {
         "de" : {
@@ -23826,7 +23609,7 @@
       }
     },
     "Show %lld Warnings" : {
-      "comment" : "Action that opens the Inspector warning details popover. The warning count controls pluralization.",
+      "comment" : "Action that opens the warning details popover from the Inspector or workspace header. The warning count controls pluralization.",
       "localizations" : {
         "de" : {
           "variations" : {

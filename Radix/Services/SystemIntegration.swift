@@ -841,33 +841,6 @@ nonisolated enum PermissionAdvisor {
         "/System/Volumes/Data/Library/Caches/com.apple.iconservices.store",
     ]
 
-    static func shouldSuggestFullDiskAccess(
-        for snapshot: ScanSnapshot?,
-        fullDiskAccessStatus: FullDiskAccessStatus,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> Bool {
-        shouldSuggestFullDiskAccess(
-            for: snapshot?.scanWarnings ?? [],
-            fullDiskAccessStatus: fullDiskAccessStatus,
-            homeDirectory: homeDirectory
-        )
-    }
-
-    static func shouldSuggestFullDiskAccess(
-        for warnings: [ScanWarning],
-        fullDiskAccessStatus: FullDiskAccessStatus,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> Bool {
-        // Only recommend a settings change after the probe has positively
-        // established that access is missing. An unknown status must not flash
-        // an FDA prompt for a user who has already granted it.
-        guard fullDiskAccessStatus == .notGranted else { return false }
-        return containsFullDiskAccessRelevantWarning(
-            warnings,
-            homeDirectory: homeDirectory
-        )
-    }
-
     static func fullDiskAccessAdvice(
         for warnings: [ScanWarning],
         fullDiskAccessStatus: FullDiskAccessStatus,
@@ -899,12 +872,6 @@ nonisolated enum PermissionAdvisor {
         return expectedMacOSProtectedPaths.contains { protectedPath in
             warningPath == protectedPath || warningPath.hasPrefix(protectedPath + "/")
         }
-    }
-
-    static func warningsRequiringUserAttention(_ warnings: [ScanWarning]) -> [ScanWarning] {
-        // Keep known, unavoidable protections available in scan details without
-        // turning them into a persistent workspace alert.
-        warnings.filter { !isExpectedMacOSProtection($0) }
     }
 
     private static func containsFullDiskAccessRelevantWarning(

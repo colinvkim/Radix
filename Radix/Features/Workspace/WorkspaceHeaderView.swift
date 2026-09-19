@@ -5,6 +5,7 @@ struct WorkspaceHeaderView: View {
 
     let snapshot: ScanSnapshot
     let focusNode: FileNodeRecord
+    let fullDiskAccessStatus: FullDiskAccessStatus
     let actions: WorkspaceActions
 
     var body: some View {
@@ -51,7 +52,7 @@ struct WorkspaceHeaderView: View {
 
                     Spacer(minLength: 12)
 
-                    MetricStrip(snapshot: snapshot)
+                    metrics
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -60,7 +61,7 @@ struct WorkspaceHeaderView: View {
                         onSelect: actions.focusNode
                     )
 
-                    MetricStrip(snapshot: snapshot)
+                    metrics
                 }
             }
         }
@@ -70,6 +71,14 @@ struct WorkspaceHeaderView: View {
 
     private var statusSubtitle: String {
         snapshot.target.url.path
+    }
+
+    private var metrics: some View {
+        MetricStrip(
+            snapshot: snapshot,
+            fullDiskAccessStatus: fullDiskAccessStatus,
+            openFullDiskAccessSettings: actions.openFullDiskAccessSettings
+        )
     }
 }
 
@@ -110,6 +119,8 @@ private struct WorkspaceMetricView: View {
 
 private struct MetricStrip: View {
     let snapshot: ScanSnapshot
+    let fullDiskAccessStatus: FullDiskAccessStatus
+    let openFullDiskAccessSettings: () -> Void
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -125,7 +136,7 @@ private struct MetricStrip: View {
 
                 GridRow {
                     WorkspaceMetricView(title: String(localized: "Folders", comment: "Workspace metric label for folder count."), value: "\(displayedDirectoryCount)")
-                    WorkspaceMetricView(title: String(localized: "Warnings", comment: "Workspace metric label for warning count."), value: "\(warningCount)")
+                    warningsMetric
                 }
             }
         }
@@ -136,8 +147,16 @@ private struct MetricStrip: View {
             WorkspaceMetricView(title: String(localized: "Scanned", comment: "Workspace metric label for allocated storage scanned."), value: RadixFormatters.size(displayedAllocatedSize))
             WorkspaceMetricView(title: String(localized: "Files", comment: "Workspace metric label for file count."), value: "\(displayedFileCount)")
             WorkspaceMetricView(title: String(localized: "Folders", comment: "Workspace metric label for folder count."), value: "\(displayedDirectoryCount)")
-            WorkspaceMetricView(title: String(localized: "Warnings", comment: "Workspace metric label for warning count."), value: "\(warningCount)")
+            warningsMetric
         }
+    }
+
+    private var warningsMetric: some View {
+        WorkspaceWarningsMetric(
+            snapshot: snapshot,
+            fullDiskAccessStatus: fullDiskAccessStatus,
+            openFullDiskAccessSettings: openFullDiskAccessSettings
+        )
     }
 
     private var displayedFileCount: Int {
@@ -150,6 +169,49 @@ private struct MetricStrip: View {
 
     private var displayedAllocatedSize: Int64 {
         snapshot.aggregateStats.totalAllocatedSize
+    }
+}
+
+private struct WorkspaceWarningsMetric: View {
+    let snapshot: ScanSnapshot
+    let fullDiskAccessStatus: FullDiskAccessStatus
+    let openFullDiskAccessSettings: () -> Void
+
+    @State private var showsWarnings = false
+
+    var body: some View {
+        let presentation = ScanWarningPresentation(
+            selectionName: snapshot.target.displayName,
+            warnings: snapshot.scanWarnings,
+            fullDiskAccessAdvice: PermissionAdvisor.fullDiskAccessAdvice(
+                for: snapshot.scanWarnings,
+                fullDiskAccessStatus: fullDiskAccessStatus,
+                snapshotSource: snapshot.source
+            )
+        )
+
+        return Button {
+            showsWarnings = true
+        } label: {
+            WorkspaceMetricView(
+                title: String(localized: "Warnings", comment: "Workspace metric label for warning count."),
+                value: "\(warningCount)"
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(warningCount == 0)
+        .onChange(of: snapshot.id) { _, _ in
+            showsWarnings = false
+        }
+        .help(presentation.showWarningsTitle)
+        .accessibilityLabel(presentation.showWarningsTitle)
+        .popover(isPresented: $showsWarnings, arrowEdge: .bottom) {
+            ScanWarningsPopover(
+                presentation: presentation,
+                openFullDiskAccessSettings: openFullDiskAccessSettings
+            )
+        }
     }
 
     private var warningCount: Int {

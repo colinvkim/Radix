@@ -17,22 +17,13 @@ struct ActiveWorkspaceView: View {
     let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
 
-    // Dismissal is scoped to a single target scan: transformed snapshots keep it hidden.
-    @State private var dismissedWarningsScanScope: WarningDismissalScope?
-
-    private var shouldSuggestFullDiskAccess: Bool {
-        PermissionAdvisor.shouldSuggestFullDiskAccess(
-            for: snapshot,
-            fullDiskAccessStatus: fullDiskAccessStatus
-        )
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceHeaderView(
                 navigation: navigation,
                 snapshot: snapshot,
                 focusNode: focusNode,
+                fullDiskAccessStatus: fullDiskAccessStatus,
                 actions: actions
             )
 
@@ -123,38 +114,14 @@ struct ActiveWorkspaceView: View {
     }
 
     private var contentsPane: some View {
-        let warnings = warningFooterWarnings
-        let showsWarningFooter = !warnings.isEmpty &&
-            dismissedWarningsScanScope != warningDismissalScope
-
-        return VStack(spacing: 0) {
-            FileBrowserTableView(
-                scanState: scanState,
-                navigation: navigation,
-                focusedWorkspaceTarget: $focusedWorkspaceTarget,
-                hiddenNodeIDs: workspaceHiddenNodeIDs,
-                actions: fileBrowserActions,
-                model: actions.makeFileBrowserModel()
-            )
-
-            if showsWarningFooter {
-                Divider()
-                WarningFooter(
-                    warnings: warnings,
-                    shouldSuggestFullDiskAccess: shouldSuggestFullDiskAccess,
-                    actions: actions,
-                    onDismiss: { dismissedWarningsScanScope = warningDismissalScope }
-                )
-            }
-        }
-    }
-
-    private var warningFooterWarnings: [ScanWarning] {
-        PermissionAdvisor.warningsRequiringUserAttention(snapshot.scanWarnings)
-    }
-
-    private var warningDismissalScope: WarningDismissalScope {
-        WarningDismissalScope(targetID: snapshot.target.id, startedAt: snapshot.startedAt)
+        FileBrowserTableView(
+            scanState: scanState,
+            navigation: navigation,
+            focusedWorkspaceTarget: $focusedWorkspaceTarget,
+            hiddenNodeIDs: workspaceHiddenNodeIDs,
+            actions: fileBrowserActions,
+            model: actions.makeFileBrowserModel()
+        )
     }
 
     private func visualizationParentNode(for input: DiskMapVisualizationInput) -> FileNodeRecord? {
@@ -176,9 +143,4 @@ struct ActiveWorkspaceView: View {
             setDiscardPileDragActiveAfterThreshold: actions.setDiscardPileDragActiveAfterThreshold
         )
     }
-}
-
-private struct WarningDismissalScope: Equatable {
-    let targetID: String
-    let startedAt: Date
 }

@@ -856,66 +856,27 @@ struct ScanModelTests {
     }
 
     @Test
-    func testPermissionAdvisorSuppressesSuggestionWhenFullDiskAccessGranted() {
-        let exampleHome = URL(filePath: "/Users/example", directoryHint: .isDirectory)
-        let root = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let snapshot = makeSnapshot(
-            root: root,
-            treeStore: FileTreeStore(root: root),
-            warnings: [
-                ScanWarning(
-                    path: "/Users/example/Library/Mail",
-                    message: "Permission denied",
-                    category: .permissionDenied
-                )
-            ]
-        )
-
-        // FDA-unlockable warning present, but access is already granted: no nag.
-        #expect(
-            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
-                for: snapshot,
-                fullDiskAccessStatus: .granted,
-                homeDirectory: exampleHome
-            )))
-        #expect(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
-                for: snapshot,
-                fullDiskAccessStatus: .notGranted,
-                homeDirectory: exampleHome
-            ))
-        #expect(
-            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
-                for: snapshot,
-                fullDiskAccessStatus: .unknown,
-                homeDirectory: exampleHome
-            )))
-    }
-
-    @Test
     func testPermissionAdvisorIgnoresSystemPathsFullDiskAccessCannotUnlock() {
-        let root = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
-        // Paths that stay unreadable even with FDA granted. These must never
-        // drive the suggestion, otherwise granting FDA never clears the prompt.
-        let snapshot = makeSnapshot(
-            root: root,
-            treeStore: FileTreeStore(root: root),
-            warnings: [
-                ScanWarning(
-                    path: "/Library/Caches/com.apple.iconservices.store",
-                    message: "Permission denied",
-                    category: .permissionDenied
-                ),
-                ScanWarning(
-                    path: "/Library/Application Support/com.apple.TCC",
-                    message: "Permission denied",
-                    category: .permissionDenied
-                ),
-            ]
-        )
+        let warnings = [
+            ScanWarning(
+                path: "/Library/Caches/com.apple.iconservices.store",
+                message: "Permission denied",
+                category: .permissionDenied
+            ),
+            ScanWarning(
+                path: "/Library/Application Support/com.apple.TCC",
+                message: "Permission denied",
+                category: .permissionDenied
+            ),
+        ]
 
-        #expect(!(PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .notGranted)))
-        #expect(!(PermissionAdvisor.shouldSuggestFullDiskAccess(for: snapshot, fullDiskAccessStatus: .unknown)))
+        for status: FullDiskAccessStatus in [.notGranted, .granted, .unknown] {
+            #expect(PermissionAdvisor.fullDiskAccessAdvice(
+                for: warnings,
+                fullDiskAccessStatus: status,
+                snapshotSource: .live
+            ) == .none)
+        }
     }
 
     @Test
@@ -933,25 +894,28 @@ struct ScanModelTests {
         )
 
         #expect(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+            PermissionAdvisor.fullDiskAccessAdvice(
                 for: [unlockableWarning],
                 fullDiskAccessStatus: .notGranted,
+                snapshotSource: .live,
                 homeDirectory: exampleHome
-            ))
+            ) == .openSettings)
         #expect(
-            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
+            PermissionAdvisor.fullDiskAccessAdvice(
                 for: [permanentlyProtectedWarning],
                 fullDiskAccessStatus: .notGranted,
+                snapshotSource: .live,
                 homeDirectory: exampleHome
-            )))
+            ) == .none)
         #expect(
-            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
+            PermissionAdvisor.fullDiskAccessAdvice(
                 for: [unlockableWarning],
                 fullDiskAccessStatus: .granted,
+                snapshotSource: .live,
                 homeDirectory: exampleHome
-            )))
+            ) == .rescanMayBeNeeded)
         #expect(
-            !(PermissionAdvisor.shouldSuggestFullDiskAccess(
+            PermissionAdvisor.fullDiskAccessAdvice(
                 for: [
                     ScanWarning(
                         path: "/Users/example/Library/MailBackup",
@@ -960,14 +924,15 @@ struct ScanModelTests {
                     )
                 ],
                 fullDiskAccessStatus: .notGranted,
+                snapshotSource: .live,
                 homeDirectory: exampleHome
-            )))
+            ) == .none)
         for unrelatedPath in [
             "/tmp/Library/Mail",
             "/Users/other/Library/Mail",
         ] {
             #expect(
-                !(PermissionAdvisor.shouldSuggestFullDiskAccess(
+                PermissionAdvisor.fullDiskAccessAdvice(
                     for: [
                         ScanWarning(
                             path: unrelatedPath,
@@ -976,11 +941,12 @@ struct ScanModelTests {
                         )
                     ],
                     fullDiskAccessStatus: .notGranted,
+                    snapshotSource: .live,
                     homeDirectory: exampleHome
-                )))
+                ) == .none)
         }
         #expect(
-            PermissionAdvisor.shouldSuggestFullDiskAccess(
+            PermissionAdvisor.fullDiskAccessAdvice(
                 for: [
                     ScanWarning(
                         path: "/System/Volumes/Data/Users/example/Library/Mail/V10",
@@ -989,8 +955,9 @@ struct ScanModelTests {
                     )
                 ],
                 fullDiskAccessStatus: .notGranted,
+                snapshotSource: .live,
                 homeDirectory: exampleHome
-            ))
+            ) == .openSettings)
     }
 
     @Test
@@ -1069,33 +1036,6 @@ struct ScanModelTests {
         #expect(expectedWarnings.allSatisfy(PermissionAdvisor.isExpectedMacOSProtection))
         #expect(!(PermissionAdvisor.isExpectedMacOSProtection(arbitraryPermissionFailure)))
         #expect(!(PermissionAdvisor.isExpectedMacOSProtection(historicalFullDiskAccessPath)))
-    }
-
-    @Test
-    func testPermissionAdvisorExcludesExpectedProtectionFromWarningsRequiringAttention() {
-        let expectedProtection = ScanWarning(
-            path: "/Library/Application Support/com.apple.TCC",
-            message: "Permission denied",
-            category: .permissionDenied
-        )
-        let arbitraryPermissionFailure = ScanWarning(
-            path: "/Users/example/Private",
-            message: "Permission denied",
-            category: .permissionDenied
-        )
-        let fileSystemFailure = ScanWarning(
-            path: "/Users/example/Damaged",
-            message: "Input/output error",
-            category: .fileSystem
-        )
-
-        let warnings = PermissionAdvisor.warningsRequiringUserAttention([
-            expectedProtection,
-            arbitraryPermissionFailure,
-            fileSystemFailure,
-        ])
-
-        #expect(warnings.map(\.path) == [arbitraryPermissionFailure.path, fileSystemFailure.path])
     }
 
     private func makeSnapshot(
