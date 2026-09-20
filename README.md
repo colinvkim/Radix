@@ -24,7 +24,7 @@ Switch between **sunburst** and **treemap** views to understand how space is dis
 
 ### Browse and Search
 
-Use the sortable file table to inspect sizes, search the current folder or the entire scan, and move through the hierarchy with breadcrumbs and back/forward navigation.
+Use the sortable file browser to inspect items, search the current focus or the entire scan, and filter by item kind or allocated size. Preview files with Quick Look and navigate scans with breadcrumbs and back/forward navigation.
 
 ### Compare Scans Over Time
 
@@ -38,9 +38,7 @@ Add items from the disk map, file browser, or inspector to the **Discard Pile**.
 
 ### Save and Reopen Results
 
-Export completed scans as compact, losslessly compressed exact snapshots and
-reopen them later as read-only results. Radix continues to open snapshots
-created by earlier supported versions.
+Export completed scans as compact, losslessly compressed `.radixscan` snapshots and reopen them later as read-only results.
 
 ## More Features
 
@@ -53,9 +51,11 @@ created by earlier supported versions.
 - Recent scan history in the sidebar
 - Detailed inspector with sizes, access information, parent directory, and largest children
 - Usage stats showing scans completed, data scanned, scan speeds, chart interactions, and cleanup totals — all stored locally on your Mac
-- Quick Look, Open, Reveal in Finder, Copy Path, and Move to Trash actions
+- Reveal in Finder, Copy Path, Move to Trash, and more actions
 - Drag and drop a folder into the window to start scanning
-- APFS-aware storage accounting that avoids double-counting full clones
+- APFS-aware storage accounting that avoids double-counting full clones and detects partial clones
+- Welcome flow with an onboarding and an interactive tour of the app
+- Available in English, German, Spanish, French, Italian, Russian, and Simplified Chinese
 - Automatic updates powered by [Sparkle](https://sparkle-project.org/)
 
 ### Privacy & Permissions
@@ -119,8 +119,8 @@ Radix/
 │   │   ├── Comparison/       # Scan comparison setup and results
 │   │   ├── DiscardPile/      # Cleanup candidate review
 │   │   ├── FileList/         # Sortable file browser
-│   │   ├── Inspector/        # Selection details and actions
-│   │   ├── Onboarding/       # First-run and permission guidance
+│   │   ├── Inspector/        # Single- and multiple-selection details and actions
+│   │   ├── Onboarding/       # Welcome flow, permission guidance, and workspace tour
 │   │   ├── Settings/         # Scan, visualization, and app preferences
 │   │   ├── Sidebar/          # Smart Locations, recent scans, and Discard Pile
 │   │   ├── Visualization/    # Sunburst and treemap views
@@ -133,14 +133,14 @@ Radix/
 
 ## Architecture
 
-- `ScanEngine` is an actor-based asynchronous scanner that uses iterative file-system traversal.
+- `ScanEngine` is an actor-based asynchronous scanner that uses iterative file-system traversal. `ScanCoordinator` owns scan state, while `IncrementalScanService` reuses prior results when it can safely reconcile filesystem changes.
 - `AppModel` is the central `@MainActor` state and coordination layer for the application.
 - `ScanSnapshot` and `FileTreeStore` represent scan results using flat tree storage and indexed lookups.
 - Archive and comparison services stream, validate, and compare `.radixscan`
   snapshots. Format v5 losslessly compresses the large node and topology
   sections with LZFSE while retaining v3/v4 import compatibility.
 - Sunburst and treemap services separate layout and interaction models from their SwiftUI presentation.
-- `RadixCore` has no external Swift package dependencies; the app target uses Sparkle for updates.
+- `RadixCore` has no external Swift package dependencies. The app uses Sparkle for updates.
 
 </details>
 
