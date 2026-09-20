@@ -2925,8 +2925,8 @@ actor ScanEngine {
             guard childMetadata?.isDataless != true else {
                 continue
             }
-            guard !exclusionMatcher.excludes(
-                childURL,
+            guard !exclusionMatcher.excludesKnownNormalizedPath(
+                childURL.path,
                 isDirectory: childMetadata?.isDirectory ?? childURL.hasDirectoryPath
             ) else {
                 continue

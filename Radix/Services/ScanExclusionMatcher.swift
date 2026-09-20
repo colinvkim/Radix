@@ -45,15 +45,10 @@ nonisolated struct ScanExclusionMatcher: Sendable {
         !hasActiveRule
     }
 
-    func excludes(_ url: URL, isDirectory: Bool) -> Bool {
-        guard hasActiveRule else { return false }
-        let normalizedPath = url.standardizedFileURL.path
-        return excludes(normalizedPath: normalizedPath, isDirectory: isDirectory)
-    }
-
     /// Scan enumeration constructs child URLs from an already-normalized parent
-    /// and a single filesystem entry name, so standardizing those paths again is
-    /// redundant work in the hottest per-item filtering loop.
+    /// and a single filesystem entry name. Preserve that scan namespace:
+    /// Foundation file-URL standardization can rewrite `/private/var` to `/var`
+    /// and cause root-relative exclusion rules to stop matching.
     func excludesKnownNormalizedPath(_ path: String, isDirectory: Bool) -> Bool {
         guard hasActiveRule else { return false }
         return excludes(normalizedPath: path, isDirectory: isDirectory)

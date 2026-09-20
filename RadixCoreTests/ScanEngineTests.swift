@@ -1362,6 +1362,49 @@ struct ScanEngineTests {
             })
     }
 
+    @Test(arguments: [false, true])
+    func testFoundationExclusionsPreserveStartupNamespace(localizedFailure: Bool) async throws {
+        let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
+        let privateURL = rootURL.appending(path: "private", directoryHint: .isDirectory)
+        let excludedURL = privateURL.appending(path: "var", directoryHint: .isDirectory)
+        let engine = ScanEngine(enumeratedDirectoryContents: { url, _, _, cancellationCheck in
+            try cancellationCheck()
+            switch url.path {
+            case rootURL.path:
+                return ScanEngine.DirectoryEnumerationResult(urls: [privateURL])
+            case privateURL.path:
+                if localizedFailure {
+                    return ScanEngine.DirectoryEnumerationResult(
+                        urls: [],
+                        localizedFailures: [ScanEngine.DirectoryEnumerationFailure(
+                            url: excludedURL,
+                            error: POSIXError(.EACCES),
+                            isDirectoryHint: true
+                        )]
+                    )
+                }
+                return ScanEngine.DirectoryEnumerationResult(urls: [excludedURL])
+            default:
+                Issue.record("Excluded directory was traversed: \(url.path)")
+                return ScanEngine.DirectoryEnumerationResult(urls: [])
+            }
+        })
+        var options = ScanOptions()
+        options.includeHiddenFiles = true
+        options.autoSummarizeDirectories = false
+        options.exclusionPatterns = ["private/var/"]
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL, kind: .volume),
+            options: options,
+            engine: engine
+        )
+
+        #expect(snapshot.treeStore.node(id: privateURL.path) != nil)
+        #expect(snapshot.treeStore.node(id: excludedURL.path) == nil)
+        #expect(snapshot.scanWarnings.isEmpty)
+    }
+
     @Test
     func testBulkAndFoundationScannersMatchAdversarialFixture() async throws {
         let rootURL = try makeTemporaryDirectory()

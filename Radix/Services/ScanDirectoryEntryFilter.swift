@@ -49,7 +49,10 @@ nonisolated enum ScanDirectoryEntryFilter {
         failures.compactMap { failure in
             let isDirectoryHint = failure.isDirectoryHint ?? failure.url.hasDirectoryPath
             guard includes(failure.url, under: parentURL, behavior: behavior),
-                  !exclusionMatcher.excludes(failure.url, isDirectory: isDirectoryHint) else {
+                  !exclusionMatcher.excludesKnownNormalizedPath(
+                      failure.url.path,
+                      isDirectory: isDirectoryHint
+                  ) else {
                 return nil
             }
             return DirectoryEntry(

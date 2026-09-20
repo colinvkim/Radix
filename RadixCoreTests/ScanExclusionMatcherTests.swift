@@ -109,19 +109,6 @@ struct ScanExclusionMatcherTests {
             )))
     }
 
-    @Test(arguments: [
-        ("Packages/pkg/node_modules", true, true),
-        ("Logs/./debug.log", false, true),
-        ("Library/Caches/build/artifact.o", false, true),
-        ("Sources/App.swift", false, false),
-    ])
-    func testURLMatchingNormalizesPaths(relativePath: String, isDirectory: Bool, excluded: Bool) {
-        let rootPath = "/tmp/RadixProject"
-        let matcher = ScanExclusionMatcher(
-            patterns: ["node_modules/", "*.log", "Library/Caches/**"], rootPath: rootPath)
-        #expect(matcher.excludes(URL(filePath: "\(rootPath)/\(relativePath)"), isDirectory: isDirectory) == excluded)
-    }
-
     @Test
     func testCloudStorageLocationRecognizesManagedRootsWithoutNearPrefixMatches() {
         #expect(CloudStorageLocation.contains(path: "/Users/alex/Library/CloudStorage/Dropbox/file.bin"))
