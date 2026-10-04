@@ -365,6 +365,91 @@ struct PerformanceAuditBenchmarkTests {
         }
     }
 
+    /// Traversal and metadata only: no retained file tree, sorting, allocation
+    /// deduplication, or progress publication. Use a controlled readable fixture.
+    @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_TRAVERSAL_PATH"] != nil))
+    func testNativeTraversalBenchmark() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let path = try #require(environment["RADIX_BENCH_TRAVERSAL_PATH"])
+        // Explicit concurrency keeps the baseline independent of scanner policy.
+        let workers = max(environment["RADIX_BENCH_TRAVERSAL_WORKERS"].flatMap(Int.init) ?? 1, 1)
+        let root = URL(filePath: path, directoryHint: .isDirectory)
+        let loader = ScanMetadataLoader()
+        let pool = ScanDirectoryDescriptorPool()
+        defer { pool.invalidate() }
+        let initialRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
+        let start = ContinuousClock.now
+        let rootIdentity = try loader.metadata(for: root).fileIdentity
+        let counts = try await withThrowingTaskGroup(of: ([TraversalDirectory], TraversalCounts).self) { group in
+            var pending = [TraversalDirectory(url: root, identity: rootIdentity)]
+            var active = 0
+            var total = TraversalCounts()
+            while !pending.isEmpty || active > 0 {
+                try Task.checkCancellation()
+                while active < workers, let directory = pending.popLast() {
+                    active += 1
+                    group.addTask {
+                        let outcome: ScanDirectoryDescriptorPool.OpenOutcome
+                        if let parent = directory.parent, let name = directory.name {
+                            outcome = try pool.openChild(
+                                named: name, at: directory.url, relativeTo: parent,
+                                expectedIdentity: directory.identity, cancellationCheck: Task.checkCancellation)
+                        } else {
+                            outcome = try pool.openRoot(
+                                at: directory.url, expectedIdentity: directory.identity,
+                                cancellationCheck: Task.checkCancellation)
+                        }
+                        guard case .lease(let lease) = outcome else {
+                            throw TestFixtureError("Traversal benchmark requires native directory descriptors.")
+                        }
+                        let cursor = try BulkDirectoryEnumerator.makeCursor(
+                            at: directory.url, borrowing: lease, includeHiddenFiles: true,
+                            metadataLoader: loader, cancellationCheck: Task.checkCancellation)
+                        defer { cursor.invalidate() }
+                        var children: [TraversalDirectory] = []
+                        var counts = TraversalCounts()
+                        counts.directories = 1
+                        while let batch = try cursor.nextBatch(cancellationCheck: Task.checkCancellation) {
+                            counts.batches += 1
+                            for entry in batch.entries {
+                                if let error = entry.localizedEnumerationError { throw error }
+                                guard let metadata = entry.metadata else {
+                                    throw TestFixtureError("Traversal benchmark requires complete bulk metadata.")
+                                }
+                                if metadata.isDirectory && !metadata.isSymbolicLink {
+                                    children.append(TraversalDirectory(
+                                        url: entry.url, identity: metadata.fileIdentity,
+                                        parent: lease, name: entry.nativeName))
+                                } else {
+                                    if !metadata.isSymbolicLink { counts.files += 1 }
+                                    counts.allocated += metadata.allocatedSize
+                                    counts.logical += metadata.logicalSize
+                                }
+                            }
+                        }
+                        return (children, counts)
+                    }
+                }
+                if let (children, counts) = try await group.next() {
+                    active -= 1
+                    pending.append(contentsOf: children)
+                    total.files += counts.files
+                    total.directories += counts.directories
+                    total.allocated += counts.allocated
+                    total.logical += counts.logical
+                    total.batches += counts.batches
+                }
+            }
+            return total
+        }
+        Self.report(
+            phase: "native_traversal", count: counts.files + counts.directories,
+            seconds: BenchmarkSupport.durationSeconds(start.duration(to: .now)),
+            extra: "workers=\(workers) files=\(counts.files) folders=\(counts.directories) "
+                + "raw_allocated=\(counts.allocated) logical=\(counts.logical) batches=\(counts.batches) "
+                + "rss_delta=\(BenchmarkSupport.byteDelta(from: initialRSS, to: BenchmarkMemorySampler.currentResidentMemoryBytes()))")
+    }
+
     @Test(
         .tags(.benchmark),
         .enabled(
@@ -445,6 +530,65 @@ struct PerformanceAuditBenchmarkTests {
                 + "path_bytes=\(pathBytes) name_bytes=\(nameBytes) "
                 + "peak_rss=\(BenchmarkSupport.peakResidentBytes())"
         )
+    }
+
+    /// Compare path storage only; both representations omit metadata and lookup
+    /// indices. Run records and packed in separate Release processes for RSS.
+    @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_PATH_STORAGE"] != nil))
+    func testPathStorageBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+        let mode = try #require(environment["RADIX_BENCH_PATH_STORAGE"])
+        try #require(mode == "records" || mode == "packed")
+        let leaves = max(environment["RADIX_BENCH_PATH_STORAGE_FILES"].flatMap(Int.init) ?? 200_000, 1)
+        let depth = max(environment["RADIX_BENCH_PATH_STORAGE_DEPTH"].flatMap(Int.init) ?? 0, 0)
+        var records: [(id: String, url: URL, name: String)] = []
+        var packed = PackedPaths()
+        let initialRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
+        let start = ContinuousClock.now
+        generateStoragePaths(leaves: leaves, depth: depth) { parent, name, path, isDirectory in
+            if mode == "packed" {
+                packed.append(parent: parent, name: name)
+            } else {
+                records.append((path, URL(filePath: path, directoryHint: isDirectory ? .isDirectory : .notDirectory), name))
+            }
+        }
+        let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
+        let retainedRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
+        let peakRSS = BenchmarkSupport.peakResidentBytes()
+        let count = mode == "packed" ? packed.parents.count : records.count
+        let queryStart = ContinuousClock.now
+        var queryBytes = 0
+        for query in 0..<20_000 {
+            let index = (query * 7_919) % count
+            queryBytes += (mode == "packed" ? packed.path(at: index) : records[index].id).utf8.count
+        }
+        let querySeconds = BenchmarkSupport.durationSeconds(queryStart.duration(to: .now))
+        var index = 0
+        var valid = true
+        generateStoragePaths(leaves: leaves, depth: depth) { _, _, expectedPath, _ in
+            let actual = mode == "packed" ? packed.path(at: index) : records[index].url.path
+            valid = valid && actual.utf8.elementsEqual(expectedPath.utf8)
+            index += 1
+        }
+        #expect(valid)
+        withExtendedLifetime((records, packed)) {
+            BenchmarkSupport.report(
+                prefix: "RADIX_BENCH_PATH_STORAGE", phase: mode, seconds: seconds, count: count, peakRSS: peakRSS,
+                extra: "depth=\(depth) rss_delta=\(BenchmarkSupport.byteDelta(from: initialRSS, to: retainedRSS)) "
+                    + "packed_bytes=\(packed.storageBytes) query_seconds=\(BenchmarkSupport.format(querySeconds)) query_bytes=\(queryBytes)")
+        }
+    }
+
+    @Test
+    func testPackedPathsPreserveExactNames() {
+        var paths = PackedPaths()
+        paths.append(parent: nil, name: "/")
+        paths.append(parent: 0, name: "cafe\u{301}")
+        paths.append(parent: 1, name: "文件-100% #?.dat")
+        paths.append(parent: 0, name: "caf\u{e9}")
+        #expect(paths.path(at: 0) == "/")
+        #expect(paths.path(at: 2).utf8.elementsEqual("/cafe\u{301}/文件-100% #?.dat".utf8))
+        #expect(paths.path(at: 3).utf8.elementsEqual("/caf\u{e9}".utf8))
     }
 
     @Test(
@@ -674,6 +818,78 @@ struct PerformanceAuditBenchmarkTests {
                 + "malloc_in_use=\(statistics.size_in_use) malloc_reserved=\(statistics.size_allocated) "
                 + "malloc_blocks=\(statistics.blocks_in_use) \(extra)"
         )
+    }
+
+    private struct TraversalDirectory: Sendable {
+        let url: URL
+        let identity: FileIdentity?
+        var parent: ScanDirectoryDescriptorPool.Lease?
+        var name: BulkDirectoryEnumerator.NativeName?
+    }
+
+    private struct TraversalCounts: Sendable {
+        var files = 0
+        var directories = 0
+        var allocated: Int64 = 0
+        var logical: Int64 = 0
+        var batches = 0
+    }
+
+    private struct PackedPaths {
+        var parents: [UInt32] = []
+        var offsets: [UInt32] = [0]
+        var bytes: [UInt8] = []
+
+        var storageBytes: Int { parents.count * 4 + offsets.count * 4 + bytes.count }
+
+        mutating func append(parent: Int?, name: String) {
+            parents.append(parent.map(UInt32.init) ?? UInt32.max)
+            bytes.append(contentsOf: name.utf8)
+            offsets.append(UInt32(bytes.count))
+        }
+
+        func path(at index: Int) -> String {
+            var components: [Int] = []
+            var current = index
+            while parents[current] != UInt32.max {
+                components.append(current)
+                current = Int(parents[current])
+            }
+            func name(_ index: Int) -> String {
+                String(decoding: bytes[Int(offsets[index])..<Int(offsets[index + 1])], as: UTF8.self)
+            }
+            var result = name(current)
+            for component in components.reversed() {
+                if !result.hasSuffix("/") { result += "/" }
+                result += name(component)
+            }
+            return result
+        }
+    }
+
+    private func generateStoragePaths(
+        leaves: Int, depth: Int, consume: (Int?, String, String, Bool) -> Void
+    ) {
+        var prefix = "/radix-path-benchmark"
+        consume(nil, prefix, prefix, true)
+        for level in 0..<depth {
+            let name = "层级-cafe\u{301}-\(level)"
+            prefix += "/" + name
+            consume(level, name, prefix, true)
+        }
+        var index = depth + 1
+        for group in 0..<((leaves + 99) / 100) {
+            let name = "directory-\(group)"
+            let directoryPath = prefix + "/" + name
+            let parent = index
+            consume(depth, name, directoryPath, true)
+            index += 1
+            for file in (group * 100)..<min((group + 1) * 100, leaves) {
+                let name = depth == 0 ? "file-\(file).dat" : "文件-\(file)-100% #?.dat"
+                consume(parent, name, directoryPath + "/" + name, false)
+                index += 1
+            }
+        }
     }
 
     private static func makeFlatSnapshot(fileCount: Int, rootID: String = "/audit") -> ScanSnapshot {
