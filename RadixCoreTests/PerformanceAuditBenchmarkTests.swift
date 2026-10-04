@@ -5,7 +5,11 @@ import Testing
 @testable import RadixCore
 
 /// Opt-in measurements for the performance audit; elapsed times are never test assertions.
+/// Cases run serially so their fixtures and measurements do not overlap within this suite.
+@Suite(.serialized)
 struct PerformanceAuditBenchmarkTests {
+    // MARK: - UI preparation and navigation
+
     @MainActor
     @Test(
         .tags(.benchmark),
@@ -125,6 +129,7 @@ struct PerformanceAuditBenchmarkTests {
         let comparison = try await service.compare(before: before, after: after)
         #expect(comparison.rows.count == count)
         let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
+        defer { model.cancel() }
         let queries: [(String, ScanComparisonRowQuery)] = [
             ("initial", .init(searchText: "", sortOrder: [])),
             ("path", .init(searchText: "", sortOrder: [], pathPrefix: "item-0.dat")),
@@ -139,7 +144,7 @@ struct PerformanceAuditBenchmarkTests {
                 changeTree: comparison.changeTree, query: query
             )
             // Avoid spinning the main actor while its background request runs.
-            while model.isRefreshing { try await Task.sleep(for: .milliseconds(1)) }
+            try await waitUntil("comparison refresh \(phase)", timeout: 60) { !model.isRefreshing }
             let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
             var fingerprint = ChartResponsivenessBenchmarkSupport.fnvOffsetBasis
             for row in model.displayedRows {
@@ -333,7 +338,11 @@ struct PerformanceAuditBenchmarkTests {
             }
         }
     }
+}
 
+// MARK: - Filesystem and path storage
+
+extension PerformanceAuditBenchmarkTests {
     @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_ENUMERATION_PATH"] != nil))
     func testNativeEnumerationAllocationBenchmark() throws {
         guard let path = ProcessInfo.processInfo.environment["RADIX_BENCH_ENUMERATION_PATH"] else {
@@ -664,6 +673,82 @@ struct PerformanceAuditBenchmarkTests {
         )
     }
 
+    private struct TraversalDirectory: Sendable {
+        let url: URL
+        let identity: FileIdentity?
+        var parent: ScanDirectoryDescriptorPool.Lease?
+        var name: BulkDirectoryEnumerator.NativeName?
+    }
+
+    private struct TraversalCounts: Sendable {
+        var files = 0
+        var directories = 0
+        var allocated: Int64 = 0
+        var logical: Int64 = 0
+        var batches = 0
+    }
+
+    private struct PackedPaths {
+        var parents: [UInt32] = []
+        var offsets: [UInt32] = [0]
+        var bytes: [UInt8] = []
+
+        var storageBytes: Int { parents.count * 4 + offsets.count * 4 + bytes.count }
+
+        mutating func append(parent: Int?, name: String) {
+            parents.append(parent.map(UInt32.init) ?? UInt32.max)
+            bytes.append(contentsOf: name.utf8)
+            offsets.append(UInt32(bytes.count))
+        }
+
+        func path(at index: Int) -> String {
+            var components: [Int] = []
+            var current = index
+            while parents[current] != UInt32.max {
+                components.append(current)
+                current = Int(parents[current])
+            }
+            func name(_ index: Int) -> String {
+                String(decoding: bytes[Int(offsets[index])..<Int(offsets[index + 1])], as: UTF8.self)
+            }
+            var result = name(current)
+            for component in components.reversed() {
+                if !result.hasSuffix("/") { result += "/" }
+                result += name(component)
+            }
+            return result
+        }
+    }
+
+    private func generateStoragePaths(
+        leaves: Int, depth: Int, consume: (Int?, String, String, Bool) -> Void
+    ) {
+        var prefix = "/radix-path-benchmark"
+        consume(nil, prefix, prefix, true)
+        for level in 0..<depth {
+            let name = "层级-cafe\u{301}-\(level)"
+            prefix += "/" + name
+            consume(level, name, prefix, true)
+        }
+        var index = depth + 1
+        for group in 0..<((leaves + 99) / 100) {
+            let name = "directory-\(group)"
+            let directoryPath = prefix + "/" + name
+            let parent = index
+            consume(depth, name, directoryPath, true)
+            index += 1
+            for file in (group * 100)..<min((group + 1) * 100, leaves) {
+                let name = depth == 0 ? "file-\(file).dat" : "文件-\(file)-100% #?.dat"
+                consume(parent, name, directoryPath + "/" + name, false)
+                index += 1
+            }
+        }
+    }
+}
+
+// MARK: - Snapshot retention
+
+extension PerformanceAuditBenchmarkTests {
     @MainActor
     @Test(
         .tags(.benchmark),
@@ -819,79 +904,11 @@ struct PerformanceAuditBenchmarkTests {
                 + "malloc_blocks=\(statistics.blocks_in_use) \(extra)"
         )
     }
+}
 
-    private struct TraversalDirectory: Sendable {
-        let url: URL
-        let identity: FileIdentity?
-        var parent: ScanDirectoryDescriptorPool.Lease?
-        var name: BulkDirectoryEnumerator.NativeName?
-    }
+// MARK: - Shared fixtures and reporting
 
-    private struct TraversalCounts: Sendable {
-        var files = 0
-        var directories = 0
-        var allocated: Int64 = 0
-        var logical: Int64 = 0
-        var batches = 0
-    }
-
-    private struct PackedPaths {
-        var parents: [UInt32] = []
-        var offsets: [UInt32] = [0]
-        var bytes: [UInt8] = []
-
-        var storageBytes: Int { parents.count * 4 + offsets.count * 4 + bytes.count }
-
-        mutating func append(parent: Int?, name: String) {
-            parents.append(parent.map(UInt32.init) ?? UInt32.max)
-            bytes.append(contentsOf: name.utf8)
-            offsets.append(UInt32(bytes.count))
-        }
-
-        func path(at index: Int) -> String {
-            var components: [Int] = []
-            var current = index
-            while parents[current] != UInt32.max {
-                components.append(current)
-                current = Int(parents[current])
-            }
-            func name(_ index: Int) -> String {
-                String(decoding: bytes[Int(offsets[index])..<Int(offsets[index + 1])], as: UTF8.self)
-            }
-            var result = name(current)
-            for component in components.reversed() {
-                if !result.hasSuffix("/") { result += "/" }
-                result += name(component)
-            }
-            return result
-        }
-    }
-
-    private func generateStoragePaths(
-        leaves: Int, depth: Int, consume: (Int?, String, String, Bool) -> Void
-    ) {
-        var prefix = "/radix-path-benchmark"
-        consume(nil, prefix, prefix, true)
-        for level in 0..<depth {
-            let name = "层级-cafe\u{301}-\(level)"
-            prefix += "/" + name
-            consume(level, name, prefix, true)
-        }
-        var index = depth + 1
-        for group in 0..<((leaves + 99) / 100) {
-            let name = "directory-\(group)"
-            let directoryPath = prefix + "/" + name
-            let parent = index
-            consume(depth, name, directoryPath, true)
-            index += 1
-            for file in (group * 100)..<min((group + 1) * 100, leaves) {
-                let name = depth == 0 ? "file-\(file).dat" : "文件-\(file)-100% #?.dat"
-                consume(parent, name, directoryPath + "/" + name, false)
-                index += 1
-            }
-        }
-    }
-
+extension PerformanceAuditBenchmarkTests {
     private static func makeFlatSnapshot(fileCount: Int, rootID: String = "/audit") -> ScanSnapshot {
         let allocatedSize = Int64(fileCount) * Int64(fileCount + 1) / 2
         let root = ChartResponsivenessBenchmarkSupport.node(
