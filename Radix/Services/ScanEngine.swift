@@ -1354,7 +1354,7 @@ actor ScanEngine {
                     try Task.checkCancellation()
 
                     let itemPath = item.url.path
-                    if !scanKeyByNodeID.insert(
+                    if try !scanKeyByNodeID.insert(
                         path: itemPath, parentKey: item.parentKey, scanKey: nextKey, mayHaveChildren: true
                     ) {
                         releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
@@ -1932,7 +1932,7 @@ actor ScanEngine {
                 case .ordinaryLeaves(let batch):
                     activeOrdinaryLeafTasks -= 1
                     for item in batch.items {
-                        recordPreparedOrdinaryLeaf(
+                        try recordPreparedOrdinaryLeaf(
                             item,
                             parentKey: batch.parentKey,
                             nextKey: &nextKey,
@@ -2005,7 +2005,7 @@ actor ScanEngine {
                                 path: childNode.id
                             )
                         )
-                        recordPreparedOrdinaryLeaf(
+                        try recordPreparedOrdinaryLeaf(
                             preparedItem,
                             parentKey: itemKey,
                             nextKey: &nextKey,
@@ -2361,10 +2361,10 @@ actor ScanEngine {
         summaryPool: AtomicDirectorySummaryPool,
         completedByKey: inout [CompletedDirScan?],
         childrenKeysByKey: inout [[Int]?]
-    ) {
+    ) throws {
         let childNode = item.node
         let childPath = childNode.id
-        if !scanKeyByNodeID.insert(
+        if try !scanKeyByNodeID.insert(
             path: childPath, parentKey: parentKey, scanKey: nextKey, mayHaveChildren: false
         ) {
             recordDuplicateNode(

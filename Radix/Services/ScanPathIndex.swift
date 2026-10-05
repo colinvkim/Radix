@@ -28,9 +28,9 @@ nonisolated struct ScanPathIndex {
     private var usesCompactKeys = false
 
     @inline(__always)
-    mutating func insert(path: String, parentKey: Int, scanKey: Int, mayHaveChildren: Bool) -> Bool {
+    mutating func insert(path: String, parentKey: Int, scanKey: Int, mayHaveChildren: Bool) throws -> Bool {
         if !usesCompactKeys, mayHaveChildren, path.utf8.contains(where: { $0 >= 0x80 }) {
-            activateCompactKeys()
+            try activateCompactKeys()
         }
         let key = usesCompactKeys ? discoveryKey(for: path, parentKey: parentKey) : nil
         if let key {
@@ -46,12 +46,15 @@ nonisolated struct ScanPathIndex {
         return true
     }
 
-    private mutating func activateCompactKeys() {
+    private mutating func activateCompactKeys() throws {
+        try Task.checkCancellation()
         usesCompactKeys = true
         // Unexpected Unicode paths may precede their directory. Migrate those
         // discoveries so changing routes preserves global duplicate equality.
         var compactPaths: [String] = []
-        for (path, scanKey) in fullPathKeys {
+        for (offset, entry) in fullPathKeys.enumerated() {
+            if offset.isMultiple(of: 256) { try Task.checkCancellation() }
+            let (path, scanKey) = entry
             let isASCII = path.utf8.withContiguousStorageIfAvailable {
                 $0.reduce(UInt8(0), |) < 0x80
             } ?? path.utf8.allSatisfy { $0 < 0x80 }
@@ -62,7 +65,10 @@ nonisolated struct ScanPathIndex {
                 compactPaths.append(path)
             }
         }
-        for path in compactPaths { fullPathKeys.removeValue(forKey: path) }
+        for (offset, path) in compactPaths.enumerated() {
+            if offset.isMultiple(of: 256) { try Task.checkCancellation() }
+            fullPathKeys.removeValue(forKey: path)
+        }
     }
 
     private mutating func resolvedParent(for scanKey: Int) -> Parent? {

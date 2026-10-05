@@ -6,7 +6,7 @@ import Testing
 struct ScanPathIndexTests {
     @Test(arguments: ["/ascii", "/café"])
     func testFinalLookupPreservesOffsetsAfterDiscoveryStateIsReleased(prefix: String) throws {
-        let (index, nodes) = Self.discover(prefix: prefix)
+        let (index, nodes) = try Self.discover(prefix: prefix)
         var progress: [Int] = []
         let lookup = try index.nodeIndex(
             nodes: nodes, progressInterval: 256, cancellationCheck: {}
@@ -20,8 +20,8 @@ struct ScanPathIndexTests {
     }
 
     @Test(arguments: ["/ascii", "/café"])
-    func testCancellationDuringFinalLookup(prefix: String) {
-        let (index, nodes) = Self.discover(prefix: prefix)
+    func testCancellationDuringFinalLookup(prefix: String) throws {
+        let (index, nodes) = try Self.discover(prefix: prefix)
         var cancelled = false
         var progress: [Int] = []
         #expect(throws: CancellationError.self) {
@@ -35,11 +35,11 @@ struct ScanPathIndexTests {
         #expect(progress == [256])
     }
 
-    private static func discover(prefix: String) -> (ScanPathIndex, [FileNodeRecord]) {
+    private static func discover(prefix: String) throws -> (ScanPathIndex, [FileNodeRecord]) {
         var index = ScanPathIndex()
         let paths = [prefix] + (0..<1_024).map { "\(prefix)/file-\($0)" }
         for (key, path) in paths.enumerated() {
-            let inserted = index.insert(path: path, parentKey: key == 0 ? -1 : 0,
+            let inserted = try index.insert(path: path, parentKey: key == 0 ? -1 : 0,
                                         scanKey: key, mayHaveChildren: key == 0)
             #expect(inserted)
         }
@@ -48,7 +48,7 @@ struct ScanPathIndexTests {
     }
 
     @Test
-    func testParentNameDiscoveryPreservesGlobalPathEquality() {
+    func testParentNameDiscoveryPreservesGlobalPathEquality() throws {
         var index = ScanPathIndex()
         var reference: Set<String> = []
         // Parent indices are hints; paths from another parent must still dedupe.
@@ -68,12 +68,12 @@ struct ScanPathIndexTests {
             ("/K-first/file", 24, false), ("/K-first/file", 2, false)
         ]
         for (ordinal, entry) in entries.enumerated() {
-            #expect(index.insert(path: entry.0, parentKey: entry.1, scanKey: ordinal,
+            #expect(try index.insert(path: entry.0, parentKey: entry.1, scanKey: ordinal,
                                  mayHaveChildren: entry.2) == reference.insert(entry.0).inserted)
         }
         for ordinal in 0..<2_000 {
             let path = "/café/entry-\(ordinal % 137)-é"
-            #expect(index.insert(path: path, parentKey: ordinal % 3, scanKey: ordinal + entries.count,
+            #expect(try index.insert(path: path, parentKey: ordinal % 3, scanKey: ordinal + entries.count,
                                  mayHaveChildren: false) == reference.insert(path).inserted)
         }
     }
@@ -88,15 +88,15 @@ struct ScanPathIndexTests {
             ("/K-first", 0, true)
         ]
         for (key, entry) in entries.enumerated() {
-            let inserted = index.insert(path: entry.0, parentKey: entry.1, scanKey: key,
+            let inserted = try index.insert(path: entry.0, parentKey: entry.1, scanKey: key,
                                         mayHaveChildren: entry.2)
             #expect(inserted)
         }
-        #expect(index.insert(path: "/cafe\u{301}/file", parentKey: 5, scanKey: 7,
+        #expect(try index.insert(path: "/cafe\u{301}/file", parentKey: 5, scanKey: 7,
                              mayHaveChildren: false) == false)
-        #expect(index.insert(path: "/ascii/文件", parentKey: 5, scanKey: 7,
+        #expect(try index.insert(path: "/ascii/文件", parentKey: 5, scanKey: 7,
                              mayHaveChildren: false) == false)
-        #expect(index.insert(path: "/K-first/file", parentKey: 6, scanKey: 7,
+        #expect(try index.insert(path: "/K-first/file", parentKey: 6, scanKey: 7,
                              mayHaveChildren: false) == false)
         index.releaseDiscoveryState()
         let nodes = entries.reversed().map { makeTestFileNode(id: $0.0, name: $0.0) }
