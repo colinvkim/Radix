@@ -28,7 +28,8 @@ struct BackgroundReleaseQueueTests {
     @Test
     func testNavigationAndBrowserWaitForRetiredBuffersBeforePreparingMore() async throws {
         let queue = DispatchQueue(label: "blocked-buffer-release")
-        let releases = BackgroundReleaseQueue(queue: queue)
+        var waitCount = 0
+        let releases = BackgroundReleaseQueue(queue: queue, onWait: { waitCount += 1 })
         let files = (0..<600).map { makeTestFileNode(id: "/root/\($0)", name: "\($0)") }
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: files)
         let store = FileTreeStore(root: root, childrenByID: [root.id: files])
@@ -45,9 +46,12 @@ struct BackgroundReleaseQueueTests {
         #expect(releases.isReleasing)
         #expect(browser.displayedNodes.isEmpty)
 
+        let previousWaitCount = waitCount
         browser.setActiveQuery(FileBrowserQuery())
         navigation.updateScanContext(snapshot: snapshot)
-        try await Task.sleep(for: .milliseconds(10))
+        try await waitUntil("browser and navigation wait for retired buffers") {
+            waitCount == previousWaitCount + 2
+        }
         #expect(browser.isRefreshingCurrentContents)
         #expect(browser.displayedNodes.isEmpty)
         #expect(navigation.isLoadingTableNodes)

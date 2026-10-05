@@ -364,9 +364,11 @@ struct AppModelDependencyTests {
         let model = AppModel(dependencies: makeDependencies())
 
         model.setScanVisualizationModeAfterViewUpdate(.treemap)
+        let pendingTasks = model.deferredViewUpdateTasks
+        #expect(!pendingTasks.isEmpty)
         model.setScanVisualizationModeAfterViewUpdate(.sunburst)
 
-        try await Task.sleep(for: .milliseconds(40))
+        for task in pendingTasks { await task.value }
 
         #expect(model.scanVisualizationMode == .sunburst)
     }
@@ -2378,11 +2380,12 @@ struct AppModelDependencyTests {
         try await waitUntil("async capacity description refresh starts") {
             await probe.isWaiting
         }
+        let refreshTask = try #require(model.targetCapacityDescriptionsRefreshTask)
 
         model.cleanup()
         await probe.resume(returning: [loadedTarget.id: "1 GB free of 2 GB"])
 
-        try await Task.sleep(for: .milliseconds(40))
+        await refreshTask.value
 
         #expect(model.availableTargets == [loadedTarget])
         #expect(model.targetCapacityDescriptions.isEmpty)
@@ -2718,19 +2721,21 @@ struct AppModelDependencyTests {
         try await waitUntil("first export panel") {
             await firstPanel.isWaiting
         }
+        let firstPanelTask = try #require(model.exportPanelTask)
         model.cleanup()
         model.exportCurrentScan()
         try await waitUntil("second export panel") {
             await secondPanel.isWaiting
         }
+        let secondPanelTask = try #require(model.exportPanelTask)
 
         await firstPanel.resume(returning: staleURL)
-        try await Task.sleep(for: .milliseconds(20))
+        await firstPanelTask.value
         #expect(model.isExportPanelPresented)
 
         model.cleanup()
         await secondPanel.resume(returning: currentURL)
-        try await Task.sleep(for: .milliseconds(20))
+        await secondPanelTask.value
 
         #expect(!(model.isExportPanelPresented))
         let exportRequests = await archiveService.exportRequestsSnapshot()
@@ -3075,6 +3080,8 @@ struct AppModelDependencyTests {
             finishedAt: Date(timeIntervalSince1970: 40),
             sourceURL: newURL
         )
+        let imports = AsyncValueProbe<Void>()
+        defer { Task { await imports.resume(returning: ()) } }
         let archiveService = try SpyScanArchiveService(
             previewResultsByURL: [
                 oldURL: makeArchivePreview(archiveURL: oldURL, snapshot: oldSnapshot),
@@ -3084,7 +3091,7 @@ struct AppModelDependencyTests {
                 oldURL: makeArchiveImportResult(archiveURL: oldURL, snapshot: oldSnapshot),
                 newURL: makeArchiveImportResult(archiveURL: newURL, snapshot: newSnapshot),
             ],
-            importDelay: .milliseconds(25)
+            importWaitProbe: imports
         )
         var selectedSnapshotURLs = [oldURL, newURL]
         var actions = AppSystemActions.inert
@@ -3120,6 +3127,11 @@ struct AppModelDependencyTests {
         #expect(importedURLsBeforeConfirm.isEmpty)
 
         model.confirmComparisonSetup()
+
+        try await waitUntil("both comparison imports are suspended") {
+            await imports.waitingCount == 2
+        }
+        await imports.resume(returning: ())
 
         try await waitUntil("comparison built") {
             model.scanComparison?.summary.changedCount == 1
@@ -3234,6 +3246,7 @@ struct AppModelDependencyTests {
         try await waitUntil("first comparison panel") {
             await firstPanel.isWaiting
         }
+        let firstPanelTask = try #require(model.comparisonPanelTask)
         model.chooseComparisonSnapshot(for: .before)
         try await waitUntil("second comparison panel") {
             await secondPanel.isWaiting
@@ -3244,7 +3257,7 @@ struct AppModelDependencyTests {
             model.pendingComparisonSetup?.before?.displayName == newSnapshot.target.displayName
         }
         await firstPanel.resume(returning: oldURL)
-        try await Task.sleep(for: .milliseconds(20))
+        await firstPanelTask.value
 
         #expect(model.pendingComparisonSetup?.before?.displayName == newSnapshot.target.displayName)
         let previewedURLs = await archiveService.previewedURLsSnapshot()
@@ -3478,21 +3491,24 @@ struct AppModelDependencyTests {
 }
 
 private actor AsyncValueProbe<Value: Sendable> {
-    private var continuation: CheckedContinuation<Value, Never>?
+    private var continuations: [CheckedContinuation<Value, Never>] = []
+
+    var waitingCount: Int { continuations.count }
 
     var isWaiting: Bool {
-        continuation != nil
+        !continuations.isEmpty
     }
 
     func wait() async -> Value {
         await withCheckedContinuation { pendingContinuation in
-            continuation = pendingContinuation
+            continuations.append(pendingContinuation)
         }
     }
 
     func resume(returning value: Value) {
-        continuation?.resume(returning: value)
-        continuation = nil
+        let pending = continuations
+        continuations.removeAll()
+        for continuation in pending { continuation.resume(returning: value) }
     }
 }
 
@@ -3891,7 +3907,6 @@ private actor SpyScanArchiveService: ScanArchiveServicing {
     private let exportWaitProbe: AsyncValueProbe<Void>?
     private let previewWaitProbe: AsyncValueProbe<Void>?
     private let importWaitProbe: AsyncValueProbe<Void>?
-    private let importDelay: Duration?
     private var activeImportCount = 0
     private var maximumConcurrentImportCount = 0
     private(set) var exportCancellationStates: [Bool] = []
@@ -3905,8 +3920,7 @@ private actor SpyScanArchiveService: ScanArchiveServicing {
         importResultsByURL: [URL: ScanArchiveImportResult] = [:],
         exportWaitProbe: AsyncValueProbe<Void>? = nil,
         previewWaitProbe: AsyncValueProbe<Void>? = nil,
-        importWaitProbe: AsyncValueProbe<Void>? = nil,
-        importDelay: Duration? = nil
+        importWaitProbe: AsyncValueProbe<Void>? = nil
     ) {
         self.previewResult = previewResult
         self.previewResultsByURL = previewResultsByURL
@@ -3915,7 +3929,6 @@ private actor SpyScanArchiveService: ScanArchiveServicing {
         self.exportWaitProbe = exportWaitProbe
         self.previewWaitProbe = previewWaitProbe
         self.importWaitProbe = importWaitProbe
-        self.importDelay = importDelay
     }
 
     func export(
@@ -3959,9 +3972,6 @@ private actor SpyScanArchiveService: ScanArchiveServicing {
         activeImportCount += 1
         maximumConcurrentImportCount = max(maximumConcurrentImportCount, activeImportCount)
         defer { activeImportCount -= 1 }
-        if let importDelay {
-            try await Task.sleep(for: importDelay)
-        }
         if let importWaitProbe {
             await importWaitProbe.wait()
         }

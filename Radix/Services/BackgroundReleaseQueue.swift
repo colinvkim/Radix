@@ -7,11 +7,16 @@ final class BackgroundReleaseQueue {
     static let shared = BackgroundReleaseQueue()
 
     private let queue: DispatchQueue
+    private let onWait: (() -> Void)?
     private let batch = DiscardedValues()
     private var task: Task<Void, Never>?
 
-    init(queue: DispatchQueue = DispatchQueue(label: "com.colinkim.Radix.buffer-release", qos: .utility)) {
+    init(
+        queue: DispatchQueue = DispatchQueue(label: "com.colinkim.Radix.buffer-release", qos: .utility),
+        onWait: (() -> Void)? = nil
+    ) {
         self.queue = queue
+        self.onWait = onWait
     }
 
     var isReleasing: Bool { task != nil }
@@ -35,7 +40,10 @@ final class BackgroundReleaseQueue {
     }
 
     func waitForPendingReleases() async {
-        while let task { await task.value }
+        while let task {
+            onWait?()
+            await task.value
+        }
     }
 }
 

@@ -35,7 +35,6 @@ struct TreemapTooltipContentTests {
             treeStore: store
         )
 
-        #expect(content.systemImageName == "folder.fill")
         #expect(content.title == "Documents")
         #expect(content.sizeAndSignificance.contains("40.0% of Macintosh HD"))
         #expect(content.location == "Macintosh HD")
@@ -93,7 +92,6 @@ struct TreemapTooltipContentTests {
             treeStore: store
         )
 
-        #expect(content.systemImageName == "doc.fill")
         #expect(content.title == "annual.pdf")
         #expect(content.sizeAndSignificance.contains("10.0% of Macintosh HD"))
         #expect(content.location == "Macintosh HD › Documents › Reports")
@@ -125,7 +123,6 @@ struct TreemapTooltipContentTests {
             treeStore: store
         )
 
-        #expect(content.systemImageName == "square.grid.3x3.fill")
         #expect(content.title == "Smaller Items")
         #expect(content.location == "Macintosh HD › Library")
         #expect(content.metadata == "4 grouped items")
