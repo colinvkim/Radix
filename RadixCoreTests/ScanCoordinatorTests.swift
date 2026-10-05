@@ -7,6 +7,68 @@ import Testing
 @MainActor
 struct ScanCoordinatorTests {
     @Test
+    func testExternalTransferRefreshKeepsContextAndRejectsStaleRequests() async throws {
+        let service = ControlledScanService()
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
+        let target = makeCoordinatorTarget("/drag-refresh")
+        let child = makeTestFileNode(id: target.id + "/Folder/kept.txt", name: "kept.txt")
+        let folder = makeTestDirectoryNode(id: target.id + "/Folder", name: "Folder", children: [child])
+        let root = makeTestDirectoryNode(id: target.id, name: "Root", children: [folder])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [folder], folder.id: [child]])
+        let baseline = makeCoordinatorSnapshot(target: target, root: root, store: store, scanOptions: ScanOptions())
+        model.scanState.restoreCompletedSnapshot(baseline)
+        model.focus(nodeID: folder.id)
+        model.select(nodeID: child.id)
+        #expect(model.addNodeIDsToDiscardPile([child.id], snapshotID: baseline.id))
+        #expect(!model.scanState.refreshAfterFileTransfer(snapshotID: UUID()))
+        #expect(model.scanState.refreshAfterFileTransfer(snapshotID: baseline.id))
+        #expect(model.scanState.snapshot?.id == baseline.id)
+        #expect(model.scanState.phase == .displaying)
+        #expect(!model.scanState.refreshAfterFileTransfer(snapshotID: baseline.id))
+        #expect(service.rescanRequests.first?.baselineID == baseline.id)
+        let incoming = makeTestFileNode(id: folder.id + "/incoming.txt", name: "incoming.txt")
+        let updatedFolder = makeTestDirectoryNode(id: folder.id, name: folder.name, children: [child, incoming])
+        let updatedRoot = makeTestDirectoryNode(id: root.id, name: root.name, children: [updatedFolder])
+        let updated = makeCoordinatorSnapshot(
+            target: target, root: updatedRoot,
+            store: FileTreeStore(root: updatedRoot, childrenByID: [root.id: [updatedFolder], folder.id: [child, incoming]]),
+            scanOptions: ScanOptions()
+        )
+        service.yield(.finished(updated), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("external transfer reconciled") { !model.scanState.isScanOperationInProgress }
+        #expect(model.scanState.snapshot?.id == baseline.id)
+        #expect(model.scanState.snapshot?.treeStore.node(id: incoming.id) != nil)
+        #expect(model.navigation.focusedNodeID == folder.id)
+        #expect(model.navigation.selectedNodeIDs == [child.id])
+        #expect(model.discardPile.nodeIDs == [child.id])
+        #expect(model.scanState.scanCompletionNotice == nil)
+        model.cleanup()
+    }
+
+    @Test(arguments: [false, true])
+    func testExternalTransferRefreshKeepsBaselineOnFailureOrCancellation(cancel: Bool) async throws {
+        let service = ControlledScanService()
+        let coordinator = ScanCoordinator(scanService: service)
+        let target = makeCoordinatorTarget("/drag-refresh-failure")
+        let baseline = makeCoordinatorSnapshot(target: target, scanOptions: ScanOptions())
+        coordinator.restoreCompletedSnapshot(baseline)
+        #expect(coordinator.refreshAfterFileTransfer(snapshotID: baseline.id))
+        if cancel {
+            coordinator.stopScan(resetState: false)
+            service.yield(.finished(makeCoordinatorSnapshot(target: target)), scanIndex: 0)
+            service.finish(scanIndex: 0)
+        } else {
+            service.finish(scanIndex: 0, throwing: NSError(domain: "DragRefreshTest", code: 1))
+        }
+        try await waitUntil("refresh stopped") { !coordinator.isScanOperationInProgress }
+        #expect(coordinator.snapshot?.id == baseline.id)
+        #expect(coordinator.fileTreeStore?.root.id == baseline.root.id)
+        #expect(coordinator.phase == .displaying)
+        #expect(cancel || coordinator.scanErrorMessage != nil)
+    }
+
+    @Test
     func testStartAndFinishScanState() async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))

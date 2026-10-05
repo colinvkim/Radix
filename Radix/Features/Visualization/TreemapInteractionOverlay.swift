@@ -1,9 +1,8 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
-struct TreemapDiscardPileDragItem {
-    let payload: DiscardPileDragPayload
+struct TreemapFileDragItem {
+    let session: FileDragSession
     let segment: TreemapSegment
 }
 
@@ -16,7 +15,7 @@ struct TreemapInteractionOverlay: NSViewRepresentable {
     let onPan: (CGSize, CGPoint) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
     let canStartPan: (CGPoint) -> Bool
-    let discardPileDragItem: (CGPoint) -> TreemapDiscardPileDragItem?
+    let fileDragItem: (CGPoint) -> TreemapFileDragItem?
     let onDiscardPileDragActiveChange: (Bool) -> Void
     let isPanEnabled: Bool
 
@@ -39,27 +38,22 @@ struct TreemapInteractionOverlay: NSViewRepresentable {
         view.onPan = onPan
         view.onMagnify = onMagnify
         view.canStartPan = canStartPan
-        view.discardPileDragItem = discardPileDragItem
+        view.fileDragItem = fileDragItem
         view.onDragActiveChange = onDiscardPileDragActiveChange
         view.isPanEnabled = isPanEnabled
     }
 
     final class InteractionView: ChartViewportInteractionView {
-        var discardPileDragItem: (CGPoint) -> TreemapDiscardPileDragItem? = { _ in nil }
+        var fileDragItem: (CGPoint) -> TreemapFileDragItem? = { _ in nil }
 
         private static let dragImageSize = NSSize(width: 54, height: 38)
 
         override func draggingItem(at location: CGPoint) -> NSDraggingItem? {
-            guard let item = discardPileDragItem(location) else { return nil }
-            guard let data = try? JSONEncoder().encode(item.payload) else { return nil }
-
-            let pasteboardItem = NSPasteboardItem()
-            pasteboardItem.setData(
-                data,
-                forType: NSPasteboard.PasteboardType(DiscardPileDragPayload.contentType.identifier)
-            )
-
-            let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+            guard let item = fileDragItem(location) else { return nil }
+            guard let nodeID = item.session.nodes.first?.id,
+                  let writer = item.session.pasteboardWriter(for: nodeID) else { return nil }
+            fileDragSession = item.session
+            let draggingItem = NSDraggingItem(pasteboardWriter: writer)
             let size = Self.dragImageSize
             draggingItem.setDraggingFrame(
                 NSRect(

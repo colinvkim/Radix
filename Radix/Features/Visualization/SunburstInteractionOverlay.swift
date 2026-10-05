@@ -1,9 +1,8 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
-struct SunburstDiscardPileDragItem {
-    let payload: DiscardPileDragPayload
+struct SunburstFileDragItem {
+    let session: FileDragSession
     let segment: SunburstSegment
 }
 
@@ -16,7 +15,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
     let onPan: (CGSize, CGPoint) -> Void
     let onMagnify: (CGPoint, CGFloat) -> Void
     let canStartPan: (CGPoint) -> Bool
-    let discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem?
+    let fileDragItem: (CGPoint) -> SunburstFileDragItem?
     let onDiscardPileDragActiveChange: (Bool) -> Void
     let help: (CGPoint) -> String?
     let isPanEnabled: Bool
@@ -40,28 +39,23 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         view.onPan = onPan
         view.onMagnify = onMagnify
         view.canStartPan = canStartPan
-        view.discardPileDragItem = discardPileDragItem
+        view.fileDragItem = fileDragItem
         view.onDragActiveChange = onDiscardPileDragActiveChange
         view.help = help
         view.isPanEnabled = isPanEnabled
     }
 
     final class InteractionView: ChartViewportInteractionView {
-        var discardPileDragItem: (CGPoint) -> SunburstDiscardPileDragItem? = { _ in nil }
+        var fileDragItem: (CGPoint) -> SunburstFileDragItem? = { _ in nil }
 
-        private static let discardPileDragImageSize = NSSize(width: 42, height: 42)
+        private static let dragImageSize = NSSize(width: 42, height: 42)
         override func draggingItem(at location: CGPoint) -> NSDraggingItem? {
-            guard let item = discardPileDragItem(location) else { return nil }
-            guard let data = try? JSONEncoder().encode(item.payload) else { return nil }
-
-            let pasteboardItem = NSPasteboardItem()
-            pasteboardItem.setData(
-                data,
-                forType: NSPasteboard.PasteboardType(DiscardPileDragPayload.contentType.identifier)
-            )
-
-            let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-            let size = Self.discardPileDragImageSize
+            guard let item = fileDragItem(location) else { return nil }
+            guard let nodeID = item.session.nodes.first?.id,
+                  let writer = item.session.pasteboardWriter(for: nodeID) else { return nil }
+            fileDragSession = item.session
+            let draggingItem = NSDraggingItem(pasteboardWriter: writer)
+            let size = Self.dragImageSize
             draggingItem.setDraggingFrame(
                 NSRect(
                     x: location.x - (size.width / 2),
@@ -75,7 +69,7 @@ struct SunburstInteractionOverlay: NSViewRepresentable {
         }
 
         private func discardPileDragImage(for segment: SunburstSegment) -> NSImage {
-            NSImage(size: Self.discardPileDragImageSize, flipped: false) { bounds in
+            NSImage(size: Self.dragImageSize, flipped: false) { bounds in
                 let segmentPath = self.segmentGhostPath(
                     for: segment,
                     in: bounds.insetBy(dx: 4, dy: 4)

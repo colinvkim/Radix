@@ -87,6 +87,7 @@ struct ActiveWorkspaceView: View {
                     onZoom: actions.selectAndFocusNode,
                     onSegmentClick: actions.recordSunburstSegmentClick,
                     onNavigateToParent: actions.navigateToParent,
+                    fileDragController: actions.fileDragController,
                     onDiscardPileDragActiveChange: actions.setDiscardPileDragActive
                 )
             case .treemap:
@@ -106,6 +107,7 @@ struct ActiveWorkspaceView: View {
                     onSelect: actions.selectNode,
                     onQuickLook: actions.quickLook,
                     onZoom: actions.selectAndFocusNode,
+                    fileDragController: actions.fileDragController,
                     onDiscardPileDragActiveChange: actions.setDiscardPileDragActive
                 )
             }
@@ -119,6 +121,7 @@ struct ActiveWorkspaceView: View {
             navigation: navigation,
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
             hiddenNodeIDs: workspaceHiddenNodeIDs,
+            fileDragController: actions.fileDragController,
             actions: fileBrowserActions,
             model: actions.makeFileBrowserModel()
         )
@@ -140,7 +143,7 @@ struct ActiveWorkspaceView: View {
             rescanFolder: actions.rescanFolder,
             selectedFileActions: actions.selectedFileActions,
             bulkFileActions: actions.bulkFileActions,
-            setDiscardPileDragActiveAfterThreshold: actions.setDiscardPileDragActiveAfterThreshold
+            setDiscardPileDragActive: actions.setDiscardPileDragActive
         )
     }
 }

@@ -293,6 +293,65 @@ final class ScanCoordinator: ObservableObject {
         return true
     }
 
+    /// Reconcile both ends of an external transfer (the destination is owned by
+    /// the receiving app). Keep the displayed scan and its identity while working.
+    @discardableResult
+    func refreshAfterFileTransfer(snapshotID: UUID) -> Bool {
+        guard !isScanOperationInProgress, expandingNodeID == nil,
+              let baseline = snapshot, baseline.id == snapshotID,
+              baseline.isComplete, baseline.source.allowsFileMutation,
+              let options = baseline.scanOptions else { return false }
+        dismissScanCompletionNotice()
+        scanErrorMessage = nil
+        scanMetrics = ScanMetrics()
+        resetProgressThrottling()
+        progress.executionMode = .preparingIncremental
+        folderRescanState = FolderRescanState(nodeName: baseline.target.displayName)
+        let operationID = UUID()
+        let contextID = snapshotContextID
+        let revision = snapshotRevision
+        activeScanID = operationID
+        let stream = scanService.rescan(target: baseline.target, options: options, from: baseline)
+        scanTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                var replacement: ScanSnapshot?
+                for try await event in stream {
+                    guard activeScanID == operationID else { return }
+                    switch event {
+                    case .progress(let metrics): handleProgress(metrics, operationID: operationID)
+                    case .executionMode(let mode): handleExecutionMode(mode)
+                    case .finished(let completed): replacement = completed
+                    case .warning: break
+                    }
+                }
+                try Task.checkCancellation()
+                guard folderRescanContextIsCurrent(
+                    id: operationID, snapshotContextID: contextID, snapshotRevision: revision
+                ), let replacement else {
+                    completeFolderRescanAsCancelled(id: operationID)
+                    return
+                }
+                let refreshed = ScanSnapshot(
+                    id: baseline.id, target: replacement.target, treeStore: replacement.treeStore,
+                    startedAt: replacement.startedAt, finishedAt: replacement.finishedAt,
+                    scanWarnings: replacement.scanWarnings, isComplete: replacement.isComplete,
+                    scanOptions: replacement.scanOptions, volumeCapacity: replacement.volumeCapacity,
+                    source: replacement.source, incrementalCheckpoint: replacement.incrementalCheckpoint
+                )
+                finishFolderRescan(
+                    with: refreshed, nodeName: baseline.target.displayName,
+                    rescanID: operationID, showsCompletionNotice: false
+                )
+            } catch is CancellationError {
+                completeFolderRescanAsCancelled(id: operationID)
+            } catch {
+                failFolderRescan(error, nodeName: baseline.target.displayName, rescanID: operationID)
+            }
+        }
+        return true
+    }
+
     func stopScan(resetState: Bool = true) {
         activeScanID = nil
         scanTask?.cancel()
@@ -862,7 +921,8 @@ final class ScanCoordinator: ObservableObject {
     private func finishFolderRescan(
         with updatedSnapshot: ScanSnapshot,
         nodeName: String,
-        rescanID: UUID
+        rescanID: UUID,
+        showsCompletionNotice: Bool = true
     ) {
         guard activeScanID == rescanID else { return }
 
@@ -878,7 +938,9 @@ final class ScanCoordinator: ObservableObject {
         scanTask = nil
         folderRescanState = nil
         phase = .displaying
-        publishCompletionNotice(.folderUpdated(name: nodeName))
+        if showsCompletionNotice {
+            publishCompletionNotice(.folderUpdated(name: nodeName))
+        }
     }
 
     private func completeFolderRescanAsCancelled(id rescanID: UUID) {

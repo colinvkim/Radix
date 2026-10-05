@@ -11,7 +11,7 @@ struct FileBrowserActions {
     let rescanFolder: (FileNodeRecord.ID) -> Void
     let selectedFileActions: SelectedFileActions
     let bulkFileActions: BulkFileActions
-    let setDiscardPileDragActiveAfterThreshold: (Bool) -> Void
+    let setDiscardPileDragActive: (Bool) -> Void
 }
 
 private struct FileBrowserContentRefreshID: Hashable {
@@ -30,6 +30,7 @@ struct FileBrowserTableView: View {
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let hiddenNodeIDs: Set<FileNodeRecord.ID>
+    let fileDragController: FileDragController
     let actions: FileBrowserActions
 
     @StateObject private var model: FileBrowserModel
@@ -41,6 +42,7 @@ struct FileBrowserTableView: View {
         navigation: WorkspaceNavigationModel,
         focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
         hiddenNodeIDs: Set<FileNodeRecord.ID>,
+        fileDragController: FileDragController,
         actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
     ) {
@@ -48,6 +50,7 @@ struct FileBrowserTableView: View {
         self.navigation = navigation
         self._focusedWorkspaceTarget = focusedWorkspaceTarget
         self.hiddenNodeIDs = hiddenNodeIDs
+        self.fileDragController = fileDragController
         self.actions = actions
         _model = StateObject(wrappedValue: model())
     }
@@ -200,7 +203,6 @@ struct FileBrowserTableView: View {
     }
 
     private var contentsTable: some View {
-        let dragContext = discardPileTableDragContext
         let tourFolderID = tourFolder?.id
         let tour = self.tour
         let tourPresentation = self.tourPresentation
@@ -249,10 +251,17 @@ struct FileBrowserTableView: View {
         } rows: {
             ForEach(model.displayedNodes) { node in
                 TableRow(node)
-                    .itemProvider {
-                        discardPileItemProvider(for: node, in: dragContext)
-                    }
+                    // Enable SwiftUI's row-drag gesture. The native adapter supplies
+                    // pasteboard items only after validating the complete selection.
+                    .itemProvider { NSItemProvider() }
             }
+        }
+        .background {
+            FileBrowserDragAdapter(
+                nodes: model.displayedNodes,
+                controller: fileDragController,
+                onDragActiveChange: actions.setDiscardPileDragActive
+            )
         }
         .tableStyle(.inset)
         .alternatingRowBackgrounds(.enabled)
@@ -512,57 +521,6 @@ struct FileBrowserTableView: View {
         model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
-    private var discardPileTableDragContext: FileBrowserTableDragContext {
-        guard let snapshotID = scanState.snapshot?.id else {
-            return .disabled
-        }
-
-        let selectedNodes = model.displayedNodes(ids: navigation.selectedNodeIDs)
-        let selectedIDs = Set(selectedNodes.map(\.id))
-        let selectedNodesCanMoveToTrash = !selectedNodes.isEmpty && canAddToDiscardPile(selectedNodes)
-
-        return FileBrowserTableDragContext(
-            snapshotID: snapshotID,
-            selectedIDs: selectedIDs,
-            selectedNodes: selectedNodes,
-            selectedNodesCanMoveToTrash: selectedNodesCanMoveToTrash
-        )
-    }
-
-    private func canAddToDiscardPile(_ nodes: [FileNodeRecord]) -> Bool {
-        FileNodeActionAvailability(
-            nodes: nodes,
-            activeTarget: scanState.selectedTarget,
-            trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource,
-            isReadOnlyMode: isReadOnlyMode
-        ).canMoveToTrash
-    }
-
-    private func discardPileItemProvider(
-        for node: FileNodeRecord,
-        in dragContext: FileBrowserTableDragContext
-    ) -> NSItemProvider? {
-        guard let snapshotID = dragContext.snapshotID else { return nil }
-
-        let dragNodes = dragContext.nodes(startingFrom: node)
-        let canDrag = dragContext.selectedIDs.contains(node.id)
-            ? dragContext.selectedNodesCanMoveToTrash
-            : canAddToDiscardPile(dragNodes)
-        guard canDrag else { return nil }
-
-        actions.setDiscardPileDragActiveAfterThreshold(true)
-        let payload = DiscardPileDragPayload(
-            snapshotID: snapshotID,
-            nodeIDs: dragNodes.map(\.id)
-        )
-        guard let data = try? JSONEncoder().encode(payload) else { return nil }
-        return NSItemProvider(
-            item: data as NSData,
-            typeIdentifier: DiscardPileDragPayload.contentType.identifier
-        )
-    }
-
     private func primarySelectionID(in selectedIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
         if let currentID = navigation.selectedNodeID,
            selectedIDs.contains(currentID) {
@@ -594,27 +552,6 @@ struct FileBrowserTableView: View {
             actions.selectedFileActions.perform(action)
         }
         .disabled(!action.isEnabled(in: availability))
-    }
-}
-
-private struct FileBrowserTableDragContext {
-    static let disabled = FileBrowserTableDragContext(
-        snapshotID: nil,
-        selectedIDs: [],
-        selectedNodes: [],
-        selectedNodesCanMoveToTrash: false
-    )
-
-    let snapshotID: UUID?
-    let selectedIDs: Set<FileNodeRecord.ID>
-    let selectedNodes: [FileNodeRecord]
-    let selectedNodesCanMoveToTrash: Bool
-
-    func nodes(startingFrom node: FileNodeRecord) -> [FileNodeRecord] {
-        if selectedIDs.contains(node.id) {
-            return selectedNodes
-        }
-        return [node]
     }
 }
 

@@ -262,6 +262,25 @@ final class AppModel: ObservableObject {
     private let quickLookController: AppQuickLookController
     private let archiveWorkflow: ArchiveWorkflowCoordinator
     private let navigationModel = WorkspaceNavigationModel()
+
+    lazy var fileDragController = FileDragController(
+        context: { [weak self] in
+            guard let self, !scanCoordinator.isScanOperationInProgress,
+                  !isArchiveOperationInProgress, !trashFlow.isMovingFiles,
+                  let snapshot = scanCoordinator.snapshot else { return nil }
+            return FileDragController.Context(
+                snapshot: snapshot, target: scanCoordinator.selectedTarget,
+                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+            )
+        },
+        verifyIdentity: { [weak self] node in
+            self?.dependencies.systemActions.verifyTrashIdentity(node) ?? .missingCurrentItem
+        },
+        refresh: { [weak self] snapshotID in
+            self?.scanCoordinator.refreshAfterFileTransfer(snapshotID: snapshotID)
+        }
+    )
+
     private var lastActionErrorTitle: String?
     private let sidebarScanCacheController: SidebarScanCacheController
     private var lastPersistedScanPreferences: AppScanPreferences?
@@ -2189,6 +2208,7 @@ final class AppModel: ObservableObject {
         _ nodeIDs: [FileNodeRecord.ID],
         snapshotID: UUID
     ) -> Bool {
+        fileDragController.markInternalDrop()
         guard scanCoordinator.snapshot?.id == snapshotID else {
             presentError(FileActionError.unsupported)
             return false

@@ -10,6 +10,7 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
     var onDragActiveChange: (Bool) -> Void = { _ in }
     var help: (CGPoint) -> String? = { _ in nil }
     var isPanEnabled = false
+    var fileDragSession: FileDragSession?
 
     private static let dragThreshold: CGFloat = 3
 
@@ -94,7 +95,8 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
         if !didStartDrag,
            let draggingItem = draggingItem(at: mouseDownLocation) {
             didStartDrag = true
-            onDragActiveChange(true)
+            fileDragSession?.begin()
+            onDragActiveChange(fileDragSession?.canCollect == true)
             beginDraggingSession(with: [draggingItem], event: event, source: self)
             return
         }
@@ -163,7 +165,7 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
         _ session: NSDraggingSession,
         sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
-        .copy
+        fileDragSession?.operationMask(for: context) ?? []
     }
 
     func draggingSession(
@@ -171,7 +173,15 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
+        let completedSession = fileDragSession
+        fileDragSession = nil
+        mouseDownLocation = nil
+        lastDragLocation = nil
+        shouldPanFromMouseDownLocation = false
+        didPan = false
+        didStartDrag = false
         onDragActiveChange(false)
+        completedSession?.end(operation: operation)
     }
 
     private func updatePointerFeedback(at location: CGPoint) {

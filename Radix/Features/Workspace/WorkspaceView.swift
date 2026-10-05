@@ -1,19 +1,8 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
-
-struct DiscardPileDragPayload: Codable, Hashable, Transferable {
-    static let contentType = UTType(exportedAs: "dev.colinkim.radix.discard-pile-drag-payload")
-
-    let snapshotID: UUID
-    let nodeIDs: [FileNodeRecord.ID]
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: contentType)
-    }
-}
 
 struct WorkspaceActions {
+    let fileDragController: FileDragController
     let makeFileBrowserModel: () -> FileBrowserModel
     let quickLook: () -> Bool
     let chooseFolder: () -> Void
@@ -41,7 +30,6 @@ struct WorkspaceActions {
     let bulkFileActions: BulkFileActions
     let openFullDiskAccessSettings: () -> Void
     let setDiscardPileDragActive: (Bool) -> Void
-    let setDiscardPileDragActiveAfterThreshold: (Bool) -> Void
 }
 
 struct SelectedFileActions {
@@ -216,7 +204,8 @@ struct WorkspaceView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            actions.handleDroppedURLs(urls)
+            guard !actions.fileDragController.isDragging else { return false }
+            return actions.handleDroppedURLs(urls)
         }
     }
 }
