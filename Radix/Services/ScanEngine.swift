@@ -1322,10 +1322,7 @@ actor ScanEngine {
         var completedByKey: [CompletedDirScan?] = []
         // Maps parent key → child keys, built during phase 1.
         var childrenKeysByKey: [[Int]?] = []
-        // Retain the scan key assigned to each accepted path. Besides rejecting
-        // duplicate discoveries, this becomes the compact store's node index
-        // without hashing every path again during finalization.
-        var scanKeyByNodeID: [String: Int] = [:]
+        var scanKeyByNodeID = ScanPathIndex()
         var nextKey = 0
 
         #if DEBUG
@@ -1357,8 +1354,9 @@ actor ScanEngine {
                     try Task.checkCancellation()
 
                     let itemPath = item.url.path
-                    if let previousKey = scanKeyByNodeID.updateValue(nextKey, forKey: itemPath) {
-                        scanKeyByNodeID[itemPath] = previousKey
+                    if !scanKeyByNodeID.insert(
+                        path: itemPath, parentKey: item.parentKey, scanKey: nextKey, mayHaveChildren: true
+                    ) {
                         releasePendingDirectoryIfNeeded(for: item, metrics: &metrics)
                         recordDuplicateNode(
                             at: item.url,
@@ -2081,6 +2079,8 @@ actor ScanEngine {
         )
         #endif
 
+        scanKeyByNodeID.releaseDiscoveryState()
+
         // Phase 2: Assemble the tree bottom-up from completed results.
         // Process keys in reverse order (children always have higher keys than parents).
         metrics.currentPath = String(
@@ -2099,9 +2099,10 @@ actor ScanEngine {
         #if DEBUG
         let finalizationStart = diagnostics?.start()
         #endif
-        let finalizationTotal = max(completedByKey.count, 1)
-        // Cap stream traffic to roughly 200 assembly updates on very large scans.
-        let finalizationProgressInterval = max(512, finalizationTotal / 200)
+        // Assembly and lookup indexing each visit every accepted node.
+        let finalizationTotal = max(nextKey * 2, 1)
+        // Cap stream traffic to roughly 100 updates across both passes.
+        let finalizationProgressInterval = max(512, finalizationTotal / 100)
         var finalizedItems = 0
         #if DEBUG
         let correctionResolutionStart = diagnostics?.start()
@@ -2228,7 +2229,7 @@ actor ScanEngine {
                 aggregateStats.include(correctedChild, hasMaterializedChildren: false)
             }
 
-            if finalizedItems.isMultiple(of: finalizationProgressInterval) || finalizedItems == finalizationTotal {
+            if finalizedItems.isMultiple(of: finalizationProgressInterval) || finalizedItems == nextKey {
                 try Task.checkCancellation()
                 metrics.finalizationFraction = Double(finalizedItems) / Double(finalizationTotal)
                 metrics.recalculateProgress()
@@ -2252,11 +2253,16 @@ actor ScanEngine {
         let indexStart = diagnostics?.start()
         #endif
 
-        var indexedItems = 0
-        let indexByNodeID = try scanKeyByNodeID.mapValues { scanKey in
-            if indexedItems.isMultiple(of: 256) { try Task.checkCancellation() }
-            indexedItems += 1
-            return FileTreeNodeIndex(rawValue: UInt32(nextKey - scanKey - 1))
+        let indexByNodeID = try scanKeyByNodeID.nodeIndex(
+            nodes: nodes,
+            progressInterval: finalizationProgressInterval,
+            cancellationCheck: Task.checkCancellation
+        ) { indexedItems in
+            metrics.finalizationFraction = Double(nextKey + indexedItems) / Double(finalizationTotal)
+            metrics.recalculateProgress()
+            atomicSummaryPool.updateProgress(
+                metrics, continuation: continuation, force: true
+            )
         }
         #if DEBUG
         diagnostics?.record(
@@ -2346,7 +2352,7 @@ actor ScanEngine {
         _ item: PreparedOrdinaryLeafItem,
         parentKey: Int,
         nextKey: inout Int,
-        scanKeyByNodeID: inout [String: Int],
+        scanKeyByNodeID: inout ScanPathIndex,
         sharedAllocationAccumulator: inout SharedAllocationOwnerAccumulator,
         metrics: inout ScanMetrics,
         warnings: inout [ScanWarning],
@@ -2358,8 +2364,9 @@ actor ScanEngine {
     ) {
         let childNode = item.node
         let childPath = childNode.id
-        if let previousKey = scanKeyByNodeID.updateValue(nextKey, forKey: childPath) {
-            scanKeyByNodeID[childPath] = previousKey
+        if !scanKeyByNodeID.insert(
+            path: childPath, parentKey: parentKey, scanKey: nextKey, mayHaveChildren: false
+        ) {
             recordDuplicateNode(
                 at: childNode.url,
                 weight: item.weight,

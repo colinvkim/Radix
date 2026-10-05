@@ -86,6 +86,7 @@ let package = Package(
                 "Services/ScanIncrementalModels.swift",
                 "Services/ScanIntegerMath.swift",
                 "Services/ScanMetadataLoader.swift",
+                "Services/ScanPathIndex.swift",
                 "Services/ScanSnapshotTransformService.swift",
                 "Services/ScanWarningFactory.swift",
                 "Services/SunburstChartModel.swift",

@@ -3939,7 +3939,7 @@ struct ScanEngineTests {
     }
 
     @Test
-    func testFinalizationProgressIsEmittedDuringAssembly() async throws {
+    func testFinalizationProgressCoversAssemblyAndIndexing() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
@@ -3965,6 +3965,9 @@ struct ScanEngineTests {
 
         #expect(didFinish)
         #expect(finalizingProgress.count >= 2)
+        #expect(finalizingProgress.contains { $0.finalizationFraction == 0.5 })
+        #expect(finalizingProgress.contains { $0.finalizationFraction > 0.5 && $0.finalizationFraction < 1 })
+        #expect(finalizingProgress.last?.finalizationFraction == 1)
 
         for pair in zip(finalizingProgress, finalizingProgress.dropFirst()) {
             #expect(pair.1.progressFraction >= pair.0.progressFraction)
