@@ -2150,16 +2150,7 @@ actor ScanEngine {
                 childrenKeysByKey[key] = nil
                 // Duplicate paths are rejected before keys are assigned in phase 1,
                 // so children are already unique here.
-                try CancellableSort.sort(&sortedChildKeys, cancellationCheck: Task.checkCancellation) { lhsKey, rhsKey in
-                    let lhsOffset = nextKey - lhsKey - 1
-                    let rhsOffset = nextKey - rhsKey - 1
-                    let lhsSize = nodes[lhsOffset].allocatedSize
-                    let rhsSize = nodes[rhsOffset].allocatedSize
-                    if lhsSize == rhsSize {
-                        return nodes[lhsOffset].name.localizedStandardCompare(nodes[rhsOffset].name) == .orderedAscending
-                    }
-                    return lhsSize > rhsSize
-                }
+                try sortDirectoryChildKeys(&sortedChildKeys, nodes: nodes, totalNodeCount: nextKey)
                 try Task.checkCancellation()
                 let directoryID = url.path
                 var allocatedSize: Int64 = 0
@@ -2317,6 +2308,53 @@ actor ScanEngine {
     }
 
     // MARK: - Helpers
+
+    private nonisolated func sortDirectoryChildKeys(
+        _ childKeys: inout [Int],
+        nodes: [FileNodeRecord],
+        totalNodeCount: Int
+    ) throws {
+        let shouldPrepareNames: Bool
+        if childKeys.count >= 1_024 {
+            let size = nodes[totalNodeCount - childKeys[0] - 1].allocatedSize
+            shouldPrepareNames = try childKeys.enumerated().allSatisfy { offset, key in
+                if offset.isMultiple(of: 256) { try Task.checkCancellation() }
+                let node = nodes[totalNodeCount - key - 1]
+                return node.allocatedSize == size && node.name.utf8.count <= 15
+            }
+        } else {
+            shouldPrepareNames = false
+        }
+        guard shouldPrepareNames else {
+            try CancellableSort.sort(&childKeys, cancellationCheck: Task.checkCancellation) { lhsKey, rhsKey in
+                let lhsOffset = totalNodeCount - lhsKey - 1
+                let rhsOffset = totalNodeCount - rhsKey - 1
+                let lhsSize = nodes[lhsOffset].allocatedSize
+                let rhsSize = nodes[rhsOffset].allocatedSize
+                if lhsSize == rhsSize {
+                    return nodes[lhsOffset].name.localizedStandardCompare(nodes[rhsOffset].name) == .orderedAscending
+                }
+                return lhsSize > rhsSize
+            }
+            return
+        }
+        // Short names otherwise bridge to NSString for each comparison. Prepare
+        // once for a size tie; other directories avoid the extra sort storage.
+        var entries: [(key: Int, name: String)] = []
+        entries.reserveCapacity(childKeys.count)
+        for (offset, key) in childKeys.enumerated() {
+            if offset.isMultiple(of: 256) { try Task.checkCancellation() }
+            let node = nodes[totalNodeCount - key - 1]
+            entries.append((key, (node.name as NSString) as String))
+        }
+        try CancellableSort.sort(&entries, cancellationCheck: Task.checkCancellation) { lhs, rhs in
+            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        for (offset, entry) in entries.enumerated() {
+            if offset.isMultiple(of: 256) { try Task.checkCancellation() }
+            childKeys[offset] = entry.key
+        }
+    }
 
     private nonisolated func prepareOrdinaryLeaves(
         _ request: OrdinaryLeafPreparationRequest,
