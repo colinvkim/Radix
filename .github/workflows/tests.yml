@@ -23,8 +23,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Core tests through Swift Package Manager
-        run: swift test
       - name: Build app and run shared Xcode test plan
         run: >-
           xcodebuild test
