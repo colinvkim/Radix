@@ -113,7 +113,7 @@ final class ScanCoordinator: ObservableObject {
     private let progressNow: () -> ContinuousClock.Instant
     private let sleepForProgress: (Duration) async throws -> Void
 
-    private var scanTask: Task<Void, Never>?
+    private(set) var scanTask: Task<Void, Never>?
     private var expandTask: Task<Void, Never>?
     private var progressPublishTask: Task<Void, Never>?
     private var completionNoticeDismissTask: Task<Void, Never>?

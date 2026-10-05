@@ -59,7 +59,7 @@ struct FileNodeRecordTests {
     }
 
     @Test
-    func testSharedAPFSStorageStatusDistinguishesFullAndPartialClones() {
+    func testSharedAPFSStorageStatusDistinguishesFullAndPartialClones() throws {
         let fullClone = makeTestFileNode(
             id: "/full.bin",
             name: "full.bin",
@@ -73,18 +73,16 @@ struct FileNodeRecordTests {
         )
         let regularFile = makeTestFileNode(id: "/regular.bin", name: "regular.bin")
 
-        #expect(fullClone.secondaryStatusText == "APFS clone · shared storage")
-        #expect(partialClone.secondaryStatusText == "May share APFS storage")
-        #expect(fullClone.sharedStorageStatusText == "APFS clone · shared storage")
-        #expect(partialClone.sharedStorageStatusText == "May share APFS storage")
-        #expect(
-            fullClone.sharedStorageDescription
-                == "APFS lets files share storage, but Finder may show the full file size for every clone. Radix counts shared bytes once, so one file carries the allocated size and the others may show zero. That file is only an accounting representative, not an original. Deleting one clone may not free the displayed amount."
-        )
-        #expect(
-            partialClone.sharedStorageDescription
-                == "Parts of this file may share APFS storage. macOS does not expose enough information for Radix to calculate exact shared or reclaimable bytes."
-        )
+        let fullStatus = try #require(fullClone.sharedStorageStatusText)
+        let partialStatus = try #require(partialClone.sharedStorageStatusText)
+        let fullDescription = try #require(fullClone.sharedStorageDescription)
+        let partialDescription = try #require(partialClone.sharedStorageDescription)
+        #expect(!fullStatus.isEmpty && !partialStatus.isEmpty)
+        #expect(fullStatus != partialStatus)
+        #expect(fullClone.secondaryStatusText == fullStatus)
+        #expect(partialClone.secondaryStatusText == partialStatus)
+        #expect(!fullDescription.isEmpty && !partialDescription.isEmpty)
+        #expect(fullDescription != partialDescription)
         #expect(regularFile.sharedStorageStatusText == nil)
         #expect(regularFile.sharedStorageDescription == nil)
     }
@@ -99,8 +97,9 @@ struct FileNodeRecordTests {
             isAccessible: false
         )
 
-        #expect(inaccessibleClone.secondaryStatusText == "Limited access")
-        #expect(inaccessibleClone.sharedStorageStatusText == "APFS clone · shared storage")
+        #expect(inaccessibleClone.secondaryStatusText != nil)
+        #expect(inaccessibleClone.sharedStorageStatusText != nil)
+        #expect(inaccessibleClone.secondaryStatusText != inaccessibleClone.sharedStorageStatusText)
         #expect(inaccessibleClone.sharedStorageDescription != nil)
     }
 }

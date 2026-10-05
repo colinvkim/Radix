@@ -276,15 +276,19 @@ final class AppModel: ObservableObject {
     }
 
     private var deferredWorkBoxes: [DeferredWorkKind: DeferredWorkBox] = [:]
+    // Snapshot handles before cancellation so callers can await retired work.
+    var deferredViewUpdateTasks: [Task<Void, Never>] {
+        deferredWorkBoxes.values.compactMap(\.task)
+    }
     private var deferredNavigationContextSnapshotID: UUID?
-    private var exportPanelTask: Task<Void, Never>?
+    private(set) var exportPanelTask: Task<Void, Never>?
     private var exportPanelRequestID: UUID?
-    private var comparisonPanelTask: Task<Void, Never>?
+    private(set) var comparisonPanelTask: Task<Void, Never>?
     private var comparisonPanelRequestID: UUID?
     private var readyDeferredArchiveImportURL: URL?
     private var exportConfirmationDismissTask: Task<Void, Never>?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
-    private var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
+    private(set) var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
     private var diskFreeSpaceCapacityRefreshTask: Task<Void, Never>?
     private var diskFreeSpaceCapacityRefreshGeneration = 0
 

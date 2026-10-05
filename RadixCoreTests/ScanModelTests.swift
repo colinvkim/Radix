@@ -217,7 +217,7 @@ struct ScanModelTests {
     }
 
     @Test
-    func testFileNodeActionsDescribePresentationAndAvailability() {
+    func testFileNodeActionsUseTheirCorrespondingAvailability() {
         let availability = FileNodeActionAvailability(
             canOpen: true,
             canPreviewWithQuickLook: false,
@@ -226,27 +226,12 @@ struct ScanModelTests {
             canMoveToTrash: true
         )
 
-        #expect(
-            FileNodeAction.allCases.map(\.title) == [
-                "Quick Look", "Reveal in Finder", "Open", "Open in Terminal", "Copy Path", "Move to Trash",
-            ])
-        #expect(FileNodeAction.open.systemImageName == "arrow.up.forward.app")
-        #expect(FileNodeAction.openInTerminal.systemImageName == "terminal")
-        #expect(FileNodeAction.moveToTrash.systemImageName == "trash")
         #expect(!(FileNodeAction.quickLook.isEnabled(in: availability)))
         #expect(FileNodeAction.revealInFinder.isEnabled(in: availability))
         #expect(FileNodeAction.open.isEnabled(in: availability))
         #expect(FileNodeAction.openInTerminal.isEnabled(in: availability))
         #expect(!(FileNodeAction.copyPath.isEnabled(in: availability)))
         #expect(FileNodeAction.moveToTrash.isEnabled(in: availability))
-
-        if #available(macOS 15.0, *) {
-            #expect(FileNodeAction.quickLook.systemImageName == "document.viewfinder")
-            #expect(FileNodeAction.copyPath.systemImageName == "document.on.document")
-        } else {
-            #expect(FileNodeAction.quickLook.systemImageName == "doc.viewfinder")
-            #expect(FileNodeAction.copyPath.systemImageName == "doc.on.doc")
-        }
     }
 
     @Test

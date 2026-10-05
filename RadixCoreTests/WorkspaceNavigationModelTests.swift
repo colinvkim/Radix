@@ -645,9 +645,11 @@ struct WorkspaceNavigationModelTests {
         model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
 
         model.selectAfterViewUpdate(nodeID: fixture.docFile.id)
+        let pendingTasks = model.deferredViewUpdateTasks
+        #expect(!pendingTasks.isEmpty)
         model.clearSelection()
 
-        try await Task.sleep(for: .milliseconds(40))
+        for task in pendingTasks { await task.value }
 
         #expect(model.navigation.selectedNodeID == nil)
     }

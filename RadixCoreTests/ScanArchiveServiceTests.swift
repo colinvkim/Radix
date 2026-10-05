@@ -1249,28 +1249,24 @@ struct ScanArchiveServiceTests {
 
     @Test
     func testCancelledImportStopsBeforePublishingSnapshot() async throws {
-        let service = ScanArchiveService()
+        // Cancel the importing task after a decoded batch has been materialized.
+        // This exercises in-flight cancellation without racing a large fixture.
+        let service = ScanArchiveService(importProfileReporter: { phase, _ in
+            if phase == .nodeMaterializationWork {
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        })
         let archiveURL = try makeTemporaryArchiveURL()
         _ = try await service.export(
-            snapshot: makeLargeArchiveSnapshot(childCount: 100_000),
+            snapshot: makeArchiveSnapshot(),
             to: archiveURL,
             options: ScanArchiveExportOptions()
         )
 
-        let progressReporter = ScanArchiveProgressReporter()
         let importTask = Task {
-            try await service.importSnapshot(
-                from: archiveURL,
-                progressReporter: progressReporter
-            )
+            try await service.importSnapshot(from: archiveURL)
         }
-        defer {
-            progressReporter.finish()
-            importTask.cancel()
-        }
-
-        try await waitForProgressPhase(.readingNodes, from: progressReporter)
-        importTask.cancel()
+        defer { importTask.cancel() }
 
         do {
             _ = try await importTask.value

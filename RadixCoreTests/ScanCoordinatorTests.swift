@@ -166,6 +166,7 @@ struct ScanCoordinatorTests {
         let target = makeCoordinatorTarget("/scan/cancel")
 
         coordinator.startScan(target, options: ScanOptions())
+        let scanTask = try #require(coordinator.scanTask)
         coordinator.stopScan()
 
         try await waitUntil("stream cancellation") {
@@ -174,7 +175,7 @@ struct ScanCoordinatorTests {
 
         service.yield(.finished(makeCoordinatorSnapshot(target: target)), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await Task.sleep(for: .milliseconds(40))
+        await scanTask.value
 
         #expect(coordinator.phase == .idle)
         #expect(coordinator.snapshot == nil)
@@ -192,13 +193,14 @@ struct ScanCoordinatorTests {
         let secondSnapshot = makeCoordinatorSnapshot(target: secondTarget)
 
         coordinator.startScan(firstTarget, options: ScanOptions())
+        let firstScanTask = try #require(coordinator.scanTask)
         coordinator.startScan(secondTarget, options: ScanOptions())
 
         #expect(service.requests.map(\.target) == [firstTarget, secondTarget])
 
         service.yield(.finished(firstSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await Task.sleep(for: .milliseconds(30))
+        await firstScanTask.value
 
         #expect(coordinator.phase == .scanning)
         #expect(coordinator.snapshot == nil)
@@ -1946,11 +1948,16 @@ struct ScanCoordinatorTests {
 
         model.suspendBackgroundActivity()
 
-        try await Task.sleep(for: .milliseconds(40))
-
         #expect(service.terminationCount == 0)
         #expect(model.scanState.phase == .scanning)
         #expect(model.scanState.canStopScan)
+
+        // A retained scan must still consume events after suspension.
+        service.yield(.finished(makeCoordinatorSnapshot(target: target)), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("background scan completes") {
+            model.scanState.snapshot?.target == target
+        }
     }
 
     @Test
@@ -1985,9 +1992,11 @@ struct ScanCoordinatorTests {
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
 
         model.startScan(makeCoordinatorTarget("/app/deferred-stop"))
+        let pendingTasks = model.deferredViewUpdateTasks
+        #expect(!pendingTasks.isEmpty)
         model.stopScan()
 
-        try await Task.sleep(for: .milliseconds(40))
+        for task in pendingTasks { await task.value }
 
         #expect(service.requests.isEmpty)
         #expect(model.scanState.phase == .idle)
@@ -2027,9 +2036,11 @@ struct ScanCoordinatorTests {
         )
 
         model.selectSidebarTargetAfterViewUpdate(id: target.id)
+        let pendingTasks = model.deferredViewUpdateTasks
+        #expect(!pendingTasks.isEmpty)
         model.stopScan()
 
-        try await Task.sleep(for: .milliseconds(40))
+        for task in pendingTasks { await task.value }
 
         #expect(model.sidebar.activeTargetID == nil)
         #expect(service.requests.isEmpty)
@@ -2071,9 +2082,11 @@ struct ScanCoordinatorTests {
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
 
         model.startScan(makeCoordinatorTarget("/app/deferred-cleanup"))
+        let pendingTasks = model.deferredViewUpdateTasks
+        #expect(!pendingTasks.isEmpty)
         model.cleanup()
 
-        try await Task.sleep(for: .milliseconds(40))
+        for task in pendingTasks { await task.value }
 
         #expect(service.requests.isEmpty)
         #expect(model.scanState.phase == .idle)
@@ -2086,9 +2099,11 @@ struct ScanCoordinatorTests {
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
 
         model.startScan(makeCoordinatorTarget("/app/deferred-window-suspend"))
+        let pendingTasks = model.deferredViewUpdateTasks
+        #expect(!pendingTasks.isEmpty)
         model.suspendMainWindowActivity()
 
-        try await Task.sleep(for: .milliseconds(40))
+        for task in pendingTasks { await task.value }
 
         #expect(service.requests.isEmpty)
         #expect(model.scanState.phase == .idle)
