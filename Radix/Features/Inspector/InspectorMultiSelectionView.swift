@@ -204,6 +204,9 @@ private struct InspectorSelectedItemsSection: View {
     private let maximumInlineCount = 12
 
     var body: some View {
+        // Read the state here so SwiftUI refreshes the popover closure when the order changes.
+        let popoverItemOrder = selectedItemOrder
+
         Section("Selected Items") {
             ForEach(visibleNodes) { node in
                 InspectorSelectedItemRow(node: node)
@@ -233,7 +236,7 @@ private struct InspectorSelectedItemsSection: View {
                 .popover(isPresented: $isPresentingAllItems, arrowEdge: .trailing) {
                     InspectorSelectedItemsPopover(
                         selectionTitle: selectionTitle,
-                        nodes: selectedNodesForPopover
+                        nodes: selectedNodesForPopover(orderedBy: popoverItemOrder)
                     )
                 }
             }
@@ -285,11 +288,11 @@ private struct InspectorSelectedItemsSection: View {
         )
     }
 
-    private var selectedNodesForPopover: [FileNodeRecord] {
+    private func selectedNodesForPopover(orderedBy itemOrder: [String]) -> [FileNodeRecord] {
         let nodesByID = Dictionary(
             uniqueKeysWithValues: summary.selectedNodes.map { ($0.id, $0) }
         )
-        return selectedItemOrder.compactMap { nodesByID[$0] }
+        return itemOrder.compactMap { nodesByID[$0] }
     }
 }
 
