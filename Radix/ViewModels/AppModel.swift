@@ -80,6 +80,7 @@ nonisolated enum FileActionError: LocalizedError, Sendable {
     case folderRequiredForDrop
     case fullDiskAccessSettingsUnavailable
     case readOnlySnapshot
+    case readOnlyMode
     case currentComparisonSnapshotUnavailable
 
     var alertTitle: String? {
@@ -118,6 +119,8 @@ nonisolated enum FileActionError: LocalizedError, Sendable {
             return String(localized: "Radix could not open Full Disk Access settings.", comment: "Error shown when System Settings cannot open Full Disk Access.")
         case .readOnlySnapshot:
             return String(localized: "Imported snapshots are read-only.", comment: "Error shown when a file action is attempted on an imported snapshot.")
+        case .readOnlyMode:
+            return String(localized: "Read-only mode is enabled. Turn it off in Settings to use file cleanup actions.", comment: "Error when file cleanup is attempted while read-only mode is enabled.")
         case .currentComparisonSnapshotUnavailable:
             return String(localized: "Current scan changed. Start the comparison again.", comment: "Error shown when the live scan changed during comparison setup.")
         }
@@ -198,6 +201,16 @@ final class AppModel: ObservableObject {
     private let tourSession = WorkspaceTourSessionController()
 
     var workspaceTourSessionID: UUID? { tourSession.sessionID }
+
+    var isReadOnlyMode: Bool { trashFlow.isReadOnlyMode }
+    var canChangeReadOnlyMode: Bool { !trashFlow.isMovingFiles && !workspaceTour.isActive }
+
+    func setReadOnlyMode(_ isEnabled: Bool) {
+        guard canChangeReadOnlyMode, isEnabled != isReadOnlyMode,
+              trashFlow.setReadOnlyMode(isEnabled) else { return }
+        if isEnabled { cancelDeferredDiscardPileAdd() }
+        dependencies.preferences.saveReadOnlyMode(isEnabled)
+    }
 
     func makeFileBrowserModel() -> FileBrowserModel {
         let model = tourSession.makeFileBrowser(snapshotID: scanCoordinator.snapshot?.id)
@@ -328,6 +341,7 @@ final class AppModel: ObservableObject {
         usageStats = dependencies.usageStats.loadUsageStats()
         fullDiskAccessStatus = .unknown
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
+        trashFlow.setReadOnlyMode(preferences.isReadOnlyMode)
 
         // Read the previous launch history above before advancing it. A future
         // What's New flow can use that history to distinguish upgrades from first launches.
@@ -576,7 +590,7 @@ final class AppModel: ObservableObject {
     }
 
     var canStartWorkspaceTour: Bool {
-        !workspaceTour.isActive && canUseWorkspaceCommands
+        !isReadOnlyMode && !workspaceTour.isActive && canUseWorkspaceCommands
             && !scanCoordinator.isScanOperationInProgress && scanCoordinator.expandingNodeID == nil
             && !isArchiveOperationInProgress && !isExportPanelPresented
             && !trashFlow.isMovingFiles
@@ -736,6 +750,7 @@ final class AppModel: ObservableObject {
     }
 
     func restoreDefaultPreferences() {
+        setReadOnlyMode(AppPreferences.defaults.isReadOnlyMode)
         showHiddenFiles = AppScanPreferences.defaults.showHiddenFiles
         treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
         maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
@@ -2243,7 +2258,7 @@ final class AppModel: ObservableObject {
     var discardPileUndoManager: UndoManager { trashFlow.discardPileUndoManager }
 
     private var canReplayDiscardPileChange: Bool {
-        scanCoordinator.snapshot?.isComplete == true &&
+        !isReadOnlyMode && scanCoordinator.snapshot?.isComplete == true &&
             scanCoordinator.snapshotSource.allowsFileMutation &&
             !scanCoordinator.isScanOperationInProgress && scanCoordinator.expandingNodeID == nil &&
             !isArchiveOperationInProgress && !trashFlow.isMovingFiles &&
@@ -2346,6 +2361,7 @@ final class AppModel: ObservableObject {
     }
 
     private func commitDiscardPileAddition(_ nodes: [FileNodeRecord]) throws {
+        try validateSnapshotAllowsMutation()
         guard let snapshot = scanCoordinator.snapshot,
               let fileTreeStore = scanCoordinator.fileTreeStore else {
             throw FileActionError.unsupported
@@ -2702,6 +2718,7 @@ final class AppModel: ObservableObject {
     }
 
     private func validateSnapshotAllowsMutation() throws {
+        guard !isReadOnlyMode else { throw FileActionError.readOnlyMode }
         guard scanCoordinator.snapshotSource.allowsFileMutation else {
             throw FileActionError.readOnlySnapshot
         }

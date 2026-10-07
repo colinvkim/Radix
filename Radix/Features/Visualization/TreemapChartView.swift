@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TreemapChartView: View {
+    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     private static let chartPadding: CGFloat = 18
     private static let viewportControlsAvoidanceSize = CGSize(width: 160, height: 56)
     /// The tooltip sizes itself vertically. This maximum keeps edge placement safe
@@ -510,7 +511,8 @@ struct TreemapChartView: View {
             node: node,
             activeTarget: activeTarget,
             trashSafetyPolicy: trashSafetyPolicy,
-            snapshotSource: snapshotSource
+            snapshotSource: snapshotSource,
+            isReadOnlyMode: isReadOnlyMode
         ).canMoveToTrash
     }
 

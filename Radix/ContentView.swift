@@ -334,6 +334,7 @@ struct ContentView: View {
                 break
             }
         }
+        .environment(\.isReadOnlyMode, appModel.isReadOnlyMode)
     }
 }
 

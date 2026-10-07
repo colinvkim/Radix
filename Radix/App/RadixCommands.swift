@@ -16,7 +16,8 @@ struct RadixCommands: Commands {
             nodes: navigation.selectedNodes,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource
+            snapshotSource: scanState.snapshotSource,
+            isReadOnlyMode: appModel.isReadOnlyMode
         )
 
         if isDiscardPileUndoContext == true {

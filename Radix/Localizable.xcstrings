@@ -21368,48 +21368,48 @@
         }
       }
     },
-    "Restores scan, disk map, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept." : {
+    "Restores scan, disk map, read-only mode, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Setzt Scan-, Datenträgerkarten- und Update-Einstellungen auf die Standardwerte zurück und ersetzt eigene Ausschlussmuster durch die integrierten Vorgaben. Letzte Scans, Statistiken und Festplattenvollzugriff bleiben erhalten."
+            "value" : "Setzt die Einstellungen für Scans, Datenträgerkarten, den Nur-Lese-Modus und Updates auf die Standardwerte zurück und ersetzt benutzerdefinierte Ausschlussmuster durch die integrierten Vorgaben. Letzte Scans, Statistiken und Festplattenvollzugriff bleiben erhalten."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restores scan, disk map, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
+            "value" : "Restores scan, disk map, read-only mode, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restaura los ajustes predeterminados de análisis, mapas de disco y actualizaciones, y sustituye los patrones de exclusión personalizados por los predefinidos. Se conservan los análisis recientes, las estadísticas y el acceso total al disco."
+            "value" : "Restablece las preferencias de análisis, mapas de disco, modo de solo lectura y actualizaciones a sus valores predeterminados, y sustituye los patrones de exclusión personalizados por los preajustes integrados. Se conservan los análisis recientes, las estadísticas y el acceso total al disco."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rétablit les réglages par défaut des analyses, des cartes du disque et des mises à jour, et remplace les motifs d’exclusion personnalisés par les préréglages intégrés. Les analyses récentes, les statistiques et l’accès complet au disque sont conservés."
+            "value" : "Rétablit les réglages par défaut des analyses, des cartes de disque, du mode lecture seule et des mises à jour, et remplace les motifs d’exclusion personnalisés par les préréglages intégrés. Les analyses récentes, les statistiques et l’accès complet au disque sont conservés."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ripristina le preferenze predefinite di scansione, mappe del disco e aggiornamenti e sostituisce i criteri di esclusione personalizzati con quelli predefiniti. Scansioni recenti, statistiche e accesso completo al disco vengono mantenuti."
+            "value" : "Ripristina le preferenze di scansione, mappe del disco, modalità di sola lettura e aggiornamenti ai valori predefiniti e sostituisce i modelli di esclusione personalizzati con quelli integrati. Le scansioni recenti, le statistiche e l’accesso completo al disco vengono mantenuti."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Возвращает настройки сканирования, карты диска и обновлений к значениям по умолчанию, а пользовательские шаблоны исключений заменяет встроенными. Недавние сканирования, статистика и полный доступ к диску сохраняются."
+            "value" : "Восстанавливает настройки сканирования, карт диска, режима только для чтения и обновлений по умолчанию, а также заменяет пользовательские шаблоны исключений встроенными. Недавние сканирования, статистика и полный доступ к диску сохраняются."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将扫描、磁盘图和更新偏好设置恢复为默认值，并用内置预设替换自定义排除模式。最近扫描、统计数据和完全磁盘访问权限将保留。"
+            "value" : "将扫描、磁盘图、只读模式和更新偏好设置恢复为默认值，并用内置预设替换自定义排除模式。保留最近扫描、统计数据和完全磁盘访问权限。"
           }
         }
       }
@@ -30144,6 +30144,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "缩小"
+          }
+        }
+      }
+    },
+    "Read-only mode is enabled. Turn it off in Settings to use file cleanup actions." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-only mode is enabled. Turn it off in Settings to use file cleanup actions."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Nur-Lese-Modus ist aktiviert. Deaktiviere ihn in den Einstellungen, um Aktionen zur Dateibereinigung zu verwenden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El modo de solo lectura está activado. Desactívalo en Ajustes para usar las acciones de limpieza de archivos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le mode lecture seule est activé. Désactivez-le dans les réglages pour utiliser les actions de nettoyage des fichiers."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La modalità di sola lettura è attiva. Disattivala nelle impostazioni per usare le azioni di pulizia dei file."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включён режим только для чтения. Отключите его в настройках, чтобы использовать действия по очистке файлов."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只读模式已启用。请在设置中将其关闭以使用文件清理操作。"
           }
         }
       }

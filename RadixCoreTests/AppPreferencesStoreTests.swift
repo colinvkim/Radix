@@ -16,6 +16,22 @@ struct AppPreferencesStoreTests {
     }
 
     @Test
+    func testReadOnlyModeSurvivesReloadWithoutChangingScanPreferences() throws {
+        let defaults = try temporaryDefaults.make()
+        let store = UserDefaultsAppPreferencesStore(defaults: defaults)
+        #expect(!store.loadPreferences().isReadOnlyMode)
+
+        store.saveReadOnlyMode(true)
+        store.saveScanPreferences(.defaults)
+        let reloaded = UserDefaultsAppPreferencesStore(defaults: defaults)
+        #expect(reloaded.loadPreferences().isReadOnlyMode)
+        #expect(reloaded.loadPreferences().scan == .defaults)
+
+        reloaded.saveReadOnlyMode(false)
+        #expect(!store.loadPreferences().isReadOnlyMode)
+    }
+
+    @Test
     func testLaunchHistorySurvivesReloadAndOtherPreferenceChanges() throws {
         let defaults = try temporaryDefaults.make()
         let store = UserDefaultsAppPreferencesStore(defaults: defaults)

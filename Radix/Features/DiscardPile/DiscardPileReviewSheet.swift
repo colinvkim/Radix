@@ -8,6 +8,7 @@ struct DiscardPileReviewActions {
 }
 
 struct DiscardPileReviewSheet: View {
+    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @EnvironmentObject private var tour: WorkspaceTourController
     private let rows: [DiscardPileReviewRow]
     private let rowIDs: Set<FileNodeRecord.ID>
@@ -65,7 +66,7 @@ struct DiscardPileReviewSheet: View {
                     actions.moveToTrash()
                 }
                 .keyboardShortcut(showsTourGuidance ? nil : .defaultAction)
-                .disabled(rows.isEmpty)
+                .disabled(rows.isEmpty || isReadOnlyMode)
             }
         }
         .padding(20)

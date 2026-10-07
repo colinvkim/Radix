@@ -77,6 +77,21 @@ final class TrashFlowController {
     private var postTrashRemovalTask: Task<Void, Never>?
     private var postTrashRemovalRequests: [@MainActor () async -> Void] = []
 
+    private(set) var isReadOnlyMode = false
+
+    @discardableResult
+    func setReadOnlyMode(_ isEnabled: Bool) -> Bool {
+        guard isEnabled != isReadOnlyMode else { return true }
+        guard !isMovingFiles else { return false }
+        isReadOnlyMode = isEnabled
+        if isEnabled {
+            pendingTrashSelection = nil
+            pendingCloudFileAction = nil
+        }
+        notifyChanged()
+        return true
+    }
+
     var isMovingFiles: Bool { !confirmedTrashMoveTasks.isEmpty || postTrashRemovalTask != nil }
 
     init(
@@ -147,6 +162,7 @@ final class TrashFlowController {
         fileTreeStore: FileTreeStore?,
         allowingHiddenNodes: Bool = false
     ) throws {
+        guard !isReadOnlyMode else { throw FileActionError.readOnlyMode }
         guard nodes.allSatisfy({ node in
             node.supportsMoveToTrash(
                 activeTarget: activeTarget,
@@ -311,6 +327,10 @@ final class TrashFlowController {
         beginMove: () -> Void,
         onFinish: @escaping @MainActor (_ requested: [FileNodeRecord], _ moved: [FileNodeRecord], _ actionError: Error?, _ wasCancelled: Bool) -> Void
     ) {
+        guard !isReadOnlyMode else {
+            onFinish(nodes, [], FileActionError.readOnlyMode, false)
+            return
+        }
         let requestID = UUID()
         confirmedTrashMoveTasks[requestID] = Task { [weak self] in
             var movedNodes: [FileNodeRecord] = []

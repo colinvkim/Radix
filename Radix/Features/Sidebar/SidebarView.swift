@@ -9,6 +9,7 @@ struct SidebarActions {
 }
 
 struct SidebarView: View {
+    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @ObservedObject var model: SidebarModel
     @ObservedObject var scanState: ScanCoordinator
     let discardPileSummary: DiscardPileSummary
@@ -65,7 +66,8 @@ struct SidebarView: View {
 
                 DiscardPileSidebarButton(
                     summary: discardPileSummary,
-                    isDropHintActive: discardPileDragIsActive,
+                    isDropHintActive: discardPileDragIsActive && !isReadOnlyMode,
+                    allowsDrop: !isReadOnlyMode,
                     isDropTargeted: $discardPileDropIsTargeted,
                     addDroppedPayloads: addDroppedPayloadsToDiscardPile
                 ) {
@@ -92,6 +94,7 @@ struct SidebarView: View {
 private struct DiscardPileSidebarButton: View {
     let summary: DiscardPileSummary
     let isDropHintActive: Bool
+    let allowsDrop: Bool
     @Binding var isDropTargeted: Bool
     let addDroppedPayloads: ([DiscardPileDragPayload]) -> Bool
     let action: () -> Void
@@ -149,9 +152,9 @@ private struct DiscardPileSidebarButton: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .dropDestination(for: DiscardPileDragPayload.self) { payloads, _ in
-            addDroppedPayloads(payloads)
+            allowsDrop && addDroppedPayloads(payloads)
         } isTargeted: { isTargeted in
-            isDropTargeted = isTargeted
+            isDropTargeted = allowsDrop && isTargeted
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isDropHintActive)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isDropTargeted)

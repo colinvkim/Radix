@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspaceHeaderView: View {
+    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @ObservedObject var navigation: WorkspaceNavigationModel
 
     let snapshot: ScanSnapshot
@@ -18,8 +19,8 @@ struct WorkspaceHeaderView: View {
                         Text(focusNode.name)
                             .font(.title2.weight(.semibold))
 
-                        if snapshot.source.isImported {
-                            ReadOnlySnapshotBadge()
+                        if snapshot.source.isImported || isReadOnlyMode {
+                            WorkspaceReadOnlyBadge(isImported: snapshot.source.isImported)
                         }
                     }
 
@@ -82,21 +83,31 @@ struct WorkspaceHeaderView: View {
     }
 }
 
-private struct ReadOnlySnapshotBadge: View {
+private struct WorkspaceReadOnlyBadge: View {
+    let isImported: Bool
+
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
             Image(systemName: "lock")
                 .font(.caption.weight(.semibold))
                 .imageScale(.small)
 
-            Text("Imported Snapshot")
-                .font(.caption.weight(.medium))
+            Group {
+                if isImported {
+                    Text("Imported Snapshot")
+                } else {
+                    Text("Read-only", tableName: "Interface")
+                }
+            }
+            .font(.caption.weight(.medium))
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(.quaternary, in: Capsule())
-        .help("Imported snapshots are read-only.")
+        .help(isImported
+            ? Text("Imported snapshots are read-only.")
+            : Text("File cleanup actions are disabled.", tableName: "Interface"))
     }
 }
 

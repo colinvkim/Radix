@@ -23,6 +23,7 @@ private struct FileBrowserContentRefreshID: Hashable {
 }
 
 struct FileBrowserTableView: View {
+    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @EnvironmentObject private var tour: WorkspaceTourController
     @EnvironmentObject private var tourPresentation: WorkspaceTourPresentation
     @ObservedObject var scanState: ScanCoordinator
@@ -501,7 +502,8 @@ struct FileBrowserTableView: View {
                 nodes: nodes,
                 activeTarget: scanState.selectedTarget,
                 trashSafetyPolicy: scanState.trashSafetyPolicy,
-                snapshotSource: scanState.snapshotSource
+                snapshotSource: scanState.snapshotSource,
+                isReadOnlyMode: isReadOnlyMode
             )
         )
     }
@@ -532,7 +534,8 @@ struct FileBrowserTableView: View {
             nodes: nodes,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource
+            snapshotSource: scanState.snapshotSource,
+            isReadOnlyMode: isReadOnlyMode
         ).canMoveToTrash
     }
 

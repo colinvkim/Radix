@@ -38,6 +38,7 @@ nonisolated struct AppPreferences: Equatable {
     var scan: AppScanPreferences
     var didCompleteOnboarding: Bool
     var onboardingPage: OnboardingPage = .welcome
+    var isReadOnlyMode = false
     // Launch history for future upgrade detection, not release-note acknowledgment.
     var highestLaunchedVersion: String? = nil
 
@@ -50,6 +51,7 @@ nonisolated struct AppPreferences: Equatable {
 protocol AppPreferencesPersisting: AnyObject {
     func loadPreferences() -> AppPreferences
     func saveScanPreferences(_ preferences: AppScanPreferences)
+    func saveReadOnlyMode(_ isEnabled: Bool)
     func markOnboardingComplete()
     func markOnboardingIncomplete()
     func saveOnboardingPage(_ page: OnboardingPage)
@@ -60,6 +62,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
     private enum Key {
         static let didCompleteOnboarding = "didCompleteOnboarding"
         static let onboardingPage = "onboardingPage"
+        static let isReadOnlyMode = "isReadOnlyMode"
         static let highestLaunchedVersion = "highestLaunchedVersion"
         static let showHiddenFiles = "showHiddenFiles"
         static let treatPackagesAsDirectories = "treatPackagesAsDirectories"
@@ -133,6 +136,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
             didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding),
             onboardingPage: defaults.string(forKey: Key.onboardingPage)
                 .flatMap(OnboardingPage.init(rawValue:)) ?? .welcome,
+            isReadOnlyMode: defaults.bool(forKey: Key.isReadOnlyMode),
             highestLaunchedVersion: defaults.string(forKey: Key.highestLaunchedVersion)
         )
     }
@@ -146,6 +150,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         defaults.set(preferences.visualizationMode.rawValue, forKey: Key.visualizationMode)
         defaults.set(preferences.useScanExclusions, forKey: Key.useScanExclusions)
         defaults.set(preferences.exclusionPatterns, forKey: Key.exclusionPatterns)
+    }
+
+    func saveReadOnlyMode(_ isEnabled: Bool) {
+        defaults.set(isEnabled, forKey: Key.isReadOnlyMode)
     }
 
     func markOnboardingComplete() {

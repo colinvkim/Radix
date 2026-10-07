@@ -13,6 +13,7 @@ struct SelectionInspectorActions {
 }
 
 struct SelectionInspectorView: View {
+    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     let fullDiskAccessStatus: FullDiskAccessStatus
@@ -42,13 +43,15 @@ struct SelectionInspectorView: View {
             nodes: selectedNodes,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource
+            snapshotSource: scanState.snapshotSource,
+            isReadOnlyMode: isReadOnlyMode
         )
         let removalAvailability = FileNodeActionAvailability(
             nodes: summary.topLevelSelectedNodes,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource
+            snapshotSource: scanState.snapshotSource,
+            isReadOnlyMode: isReadOnlyMode
         )
         let canMoveSelectionToTrash = summary.missingSelectedNodeCount == 0
             && removalAvailability.canMoveToTrash
@@ -75,7 +78,8 @@ struct SelectionInspectorView: View {
             node: node,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource
+            snapshotSource: scanState.snapshotSource,
+            isReadOnlyMode: isReadOnlyMode
         )
         let warnings = relevantWarnings(for: [node])
         let largestChildren = largestChildren(of: node)

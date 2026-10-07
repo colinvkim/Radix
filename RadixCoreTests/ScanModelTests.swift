@@ -4,6 +4,22 @@ import Testing
 @testable import RadixCore
 
 struct ScanModelTests {
+    @Test(arguments: [1, 2])
+    func testReadOnlyModeDisablesOnlyCleanupActions(selectionCount: Int) {
+        let nodes = (0..<selectionCount).map {
+            makeTestFileNode(id: "/selection/file-\($0)", name: "file-\($0)")
+        }
+        let normal = FileNodeActionAvailability(nodes: nodes, activeTarget: nil)
+        let readOnly = FileNodeActionAvailability(nodes: nodes, activeTarget: nil, isReadOnlyMode: true)
+        #expect(normal.canMoveToTrash)
+        #expect(readOnly == FileNodeActionAvailability(
+            canOpen: normal.canOpen,
+            canPreviewWithQuickLook: normal.canPreviewWithQuickLook,
+            canRevealInFinder: normal.canRevealInFinder,
+            canCopyPath: normal.canCopyPath,
+            canMoveToTrash: false))
+    }
+
     @Test
     func testScanMetricsCurrentItemNameIsNilForEmptyPath() {
         let metrics = ScanMetrics()

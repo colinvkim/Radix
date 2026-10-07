@@ -93,6 +93,10 @@ final class TestAppPreferencesStore: AppPreferencesPersisting {
         self.preferences.scan = preferences
     }
 
+    func saveReadOnlyMode(_ isEnabled: Bool) {
+        preferences.isReadOnlyMode = isEnabled
+    }
+
     func markOnboardingComplete() {
         preferences.didCompleteOnboarding = true
     }

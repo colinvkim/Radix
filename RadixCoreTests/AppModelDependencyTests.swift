@@ -7,6 +7,115 @@ import Testing
 
 @MainActor
 struct AppModelDependencyTests {
+    @Test
+    func testReadOnlyModePersistsAcrossLaunchesAndResetsWithSettings() {
+        let preferences = SpyAppPreferencesStore(preferences: .defaults)
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        defer { model.cleanup() }
+        #expect(!model.isReadOnlyMode)
+        model.setReadOnlyMode(true)
+        #expect(model.isReadOnlyMode)
+        #expect(preferences.preferences.isReadOnlyMode)
+
+        let relaunched = AppModel(dependencies: makeDependencies(preferences: preferences))
+        defer { relaunched.cleanup() }
+        #expect(relaunched.isReadOnlyMode)
+        model.restoreDefaultPreferences()
+        #expect(!model.isReadOnlyMode)
+        #expect(!preferences.preferences.isReadOnlyMode)
+    }
+
+    @Test(arguments: [false, true])
+    func testReadOnlyModeSuspendsDiscardPileHistoryWithoutDiscardingIt(isRedo: Bool) {
+        let model = AppModel(dependencies: makeDependencies())
+        defer { model.cleanup() }
+        let file = installSelection(on: model)
+        #expect(model.addNodesToDiscardPile([file]))
+        if isRedo {
+            model.undoDiscardPileChange()
+        } else {
+            model.clearDiscardPile()
+        }
+        #expect(model.discardPile.isEmpty)
+        #expect(isRedo ? model.canRedoDiscardPileChange : model.canUndoDiscardPileChange)
+
+        model.setReadOnlyMode(true)
+        #expect(!model.canUndoDiscardPileChange)
+        #expect(!model.canRedoDiscardPileChange)
+        model.undoDiscardPileChange()
+        model.redoDiscardPileChange()
+        #expect(model.discardPile.isEmpty)
+        #expect(isRedo ? model.discardPileUndoManager.canRedo : model.discardPileUndoManager.canUndo)
+
+        model.setReadOnlyMode(false)
+        if isRedo {
+            #expect(model.canRedoDiscardPileChange)
+            model.redoDiscardPileChange()
+        } else {
+            #expect(model.canUndoDiscardPileChange)
+            model.undoDiscardPileChange()
+        }
+        #expect(model.discardPile.nodeIDs == [file.id])
+    }
+
+    @Test
+    func testReadOnlyModeBlocksCleanupPreservesPileAndAllowsBrowsing() {
+        let recorder = AppModelActionRecorder()
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { node in
+            recorder.movedToTrashURLs.append(node.url)
+            return .matches
+        }
+        actions.open = { recorder.openedURLs.append($0) }
+        actions.reveal = { recorder.revealedURLs.append($0) }
+        actions.copyPath = { recorder.copiedPathURLs.append($0) }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+        let file = makeTestFileNode(id: "/selection/file.txt", name: "file.txt")
+        let queued = makeTestFileNode(id: "/selection/queued.txt", name: "queued.txt")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [file, queued])
+        let snapshot = makeTestSnapshot(root: root,
+            store: FileTreeStore(root: root, childrenByID: [root.id: [file, queued]]))
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        #expect(model.addNodesToDiscardPile([queued]))
+        model.navigation.select(nodeIDs: [file.id], primaryNodeID: file.id)
+        model.requestMoveSelectedToTrash()
+        #expect(model.pendingTrashSelection != nil)
+        model.trashFlow.pendingCloudFileAction = .init(
+            kind: .moveToTrash(allowsHiddenNodes: false), nodes: [file], cloudImpact: .storedInCloud)
+
+        model.setReadOnlyMode(true)
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.pendingCloudFileAction == nil)
+        #expect(model.presentationCoordinator.activeDialog == nil)
+        #expect(model.discardPile.nodeIDs == [queued.id])
+        #expect(!model.addNodesToDiscardPile([file]))
+        #expect(!model.addNodeIDsToDiscardPile([file.id], snapshotID: snapshot.id))
+        #expect(!model.requestMoveNodesToTrash([file]))
+        #expect(!model.requestMoveDiscardPileToTrash())
+        model.requestMoveSelectedToTrash()
+        model.requestMovePrimarySelectionToTrash()
+        #expect(model.pendingTrashSelection == nil)
+        // A stale confirmation must also fail at the actual trash workflow boundary.
+        model.pendingTrashSelection = .init(nodes: [file])
+        model.confirmMovePendingSelectionToTrash()
+        #expect(recorder.movedToTrashURLs.isEmpty)
+        #expect(model.discardPile.nodeIDs == [queued.id])
+        #expect(model.scanState.fileTreeStore?.node(id: file.id) != nil)
+
+        model.dismissErrorPresentation()
+        model.openSelected()
+        model.revealSelectedInFinder()
+        model.copySelectedPath()
+        #expect(recorder.openedURLs == [file.url])
+        #expect(recorder.revealedURLs == [file.url])
+        #expect(recorder.copiedPathURLs == [file.url])
+        model.setReadOnlyMode(false)
+        #expect(model.addNodesToDiscardPile([file]))
+    }
+
     @Test(arguments: [false, true])
     func testLaunchHistoryAdvancesOnlyForNewerVersions(didCompleteOnboarding: Bool) {
         let preferences = SpyAppPreferencesStore(
@@ -3877,6 +3986,10 @@ private final class SpyAppPreferencesStore: AppPreferencesPersisting {
     func saveScanPreferences(_ preferences: AppScanPreferences) {
         self.preferences.scan = preferences
         savedScanPreferences.append(preferences)
+    }
+
+    func saveReadOnlyMode(_ isEnabled: Bool) {
+        preferences.isReadOnlyMode = isEnabled
     }
 
     func markOnboardingComplete() {

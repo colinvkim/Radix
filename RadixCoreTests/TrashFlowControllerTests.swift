@@ -94,6 +94,54 @@ struct TrashFlowControllerTests {
     }
 
     @Test
+    func testReadOnlyModeRejectsDirectTrashRequestsAndConfirmedMoves() throws {
+        let controller = TrashFlowController()
+        let node = makeTestFileNode(id: "/selection/file", name: "file")
+        #expect(controller.setReadOnlyMode(true))
+        #expect(throws: FileActionError.self) {
+            try controller.stageTrashRequest(for: [node], activeTarget: nil,
+                trashSafetyPolicy: .live(), fileTreeStore: nil)
+        }
+        #expect(controller.pendingTrashSelection == nil)
+        var didFinish = false
+        controller.startConfirmedMove([node], moveToTrash: { _ in
+            Issue.record("Read-only mode must prevent filesystem moves")
+            return .matches
+        }, beginMove: {
+            Issue.record("Rejected moves must not hide scan results")
+        }, onFinish: { _, moved, error, wasCancelled in
+            #expect(moved.isEmpty)
+            #expect(!wasCancelled)
+            if case .readOnlyMode? = error as? FileActionError {} else {
+                Issue.record("Expected the read-only mode error")
+            }
+            didFinish = true
+        })
+        #expect(didFinish)
+        #expect(!controller.isMovingFiles)
+    }
+
+    @Test
+    func testReadOnlyModeCannotChangeDuringTrashMove() async throws {
+        let controller = TrashFlowController()
+        let node = makeTestFileNode(id: "/selection/file", name: "file")
+        var continuation: CheckedContinuation<Void, Never>?
+        var didFinish = false
+        controller.startConfirmedMove([node], moveToTrash: { _ in
+            await withCheckedContinuation { continuation = $0 }
+            return .matches
+        }, beginMove: {}, onFinish: { _, _, _, _ in didFinish = true })
+        #expect(!controller.setReadOnlyMode(true))
+        try await waitUntil("move starts") { continuation != nil }
+        #expect(!controller.setReadOnlyMode(true))
+        #expect(!controller.isReadOnlyMode)
+        continuation?.resume()
+        try await waitUntil("move finishes") { didFinish }
+        #expect(controller.setReadOnlyMode(true))
+        #expect(controller.isReadOnlyMode)
+    }
+
+    @Test
     func testReleasingControllerCancelsEveryConfirmedBatch() async throws {
         var controller: TrashFlowController? = TrashFlowController()
         var continuations: [CheckedContinuation<Void, Never>] = []

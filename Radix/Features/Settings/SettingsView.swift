@@ -169,6 +169,25 @@ private struct GeneralSettingsPane: View {
                 .foregroundStyle(.secondary)
             }
 
+            Section {
+                Toggle(isOn: Binding(
+                    get: { appModel.isReadOnlyMode },
+                    set: { appModel.setReadOnlyMode($0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Read-only mode", tableName: "Interface")
+                        Text("Disable file cleanup actions while browsing.", tableName: "Interface")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!appModel.canChangeReadOnlyMode)
+                .accessibilityLabel(Text("Read-only mode", tableName: "Interface"))
+                .accessibilityHint(Text("Disable file cleanup actions while browsing.", tableName: "Interface"))
+            } header: {
+                Text("File Cleanup", tableName: "Interface")
+            }
+
             Section("Full Disk Access") {
                 Label(
                     appModel.fullDiskAccessStatus.fullDiskAccessSettingsSummary,
@@ -268,7 +287,7 @@ private enum SettingsResetAction {
     var message: LocalizedStringKey {
         switch self {
         case .settings:
-            "Restores scan, disk map, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
+            "Restores scan, disk map, read-only mode, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
         case .stats:
             "Clears the aggregate usage stats stored on this Mac. Preferences and recent scans are kept."
         case .recents:

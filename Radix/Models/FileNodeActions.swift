@@ -116,7 +116,8 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
         node: FileNodeRecord?,
         activeTarget: ScanTarget?,
         trashSafetyPolicy: TrashSafetyPolicy = .live(),
-        snapshotSource: ScanSnapshotSource = .live
+        snapshotSource: ScanSnapshotSource = .live,
+        isReadOnlyMode: Bool = false
     ) {
         let supportsFileActions = node?.supportsFileActions == true
         self.init(
@@ -127,7 +128,7 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
             canMoveToTrash: node?.supportsMoveToTrash(
                 activeTarget: activeTarget,
                 trashSafetyPolicy: trashSafetyPolicy
-            ) == true && snapshotSource.allowsFileMutation
+            ) == true && snapshotSource.allowsFileMutation && !isReadOnlyMode
         )
     }
 
@@ -135,7 +136,8 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
         nodes: [FileNodeRecord],
         activeTarget: ScanTarget?,
         trashSafetyPolicy: TrashSafetyPolicy = .live(),
-        snapshotSource: ScanSnapshotSource = .live
+        snapshotSource: ScanSnapshotSource = .live,
+        isReadOnlyMode: Bool = false
     ) {
         guard !nodes.isEmpty else {
             self.init(
@@ -153,7 +155,8 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
                 node: nodes.first,
                 activeTarget: activeTarget,
                 trashSafetyPolicy: trashSafetyPolicy,
-                snapshotSource: snapshotSource
+                snapshotSource: snapshotSource,
+                isReadOnlyMode: isReadOnlyMode
             )
             return
         }
@@ -168,7 +171,7 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
                     activeTarget: activeTarget,
                     trashSafetyPolicy: trashSafetyPolicy
                 )
-            } && snapshotSource.allowsFileMutation
+            } && snapshotSource.allowsFileMutation && !isReadOnlyMode
         )
     }
 }
