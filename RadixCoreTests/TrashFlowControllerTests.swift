@@ -6,6 +6,94 @@ import Testing
 @MainActor
 struct TrashFlowControllerTests {
     @Test
+    func testDiscardPileRemovalAndClearRestoreExactOrderedBatches() {
+        let snapshotID = UUID()
+        let original = DiscardPileState(nodeIDs: ["first", "second", "third"], snapshotID: snapshotID)
+        let controller = TrashFlowController(discardPile: original)
+        controller.removeDiscardPileNodes(ids: ["first", "third"])
+        #expect(controller.discardPile.nodeIDs == ["second"])
+        controller.discardPileUndoManager.undo()
+        #expect(controller.discardPile == original)
+        controller.discardPileUndoManager.redo()
+        #expect(controller.discardPile.nodeIDs == ["second"])
+        controller.clearDiscardPile()
+        #expect(controller.discardPile.isEmpty)
+        #expect(controller.discardPile.snapshotID == nil)
+        controller.discardPileUndoManager.undo()
+        #expect(controller.discardPile == DiscardPileState(nodeIDs: ["second"], snapshotID: snapshotID))
+        controller.discardPileUndoManager.redo()
+        #expect(controller.discardPile.isEmpty)
+    }
+
+    @Test
+    func testNoOpEditsKeepRedoAndNewEditReplacesIt() {
+        let snapshotID = UUID()
+        let controller = TrashFlowController()
+        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: UUID())
+        let first = DiscardPileState(nodeIDs: ["first"], snapshotID: snapshotID)
+        controller.changeDiscardPile(first, actionName: "Add")
+        controller.changeDiscardPile(first, actionName: "Duplicate")
+        controller.removeDiscardPileNodes(ids: ["unknown"])
+        controller.discardPileUndoManager.undo()
+        #expect(controller.discardPile.isEmpty)
+        #expect(!(controller.discardPileUndoManager.canUndo))
+        #expect(controller.discardPileUndoManager.canRedo)
+        controller.clearDiscardPile()
+        controller.removeDiscardPileNodes(ids: [])
+        #expect(controller.discardPileUndoManager.canRedo)
+        controller.changeDiscardPile(
+            DiscardPileState(nodeIDs: ["second"], snapshotID: snapshotID), actionName: "Add"
+        )
+        #expect(!(controller.discardPileUndoManager.canRedo))
+        controller.discardPileUndoManager.undo()
+        #expect(controller.discardPile.isEmpty)
+    }
+
+    @Test
+    func testDiscardPileHistoryIsBoundedToFiftyUserEdits() {
+        let snapshotID = UUID()
+        let controller = TrashFlowController()
+        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: UUID())
+        for count in 1...60 {
+            controller.changeDiscardPile(
+                DiscardPileState(nodeIDs: (1...count).map(String.init), snapshotID: snapshotID),
+                actionName: "Add"
+            )
+        }
+        var undoCount = 0
+        while controller.discardPileUndoManager.canUndo {
+            controller.discardPileUndoManager.undo()
+            undoCount += 1
+        }
+        #expect(undoCount == 50)
+        #expect(controller.discardPile.nodeIDs.count == 10)
+        for _ in 0..<50 { controller.discardPileUndoManager.redo() }
+        #expect(controller.discardPile.nodeIDs.count == 60)
+    }
+
+    @Test
+    func testProgrammaticAndEmptyPileContextReplacementsInvalidateHistory() {
+        let snapshotID = UUID()
+        let contentID = UUID()
+        let original = DiscardPileState(nodeIDs: ["first"], snapshotID: snapshotID)
+        let controller = TrashFlowController()
+        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: contentID)
+        controller.changeDiscardPile(original, actionName: "Add")
+        controller.clearDiscardPile()
+        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: contentID)
+        #expect(controller.discardPileUndoManager.canUndo)
+        controller.synchronizeDiscardPileContext(snapshotID: UUID(), treeContentID: UUID())
+        #expect(!(controller.discardPileUndoManager.canUndo))
+        #expect(!(controller.discardPileUndoManager.canRedo))
+        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: contentID)
+        controller.changeDiscardPile(original, actionName: "Add")
+        controller.discardPileUndoManager.undo()
+        #expect(controller.discardPileUndoManager.canRedo)
+        controller.replaceDiscardPile(DiscardPileState())
+        #expect(!(controller.discardPileUndoManager.canRedo))
+    }
+
+    @Test
     func testReleasingControllerCancelsEveryConfirmedBatch() async throws {
         var controller: TrashFlowController? = TrashFlowController()
         var continuations: [CheckedContinuation<Void, Never>] = []

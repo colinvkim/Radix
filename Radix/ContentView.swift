@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var inspectorPreferenceBeforeTour: Bool?
     @State private var sidebarVisibilityBeforeTour: NavigationSplitViewVisibility?
     @State private var discardPileDragIsActive = false
+    @State private var isDiscardPileUndoContext = false
     @State private var discardPileDragMonitorTask: Task<Void, Never>?
     @StateObject private var tourPresentation = WorkspaceTourPresentation()
     @FocusState private var focusedWorkspaceTarget: WorkspaceFocusTarget?
@@ -71,6 +72,12 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .focusedSceneValue(\.isWorkspaceWindowFocused, true)
+        .focusedSceneValue(\.isDiscardPileUndoContext, isDiscardPileUndoContext)
+        .background {
+            DiscardPileUndoFocusObserver(includesAttachedSheet: appModel.presentationCoordinator.activeSheet == .discardPileReview) {
+                isDiscardPileUndoContext = $0
+            }
+        }
         .background {
             WorkspaceTourHost(
                 tour: appModel.workspaceTour,

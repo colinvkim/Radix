@@ -85,8 +85,9 @@ struct DiscardPileReviewSheet: View {
         } message: {
             Text("This removes all marked items from the Discard Pile. Files on disk are unchanged.")
         }
-        .onChange(of: rowIDs) { _, currentRowIDs in
-            selection.formIntersection(currentRowIDs)
+        .onChange(of: rowIDs) { previousRowIDs, currentRowIDs in
+            let restoredIDs = currentRowIDs.subtracting(previousRowIDs)
+            selection = restoredIDs.isEmpty ? selection.intersection(currentRowIDs) : restoredIDs
         }
     }
 
@@ -129,13 +130,6 @@ struct DiscardPileReviewSheet: View {
 
                 Spacer()
 
-                Button("Remove from Discard Pile", systemImage: "minus.circle") {
-                    remove(selection)
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Remove from Discard Pile")
-                .disabled(selectedRowCount == 0)
             }
             .font(.caption)
             .foregroundStyle(.secondary)

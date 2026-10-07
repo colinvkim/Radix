@@ -232,7 +232,7 @@ final class AppModel: ObservableObject {
 
     private(set) var discardPile: DiscardPileState {
         get { trashFlow.discardPile }
-        set { trashFlow.discardPile = newValue }
+        set { trashFlow.replaceDiscardPile(newValue) }
     }
 
     private var optimisticTrashVisibility: TrashFlowController.OptimisticTrashVisibilityState {
@@ -357,6 +357,13 @@ final class AppModel: ObservableObject {
             self.synchronizeTrashConfirmationPresentation()
             self.synchronizeCloudFileConfirmationPresentation()
             self.objectWillChange.send()
+        }
+        trashFlow.onDiscardPileHistoryReplay = { [weak self] state in
+            guard let self, let fileTreeStore = self.scanCoordinator.fileTreeStore else { return }
+            self.reconcileNavigationForHiddenNodes(
+                hiddenNodeIDs: Set(state.nodeIDs),
+                fileTreeStore: fileTreeStore
+            )
         }
         comparisonFlow.onChange = { [weak self] in
             guard let self else { return }
@@ -2233,6 +2240,38 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var discardPileUndoManager: UndoManager { trashFlow.discardPileUndoManager }
+
+    private var canReplayDiscardPileChange: Bool {
+        scanCoordinator.snapshot?.isComplete == true &&
+            scanCoordinator.snapshotSource.allowsFileMutation &&
+            !scanCoordinator.isScanOperationInProgress && scanCoordinator.expandingNodeID == nil &&
+            !isArchiveOperationInProgress && !trashFlow.isMovingFiles &&
+            pendingTrashSelection == nil && pendingCloudFileAction == nil &&
+            canUseWorkspaceCommands
+    }
+
+    var canUndoDiscardPileChange: Bool {
+        canReplayDiscardPileChange && discardPileUndoManager.canUndo
+    }
+
+    var canRedoDiscardPileChange: Bool {
+        canReplayDiscardPileChange && discardPileUndoManager.canRedo
+    }
+
+    var discardPileUndoTitle: String { discardPileUndoManager.undoMenuItemTitle }
+    var discardPileRedoTitle: String { discardPileUndoManager.redoMenuItemTitle }
+
+    func undoDiscardPileChange() {
+        guard canUndoDiscardPileChange else { return }
+        discardPileUndoManager.undo()
+    }
+
+    func redoDiscardPileChange() {
+        guard canRedoDiscardPileChange else { return }
+        discardPileUndoManager.redo()
+    }
+
     func removeDiscardPileNode(id nodeID: FileNodeRecord.ID) {
         removeDiscardPileNodes(ids: [nodeID])
     }
@@ -2395,6 +2434,9 @@ final class AppModel: ObservableObject {
         wasCancelled: Bool = false
     ) {
         if !movedNodes.isEmpty {
+            if scanCoordinator.snapshot?.id == originalSnapshotID {
+                trashFlow.invalidateDiscardPileHistory()
+            }
             if discardPile.snapshotID == originalSnapshotID {
                 removeMovedNodesFromDiscardPile(movedNodes, fileTreeStore: statsFileTreeStore)
             }
@@ -2723,7 +2765,10 @@ final class AppModel: ObservableObject {
             fileTreeStore: fileTreeStore,
             preservingSelection: navigationModel.selectedNodeIDs.count == 1
         )
-        discardPile = DiscardPileState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id)
+        trashFlow.changeDiscardPile(
+            DiscardPileState(nodeIDs: deduplicatedIDs, snapshotID: snapshot.id),
+            actionName: String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion.")
+        )
     }
 
     private func deduplicatedDiscardPileIDs(
@@ -2803,6 +2848,10 @@ final class AppModel: ObservableObject {
     }
 
     private func syncDiscardPile(with snapshot: ScanSnapshot?) {
+        trashFlow.synchronizeDiscardPileContext(
+            snapshotID: snapshot?.id,
+            treeContentID: snapshot?.treeStore.contentID
+        )
         guard !discardPile.isEmpty else { return }
         guard let snapshot else {
             discardPile = DiscardPileState()

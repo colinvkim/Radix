@@ -5,6 +5,7 @@ struct RadixCommands: Commands {
     @ObservedObject var scanState: ScanCoordinator
     @ObservedObject var navigation: WorkspaceNavigationModel
     @ObservedObject var workspaceTour: WorkspaceTourController
+    @FocusedValue(\.isDiscardPileUndoContext) private var isDiscardPileUndoContext
     @FocusedValue(\.isWorkspaceWindowFocused) private var isWorkspaceWindowFocused
     @FocusedValue(\.fileListFilterAction) private var fileListFilterAction
     @FocusedValue(\.isFileListSearchActive) private var isFileListSearchActive
@@ -17,6 +18,22 @@ struct RadixCommands: Commands {
             trashSafetyPolicy: scanState.trashSafetyPolicy,
             snapshotSource: scanState.snapshotSource
         )
+
+        if isDiscardPileUndoContext == true {
+            CommandGroup(replacing: .undoRedo) {
+                Button { appModel.undoDiscardPileChange() } label: {
+                    Text(verbatim: appModel.discardPileUndoTitle)
+                }
+                .keyboardShortcut("z")
+                .disabled(!appModel.canUndoDiscardPileChange)
+
+                Button { appModel.redoDiscardPileChange() } label: {
+                    Text(verbatim: appModel.discardPileRedoTitle)
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!appModel.canRedoDiscardPileChange)
+            }
+        }
 
         SidebarCommands()
         if canUseWorkspaceCommands, scanState.snapshot != nil {

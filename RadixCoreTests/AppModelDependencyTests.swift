@@ -1721,6 +1721,106 @@ struct AppModelDependencyTests {
     }
 
     @Test
+    func testDiscardPileUndoSurvivesReviewReopeningAndDoesNotTouchFiles() {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in
+            Issue.record("Replaying marks must not inspect the filesystem")
+            return false
+        }
+        actions.moveToTrash = { _ in
+            Issue.record("Replaying marks must not move files")
+            return .matches
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        #expect(model.addNodesToDiscardPile([file]))
+        model.presentDiscardPileReview()
+        model.removeDiscardPileNode(id: file.id)
+        model.dismissDiscardPileReview()
+        model.presentDiscardPileReview()
+        #expect(model.canUndoDiscardPileChange)
+        model.undoDiscardPileChange()
+        #expect(model.discardPile.nodeIDs == [file.id])
+        #expect(model.canRedoDiscardPileChange)
+        model.redoDiscardPileChange()
+        #expect(model.discardPile.isEmpty)
+    }
+
+    @Test
+    func testDiscardPileUndoRestoresChildrenAfterAncestorCollapseAndHidesSelection() {
+        let first = makeTestFileNode(id: "/selection/folder/first", name: "first")
+        let second = makeTestFileNode(id: "/selection/folder/second", name: "second")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [first, second])
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
+        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(
+            root: root, childrenByID: [root.id: [folder], folder.id: [first, second]]
+        ))
+        let model = AppModel(dependencies: makeDependencies())
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+        #expect(model.addNodesToDiscardPile([second, first]))
+        #expect(model.addNodesToDiscardPile([folder]))
+        #expect(model.discardPile.nodeIDs == [folder.id])
+        model.undoDiscardPileChange()
+        #expect(model.discardPile.nodeIDs == [second.id, first.id])
+        model.clearDiscardPile()
+        model.navigation.setFocusedNodeID(folder.id)
+        model.navigation.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
+        model.undoDiscardPileChange()
+        #expect(model.discardPile.nodeIDs == [second.id, first.id])
+        #expect(model.navigation.selectedNodeIDs.isEmpty)
+        model.redoDiscardPileChange()
+        #expect(model.discardPile.isEmpty)
+    }
+
+    @Test
+    func testEmptyDiscardPileHistoryClearsForNewScanAndChangedTree() throws {
+        let model = AppModel(dependencies: makeDependencies())
+        let file = installSelection(on: model)
+        #expect(model.addNodesToDiscardPile([file]))
+        model.clearDiscardPile()
+        #expect(model.canUndoDiscardPileChange)
+        let existing = try #require(model.scanState.snapshot)
+        let changed = try #require(existing.removingNode(id: file.id))
+        #expect(changed.id == existing.id)
+        model.scanState.replaceCurrentSnapshot(changed)
+        #expect(!(model.discardPileUndoManager.canUndo))
+        #expect(!(model.discardPileUndoManager.canRedo))
+        let replacement = installSelection(on: model)
+        #expect(model.addNodesToDiscardPile([replacement]))
+        model.clearDiscardPile()
+        #expect(model.canUndoDiscardPileChange)
+        installSelection(on: model)
+        #expect(!(model.discardPileUndoManager.canUndo))
+    }
+
+    @Test
+    func testConfirmedTrashInvalidatesHistoryEvenWhenDiscardPileIsEmpty() async throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in .matches }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(on: model)
+        model.scanState.selectedTarget = model.scanState.snapshot?.target
+        #expect(model.addNodesToDiscardPile([file]))
+        model.clearDiscardPile()
+        #expect(model.canUndoDiscardPileChange)
+        #expect(model.requestMoveNodesToTrash([file]))
+        #expect(!(model.canUndoDiscardPileChange))
+        model.undoDiscardPileChange()
+        #expect(model.discardPile.isEmpty)
+        model.cancelPendingTrash()
+        #expect(model.canUndoDiscardPileChange)
+        #expect(model.requestMoveNodesToTrash([file]))
+        model.confirmMovePendingSelectionToTrash()
+        #expect(!(model.canUndoDiscardPileChange))
+        try await waitUntil("trash clears collection history") { model.usageStats.bytesMovedToTrash > 0 }
+        #expect(model.discardPile.isEmpty)
+        #expect(!(model.discardPileUndoManager.canUndo))
+        #expect(!(model.discardPileUndoManager.canRedo))
+    }
+
+    @Test
     func testPrimaryDiscardPileAddAfterViewUpdateDefersMutation() async throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }

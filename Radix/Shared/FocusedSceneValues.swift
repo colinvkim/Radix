@@ -11,6 +11,10 @@ enum ChartViewportAction {
     case reset
 }
 
+private struct DiscardPileUndoContextKey: FocusedValueKey {
+    typealias Value = Bool
+}
+
 private struct WorkspaceWindowFocusedKey: FocusedValueKey {
     typealias Value = Bool
 }
@@ -28,6 +32,11 @@ private struct ChartViewportActionKey: FocusedValueKey {
 }
 
 extension FocusedValues {
+    var isDiscardPileUndoContext: Bool? {
+        get { self[DiscardPileUndoContextKey.self] }
+        set { self[DiscardPileUndoContextKey.self] = newValue }
+    }
+
     var isWorkspaceWindowFocused: Bool? {
         get { self[WorkspaceWindowFocusedKey.self] }
         set { self[WorkspaceWindowFocusedKey.self] = newValue }
