@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Adds native file dragging to the existing SwiftUI table. All non-drag data
-/// source messages remain with SwiftUI, including sorting and row updates.
-struct FileBrowserDragAdapter: NSViewRepresentable {
+/// Maintains native row sizing and file dragging for the SwiftUI table.
+/// Other data source messages remain with SwiftUI, including sorting and updates.
+struct FileBrowserTableAdapter: NSViewRepresentable {
     let nodes: [FileNodeRecord]
+    let contentContext: FileBrowserDisplayContext
     let controller: FileDragController
     let onDragActiveChange: (Bool) -> Void
 
@@ -21,6 +22,7 @@ struct FileBrowserDragAdapter: NSViewRepresentable {
 
     func updateNSView(_ view: AttachmentView, context: Context) {
         context.coordinator.nodes = nodes
+        context.coordinator.contentContext = contentContext
         context.coordinator.controller = controller
         context.coordinator.onDragActiveChange = onDragActiveChange
         // SwiftUI may replace its data source when it updates table contents.
@@ -43,6 +45,8 @@ struct FileBrowserDragAdapter: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTableViewDataSource, NSOutlineViewDataSource {
         var nodes: [FileNodeRecord] = []
+        var contentContext = FileBrowserDisplayContext.empty
+        private var laidOutContentContext: FileBrowserDisplayContext?
         var controller: FileDragController?
         var onDragActiveChange: (Bool) -> Void = { _ in }
         private weak var table: NSTableView?
@@ -59,9 +63,25 @@ struct FileBrowserDragAdapter: NSViewRepresentable {
                         original = candidate.dataSource
                         candidate.dataSource = self
                     }
+                    refreshRowHeights(in: candidate)
                     return
                 }
                 ancestor = container.superview
+            }
+        }
+
+        private func refreshRowHeights(in table: NSTableView) {
+            guard laidOutContentContext != contentContext else { return }
+            let visibleRows = table.rows(in: table.visibleRect)
+            guard visibleRows.location != NSNotFound, visibleRows.length > 0 else { return }
+            let end = min(NSMaxRange(visibleRows), table.numberOfRows)
+            guard visibleRows.location < end else { return }
+            laidOutContentContext = contentContext
+            // A rescan can add a subtitle without changing the row's identity.
+            // Invalidate after SwiftUI has updated the displayed cell contents.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: visibleRows.location..<end))
             }
         }
 
@@ -79,6 +99,7 @@ struct FileBrowserDragAdapter: NSViewRepresentable {
             if let table, table.dataSource === self { table.dataSource = original }
             table = nil
             original = nil
+            laidOutContentContext = nil
         }
 
         // NSTableView uses Objective-C optional-method discovery. Forward every
