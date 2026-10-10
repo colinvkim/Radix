@@ -78,10 +78,32 @@ struct FileDragControllerTests {
         #expect(session.operationMask(for: .withinApplication).isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func readOnlyModeAllowsOnlyValidatedExternalCopies(stale: Bool) throws {
+        let snapshot = fixture()
+        let controller = FileDragController(
+            context: {
+                .init(snapshot: snapshot, target: snapshot.target, trashSafetyPolicy: .live(), isReadOnlyMode: true)
+            },
+            verifyIdentity: { _ in stale ? .mismatch : .matches }, refresh: { _ in }
+        )
+        let nodeID = snapshot.root.id + "/Folder"
+        if stale {
+            #expect(controller.prepare(nodeIDs: [nodeID]) == nil)
+        } else {
+            let session = try #require(controller.prepare(nodeIDs: [nodeID]))
+            let writer = try #require(session.pasteboardWriter(for: nodeID))
+            #expect(writer.string(forType: .fileURL) != nil)
+            #expect(writer.data(forType: .init(DiscardPileDragPayload.contentType.identifier)) == nil)
+            #expect(session.operationMask(for: .outsideApplication) == .copy)
+            #expect(session.operationMask(for: .withinApplication).isEmpty)
+        }
+    }
+
     @Test
     func cancelledAndInternalDropsDoNotRefreshButExternalDropsRefreshOnce() throws {
         let snapshot = fixture()
-        var refreshed: [UUID] = []
+        var refreshed: [FileTransfer] = []
         let controller = FileDragController(
             context: { .init(snapshot: snapshot, target: snapshot.target, trashSafetyPolicy: .live()) },
             verifyIdentity: { _ in .matches }, refresh: { refreshed.append($0) }
@@ -101,7 +123,10 @@ struct FileDragControllerTests {
         external.begin()
         external.end(operation: .move)
         external.end(operation: .move)
-        #expect(refreshed == [snapshot.id])
+        #expect(refreshed.map { $0.snapshot.id } == [snapshot.id])
+        #expect(refreshed.first?.nodes.map(\.id) == ids)
+        #expect(refreshed.first?.sourceDirectoryPaths == [snapshot.root.id])
+        #expect(refreshed.first?.operation == .move)
     }
 
     @Test

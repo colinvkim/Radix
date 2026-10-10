@@ -411,6 +411,125 @@ struct IncrementalRescanPlannerTests {
         #expect(plan == .noChanges)
     }
 
+    @Test
+    func testForcedRelistWorksWithoutEventsAndCoalescesDuplicatePaths() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            relistingDirectoryPaths: ["/scan/folder", "/scan/folder/./"]
+        )
+
+        #expect(plan == .update(relistDirectoryIDs: [fixture.folder.id], rescanSubtreeIDs: []))
+    }
+
+    @Test
+    func testForcedRootRelistWorksWithoutEvents() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            relistingDirectoryPaths: ["/scan"]
+        )
+
+        #expect(plan == .update(relistDirectoryIDs: [fixture.store.rootID], rescanSubtreeIDs: []))
+    }
+
+    @Test
+    func testForcedParentAndNestedEventPromoteToSubtreeRescan() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([
+                event("/scan/folder/nested/payload.bin", flags: [.itemModified, .itemIsFile])
+            ]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            relistingDirectoryPaths: [fixture.folder.id]
+        )
+
+        #expect(plan == .update(relistDirectoryIDs: [], rescanSubtreeIDs: [fixture.folder.id]))
+    }
+
+    @Test
+    func testForcedRootAndNestedEventPreserveFullScanFallback() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([
+                event("/scan/folder/new.txt", flags: [.itemCreated, .itemIsFile])
+            ]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            relistingDirectoryPaths: ["/scan"]
+        )
+
+        #expect(plan == .fullScan(reason: .changedScanRoot))
+    }
+
+    @Test
+    func testForcedRelistDoesNotDowngradeExistingSubtreeWork() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([
+                event(fixture.folder.id, flags: [.mustScanSubdirectories, .itemIsDirectory])
+            ]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            relistingDirectoryPaths: [fixture.folder.id]
+        )
+
+        #expect(plan == .update(relistDirectoryIDs: [], rescanSubtreeIDs: [fixture.folder.id]))
+    }
+
+    @Test
+    func testForcedPathsOutsideTargetOrExcludedDoNotTriggerWork() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            exclusionMatcher: ScanExclusionMatcher(patterns: ["folder/"], rootPath: "/scan"),
+            relistingDirectoryPaths: ["/", "/scan-other", fixture.folder.id]
+        )
+
+        #expect(plan == .noChanges)
+    }
+
+    @Test
+    func testForcedMissingDirectoryUsesNearestMaterializedAncestor() {
+        let fixture = makeFixture()
+        let plan = IncrementalRescanPlanner().plan(
+            history: history([]),
+            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
+            treeStore: fixture.store,
+            relistingDirectoryPaths: ["/scan/folder/missing/deeper"]
+        )
+
+        #expect(plan == .update(relistDirectoryIDs: [fixture.folder.id], rescanSubtreeIDs: []))
+    }
+
+    @Test
+    func testForcedPackageAndAutoSummaryPreserveBoundaryBehavior() {
+        let fixture = makeFixture()
+        let target = ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory))
+        let packagePlan = IncrementalRescanPlanner().plan(
+            history: history([]),
+            target: target,
+            treeStore: fixture.store,
+            relistingDirectoryPaths: ["/scan/Tool.app/Contents"]
+        )
+        let summaryPlan = IncrementalRescanPlanner().plan(
+            history: history([]),
+            target: target,
+            treeStore: fixture.store,
+            relistingDirectoryPaths: ["/scan/cache/shard"]
+        )
+
+        #expect(packagePlan == .update(relistDirectoryIDs: [], rescanSubtreeIDs: [fixture.package.id]))
+        #expect(summaryPlan == .fullScan(reason: .autoSummarizedBoundary))
+    }
+
     private func history(_ events: [FileSystemEventRecord]) -> FileSystemEventHistory {
         FileSystemEventHistory(
             since: ScanIncrementalCheckpoint(volumeUUID: "volume", eventID: 10),

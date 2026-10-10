@@ -12,6 +12,19 @@ struct DiscardPileDragPayload: Codable, Hashable, Transferable {
     }
 }
 
+/// The origin and scanned identities survive navigation while a native drag is active.
+struct FileTransfer {
+    let snapshot: ScanSnapshot
+    let nodes: [FileNodeRecord]
+    let operation: NSDragOperation
+
+    var sourceDirectoryPaths: [String] {
+        Array(Set(nodes.map {
+            URL(filePath: $0.id).deletingLastPathComponent().standardizedFileURL.path
+        })).sorted()
+    }
+}
+
 /// One preparation per gesture, shared by the table and both disk maps.
 @MainActor
 final class FileDragController {
@@ -19,17 +32,18 @@ final class FileDragController {
         let snapshot: ScanSnapshot
         let target: ScanTarget?
         let trashSafetyPolicy: TrashSafetyPolicy
+        var isReadOnlyMode = false
     }
 
     private let context: () -> Context?
     private let verifyIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
-    private let refresh: (UUID) -> Void
+    private let refresh: (FileTransfer) -> Void
     private weak var activeSession: FileDragSession?
 
     init(
         context: @escaping () -> Context?,
         verifyIdentity: @escaping (FileNodeRecord) -> TrashIdentityVerificationResult,
-        refresh: @escaping (UUID) -> Void
+        refresh: @escaping (FileTransfer) -> Void
     ) {
         self.context = context
         self.verifyIdentity = verifyIdentity
@@ -46,7 +60,7 @@ final class FileDragController {
         guard !nodes.isEmpty, nodes.allSatisfy(\.supportsFileActions),
               nodeIDs.allSatisfy({ tree.node(id: $0) != nil }) else { return nil }
 
-        let canCollect = nodes.allSatisfy {
+        let canCollect = !context.isReadOnlyMode && nodes.allSatisfy {
             $0.supportsMoveToTrash(activeTarget: context.target, trashSafetyPolicy: context.trashSafetyPolicy)
         }
         // A stale item still supports the existing internal review workflow, but
@@ -61,7 +75,7 @@ final class FileDragController {
                 guard let self, activeSession === session else { return }
                 activeSession = nil
                 if !session.wasDroppedInternally, session.exportsURLs, !operation.isEmpty {
-                    refresh(session.snapshotID)
+                    refresh(FileTransfer(snapshot: context.snapshot, nodes: session.nodes, operation: operation))
                 }
             }
         )
@@ -111,7 +125,7 @@ final class FileDragSession {
     func operationMask(for context: NSDraggingContext) -> NSDragOperation {
         if context == .withinApplication { return canCollect ? .copy : [] }
         guard exportsURLs else { return [] }
-        // Protected roots can be opened/copied externally, never moved.
+        // Protected roots and read-only mode allow external copies only.
         return canCollect ? [.copy, .move, .generic] : .copy
     }
 

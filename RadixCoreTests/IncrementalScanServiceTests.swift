@@ -579,6 +579,174 @@ struct IncrementalScanServiceTests {
     }
 
     @Test
+    func testForcedSourceParentRelistCapturesMoveBeforeEventsArrive() async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let destinationURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: destinationURL) }
+        let sourceParent = rootURL.appending(path: "Source", directoryHint: .isDirectory)
+        let stableParent = rootURL.appending(path: "Stable", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sourceParent, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: stableParent, withIntermediateDirectories: false)
+        let sourceURL = sourceParent.appending(path: "moved.dat")
+        try Data(repeating: 0x5A, count: 16_384).write(to: sourceURL)
+        try Data([0x1]).write(to: stableParent.appending(path: "stable.dat"))
+        let provider = IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20)],
+            events: []
+        )
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: service.scan(target: target, options: options)
+        )
+        let stableBefore = baseline.treeStore.node(id: stableParent.path)
+
+        try FileManager.default.moveItem(
+            at: sourceURL,
+            to: destinationURL.appending(path: sourceURL.lastPathComponent)
+        )
+        let result = try await incrementalScanResult(
+            from: service.rescan(
+                target: target,
+                options: options,
+                from: baseline,
+                relistingDirectoryPaths: [sourceParent.path]
+            )
+        )
+        let full = try await finishedIncrementalSnapshot(
+            from: ScanEngine().scan(target: target, options: options)
+        )
+
+        #expect(result.executionModes == [.incremental])
+        #expect(result.snapshot.treeStore.node(id: sourceURL.path) == nil)
+        #expect(result.snapshot.root.descendantFileCount == 1)
+        #expect(result.snapshot.treeStore.node(id: stableParent.path) == stableBefore)
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
+        #expect(provider.historyRequestCount == 1)
+        try assertEquivalent(result.snapshot, full)
+    }
+
+    @Test
+    func testForcedRelistFallsBackWhenSourceParentIdentityChanges() async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let destinationURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: destinationURL) }
+        let sourceParent = rootURL.appending(path: "Source", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sourceParent, withIntermediateDirectories: false)
+        try Data([0x1]).write(to: sourceParent.appending(path: "old.dat"))
+        let provider = IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
+            events: []
+        )
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: service.scan(target: target, options: options)
+        )
+
+        try FileManager.default.moveItem(at: sourceParent, to: destinationURL.appending(path: "Source"))
+        try FileManager.default.createDirectory(at: sourceParent, withIntermediateDirectories: false)
+        let replacementURL = sourceParent.appending(path: "new.dat")
+        try Data([0x2]).write(to: replacementURL)
+        let result = try await incrementalScanResult(
+            from: service.rescan(
+                target: target,
+                options: options,
+                from: baseline,
+                relistingDirectoryPaths: [sourceParent.path]
+            )
+        )
+
+        #expect(result.executionModes == [.incremental, .fullFallback(.directoryRelistFailed)])
+        #expect(result.snapshot.treeStore.node(id: sourceParent.appending(path: "old.dat").path) == nil)
+        #expect(result.snapshot.treeStore.node(id: replacementURL.path) != nil)
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 30)
+    }
+
+    @Test
+    func testForcedRelistFallsBackForExistingSharedAllocationWithoutEvents() async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let destinationURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: destinationURL) }
+        let sourceParent = rootURL.appending(path: "Source", directoryHint: .isDirectory)
+        let otherParent = rootURL.appending(path: "Other", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sourceParent, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: otherParent, withIntermediateDirectories: false)
+        let sourceURL = sourceParent.appending(path: "shared.dat")
+        try Data(repeating: 0x5A, count: 16_384).write(to: sourceURL)
+        try FileManager.default.linkItem(at: sourceURL, to: otherParent.appending(path: "shared.dat"))
+        let provider = IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
+            events: []
+        )
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: service.scan(target: target, options: options)
+        )
+
+        try FileManager.default.moveItem(at: sourceURL, to: destinationURL.appending(path: "shared.dat"))
+        let result = try await incrementalScanResult(
+            from: service.rescan(
+                target: target,
+                options: options,
+                from: baseline,
+                relistingDirectoryPaths: [sourceParent.path]
+            )
+        )
+        let full = try await finishedIncrementalSnapshot(
+            from: ScanEngine().scan(target: target, options: options)
+        )
+
+        #expect(result.executionModes == [.fullFallback(.sharedAllocationTopologyChanged)])
+        try assertEquivalent(result.snapshot, full)
+    }
+
+    @Test
+    func testForcedRelistFallsBackForNewSharedAllocationWithoutEvents() async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let sourceParent = rootURL.appending(path: "Source", directoryHint: .isDirectory)
+        let otherParent = rootURL.appending(path: "Other", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sourceParent, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: otherParent, withIntermediateDirectories: false)
+        let ownerURL = otherParent.appending(path: "shared.dat")
+        try Data(repeating: 0x5A, count: 16_384).write(to: ownerURL)
+        let provider = IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
+            events: []
+        )
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: service.scan(target: target, options: options)
+        )
+
+        try FileManager.default.linkItem(at: ownerURL, to: sourceParent.appending(path: "shared.dat"))
+        let result = try await incrementalScanResult(
+            from: service.rescan(
+                target: target,
+                options: options,
+                from: baseline,
+                relistingDirectoryPaths: [sourceParent.path]
+            )
+        )
+        let full = try await finishedIncrementalSnapshot(
+            from: ScanEngine().scan(target: target, options: options)
+        )
+
+        #expect(result.executionModes == [.incremental, .fullFallback(.sharedAllocationTopologyChanged)])
+        try assertEquivalent(result.snapshot, full)
+    }
+
+    @Test
     func testNoChangeRescanAdvancesCheckpointWithoutChangingTree() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

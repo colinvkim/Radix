@@ -251,9 +251,14 @@ struct FileBrowserTableView: View {
         } rows: {
             ForEach(model.displayedNodes) { node in
                 TableRow(node)
-                    // Enable SwiftUI's row-drag gesture. The native adapter supplies
-                    // pasteboard items only after validating the complete selection.
-                    .itemProvider { NSItemProvider() }
+                    // SwiftUI requires a registered type to enable row dragging.
+                    // The native adapter supplies the validated pasteboard items.
+                    .itemProvider {
+                        NSItemProvider(
+                            item: Data() as NSData,
+                            typeIdentifier: DiscardPileDragPayload.contentType.identifier
+                        )
+                    }
             }
         }
         .background {

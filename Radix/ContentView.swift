@@ -311,6 +311,9 @@ struct ContentView: View {
         } message: {
             Text(cloudFileConfirmationMessage)
         }
+        .onAppear {
+            if scenePhase == .active { appModel.handleApplicationBecameActive() }
+        }
         .onDisappear {
             discardPileDragDidEnd()
             appModel.suspendMainWindowActivity()
@@ -322,7 +325,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
-                appModel.refreshFullDiskAccessStatus()
+                appModel.handleApplicationBecameActive()
             case .background:
                 discardPileDragDidEnd()
                 appModel.suspendBackgroundActivity()

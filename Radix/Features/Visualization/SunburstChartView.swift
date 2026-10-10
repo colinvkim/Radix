@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 struct SunburstChartView: View {
-    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     private static let chartPadding: CGFloat = 22
 
     let rootNode: FileNodeRecord

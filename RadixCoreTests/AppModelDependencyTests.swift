@@ -116,6 +116,26 @@ struct AppModelDependencyTests {
         #expect(model.addNodesToDiscardPile([file]))
     }
 
+    @Test
+    func testReadOnlyModeCannotChangeDuringAnActiveFileDrag() throws {
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { _ in .matches }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+        let file = installSelection(on: model)
+        let session = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
+        session.begin()
+        #expect(!model.canChangeReadOnlyMode)
+        model.setReadOnlyMode(true)
+        #expect(!model.isReadOnlyMode)
+        session.end(operation: [])
+        #expect(model.canChangeReadOnlyMode)
+        model.setReadOnlyMode(true)
+        let readOnlySession = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
+        #expect(readOnlySession.operationMask(for: .outsideApplication) == .copy)
+        #expect(readOnlySession.operationMask(for: .withinApplication).isEmpty)
+    }
+
     @Test(arguments: [false, true])
     func testLaunchHistoryAdvancesOnlyForNewerVersions(didCompleteOnboarding: Bool) {
         let preferences = SpyAppPreferencesStore(

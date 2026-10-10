@@ -19,7 +19,8 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
         history: FileSystemEventHistory,
         target: ScanTarget,
         treeStore: FileTreeStore,
-        exclusionMatcher: ScanExclusionMatcher? = nil
+        exclusionMatcher: ScanExclusionMatcher? = nil,
+        relistingDirectoryPaths: [String] = []
     ) -> IncrementalRescanPlan {
         let targetPath = Self.normalizedDirectoryPath(target.url.path)
         var orderedCandidateNodeIDs: [String] = []
@@ -71,22 +72,16 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
                 }
             }
 
-            var candidatePath = initialCandidatePath(
+            let candidatePath = initialCandidatePath(
                 for: event,
                 eventPath: eventPath,
                 treeStore: treeStore
             )
-            var matchedNode: FileNodeRecord?
-            while Self.path(candidatePath, isEqualToOrDescendantOf: targetPath) {
-                if let node = treeStore.node(id: candidatePath), node.isDirectory {
-                    matchedNode = node
-                    break
-                }
-                guard candidatePath != targetPath else { break }
-                candidatePath = Self.parentPath(of: candidatePath)
-            }
-
-            guard let matchedNode else {
+            guard let matchedNode = materializedDirectory(
+                at: candidatePath,
+                targetPath: targetPath,
+                treeStore: treeStore
+            ) else {
                 return .fullScan(reason: .noMaterializedAncestor)
             }
             if matchedNode.isAutoSummarized {
@@ -102,6 +97,38 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
             if updateKind == .rescanSubtree
                 || updateKindByNodeID[matchedNode.id] == nil {
                 updateKindByNodeID[matchedNode.id] = updateKind
+            }
+        }
+
+        for path in relistingDirectoryPaths {
+            let directoryPath = Self.normalizedDirectoryPath(path)
+            // Source parents can be outside a cached child scan. They must not
+            // broaden that scan's scope or trigger unrelated filesystem work.
+            guard Self.path(directoryPath, isEqualToOrDescendantOf: targetPath) else {
+                continue
+            }
+            if exclusionMatcher?.excludesKnownNormalizedPath(
+                directoryPath,
+                isDirectory: true
+            ) == true {
+                continue
+            }
+            guard let matchedNode = materializedDirectory(
+                at: directoryPath,
+                targetPath: targetPath,
+                treeStore: treeStore
+            ) else {
+                return .fullScan(reason: .noMaterializedAncestor)
+            }
+            if matchedNode.isAutoSummarized {
+                return .fullScan(reason: .autoSummarizedBoundary)
+            }
+            if updateKindByNodeID[matchedNode.id] == nil {
+                orderedCandidateNodeIDs.append(matchedNode.id)
+                updateKindByNodeID[matchedNode.id] = .relistDirectory
+            }
+            if matchedNode.isPackage {
+                updateKindByNodeID[matchedNode.id] = .rescanSubtree
             }
         }
 
@@ -164,6 +191,22 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
             relistDirectoryIDs: relistDirectoryIDs,
             rescanSubtreeIDs: rescanSubtreeIDs
         )
+    }
+
+    private func materializedDirectory(
+        at path: String,
+        targetPath: String,
+        treeStore: FileTreeStore
+    ) -> FileNodeRecord? {
+        var candidatePath = path
+        while Self.path(candidatePath, isEqualToOrDescendantOf: targetPath) {
+            if let node = treeStore.node(id: candidatePath), node.isDirectory {
+                return node
+            }
+            guard candidatePath != targetPath else { break }
+            candidatePath = Self.parentPath(of: candidatePath)
+        }
+        return nil
     }
 
     private func updateKind(

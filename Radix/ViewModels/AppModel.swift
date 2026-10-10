@@ -203,7 +203,9 @@ final class AppModel: ObservableObject {
     var workspaceTourSessionID: UUID? { tourSession.sessionID }
 
     var isReadOnlyMode: Bool { trashFlow.isReadOnlyMode }
-    var canChangeReadOnlyMode: Bool { !trashFlow.isMovingFiles && !workspaceTour.isActive }
+    var canChangeReadOnlyMode: Bool {
+        !trashFlow.isMovingFiles && !workspaceTour.isActive && !fileDragController.isDragging
+    }
 
     func setReadOnlyMode(_ isEnabled: Bool) {
         guard canChangeReadOnlyMode, isEnabled != isReadOnlyMode,
@@ -266,18 +268,29 @@ final class AppModel: ObservableObject {
     lazy var fileDragController = FileDragController(
         context: { [weak self] in
             guard let self, !scanCoordinator.isScanOperationInProgress,
+                  scanCoordinator.expandingNodeID == nil,
                   !isArchiveOperationInProgress, !trashFlow.isMovingFiles,
                   let snapshot = scanCoordinator.snapshot else { return nil }
             return FileDragController.Context(
                 snapshot: snapshot, target: scanCoordinator.selectedTarget,
-                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy
+                trashSafetyPolicy: scanCoordinator.trashSafetyPolicy,
+                isReadOnlyMode: isReadOnlyMode
             )
         },
         verifyIdentity: { [weak self] node in
             self?.dependencies.systemActions.verifyTrashIdentity(node) ?? .missingCurrentItem
         },
-        refresh: { [weak self] snapshotID in
-            self?.scanCoordinator.refreshAfterFileTransfer(snapshotID: snapshotID)
+        refresh: { [weak self] transfer in
+            self?.fileTransferReconciliation.fileTransferDidEnd(transfer)
+        }
+    )
+
+    private lazy var fileTransferReconciliation = FileTransferReconciliationCoordinator(
+        scanCoordinator: scanCoordinator,
+        cache: sidebarScanCacheController,
+        canStart: { [weak self] in
+            guard let self else { return false }
+            return !isArchiveOperationInProgress && !trashFlow.isMovingFiles
         }
     )
 
@@ -384,12 +397,14 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
         archiveWorkflow.onBecameIdle = { [weak self] in
             self?.resumeReadyDeferredArchiveImportIfPossible()
+            self?.fileTransferReconciliation.resumeIfPossible()
         }
         trashFlow.onChange = { [weak self] in
             guard let self else { return }
             self.synchronizeTrashConfirmationPresentation()
             self.synchronizeCloudFileConfirmationPresentation()
             self.objectWillChange.send()
+            self.fileTransferReconciliation.resumeIfPossible()
         }
         trashFlow.onDiscardPileHistoryReplay = { [weak self] state in
             guard let self, let fileTreeStore = self.scanCoordinator.fileTreeStore else { return }
@@ -426,6 +441,7 @@ final class AppModel: ObservableObject {
     }
 
     func cleanup() {
+        fileTransferReconciliation.cleanup()
         workspaceTour.stop()
         finishWorkspaceTour()
         flushPendingScanPreferences()
@@ -462,6 +478,7 @@ final class AppModel: ObservableObject {
     }
 
     func suspendMainWindowActivity() {
+        fileTransferReconciliation.suspend()
         workspaceTour.stop()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
@@ -478,6 +495,11 @@ final class AppModel: ObservableObject {
             scanCoordinator.stopScan(resetState: false)
         }
         quickLookController.closePreview()
+    }
+
+    func handleApplicationBecameActive() {
+        refreshFullDiskAccessStatus()
+        fileTransferReconciliation.applicationBecameActive()
     }
 
     func suspendBackgroundActivity() {
@@ -1979,7 +2001,12 @@ final class AppModel: ObservableObject {
         }
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         sidebarModel.setActiveTargetID(target.id)
-        guard applyCachedOrContainedSidebarTarget(target) else { return }
+        guard applyCachedOrContainedSidebarTarget(target) else {
+            if scanCoordinator.selectedTarget?.id == target.id {
+                fileTransferReconciliation.displayedSnapshotDidChange()
+            }
+            return
+        }
         startScan(target)
     }
 
@@ -3075,6 +3102,9 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        scanCoordinator.onBecameIdle = { [weak self] in
+            self?.fileTransferReconciliation.resumeIfPossible()
+        }
         scanCoordinator.onScanFinished = { [weak self] snapshot in
             self?.recordCompletedScan(snapshot)
         }
@@ -3086,6 +3116,7 @@ final class AppModel: ObservableObject {
                 refreshDiskFreeSpaceCapacity(for: snapshot)
                 syncOptimisticTrashVisibility(with: snapshot)
                 syncDiscardPile(with: snapshot)
+                fileTransferReconciliation.displayedSnapshotDidChange()
                 if let snapshotID = snapshot?.id,
                    snapshotID == deferredNavigationContextSnapshotID {
                     return

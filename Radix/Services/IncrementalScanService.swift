@@ -113,6 +113,20 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
         options: ScanOptions,
         from baseline: ScanSnapshot
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        rescan(
+            target: target,
+            options: options,
+            from: baseline,
+            relistingDirectoryPaths: []
+        )
+    }
+
+    nonisolated func rescan(
+        target: ScanTarget,
+        options: ScanOptions,
+        from baseline: ScanSnapshot,
+        relistingDirectoryPaths: [String]
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task(priority: .userInitiated) {
                 do {
@@ -164,7 +178,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
                         history: history,
                         target: target,
                         treeStore: baseline.treeStore,
-                        exclusionMatcher: matcher
+                        exclusionMatcher: matcher,
+                        relistingDirectoryPaths: relistingDirectoryPaths
                     ) {
                     case .fullScan(let reason):
                         try await self.forwardFullScan(
@@ -183,6 +198,26 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
                         continuation.yield(.finished(finished))
                         continuation.finish()
                     case .update(let relistDirectoryIDs, let rescanSubtreeIDs):
+                        // A source-parent relist has no per-file event flags to
+                        // certify clone and hard-link changes. Preserve the
+                        // conservative whole-scan accounting fallback.
+                        let validatesSharedAllocation = !relistingDirectoryPaths.isEmpty
+                        if validatesSharedAllocation {
+                            for nodeID in relistDirectoryIDs + rescanSubtreeIDs {
+                                if try baseline.treeStore.subtreeContainsSharedAllocationMetadata(
+                                    rootedAt: nodeID,
+                                    cancellationCheck: { try Task.checkCancellation() }
+                                ) {
+                                    try await self.forwardFullScan(
+                                        target: target,
+                                        options: options,
+                                        reason: .sharedAllocationTopologyChanged,
+                                        continuation: continuation
+                                    )
+                                    return
+                                }
+                            }
+                        }
                         continuation.yield(.executionMode(.incremental))
                         try await self.performIncrementalScan(
                             target: target,
@@ -191,6 +226,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
                             cutoff: cutoff,
                             relistDirectoryIDs: relistDirectoryIDs,
                             rescanSubtreeIDs: rescanSubtreeIDs,
+                            validatesSharedAllocation: validatesSharedAllocation,
                             continuation: continuation
                         )
                     }
@@ -211,6 +247,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
         cutoff: ScanIncrementalCheckpoint,
         relistDirectoryIDs: [String],
         rescanSubtreeIDs: [String],
+        validatesSharedAllocation: Bool,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) async throws {
         let startedAt = Date()
@@ -366,6 +403,22 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
         }
 
         try Task.checkCancellation()
+        if validatesSharedAllocation {
+            for replacement in replacements.values {
+                if try replacement.subtreeContainsSharedAllocationMetadata(
+                    rootedAt: replacement.rootID,
+                    cancellationCheck: { try Task.checkCancellation() }
+                ) {
+                    try await forwardFullScan(
+                        target: target,
+                        options: options,
+                        reason: .sharedAllocationTopologyChanged,
+                        continuation: continuation
+                    )
+                    return
+                }
+            }
+        }
         let spliced: ScanSnapshot?
         do {
             spliced = try baseline.replacingSubtrees(

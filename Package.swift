@@ -112,6 +112,7 @@ let package = Package(
                 "ViewModels/AppModel.swift",
                 "ViewModels/AppPresentationCoordinator.swift",
                 "ViewModels/ComparisonFlowController.swift",
+                "ViewModels/FileTransferReconciliationCoordinator.swift",
                 "ViewModels/InspectorSelectionSummary.swift",
                 "ViewModels/ScanComparisonBrowserModel.swift",
                 "ViewModels/ScanComparisonSetup.swift",
