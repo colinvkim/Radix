@@ -262,8 +262,9 @@ struct FileBrowserTableView: View {
             }
         }
         .background {
-            FileBrowserDragAdapter(
+            FileBrowserTableAdapter(
                 nodes: model.displayedNodes,
+                contentContext: model.displayedContentContext,
                 controller: fileDragController,
                 onDragActiveChange: actions.setDiscardPileDragActive
             )

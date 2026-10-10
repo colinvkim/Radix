@@ -63,6 +63,10 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
+    var displayedContentContext: FileBrowserDisplayContext {
+        displayState.context
+    }
+
     var displayedNodes: [FileNodeRecord] {
         displayState.nodes
     }
