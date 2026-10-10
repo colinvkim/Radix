@@ -181,7 +181,7 @@ struct TreemapChartView: View {
                         )
                     },
                     canStartPan: { location in
-                        fileDragItem(
+                        fileDragSegment(
                             at: location,
                             in: baseChartFrame,
                             discardPileOverlay: discardPileOverlay
@@ -488,24 +488,28 @@ struct TreemapChartView: View {
         return chartModel.segment(at: chartPoint.point, in: chartPoint.size)
     }
 
+    private func fileDragSegment(
+        at location: CGPoint,
+        in frame: CGRect,
+        discardPileOverlay: DiscardPileVisualizationOverlay
+    ) -> TreemapSegment? {
+        guard let segment = hitTest(at: location, in: frame),
+              let nodeID = segment.nodeID,
+              discardPileOverlay.allowsChartNodeAction(for: nodeID),
+              !DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(nodeID),
+              fileDragController.canAttemptDrag(nodeID: nodeID) else { return nil }
+        return segment
+    }
+
     private func fileDragItem(
         at location: CGPoint,
         in frame: CGRect,
         discardPileOverlay: DiscardPileVisualizationOverlay
     ) -> TreemapFileDragItem? {
-        guard let segment = hitTest(at: location, in: frame),
+        guard let segment = fileDragSegment(at: location, in: frame, discardPileOverlay: discardPileOverlay),
               let nodeID = segment.nodeID,
-              discardPileOverlay.allowsChartNodeAction(for: nodeID),
-              !DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(nodeID),
-              let node = treeStore.node(id: nodeID),
-              let session = fileDragController.prepare(nodeIDs: [node.id]) else {
-            return nil
-        }
-
-        return TreemapFileDragItem(
-            session: session,
-            segment: segment
-        )
+              let session = fileDragController.prepare(nodeIDs: [nodeID]) else { return nil }
+        return TreemapFileDragItem(session: session, segment: segment)
     }
 
     private func summaryStatus(for node: FileNodeRecord) -> String {

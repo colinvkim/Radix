@@ -5,6 +5,28 @@ import Testing
 @MainActor
 struct FileDragControllerTests {
     @Test
+    func gestureEligibilityDoesNotValidateIdentitiesOrPrepareSessions() throws {
+        let snapshot = fixture()
+        var verificationCount = 0
+        let controller = FileDragController(
+            context: { .init(snapshot: snapshot, target: snapshot.target, trashSafetyPolicy: .live()) },
+            verifyIdentity: { _ in verificationCount += 1; return .matches }, refresh: { _ in }
+        )
+        let nodeID = snapshot.root.id + "/Folder"
+        for _ in 0..<4 { #expect(controller.canAttemptDrag(nodeID: nodeID)) }
+        #expect(!controller.canAttemptDrag(nodeID: "/missing"))
+        #expect(!controller.canAttemptDrag(nodeID: snapshot.root.id + "/synthetic"))
+        #expect(verificationCount == 0)
+        #expect(!controller.isDragging)
+
+        let session = try #require(controller.prepare(nodeIDs: [nodeID]))
+        #expect(verificationCount == 1)
+        session.begin()
+        #expect(controller.isDragging)
+        session.end(operation: [])
+    }
+
+    @Test
     func nativeItemsPreserveInternalPayloadAndOriginalURLs() throws {
         let snapshot = fixture()
         var verified: [String] = []
@@ -88,6 +110,7 @@ struct FileDragControllerTests {
             verifyIdentity: { _ in stale ? .mismatch : .matches }, refresh: { _ in }
         )
         let nodeID = snapshot.root.id + "/Folder"
+        #expect(controller.canAttemptDrag(nodeID: nodeID))
         if stale {
             #expect(controller.prepare(nodeIDs: [nodeID]) == nil)
         } else {
@@ -145,6 +168,7 @@ struct FileDragControllerTests {
             scanWarnings: [], isComplete: true,
             source: .imported(.init(sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute, liveActionCapability: .pathValidation))
         )
+        #expect(!controller.canAttemptDrag(nodeID: live.root.id))
         #expect(controller.prepare(nodeIDs: [live.root.id]) == nil)
     }
 

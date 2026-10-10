@@ -52,9 +52,19 @@ final class FileDragController {
 
     var isDragging: Bool { activeSession != nil }
 
-    func prepare(nodeIDs: [FileNodeRecord.ID]) -> FileDragSession? {
+    /// Gesture arbitration uses scan metadata; live identities are checked at drag start.
+    func canAttemptDrag(nodeID: FileNodeRecord.ID) -> Bool {
+        availableContext?.snapshot.treeStore.node(id: nodeID)?.supportsFileActions == true
+    }
+
+    private var availableContext: Context? {
         guard let context = context(), context.snapshot.isComplete,
-              context.snapshot.source.allowsFileMutation, !nodeIDs.isEmpty else { return nil }
+              context.snapshot.source.allowsFileMutation else { return nil }
+        return context
+    }
+
+    func prepare(nodeIDs: [FileNodeRecord.ID]) -> FileDragSession? {
+        guard let context = availableContext, !nodeIDs.isEmpty else { return nil }
         let tree = context.snapshot.treeStore
         let nodes = tree.topLevelNodeIDs(from: nodeIDs).compactMap { tree.node(id: $0) }
         guard !nodes.isEmpty, nodes.allSatisfy(\.supportsFileActions),
