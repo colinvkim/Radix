@@ -620,9 +620,15 @@ struct SidebarScanCacheControllerTests {
         #expect(restored.treeStore.node(id: "/cache/root/child/file.txt") == nil)
         #expect(restored.treeStore.contentID == refreshed.treeStore.contentID)
         #expect(recorder.startedTargets.isEmpty)
-        #expect(controller.fileTransferReconciliationRequest(for: restored) != nil)
+        let followUp = try #require(controller.fileTransferReconciliationRequest(for: restored))
         #expect(controller.markForValidationOnActivation(currentSnapshot: restored))
-        #expect(controller.fileTransferReconciliationRequest(for: restored) != nil)
+        #expect(controller.fileTransferReconciliationRequest(for: restored)?.generation == followUp.generation)
+        #expect(await controller.completeFileTransferReconciliation(followUp, refreshedSnapshot: refreshed))
+        for _ in 0..<4 {
+            let revisited = try await restoreCacheScope(tree.childTarget, from: nil, options: options, controller: controller)
+            #expect(controller.fileTransferReconciliationRequest(for: revisited) == nil)
+            #expect(!controller.markForValidationOnActivation(currentSnapshot: revisited))
+        }
     }
 
     @Test
@@ -649,13 +655,18 @@ struct SidebarScanCacheControllerTests {
         #expect(restored.treeStore.backingStorageID == refreshed.treeStore.backingStorageID)
     }
 
-    @Test
-    func testNewTransferGenerationRejectsAnOlderRefresh() async throws {
+    @Test(arguments: [false, true])
+    func testNewTransferGenerationRejectsAnOlderRefresh(followUp: Bool) async throws {
         let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
         let tree = makeParentAndChildSnapshot()
         controller.prepareForScanStart(target: tree.snapshot.target, options: ScanOptions())
         controller.handleCompletedScanSnapshot(tree.snapshot)
         controller.markExternalFileTransfer(sourceDirectoryPaths: [tree.childTarget.url.path], currentSnapshot: tree.snapshot)
+        if followUp {
+            let immediate = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
+            #expect(await controller.completeFileTransferReconciliation(immediate, refreshedSnapshot: tree.snapshot))
+            #expect(controller.markForValidationOnActivation(currentSnapshot: tree.snapshot))
+        }
         let first = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
         controller.markExternalFileTransfer(sourceDirectoryPaths: ["/cache/root"], currentSnapshot: tree.snapshot)
         let second = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
@@ -664,6 +675,12 @@ struct SidebarScanCacheControllerTests {
         #expect(!(await controller.completeFileTransferReconciliation(first, refreshedSnapshot: tree.snapshot)))
         #expect(controller.fileTransferReconciliationRequest(for: tree.snapshot)?.generation == second.generation)
         #expect(Set(second.forcedDirectoryPaths) == ["/cache/root", tree.childTarget.url.path])
+        #expect(await controller.completeFileTransferReconciliation(second, refreshedSnapshot: tree.snapshot))
+        // A new transfer gets its own follow-up even if it interrupted an older one.
+        #expect(controller.markForValidationOnActivation(currentSnapshot: tree.snapshot))
+        let final = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
+        #expect(await controller.completeFileTransferReconciliation(final, refreshedSnapshot: tree.snapshot))
+        #expect(!controller.markForValidationOnActivation(currentSnapshot: tree.snapshot))
     }
 
     @Test

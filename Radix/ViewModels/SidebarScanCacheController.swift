@@ -34,6 +34,7 @@ nonisolated struct FileTransferReconciliationRequest: Sendable {
     let generation: UInt64
     fileprivate let cacheKey: ScanCacheKey
     fileprivate let wasCached: Bool
+    fileprivate let isFollowUp: Bool
 }
 
 // The cache remains synchronous on the main actor; only discarded ownership
@@ -147,6 +148,12 @@ final class CompletedScanCache {
     }
 }
 
+private struct FileTransferValidation {
+    var sourcePaths: Set<String> = []
+    var generation: UInt64?
+    var isFollowUp = false
+}
+
 @MainActor
 final class SidebarScanCacheController {
     typealias TargetActivityCheck = @MainActor @Sendable (ScanTarget) -> Bool
@@ -160,8 +167,7 @@ final class SidebarScanCacheController {
     private var sidebarScopeTask: Task<Void, Never>?
     private var sidebarScopeID: UUID?
     private var transferGeneration: UInt64 = 0
-    private var validationGenerationByKey: [ScanCacheKey: UInt64] = [:]
-    private var transferSourcePathsByKey: [ScanCacheKey: Set<String>] = [:]
+    private var transferValidationByKey: [ScanCacheKey: FileTransferValidation] = [:]
     // Expansion can replace a scoped child's backing. Its original parent
     // remains the canonical baseline until a new scan starts for that child.
     private var containingKeyByScope: [ScanCacheKey: ScanCacheKey] = [:]
@@ -200,8 +206,7 @@ final class SidebarScanCacheController {
 
     func clearCache() {
         completedScanCache.removeAll()
-        validationGenerationByKey.removeAll()
-        transferSourcePathsByKey.removeAll()
+        transferValidationByKey.removeAll()
         containingKeyByScope.removeAll()
     }
 
@@ -217,13 +222,16 @@ final class SidebarScanCacheController {
         retainTransferTracking(for: keys)
         transferGeneration += 1
         for key in keys {
-            transferSourcePathsByKey[key, default: []].formUnion(paths)
-            validationGenerationByKey[key] = transferGeneration
+            var validation = transferValidationByKey[key] ?? FileTransferValidation()
+            validation.sourcePaths.formUnion(paths)
+            validation.generation = transferGeneration
+            validation.isFollowUp = false
+            transferValidationByKey[key] = validation
         }
     }
 
     /// A receiver may finish writing after the drag session ends. Revalidate
-    /// retained transfer-related scans on the next explicit app activation.
+    /// retained transfer-related scans once on activation or cached navigation.
     @discardableResult
     func markForValidationOnActivation(currentSnapshot: ScanSnapshot?) -> Bool {
         var keys = Set(completedScanCache.retainedEntries.map(\.key))
@@ -232,10 +240,15 @@ final class SidebarScanCacheController {
             keys.insert(key)
         }
         retainTransferTracking(for: keys)
-        guard !transferSourcePathsByKey.isEmpty else { return false }
+        guard !transferValidationByKey.isEmpty else { return false }
         transferGeneration += 1
-        for key in transferSourcePathsByKey.keys {
-            validationGenerationByKey[key] = transferGeneration
+        for key in transferValidationByKey.keys {
+            // Repeated activations can retry a failed follow-up, but must not
+            // invalidate a follow-up that is already running.
+            guard var validation = transferValidationByKey[key], !validation.isFollowUp else { continue }
+            validation.generation = transferGeneration
+            validation.isFollowUp = true
+            transferValidationByKey[key] = validation
         }
         return true
     }
@@ -256,16 +269,15 @@ final class SidebarScanCacheController {
         }
         let key = containingEntry?.key ?? displayedKey
         let baseline = containingEntry?.snapshot ?? snapshot
-        guard let generation = [validationGenerationByKey[key], validationGenerationByKey[displayedKey]]
-            .compactMap({ $0 }).max() else { return nil }
-        validationGenerationByKey[key] = generation
-        if let paths = transferSourcePathsByKey[displayedKey] {
-            transferSourcePathsByKey[key, default: []].formUnion(paths)
-        }
+        let validations = [transferValidationByKey[key], transferValidationByKey[displayedKey]].compactMap { $0 }
+        guard let generation = validations.compactMap(\.generation).max() else { return nil }
+        var validation = mergeTransferValidations(validations)
+        validation.generation = generation
+        transferValidationByKey[key] = validation
         // A scoped child retains the parent's nil exclusion root and summary
         // settings. Scan the retained parent with its original target/options.
         let rootPath = baseline.target.url.standardizedFileURL.path
-        let forcedPaths = Set((transferSourcePathsByKey[key] ?? []).compactMap { path -> String? in
+        let forcedPaths = Set(validation.sourcePaths.compactMap { path -> String? in
             if Self.path(path, isContainedIn: rootPath) { return path }
             if Self.path(rootPath, isContainedIn: path) { return rootPath }
             return nil
@@ -276,7 +288,8 @@ final class SidebarScanCacheController {
             forcedDirectoryPaths: forcedPaths.sorted(),
             generation: generation,
             cacheKey: key,
-            wasCached: containingEntry != nil
+            wasCached: containingEntry != nil,
+            isFollowUp: validation.isFollowUp
         )
     }
 
@@ -289,7 +302,7 @@ final class SidebarScanCacheController {
         guard !Task.isCancelled,
               refreshedSnapshot.isComplete, refreshedSnapshot.source.allowsFileMutation,
               refreshedSnapshot.target == request.snapshot.target,
-              validationGenerationByKey[request.cacheKey] == request.generation else { return false }
+              transferValidationByKey[request.cacheKey]?.generation == request.generation else { return false }
         let entries = completedScanCache.retainedEntries
         if let cached = entries.first(where: { $0.key == request.cacheKey })?.snapshot {
             guard ScanCacheSnapshotVersion(cached) == ScanCacheSnapshotVersion(request.snapshot) else { return false }
@@ -302,13 +315,15 @@ final class SidebarScanCacheController {
         }).union(containingKeyByScope.compactMap { scope, parent in
             parent == request.cacheKey ? scope : nil
         }).union([request.cacheKey])
-        let paths = relatedKeys.reduce(into: Set<String>()) { paths, key in
-            paths.formUnion(transferSourcePathsByKey[key] ?? [])
-        }
+        var validation = mergeTransferValidations(relatedKeys.compactMap { transferValidationByKey[$0] })
         completedScanCache.store(refreshedSnapshot, for: request.cacheKey, replacing: relatedKeys)
-        transferSourcePathsByKey[request.cacheKey] = paths
-        for key in relatedKeys where validationGenerationByKey[key] == request.generation {
-            validationGenerationByKey.removeValue(forKey: key)
+        for key in relatedKeys {
+            transferValidationByKey.removeValue(forKey: key)
+        }
+        if !request.isFollowUp {
+            // Keep the source paths only until one late-write check succeeds.
+            validation.generation = nil
+            transferValidationByKey[request.cacheKey] = validation
         }
         return true
     }
@@ -324,26 +339,31 @@ final class SidebarScanCacheController {
     }
 
     private func retainTransferTracking(for keys: Set<ScanCacheKey>) {
-        validationGenerationByKey = validationGenerationByKey.filter { keys.contains($0.key) }
-        transferSourcePathsByKey = transferSourcePathsByKey.filter { keys.contains($0.key) }
+        transferValidationByKey = transferValidationByKey.filter { keys.contains($0.key) }
+    }
+
+    private func mergeTransferValidations(_ validations: [FileTransferValidation]) -> FileTransferValidation {
+        var merged = validations.max { ($0.generation ?? 0) < ($1.generation ?? 0) } ?? FileTransferValidation()
+        merged.sourcePaths = validations.reduce(into: Set<String>()) { $0.formUnion($1.sourcePaths) }
+        return merged
     }
 
     private func inheritTransferTracking(for key: ScanCacheKey, from snapshot: ScanSnapshot) {
-        for entry in completedScanCache.retainedEntries
-        where entry.key.options == key.options
-            && entry.snapshot.treeStore.backingStorageID == snapshot.treeStore.backingStorageID {
-            guard let paths = transferSourcePathsByKey[entry.key] else { continue }
-            transferSourcePathsByKey[key, default: []].formUnion(paths)
-            if let generation = validationGenerationByKey[entry.key] {
-                validationGenerationByKey[key] = max(validationGenerationByKey[key] ?? 0, generation)
-            }
+        var validations = completedScanCache.retainedEntries.compactMap { entry in
+            entry.key.options == key.options
+                && entry.snapshot.treeStore.backingStorageID == snapshot.treeStore.backingStorageID
+                ? transferValidationByKey[entry.key] : nil
         }
-        // Cached navigation is another explicit opportunity to catch writes
-        // that completed after the immediate post-drop validation.
-        if transferSourcePathsByKey[key] != nil, validationGenerationByKey[key] == nil {
+        if let existing = transferValidationByKey[key] { validations.append(existing) }
+        guard !validations.isEmpty else { return }
+        var validation = mergeTransferValidations(validations)
+        // Cached navigation can consume the same single follow-up as activation.
+        if validation.generation == nil {
             transferGeneration += 1
-            validationGenerationByKey[key] = transferGeneration
+            validation.generation = transferGeneration
+            validation.isFollowUp = true
         }
+        transferValidationByKey[key] = validation
     }
 
     private static func path(_ path: String, isContainedIn rootPath: String) -> Bool {

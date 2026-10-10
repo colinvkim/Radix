@@ -177,11 +177,47 @@ struct FileTransferReconciliationCoordinatorTests {
         harness.reconciliation.applicationBecameActive()
         try await waitUntil("late validation begins") { harness.service.rescanRequests.count == 2 }
         #expect(harness.service.rescanRequests[1].forcedPaths == [fixture.sourceTarget.id])
+        let followUp = try #require(harness.cache.fileTransferReconciliationRequest(for: immediate))
+        harness.reconciliation.applicationBecameActive()
+        #expect(harness.cache.fileTransferReconciliationRequest(for: immediate)?.generation == followUp.generation)
         let moved = makeTransferFixture(moved: true)
         harness.service.finish(index: 1, snapshot: moved.snapshot)
         try await waitUntil("late receiver change applied") { !harness.scan.isScanOperationInProgress }
         #expect(harness.scan.snapshot?.treeStore.node(id: fixture.sourceFile.id) == nil)
         #expect(harness.scan.snapshot?.treeStore.node(id: moved.sourceFile.id) != nil)
+        for _ in 0..<4 {
+            harness.reconciliation.applicationBecameActive()
+            await Task.yield()
+        }
+        #expect(harness.service.rescanRequests.count == 2)
+        #expect(harness.cache.fileTransferReconciliationRequest(for: try #require(harness.scan.snapshot)) == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func failedOrCancelledFollowUpRemainsRetryableUntilSuccessful(cancel: Bool) async throws {
+        let fixture = makeTransferFixture()
+        let harness = TransferReconciliationHarness()
+        defer { harness.cleanup() }
+        harness.storeAndDisplay(fixture.snapshot)
+        harness.reconciliation.fileTransferDidEnd(fixture.transfer)
+        try await waitUntil("initial transfer refresh") { harness.service.rescanRequests.count == 1 }
+        harness.service.finish(index: 0, snapshot: fixture.snapshot, mode: .incrementalNoChanges)
+        try await waitUntil("initial transfer refresh finishes") { !harness.scan.isScanOperationInProgress }
+        harness.reconciliation.applicationBecameActive()
+        try await waitUntil("follow-up begins") { harness.service.rescanRequests.count == 2 }
+        let followUpTask = try #require(harness.scan.scanTask)
+        if cancel {
+            harness.scan.stopScan(resetState: false)
+        } else {
+            harness.service.fail(index: 1)
+        }
+        await followUpTask.value
+        #expect(harness.cache.fileTransferReconciliationRequest(for: fixture.snapshot) != nil)
+        harness.reconciliation.applicationBecameActive()
+        try await waitUntil("explicit follow-up retry") { harness.service.rescanRequests.count == 3 }
+        harness.service.finish(index: 2, snapshot: fixture.snapshot, mode: .incrementalNoChanges)
+        try await waitUntil("follow-up retry finishes") { !harness.scan.isScanOperationInProgress }
+        #expect(!harness.cache.markForValidationOnActivation(currentSnapshot: harness.scan.snapshot))
     }
 
     @Test
