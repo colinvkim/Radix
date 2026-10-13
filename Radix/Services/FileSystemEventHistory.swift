@@ -111,14 +111,14 @@ nonisolated struct DarwinFileSystemEventHistoryProvider: FileSystemEventHistoryP
         }
     }
 
-    private struct VolumeContext {
+    struct VolumeContext {
         let deviceID: dev_t
         let uuid: String
         let rootURL: URL
         let relativeTargetPath: String
     }
 
-    private static func volumeContext(for targetURL: URL) throws -> VolumeContext {
+    static func volumeContext(for targetURL: URL) throws -> VolumeContext {
         let targetURL = targetURL.standardizedFileURL
         var targetStat = stat()
         let statResult = targetURL.withUnsafeFileSystemRepresentation { path in
@@ -326,7 +326,7 @@ nonisolated extension FileSystemEventFlags {
     }
 }
 
-private nonisolated final class FSEventStreamLifetime: @unchecked Sendable {
+nonisolated final class FSEventStreamLifetime: @unchecked Sendable {
     private let lock = NSLock()
     private var stream: FSEventStreamRef?
     private let queue: DispatchQueue
@@ -334,6 +334,10 @@ private nonisolated final class FSEventStreamLifetime: @unchecked Sendable {
     init(stream: FSEventStreamRef, queue: DispatchQueue) {
         self.stream = stream
         self.queue = queue
+    }
+
+    deinit {
+        stop()
     }
 
     func stop() {

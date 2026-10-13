@@ -61,7 +61,8 @@ struct AppPreferencesStoreTests {
             showFreeSpaceInDiskMaps: true,
             visualizationMode: .treemap,
             useScanExclusions: true,
-            exclusionPatterns: ["node_modules", "*.log"]
+            exclusionPatterns: ["node_modules", "*.log"],
+            automaticallyRefreshFocusedFolder: false
         )
 
         store.saveScanPreferences(preferences)
@@ -85,6 +86,7 @@ struct AppPreferencesStoreTests {
         defaults.set(true, forKey: "treatPackagesAsDirectories")
         defaults.set(42, forKey: "maxRenderedDepth")
         defaults.set(false, forKey: "autoSummarizeDirectories")
+        defaults.set(false, forKey: "automaticallyRefreshFocusedFolder")
         defaults.set(true, forKey: "showFreeSpaceInSunburst")
         defaults.set("treemap", forKey: "scanVisualizationMode")
         defaults.set(true, forKey: "useScanExclusions")
@@ -96,6 +98,7 @@ struct AppPreferencesStoreTests {
         #expect(preferences.treatPackagesAsDirectories)
         #expect(preferences.maxRenderedDepth == AppScanPreferences.defaults.maxRenderedDepth)
         #expect(!(preferences.autoSummarizeDirectories))
+        #expect(!(preferences.automaticallyRefreshFocusedFolder))
         #expect(preferences.showFreeSpaceInDiskMaps)
         #expect(preferences.visualizationMode == .treemap)
         #expect(preferences.useScanExclusions)

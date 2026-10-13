@@ -149,6 +149,7 @@ final class AppModel: ObservableObject {
     @Published var treatPackagesAsDirectories = false
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
+    @Published var automaticallyRefreshFocusedFolder = true
     @Published var showFreeSpaceInDiskMaps = false {
         didSet {
             guard showFreeSpaceInDiskMaps != oldValue else { return }
@@ -267,7 +268,7 @@ final class AppModel: ObservableObject {
 
     lazy var fileDragController = FileDragController(
         context: { [weak self] in
-            guard let self, !scanCoordinator.isScanOperationInProgress,
+            guard let self, !scanCoordinator.isForegroundScanOperationInProgress,
                   scanCoordinator.expandingNodeID == nil,
                   !isArchiveOperationInProgress, !trashFlow.isMovingFiles,
                   let snapshot = scanCoordinator.snapshot else { return nil }
@@ -282,6 +283,9 @@ final class AppModel: ObservableObject {
         },
         refresh: { [weak self] transfer in
             self?.fileTransferReconciliation.fileTransferDidEnd(transfer)
+        },
+        draggingChanged: { [weak self] in
+            self?.updateAutomaticFolderRefresh()
         }
     )
 
@@ -296,6 +300,10 @@ final class AppModel: ObservableObject {
 
     private var lastActionErrorTitle: String?
     private let sidebarScanCacheController: SidebarScanCacheController
+    private var folderRefreshController: FolderRefreshController?
+    private var isWorkspaceActive = true
+    private var isWorkspaceDragging = false
+    private var isScanPanelPresented = false
     private var lastPersistedScanPreferences: AppScanPreferences?
 
     private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
@@ -359,6 +367,7 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = preferences.scan.treatPackagesAsDirectories
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
+        automaticallyRefreshFocusedFolder = preferences.scan.automaticallyRefreshFocusedFolder
         showFreeSpaceInDiskMaps = preferences.scan.showFreeSpaceInDiskMaps
         scanVisualizationMode = preferences.scan.visualizationMode
         useScanExclusions = preferences.scan.useScanExclusions
@@ -387,6 +396,21 @@ final class AppModel: ObservableObject {
         refreshSidebarTargetSections()
         refreshFullDiskAccessStatus()
         quickLookController.delegate = self
+        folderRefreshController = FolderRefreshController(
+            watcher: dependencies.fileSystemChangeWatcher,
+            requestRefresh: { [weak self] nodeID in
+                self?.scanCoordinator.refreshFolderInBackground(id: nodeID) ?? false
+            }
+        )
+        scanCoordinator.onFolderRescanStarted = { [weak self] nodeID in
+            self?.folderRefreshController?.refreshStarted(nodeID: nodeID)
+        }
+        scanCoordinator.onFolderRescanFinished = { [weak self] nodeID, result in
+            self?.folderRefreshController?.refreshFinished(nodeID: nodeID, result: result)
+        }
+        scanCoordinator.canApplyBackgroundRefresh = { [weak self] in
+            self?.canApplyAutomaticFolderRefresh == true
+        }
         presentationCoordinator.objectWillChange
             .sink { [weak self] in
                 self?.objectWillChange.send()
@@ -434,6 +458,7 @@ final class AppModel: ObservableObject {
         observeScanCoordinator()
         observeMountedVolumes()
         observePreferences()
+        observeAutomaticFolderRefresh()
     }
 
     isolated deinit {
@@ -442,6 +467,8 @@ final class AppModel: ObservableObject {
 
     func cleanup() {
         fileTransferReconciliation.cleanup()
+        folderRefreshController?.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
+        folderRefreshController = nil
         workspaceTour.stop()
         finishWorkspaceTour()
         flushPendingScanPreferences()
@@ -479,6 +506,8 @@ final class AppModel: ObservableObject {
 
     func suspendMainWindowActivity() {
         fileTransferReconciliation.suspend()
+        isWorkspaceActive = false
+        updateAutomaticFolderRefresh()
         workspaceTour.stop()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
@@ -503,7 +532,72 @@ final class AppModel: ObservableObject {
     }
 
     func suspendBackgroundActivity() {
+        isWorkspaceActive = false
+        updateAutomaticFolderRefresh()
         quickLookController.closePreview()
+    }
+
+    func resumeMainWindowActivity() {
+        isWorkspaceActive = true
+        updateAutomaticFolderRefresh()
+    }
+
+    func setWorkspaceDragActive(_ isActive: Bool) {
+        isWorkspaceDragging = isActive
+        updateAutomaticFolderRefresh()
+    }
+
+    private var canApplyAutomaticFolderRefresh: Bool {
+        automaticallyRefreshFocusedFolder && isWorkspaceActive && !isWorkspaceDragging && !showsOnboarding
+            && !tourSession.isActive && scanComparison == nil
+            && presentationCoordinator.activeDestination == nil
+            && !isArchiveOperationInProgress && !isExportPanelPresented && !isScanPanelPresented
+            && deferredWorkBoxes[.scanStart] == nil && deferredWorkBoxes[.sidebarSelection] == nil
+            && !fileDragController.isDragging
+            && !trashFlow.isMovingFiles && quickLookController.session == nil
+    }
+
+    private func preemptAutomaticFolderRefresh() {
+        if scanCoordinator.folderRescanState?.isBackground == true {
+            scanCoordinator.stopScan()
+        }
+    }
+
+    private func presentScanPanel<Result>(_ present: () -> Result) -> Result {
+        isScanPanelPresented = true
+        updateAutomaticFolderRefresh()
+        preemptAutomaticFolderRefresh()
+        defer {
+            isScanPanelPresented = false
+            updateAutomaticFolderRefresh()
+        }
+        return present()
+    }
+
+    private func updateAutomaticFolderRefresh() {
+        if !automaticallyRefreshFocusedFolder, scanCoordinator.folderRescanState?.isBackground == true {
+            scanCoordinator.stopScan()
+        }
+        let nodeID = navigationModel.focusedNodeID
+        let canRefresh = canApplyAutomaticFolderRefresh
+            && nodeID.map { scanCoordinator.canRefreshFolderInBackground(id: $0) } == true
+        folderRefreshController?.update(
+            snapshot: automaticallyRefreshFocusedFolder ? scanCoordinator.snapshot : nil,
+            focusedNodeID: nodeID,
+            canRefresh: canRefresh
+        )
+    }
+
+    private func observeAutomaticFolderRefresh() {
+        Publishers.MergeMany([
+            objectWillChange.eraseToAnyPublisher(),
+            scanCoordinator.objectWillChange.eraseToAnyPublisher(),
+            navigationModel.objectWillChange.eraseToAnyPublisher(),
+            quickLookController.objectWillChange.eraseToAnyPublisher()
+        ])
+        .receive(on: RunLoop.main)
+        .sink { [weak self] in self?.updateAutomaticFolderRefresh() }
+        .store(in: &cancellables)
     }
 
     var scanState: ScanCoordinator {
@@ -612,6 +706,7 @@ final class AppModel: ObservableObject {
 
     func startWorkspaceTour() {
         guard canStartWorkspaceTour else { return }
+        preemptAutomaticFolderRefresh()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
@@ -632,7 +727,7 @@ final class AppModel: ObservableObject {
 
     var canStartWorkspaceTour: Bool {
         !isReadOnlyMode && !workspaceTour.isActive && canUseWorkspaceCommands
-            && !scanCoordinator.isScanOperationInProgress && scanCoordinator.expandingNodeID == nil
+            && !scanCoordinator.isForegroundScanOperationInProgress && scanCoordinator.expandingNodeID == nil
             && !isArchiveOperationInProgress && !isExportPanelPresented
             && !trashFlow.isMovingFiles
             && presentationCoordinator.activeSheet == nil && presentationCoordinator.activeDialog == nil
@@ -796,6 +891,7 @@ final class AppModel: ObservableObject {
         treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
         maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
         autoSummarizeDirectories = AppScanPreferences.defaults.autoSummarizeDirectories
+        automaticallyRefreshFocusedFolder = AppScanPreferences.defaults.automaticallyRefreshFocusedFolder
         showFreeSpaceInDiskMaps = AppScanPreferences.defaults.showFreeSpaceInDiskMaps
         scanVisualizationMode = AppScanPreferences.defaults.visualizationMode
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
@@ -852,21 +948,21 @@ final class AppModel: ObservableObject {
     }
 
     func presentOpenPanelAndScan() {
-        guard !scanCoordinator.isScanOperationInProgress else { return }
-        if let target = dependencies.systemActions.presentOpenPanel() {
+        guard !scanCoordinator.isForegroundScanOperationInProgress else { return }
+        if let target = presentScanPanel(dependencies.systemActions.presentOpenPanel) {
             startScan(target)
         }
     }
 
     var canExportCurrentScan: Bool {
         !tourSession.isActive && scanCoordinator.snapshot?.isComplete == true &&
-            !scanCoordinator.isScanOperationInProgress &&
+            !scanCoordinator.isForegroundScanOperationInProgress &&
             !isExportPanelPresented &&
             !isArchiveOperationInProgress
     }
 
     private var canPresentScanSnapshotPanel: Bool {
-        !tourSession.isActive && !scanCoordinator.isScanOperationInProgress &&
+        !tourSession.isActive && !scanCoordinator.isForegroundScanOperationInProgress &&
             !isExportPanelPresented &&
             !isArchiveOperationInProgress &&
             pendingComparisonSetup == nil &&
@@ -891,7 +987,7 @@ final class AppModel: ObservableObject {
     }
 
     private var canConfirmImportPreview: Bool {
-        !scanCoordinator.isScanOperationInProgress &&
+        !scanCoordinator.isForegroundScanOperationInProgress &&
             !isExportPanelPresented &&
             !isArchiveOperationInProgress
     }
@@ -909,6 +1005,8 @@ final class AppModel: ObservableObject {
         let requestID = UUID()
         exportPanelRequestID = requestID
         isExportPanelPresented = true
+        updateAutomaticFolderRefresh()
+        preemptAutomaticFolderRefresh()
         exportPanelTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -933,7 +1031,7 @@ final class AppModel: ObservableObject {
 
     private var canExportCurrentScanIgnoringPresentedPanel: Bool {
         scanCoordinator.snapshot?.isComplete == true &&
-            !scanCoordinator.isScanOperationInProgress &&
+            !scanCoordinator.isForegroundScanOperationInProgress &&
             !isArchiveOperationInProgress
     }
 
@@ -1001,7 +1099,7 @@ final class AppModel: ObservableObject {
 
     func importScanSnapshot() {
         guard canImportScanSnapshot else { return }
-        guard let sourceURL = dependencies.systemActions.presentImportScanPanel() else {
+        guard let sourceURL = presentScanPanel(dependencies.systemActions.presentImportScanPanel) else {
             return
         }
 
@@ -1028,11 +1126,12 @@ final class AppModel: ObservableObject {
             return
         }
 
+        preemptAutomaticFolderRefresh()
         previewImportScanSnapshot(from: sourceURL)
     }
 
     private var importUnavailableMessage: String {
-        if scanCoordinator.isScanOperationInProgress {
+        if scanCoordinator.isForegroundScanOperationInProgress {
             return String(localized: "Stop the current scan before importing a snapshot.", comment: "Error shown when importing is attempted during a scan.")
         }
         if isExportPanelPresented {
@@ -1051,7 +1150,7 @@ final class AppModel: ObservableObject {
     }
 
     private var comparisonUnavailableMessage: String {
-        if scanCoordinator.isScanOperationInProgress {
+        if scanCoordinator.isForegroundScanOperationInProgress {
             return String(localized: "Stop the current scan before comparing snapshots.", comment: "Error shown when comparison is attempted during a scan.")
         }
         if isExportPanelPresented {
@@ -1074,6 +1173,7 @@ final class AppModel: ObservableObject {
             presentErrorMessage(comparisonUnavailableMessage)
             return
         }
+        preemptAutomaticFolderRefresh()
         beginComparisonSetup()
     }
 
@@ -1087,6 +1187,7 @@ final class AppModel: ObservableObject {
             return
         }
 
+        preemptAutomaticFolderRefresh()
         previewArchiveSnapshotComparison(sourceURLs: sourceURLs)
     }
 
@@ -1817,6 +1918,7 @@ final class AppModel: ObservableObject {
             workspaceTour.stop()
             return
         }
+        folderRefreshController?.pauseCurrentRefresh()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
@@ -3291,9 +3393,9 @@ final class AppModel: ObservableObject {
                 $useScanExclusions,
                 $exclusionPatterns
             ))
-            .combineLatest($scanVisualizationMode)
-            .map { preferences, visualizationMode in
-                Self.scanPreferences(preferences.0, preferences.1, visualizationMode)
+            .combineLatest($scanVisualizationMode, $automaticallyRefreshFocusedFolder)
+            .map { preferences, visualizationMode, automaticallyRefreshFocusedFolder in
+                Self.scanPreferences(preferences.0, preferences.1, visualizationMode, automaticallyRefreshFocusedFolder)
             }
             .dropFirst()
             .removeDuplicates()
@@ -3313,7 +3415,8 @@ final class AppModel: ObservableObject {
             showFreeSpaceInDiskMaps: showFreeSpaceInDiskMaps,
             visualizationMode: scanVisualizationMode,
             useScanExclusions: useScanExclusions,
-            exclusionPatterns: exclusionPatterns
+            exclusionPatterns: exclusionPatterns,
+            automaticallyRefreshFocusedFolder: automaticallyRefreshFocusedFolder
         )
     }
 
@@ -3330,7 +3433,8 @@ final class AppModel: ObservableObject {
     private static func scanPreferences(
         _ scanBasics: (Bool, Bool, Int),
         _ scanFilters: (Bool, Bool, Bool, [String]),
-        _ visualizationMode: ScanVisualizationMode
+        _ visualizationMode: ScanVisualizationMode,
+        _ automaticallyRefreshFocusedFolder: Bool
     ) -> AppScanPreferences {
         AppScanPreferences(
             showHiddenFiles: scanBasics.0,
@@ -3340,7 +3444,8 @@ final class AppModel: ObservableObject {
             showFreeSpaceInDiskMaps: scanFilters.1,
             visualizationMode: visualizationMode,
             useScanExclusions: scanFilters.2,
-            exclusionPatterns: scanFilters.3
+            exclusionPatterns: scanFilters.3,
+            automaticallyRefreshFocusedFolder: automaticallyRefreshFocusedFolder
         )
     }
 
