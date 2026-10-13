@@ -112,11 +112,11 @@ struct FileSystemChangeWatcherTests {
     }
 
     @Test
-    func mailboxCancellationReleasesPendingRead() async {
+    func mailboxCancellationDiscardsPendingChanges() async {
         let buffer = FSEventChangeBuffer(targetURL: URL(filePath: "/scan"), sinceEventID: 10)
-        let read = Task { await buffer.next() }
+        buffer.receive([FileSystemEventRecord(path: "/scan/file", eventID: 11, flags: .itemModified)])
         buffer.cancel()
-        #expect(await read.value == nil)
+        #expect(await buffer.next() == nil)
     }
 
     @Test
@@ -170,18 +170,35 @@ struct FileSystemChangeWatcherTests {
     }
 
     @Test
-    func cancellingLiveIterationStopsWaiting() async throws {
+    @MainActor
+    func cancellingActiveLiveIterationStopsWaiting() async throws {
         let root = try makeWatcherTestDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appending(path: "before-cancellation.dat")
         let stream = DarwinFileSystemChangeWatcher(latency: 0.01).changes(for: root, since: nil)
+        var receivedFile = false
+        var finished = false
         let consumer = Task {
+            defer { finished = true }
             do {
-                for try await _ in stream {}
+                for try await batch in stream {
+                    if batch.contains(where: { $0.path == file.path && $0.flags.contains(.itemCreated) }) {
+                        receivedFile = true
+                    }
+                }
             } catch is CancellationError {
                 // Both normal end-of-stream and cancellation are valid endings.
             }
         }
+        defer { consumer.cancel() }
+        try Data([1]).write(to: file)
+        try await waitUntil("live iteration received a file event") { receivedFile || finished }
+        if finished {
+            try await consumer.value
+            throw WatcherTestError.streamEnded
+        }
         consumer.cancel()
+        try await waitUntil("cancelled live iteration completes") { finished }
         try await consumer.value
     }
 }

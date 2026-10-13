@@ -7,11 +7,17 @@ import Testing
 struct AppModelFolderRefreshTests {
     @Test
     func nativeFileDragPausesAutomaticRefreshAndPublicationUntilSessionsEnd() async throws {
+        let fixture = AppFolderRefreshFixture()
         var actions = AppSystemActions.inert
-        actions.verifyTrashIdentity = { _ in .matches }
+        actions.verifyTrashIdentity = { node in
+            guard let scannedIdentity = node.fileIdentity else { return .missingScannedIdentity }
+            guard let currentIdentity = fixture.snapshot.treeStore.node(id: node.id)?.fileIdentity else {
+                return .missingCurrentItem
+            }
+            return scannedIdentity == currentIdentity ? .matches : .mismatch
+        }
         let harness = AppFolderRefreshHarness(systemActions: actions)
         defer { harness.model.cleanup() }
-        let fixture = AppFolderRefreshFixture()
         let model = harness.model
         model.scanState.restoreCompletedSnapshot(fixture.snapshot)
         model.focus(nodeID: fixture.downloads.id)
@@ -20,8 +26,8 @@ struct AppModelFolderRefreshTests {
         defer { session.end(operation: []) }
         session.begin()
         #expect(model.fileDragController.isDragging)
-        harness.watcher.emit([changedAppFolderFile(fixture.keptDownload.id)])
-        await settleFolderRefreshTasks(for: .milliseconds(1_200))
+        try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
+        try await settleFolderRefreshTasks(for: .milliseconds(1_200))
         #expect(harness.scanner.requests.isEmpty)
 
         session.end(operation: [])
@@ -30,12 +36,14 @@ struct AppModelFolderRefreshTests {
         let publishingSession = try #require(model.fileDragController.prepare(nodeIDs: [fixture.keptDownload.id]))
         defer { publishingSession.end(operation: []) }
         publishingSession.begin()
-        let updatedFile = makeTestFileNode(id: fixture.keptDownload.id, name: fixture.keptDownload.name, size: 200)
+        let gate = AppFolderRefreshApplicationGate(coordinator: model.scanState)
+        defer { gate.restore() }
+        let updatedFile = fixture.file(fixture.keptDownload, withSize: 200)
         harness.scanner.finish(
             with: fixture.folderSnapshot(fixture.downloads, children: [updatedFile, fixture.markedDownload]),
             index: 0
         )
-        await settleFolderRefreshTasks(for: .milliseconds(50))
+        try await waitForFolderRefresh("native drag blocks computed replacement") { gate.blockedChecks > 0 }
         #expect(model.scanState.isScanOperationInProgress)
         #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
         publishingSession.end(operation: [])
@@ -55,26 +63,26 @@ struct AppModelFolderRefreshTests {
         model.focus(nodeID: fixture.downloads.id)
         try await waitForFolderRefresh("manual refresh watcher") { harness.watcher.requests.count == 1 }
 
-        harness.watcher.emit([changedAppFolderFile(fixture.keptDownload.id)])
-        await settleFolderRefreshTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
         // The explicit request runs before the one-second automatic debounce.
+        let manualStartedAt = ContinuousClock.now
         model.rescanFolder(id: fixture.downloads.id)
         try await waitForFolderRefresh("manual refresh begins") { harness.scanner.requests.count == 1 }
         #expect(model.scanState.folderRescanState?.isBackground == false)
         if hasLaterChange {
-            harness.watcher.emit([changedAppFolderFile(fixture.keptDownload.id)])
-            await settleFolderRefreshTasks()
+            try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
         }
         harness.scanner.finish(
             with: fixture.folderSnapshot(fixture.downloads, children: [fixture.keptDownload, fixture.markedDownload]),
             index: 0
         )
         try await waitForFolderRefresh("manual refresh applied") { !model.scanState.isScanOperationInProgress }
+        let manualElapsed = manualStartedAt.duration(to: .now)
 
         if hasLaterChange {
             try await waitForFolderRefresh("later event remains pending") { harness.scanner.requests.count == 2 }
             #expect(model.scanState.folderRescanState?.isBackground == true)
-            let updatedFile = makeTestFileNode(id: fixture.keptDownload.id, name: fixture.keptDownload.name, size: 200)
+            let updatedFile = fixture.file(fixture.keptDownload, withSize: 200)
             harness.scanner.finish(
                 with: fixture.folderSnapshot(fixture.downloads, children: [updatedFile, fixture.markedDownload]),
                 index: 1
@@ -84,9 +92,10 @@ struct AppModelFolderRefreshTests {
                     && !model.scanState.isScanOperationInProgress
             }
         } else {
-            // Let the entire automatic debounce elapse. An older event already
-            // covered by the manual scan must not request another traversal.
-            await settleFolderRefreshTasks(for: .milliseconds(1_200))
+            // Cross the adaptive cooldown even when the suite delays the manual
+            // refresh. Covered events must not request another traversal afterward.
+            let cooldown = max(.seconds(5), manualElapsed * 2)
+            try await settleFolderRefreshTasks(for: cooldown + .seconds(1))
         }
         #expect(harness.scanner.requests.count == (hasLaterChange ? 2 : 1))
     }
@@ -97,19 +106,20 @@ struct AppModelFolderRefreshTests {
         defer { harness.model.cleanup() }
         let fixture = AppFolderRefreshFixture()
         let model = harness.model
-        try await beginAppFolderBackgroundRefresh(harness, fixture: fixture)
-        let retiredTask = try #require(model.scanState.scanTask)
+        let pending = try await stageAppFolderBackgroundReplacement(harness, fixture: fixture)
+        defer { pending.gate.restore() }
         #expect(model.canRescanCurrentFolder)
         model.rescanFolder(id: fixture.downloads.id)
         try await waitForFolderRefresh("foreground rescan replaces background scan") {
-            harness.scanner.requests.count == 2 && harness.scanner.cancellations == 1
+            harness.scanner.requests.count == 2
         }
         #expect(model.scanState.folderRescanState?.isBackground == false)
 
-        harness.scanner.finish(with: fixture.folderSnapshot(fixture.downloads, children: []), index: 0)
-        await retiredTask.value
+        try await waitForRetiredFolderRefresh(pending.task)
+        #expect(pending.task.isCancelled)
+        pending.gate.restore()
         #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
-        let updatedFile = makeTestFileNode(id: fixture.keptDownload.id, name: fixture.keptDownload.name, size: 200)
+        let updatedFile = fixture.file(fixture.keptDownload, withSize: 200)
         harness.scanner.finish(
             with: fixture.folderSnapshot(fixture.downloads, children: [updatedFile, fixture.markedDownload]),
             index: 1
@@ -135,17 +145,18 @@ struct AppModelFolderRefreshTests {
         let harness = AppFolderRefreshHarness(systemActions: actions)
         defer { harness.model.cleanup() }
         let model = harness.model
-        try await beginAppFolderBackgroundRefresh(harness, fixture: fixture)
-        let retiredTask = try #require(model.scanState.scanTask)
+        let pending = try await stageAppFolderBackgroundReplacement(harness, fixture: fixture)
+        defer { pending.gate.restore() }
         model.presentOpenPanelAndScan()
         try await waitForFolderRefresh("chosen folder scan starts") {
-            harness.scanner.requests.count == 2 && harness.scanner.cancellations == 1
+            harness.scanner.requests.count == 2
         }
         #expect(panelRequests == 1)
         #expect(harness.scanner.requests.last?.id == fixture.documents.id)
         #expect(model.scanState.folderRescanState == nil)
-        harness.scanner.finish(with: fixture.folderSnapshot(fixture.downloads, children: []), index: 0)
-        await retiredTask.value
+        try await waitForRetiredFolderRefresh(pending.task)
+        #expect(pending.task.isCancelled)
+        pending.gate.restore()
         #expect(model.scanState.snapshot == nil)
 
         let chosenSnapshot = fixture.folderSnapshot(fixture.documents, children: [fixture.document])
@@ -167,19 +178,20 @@ struct AppModelFolderRefreshTests {
         defer { harness.model.cleanup() }
         let fixture = AppFolderRefreshFixture()
         let model = harness.model
-        try await beginAppFolderBackgroundRefresh(harness, fixture: fixture)
-        let retiredTask = try #require(model.scanState.scanTask)
+        let pending = try await stageAppFolderBackgroundReplacement(harness, fixture: fixture)
+        defer { pending.gate.restore() }
         #expect(model.canExportCurrentScan)
         #expect(model.canImportScanSnapshot)
         #expect(model.canCompareScanSnapshots)
         model.exportCurrentScan()
         try await waitForFolderRefresh("export panel opens during background refresh") {
-            panel.requests == 1 && harness.scanner.cancellations == 1
+            panel.requests == 1
         }
         #expect(model.isExportPanelPresented)
         #expect(!model.scanState.isScanOperationInProgress)
-        harness.scanner.finish(with: fixture.folderSnapshot(fixture.downloads, children: []), index: 0)
-        await retiredTask.value
+        try await waitForRetiredFolderRefresh(pending.task)
+        #expect(pending.task.isCancelled)
+        pending.gate.restore()
         #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
         #expect(model.navigation.focusedNodeID == fixture.downloads.id)
         #expect(model.scanState.scanErrorMessage == nil)
@@ -203,9 +215,10 @@ struct AppModelFolderRefreshTests {
         #expect(harness.watcher.requests.first?.checkpoint == fixture.snapshot.incrementalCheckpoint)
 
         let newDownload = makeTestFileNode(
-            id: fixture.downloads.id + "/new.zip", name: "new.zip", size: 100
+            id: fixture.downloads.id + "/new.zip", name: "new.zip", size: 100,
+            fileIdentity: FileIdentity(device: 1, inode: 104)
         )
-        harness.watcher.emit([
+        try await harness.watcher.emitAndWaitUntilProcessed([
             changedAppFolderFile(newDownload.id),
             changedAppFolderFile(fixture.document.id),
         ])
@@ -241,9 +254,7 @@ struct AppModelFolderRefreshTests {
             harness.scanner.requests.count == 2
         }
         #expect(harness.scanner.requests.map(\.id) == [fixture.downloads.id, fixture.documents.id])
-        let updatedDocument = makeTestFileNode(
-            id: fixture.document.id, name: fixture.document.name, size: 200
-        )
+        let updatedDocument = fixture.file(fixture.document, withSize: 200)
         harness.scanner.finish(
             with: fixture.folderSnapshot(fixture.documents, children: [updatedDocument]),
             index: 1
@@ -269,13 +280,13 @@ struct AppModelFolderRefreshTests {
         let model = harness.model
         model.scanState.restoreCompletedSnapshot(fixture.snapshot)
         model.focus(nodeID: fixture.downloads.id)
-        drainFolderRefreshRunLoop()
+        try await settleFolderRefreshTasks(for: .milliseconds(20))
         #expect(harness.watcher.requests.isEmpty)
         #expect(harness.scanner.requests.isEmpty)
 
         model.automaticallyRefreshFocusedFolder = true
         try await waitForFolderRefresh("watcher enabled") { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedAppFolderFile(fixture.keptDownload.id)])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
         try await waitForFolderRefresh("background scan begins") { harness.scanner.requests.count == 1 }
         let refreshTask = try #require(model.scanState.scanTask)
         #expect(model.scanState.folderRescanState?.isBackground == true)
@@ -285,11 +296,7 @@ struct AppModelFolderRefreshTests {
                 && harness.scanner.cancellations == 1
                 && harness.watcher.cancellations == 1
         }
-        harness.scanner.finish(
-            with: fixture.folderSnapshot(fixture.downloads, children: []),
-            index: 0
-        )
-        await refreshTask.value
+        try await waitForRetiredFolderRefresh(refreshTask)
         #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
         #expect(model.navigation.focusedNodeID == fixture.downloads.id)
         #expect(model.scanState.folderRescanState == nil)
@@ -300,7 +307,7 @@ struct AppModelFolderRefreshTests {
 
 @MainActor
 private struct AppFolderRefreshHarness {
-    let watcher = AppFolderRefreshWatcher()
+    let watcher = TestFileSystemChangeWatcher()
     let scanner = AppFolderRefreshScanner()
     let model: AppModel
 
@@ -324,9 +331,18 @@ private struct AppFolderRefreshHarness {
 }
 
 private struct AppFolderRefreshFixture {
-    let keptDownload = makeTestFileNode(id: "/app/folder-refresh/Downloads/kept.dat", name: "kept.dat", size: 10)
-    let markedDownload = makeTestFileNode(id: "/app/folder-refresh/Downloads/marked.dat", name: "marked.dat", size: 20)
-    let document = makeTestFileNode(id: "/app/folder-refresh/Documents/report.pdf", name: "report.pdf", size: 30)
+    let keptDownload = makeTestFileNode(
+        id: "/app/folder-refresh/Downloads/kept.dat", name: "kept.dat", size: 10,
+        fileIdentity: FileIdentity(device: 1, inode: 101)
+    )
+    let markedDownload = makeTestFileNode(
+        id: "/app/folder-refresh/Downloads/marked.dat", name: "marked.dat", size: 20,
+        fileIdentity: FileIdentity(device: 1, inode: 102)
+    )
+    let document = makeTestFileNode(
+        id: "/app/folder-refresh/Documents/report.pdf", name: "report.pdf", size: 30,
+        fileIdentity: FileIdentity(device: 1, inode: 103)
+    )
     let downloads: FileNodeRecord
     let documents: FileNodeRecord
     let snapshot: ScanSnapshot
@@ -363,6 +379,10 @@ private struct AppFolderRefreshFixture {
             scanOptions: ScanOptions()
         )
     }
+
+    func file(_ node: FileNodeRecord, withSize size: Int64) -> FileNodeRecord {
+        makeTestFileNode(id: node.id, name: node.name, size: size, fileIdentity: node.fileIdentity)
+    }
 }
 
 private func changedAppFolderFile(_ path: String) -> FileSystemEventRecord {
@@ -383,13 +403,24 @@ private func drainFolderRefreshRunLoop() {
 }
 
 @MainActor
-private func settleFolderRefreshTasks(for duration: Duration = .milliseconds(20)) async {
+private func settleFolderRefreshTasks(for duration: Duration) async throws {
     let deadline = ContinuousClock.now.advanced(by: duration)
     repeat {
         drainFolderRefreshRunLoop()
-        try? await Task.sleep(for: .milliseconds(1))
+        try await Task.sleep(for: .milliseconds(1))
     } while ContinuousClock.now < deadline
     drainFolderRefreshRunLoop()
+}
+
+@MainActor
+private func waitForRetiredFolderRefresh(_ task: Task<Void, Never>) async throws {
+    var finished = false
+    let completion = Task {
+        await task.value
+        finished = true
+    }
+    defer { completion.cancel() }
+    try await waitForFolderRefresh("retired folder refresh completes") { finished }
 }
 
 @MainActor
@@ -400,9 +431,52 @@ private func beginAppFolderBackgroundRefresh(
     harness.model.scanState.restoreCompletedSnapshot(fixture.snapshot)
     harness.model.focus(nodeID: fixture.downloads.id)
     try await waitForFolderRefresh("preemption watcher") { harness.watcher.requests.count == 1 }
-    harness.watcher.emit([changedAppFolderFile(fixture.keptDownload.id)])
+    try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
     try await waitForFolderRefresh("preemption background scan begins") { harness.scanner.requests.count == 1 }
     #expect(harness.model.scanState.folderRescanState?.isBackground == true)
+}
+
+@MainActor
+private func stageAppFolderBackgroundReplacement(
+    _ harness: AppFolderRefreshHarness,
+    fixture: AppFolderRefreshFixture
+) async throws -> (task: Task<Void, Never>, gate: AppFolderRefreshApplicationGate) {
+    try await beginAppFolderBackgroundRefresh(harness, fixture: fixture)
+    let task = try #require(harness.model.scanState.scanTask)
+    let gate = AppFolderRefreshApplicationGate(coordinator: harness.model.scanState, holdsPublication: true)
+    harness.scanner.finish(with: fixture.folderSnapshot(fixture.downloads, children: []), index: 0)
+    do {
+        try await waitForFolderRefresh("computed background replacement awaits publication") { gate.blockedChecks > 0 }
+    } catch {
+        gate.restore()
+        throw error
+    }
+    #expect(harness.scanner.cancellations == 0)
+    #expect(harness.model.scanState.isScanOperationInProgress)
+    #expect(harness.model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+    return (task, gate)
+}
+
+@MainActor
+private final class AppFolderRefreshApplicationGate {
+    private let coordinator: ScanCoordinator
+    private let original: () -> Bool
+    private(set) var blockedChecks = 0
+
+    init(coordinator: ScanCoordinator, holdsPublication: Bool = false) {
+        self.coordinator = coordinator
+        original = coordinator.canApplyBackgroundRefresh
+        coordinator.canApplyBackgroundRefresh = { [weak self] in
+            guard let self else { return false }
+            let canApply = original() && !holdsPublication
+            if !canApply { blockedChecks += 1 }
+            return canApply
+        }
+    }
+
+    func restore() {
+        coordinator.canApplyBackgroundRefresh = original
+    }
 }
 
 @MainActor
@@ -420,39 +494,6 @@ private final class AppFolderRefreshExportPanel {
     func finish(with destination: URL?) {
         continuation?.resume(returning: destination)
         continuation = nil
-    }
-}
-
-private nonisolated final class AppFolderRefreshWatcher: FileSystemChangeWatching, @unchecked Sendable {
-    struct Request {
-        let targetURL: URL
-        let checkpoint: ScanIncrementalCheckpoint?
-    }
-
-    private let lock = NSLock()
-    private var storedRequests: [Request] = []
-    private var storedCancellations = 0
-    private var continuation: AsyncThrowingStream<[FileSystemEventRecord], Error>.Continuation?
-
-    var requests: [Request] { lock.withLock { storedRequests } }
-    var cancellations: Int { lock.withLock { storedCancellations } }
-
-    func changes(for targetURL: URL, since checkpoint: ScanIncrementalCheckpoint?)
-        -> AsyncThrowingStream<[FileSystemEventRecord], Error> {
-        AsyncThrowingStream { continuation in
-            lock.withLock {
-                storedRequests.append(Request(targetURL: targetURL, checkpoint: checkpoint))
-                self.continuation = continuation
-            }
-            continuation.onTermination = { [weak self] _ in
-                guard let self else { return }
-                self.lock.withLock { self.storedCancellations += 1 }
-            }
-        }
-    }
-
-    func emit(_ events: [FileSystemEventRecord]) {
-        lock.withLock { continuation }?.yield(events)
     }
 }
 

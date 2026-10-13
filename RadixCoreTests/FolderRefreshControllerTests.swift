@@ -12,7 +12,7 @@ struct FolderRefreshControllerTests {
         harness.allowsRequests = false
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/pending.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/pending.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
@@ -30,27 +30,33 @@ struct FolderRefreshControllerTests {
         let baseline = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: baseline, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/before.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/before.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
 
         harness.controller.refreshStarted(nodeID: downloads)
         harness.controller.update(snapshot: baseline, focusedNodeID: downloads, canRefresh: false)
+        try await waitUntil("manual refresh cancels automatic timer") { harness.clock.pendingSleeps == 0 }
         if hasNewChange {
-            harness.watcher.emit([changedFile(downloads + "/during.zip")])
-            await drainTasks()
+            try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/during.zip")])
         }
         let updated = makeFolderRefreshSnapshot(id: baseline.id, hasNewDownload: true)
         harness.controller.update(snapshot: updated, focusedNodeID: downloads, canRefresh: false)
         harness.controller.refreshFinished(nodeID: downloads, result: .updated)
         harness.controller.update(snapshot: updated, focusedNodeID: downloads, canRefresh: true)
-        await drainTasks()
+        // Any erroneous follow-up timer must register before time advances.
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         if hasNewChange {
             try await waitUntil { harness.clock.pendingSleeps == 1 }
         } else {
             #expect(harness.clock.pendingSleeps == 0)
         }
         harness.clock.advance(by: .seconds(10))
-        await drainTasks()
+        if hasNewChange {
+            try await waitUntil { harness.requests == [downloads] }
+        } else {
+            try await harness.watcher.emitAndWaitUntilProcessed([])
+            #expect(harness.clock.pendingSleeps == 0)
+        }
         #expect(harness.requests == (hasNewChange ? [downloads] : []))
     }
 
@@ -63,7 +69,7 @@ struct FolderRefreshControllerTests {
         #expect(harness.watcher.requests.first?.targetURL == baseline.target.url)
         #expect(harness.watcher.requests.first?.checkpoint == baseline.incrementalCheckpoint)
 
-        harness.watcher.emit([changedFile(downloads + "/new.zip"), changedFile(documents + "/report.pdf")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/new.zip"), changedFile(documents + "/report.pdf")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
@@ -90,20 +96,20 @@ struct FolderRefreshControllerTests {
         let harness = FolderRefreshHarness()
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/archive.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/archive.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests.count == 1 }
 
-        harness.watcher.emit((0..<100).map { changedFile(downloads + "/\($0).dat") })
-        // An unrelated change produces a scheduled timer only after the
-        // in-flight refresh is acknowledged; it cannot start concurrently.
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed((0..<100).map { changedFile(downloads + "/\($0).dat") })
+        // Changes received during the refresh can only schedule another
+        // timer after the in-flight refresh is acknowledged.
+        #expect(harness.clock.pendingSleeps == 0)
         #expect(harness.requests == [downloads])
         harness.controller.refreshFinished(nodeID: downloads, result: .updated)
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .milliseconds(4_999))
-        await drainTasks()
+        #expect(harness.clock.pendingSleeps == 1)
         #expect(harness.requests.count == 1)
         harness.clock.advance(by: .milliseconds(1))
         try await waitUntil { harness.requests == [downloads, downloads] }
@@ -116,17 +122,16 @@ struct FolderRefreshControllerTests {
         let harness = FolderRefreshHarness()
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/first.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/first.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
         harness.clock.advance(by: .seconds(20))
-        harness.watcher.emit([changedFile(downloads + "/second.zip")])
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/second.zip")])
         harness.controller.refreshFinished(nodeID: downloads, result: .updated)
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .milliseconds(39_999))
-        await drainTasks()
+        #expect(harness.clock.pendingSleeps == 1)
         #expect(harness.requests == [downloads])
         harness.clock.advance(by: .milliseconds(1))
         try await waitUntil { harness.requests == [downloads, downloads] }
@@ -137,15 +142,17 @@ struct FolderRefreshControllerTests {
         let harness = FolderRefreshHarness()
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/a.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/a.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .milliseconds(500))
-        harness.watcher.emit([changedFile(downloads + "/b.zip")])
-        await drainTasks()
-        try await waitUntil { harness.clock.pendingSleeps == 1 }
+        #expect(harness.clock.pendingSleeps == 1)
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/b.zip")])
+        try await waitUntil("relevant event replaces debounce timer") {
+            harness.sleepRequests == 2 && harness.clock.pendingSleeps == 1
+        }
         harness.clock.advance(by: .milliseconds(500))
-        harness.watcher.emit([changedFile(documents + "/report.pdf")])
-        await drainTasks()
+        #expect(harness.clock.pendingSleeps == 1)
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(documents + "/report.pdf")])
         #expect(harness.requests.isEmpty)
         harness.clock.advance(by: .milliseconds(500))
         try await waitUntil { harness.requests == [downloads] }
@@ -157,9 +164,10 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: false)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/a.zip")])
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/a.zip")])
         harness.clock.advance(by: .seconds(10))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.clock.pendingSleeps == 0)
         #expect(harness.requests.isEmpty)
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.requests == [downloads] }
@@ -171,21 +179,23 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/first.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/first.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         for _ in 0..<100 {
             harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         }
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.sleepRequests == 1)
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: false)
-        harness.watcher.emit([changedFile(downloads + "/second.zip")])
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/second.zip")])
         harness.controller.refreshFinished(nodeID: downloads, result: .updated)
         #expect(harness.clock.pendingSleeps == 0)
         harness.clock.advance(by: .seconds(5))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.clock.pendingSleeps == 0)
+        #expect(harness.requests == [downloads])
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.requests == [downloads, downloads] }
     }
@@ -196,13 +206,14 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/new.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/new.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: false)
         harness.controller.refreshFinished(nodeID: downloads, result: .cancelled)
         harness.clock.advance(by: .seconds(5))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.clock.pendingSleeps == 0)
         #expect(harness.requests == [downloads])
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
@@ -217,22 +228,21 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/first.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/first.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
         // Include changes received while the refresh was running: Stop should
         // not immediately launch those already pending writes as another scan.
-        harness.watcher.emit([changedFile(downloads + "/second.zip")])
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/second.zip")])
         harness.controller.pauseCurrentRefresh()
         harness.controller.refreshFinished(nodeID: downloads, result: .cancelled)
         harness.clock.advance(by: .seconds(10))
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.requests == [downloads])
         #expect(harness.clock.pendingSleeps == 0)
-        harness.watcher.emit([changedFile(downloads + "/third.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/third.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads, downloads] }
@@ -244,7 +254,7 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/a.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/a.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests.count == 1 }
@@ -252,10 +262,10 @@ struct FolderRefreshControllerTests {
         harness.clock.advance(by: .seconds(10))
         harness.controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.requests.count == 1)
         #expect(harness.clock.pendingSleeps == 0)
-        harness.watcher.emit([changedFile(downloads + "/b.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/b.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests.count == 2 }
@@ -267,17 +277,16 @@ struct FolderRefreshControllerTests {
         let options = ScanOptions(exclusionPatterns: ["build/", "*.log"])
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(options: options), focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([
+        try await harness.watcher.emitAndWaitUntilProcessed([
             changedFile(downloads + "/.secret/item"),
             changedFile(downloads + "/build/item"),
             changedFile(downloads + "/trace.log"),
             changedFile(home + "-other/Downloads/file"),
             FileSystemEventRecord(path: downloads + "/read.txt", eventID: 43, flags: [.itemIsFile])
         ])
-        await drainTasks()
         #expect(harness.clock.pendingSleeps == 0)
         #expect(harness.requests.isEmpty)
-        harness.watcher.emit([changedFile(downloads + "/visible.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/visible.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
@@ -289,7 +298,7 @@ struct FolderRefreshControllerTests {
         let options = ScanOptions(exclusionPatterns: ["build/"])
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(options: options), focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([
+        try await harness.watcher.emitAndWaitUntilProcessed([
             FileSystemEventRecord(path: downloads + "/build", eventID: 43, flags: mutation.union(.itemIsSymbolicLink))
         ])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
@@ -303,30 +312,36 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot(kind: .volume)
         harness.controller.update(snapshot: snapshot, focusedNodeID: home, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/new.zip")])
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/new.zip")])
         harness.clock.advance(by: .seconds(10))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.clock.pendingSleeps == 0)
         #expect(harness.requests.isEmpty)
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.requests == [downloads] }
     }
 
-    @Test
-    func folderTargetRootCanRefreshAndSavedOrIncompleteScansNeverWatch() async throws {
+    @Test(arguments: [false, true])
+    func savedAndIncompleteScansNeverWatch(isImported: Bool) async throws {
         let harness = FolderRefreshHarness()
-        harness.controller.update(snapshot: makeFolderRefreshSnapshot(isComplete: false), focusedNodeID: home, canRefresh: true)
-        harness.controller.update(
-            snapshot: makeFolderRefreshSnapshot(source: .imported(ImportedSnapshotContext(
+        let snapshot = isImported
+            ? makeFolderRefreshSnapshot(source: .imported(ImportedSnapshotContext(
                 sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute, liveActionCapability: .pathValidation
-            ))),
-            focusedNodeID: home,
-            canRefresh: true
-        )
-        await drainTasks()
+            )))
+            : makeFolderRefreshSnapshot(isComplete: false)
+        harness.controller.update(snapshot: snapshot, focusedNodeID: home, canRefresh: true)
+        // Give an incorrectly started observer an opportunity to subscribe;
+        // each eligibility guard is exercised without replacing its context.
+        try await Task.sleep(for: .milliseconds(20))
         #expect(harness.watcher.requests.isEmpty)
+    }
+
+    @Test
+    func folderTargetRootCanRefresh() async throws {
+        let harness = FolderRefreshHarness()
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: home, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(documents + "/new.pdf")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(documents + "/new.pdf")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [home] }
@@ -338,7 +353,7 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit(isDroppedHistory ? [
+        try await harness.watcher.emitAndWaitUntilProcessed(isDroppedHistory ? [
             FileSystemEventRecord(path: home, eventID: 44, flags: [.kernelDropped])
         ] : [
             changedFile(home + "/Other1/a"),
@@ -364,15 +379,15 @@ struct FolderRefreshControllerTests {
         let harness = FolderRefreshHarness()
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        harness.watcher.emit([changedFile(downloads + "/old.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/old.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
-        try await waitUntil { harness.watcher.requests.count == 2 && harness.watcher.cancelledStreams == 1 }
+        try await waitUntil { harness.watcher.requests.count == 2 && harness.watcher.cancellations == 1 }
         harness.clock.advance(by: .seconds(10))
-        await drainTasks()
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.requests.isEmpty)
         harness.controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
-        try await waitUntil { harness.watcher.cancelledStreams == 2 }
+        try await waitUntil { harness.watcher.cancellations == 2 }
     }
 
     @Test
@@ -382,10 +397,9 @@ struct FolderRefreshControllerTests {
         let snapshot = makeFolderRefreshSnapshot()
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        await drainTasks()
         harness.clock.advance(by: .seconds(10))
         harness.controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
-        await drainTasks()
+        try await Task.sleep(for: .milliseconds(20))
         #expect(harness.requests.isEmpty)
         #expect(harness.watcher.requests.count == 1)
     }
@@ -424,15 +438,11 @@ struct FolderRefreshControllerTests {
             incrementalCheckpoint: ScanIncrementalCheckpoint(volumeUUID: "test-volume", eventID: 42)
         )
     }
-
-    private func drainTasks() async {
-        for _ in 0..<20 { await Task.yield() }
-    }
 }
 
 @MainActor
 private final class FolderRefreshHarness {
-    let watcher = ControlledFolderChangeWatcher()
+    let watcher = TestFileSystemChangeWatcher()
     let clock = ManualTestClock()
     var requests: [String] = []
     var allowsRequests = true
@@ -454,44 +464,5 @@ private final class FolderRefreshHarness {
 
     init(maximumPendingPaths: Int = 4_096) {
         self.maximumPendingPaths = maximumPendingPaths
-    }
-}
-
-private nonisolated final class ControlledFolderChangeWatcher: FileSystemChangeWatching, @unchecked Sendable {
-    struct Request {
-        let targetURL: URL
-        let checkpoint: ScanIncrementalCheckpoint?
-    }
-    private let lock = NSLock()
-    private var recordedRequests: [Request] = []
-    private var continuations: [AsyncThrowingStream<[FileSystemEventRecord], Error>.Continuation] = []
-    private var cancellationCount = 0
-    private var shouldFail = false
-
-    var requests: [Request] { lock.withLock { recordedRequests } }
-    var cancelledStreams: Int { lock.withLock { cancellationCount } }
-    var failAtStartup: Bool {
-        get { lock.withLock { shouldFail } }
-        set { lock.withLock { shouldFail = newValue } }
-    }
-
-    func changes(for targetURL: URL, since checkpoint: ScanIncrementalCheckpoint?) -> AsyncThrowingStream<[FileSystemEventRecord], Error> {
-        AsyncThrowingStream { continuation in
-            let fail = lock.withLock {
-                recordedRequests.append(Request(targetURL: targetURL, checkpoint: checkpoint))
-                continuations.append(continuation)
-                return shouldFail
-            }
-            continuation.onTermination = { [weak self] termination in
-                guard case .cancelled = termination, let self else { return }
-                self.lock.withLock { self.cancellationCount += 1 }
-            }
-            if fail { continuation.finish(throwing: FileSystemEventHistoryError.streamStartFailed) }
-        }
-    }
-
-    func emit(_ events: [FileSystemEventRecord]) {
-        let continuation = lock.withLock { continuations.last }
-        continuation?.yield(events)
     }
 }

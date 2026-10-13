@@ -585,7 +585,8 @@ struct ScanCoordinatorTests {
 
     @Test(arguments: [false, true])
     func testBackgroundRefreshPreservesExpandedDirectoryAndDescendants(refreshAncestor: Bool) async throws {
-        let rootURL = URL(filePath: "/tmp/radix-expanded-refresh-" + UUID().uuidString)
+        let target = ScanTarget(url: try makeTemporaryDirectory())
+        let rootURL = target.url
         defer { try? FileManager.default.removeItem(at: rootURL) }
         let parentURL = rootURL.appending(path: "parent", directoryHint: .isDirectory)
         let expandedURL = parentURL.appending(path: "expanded", directoryHint: .isDirectory)
@@ -604,24 +605,35 @@ struct ScanCoordinatorTests {
         options.autoSummarizeMaxAverageFileSize = 256
         options.autoSummarizeMinDepthForSummarization = 2
         let engine = ScanEngine()
-        var baseline: ScanSnapshot?
-        for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
-            if case .finished(let snapshot) = event { baseline = snapshot }
+        var initialScan: Result<ScanSnapshot, Error>?
+        let initialScanTask = Task {
+            do {
+                var baseline: ScanSnapshot?
+                for try await event in engine.scan(target: target, options: options) {
+                    if case .finished(let snapshot) = event { baseline = snapshot }
+                }
+                initialScan = .success(try #require(baseline))
+            } catch {
+                initialScan = .failure(error)
+            }
         }
-        let initial = try #require(baseline)
+        defer { initialScanTask.cancel() }
+        try await waitUntil("initial summarized scan completes") { initialScan != nil }
+        let initial = try #require(initialScan).get()
         let summarized = try #require(initial.treeStore.node(id: expandedURL.path))
         #expect(summarized.isAutoSummarized)
         #expect(initial.treeStore.node(id: collapsedURL.path)?.isAutoSummarized == true)
         let coordinator = ScanCoordinator(scanService: IncrementalScanService(engine: engine))
+        defer { coordinator.stopScan() }
         coordinator.restoreCompletedSnapshot(initial)
         var expansionOptions = options
         expansionOptions.autoSummarizeDirectories = false
-        let expansionResult = await withCheckedContinuation { continuation in
-            coordinator.expandSummarizedNode(summarized, options: expansionOptions) { result in
-                continuation.resume(returning: result)
-            }
+        var expansionResult: ScanExpansionResult?
+        coordinator.expandSummarizedNode(summarized, options: expansionOptions) { result in
+            expansionResult = result
         }
-        guard case .expanded = expansionResult else {
+        try await waitUntil("explicit directory expansion completes") { expansionResult != nil }
+        guard case .expanded = try #require(expansionResult) else {
             Issue.record("Expected successful explicit expansion")
             return
         }
@@ -632,9 +644,8 @@ struct ScanCoordinatorTests {
         if refreshAncestor { try populate(newDirectoryURL) }
         var result: FolderRescanResult?
         coordinator.onFolderRescanFinished = { _, completion in result = completion }
-        #expect(coordinator.refreshFolderInBackground(id: refreshAncestor ? parentURL.path : expandedURL.path))
-        let refreshTask = try #require(coordinator.scanTask)
-        await refreshTask.value
+        try #require(coordinator.refreshFolderInBackground(id: refreshAncestor ? parentURL.path : expandedURL.path))
+        try await waitUntil("expanded contents refresh completes") { result != nil }
 
         #expect(result == .updated)
         #expect(coordinator.snapshot?.treeStore.node(id: expandedURL.path)?.isAutoSummarized == false)
@@ -688,6 +699,82 @@ struct ScanCoordinatorTests {
         await backgroundTask.value
         #expect(finishes.map(\.1) == (startFullScan ? [.cancelled] : [.cancelled, .updated]))
         #expect(coordinator.snapshot?.treeStore.node(id: replacement.root.id) == replacement.root)
+    }
+
+    @Test(arguments: [false, true])
+    func testManualRescanRetiresAlreadyComputedBackgroundReplacement(startFullScan: Bool) async throws {
+        let service = ControlledScanService()
+        let target = makeCoordinatorTarget("/scan/computed-preemption")
+        let folderTarget = makeCoordinatorTarget(target.id + "/Downloads")
+        let transform = PausingSnapshotTransformService(
+            pausedReplacementID: folderTarget.id, pausesAfterSubtreeReplacement: true
+        )
+        let coordinator = ScanCoordinator(scanService: service, snapshotTransformService: transform)
+        defer {
+            coordinator.stopScan()
+            Task { await transform.resume() }
+        }
+        let baseline = makeCoordinatorHomeSnapshot(
+            target: target, downloadsTarget: folderTarget, rootName: "root", scanOptions: ScanOptions()
+        )
+        coordinator.restoreCompletedSnapshot(baseline)
+        var finishes: [(String, FolderRescanResult)] = []
+        coordinator.onFolderRescanFinished = { finishes.append(($0, $1)) }
+        try #require(coordinator.refreshFolderInBackground(id: folderTarget.id))
+        let backgroundTask = try #require(coordinator.scanTask)
+        let retiredFile = makeTestFileNode(id: folderTarget.id + "/retired.dat", name: "retired.dat", size: 40)
+        let retiredRoot = makeTestDirectoryNode(id: folderTarget.id, name: "Downloads", children: [retiredFile])
+        service.yield(.finished(makeCoordinatorSnapshot(
+            target: folderTarget, root: retiredRoot,
+            store: FileTreeStore(root: retiredRoot, childrenByID: [retiredRoot.id: [retiredFile]])
+        )), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        // The background stream has already finished. Hold its computed merge
+        // result so cancelling that stream cannot discard the race being tested.
+        try await transform.waitUntilPaused()
+        let retiredReplacement = try #require(await transform.pausedSubtreeReplacement)
+        #expect(retiredReplacement.treeStore.node(id: retiredFile.id) == retiredFile)
+        #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
+        if startFullScan {
+            coordinator.startScan(target, options: ScanOptions(), baseline: baseline, isRescan: true)
+        } else {
+            try #require(coordinator.rescanFolder(id: folderTarget.id))
+        }
+        let replacementTarget = startFullScan ? target : folderTarget
+        let currentFile = makeTestFileNode(
+            id: replacementTarget.id + "/current.dat", name: "current.dat", size: 80
+        )
+        let currentRoot = makeTestDirectoryNode(
+            id: replacementTarget.id, name: replacementTarget.displayName, children: [currentFile]
+        )
+        service.yield(.finished(makeCoordinatorSnapshot(
+            target: replacementTarget, root: currentRoot,
+            store: FileTreeStore(root: currentRoot, childrenByID: [currentRoot.id: [currentFile]])
+        )), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("newer manual replacement is applied") {
+            !coordinator.isScanOperationInProgress && coordinator.snapshot?.treeStore.node(id: currentFile.id) != nil
+        }
+        let applied = try #require(coordinator.snapshot)
+        let finishedNodeIDs = finishes.map(\.0)
+        let finishedResults = finishes.map(\.1)
+        #expect(finishedNodeIDs == (startFullScan ? [folderTarget.id] : [folderTarget.id, folderTarget.id]))
+        #expect(finishedResults == (startFullScan ? [.cancelled] : [.cancelled, .updated]))
+        await transform.resume()
+        var backgroundTaskFinished = false
+        let retiredCompletion = Task {
+            await backgroundTask.value
+            backgroundTaskFinished = true
+        }
+        defer { retiredCompletion.cancel() }
+        try await waitUntil("retired background replacement is released") { backgroundTaskFinished }
+        #expect(coordinator.snapshot?.treeStore.contentID == applied.treeStore.contentID)
+        #expect(coordinator.snapshot?.id == applied.id)
+        #expect(coordinator.snapshot?.treeStore.node(id: currentFile.id) == currentFile)
+        #expect(coordinator.snapshot?.treeStore.node(id: retiredFile.id) == nil)
+        #expect(finishes.map(\.0) == finishedNodeIDs)
+        #expect(finishes.map(\.1) == finishedResults)
+        #expect(!coordinator.isScanOperationInProgress)
     }
 
     @Test
@@ -2805,15 +2892,22 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
     private let service = ScanSnapshotTransformService()
     private let pausedRemovalID: String?
     private let pausedReplacementID: String?
+    private let pausesAfterSubtreeReplacement: Bool
+    private(set) var pausedSubtreeReplacement: ScanSnapshot?
     private var didPause = false
     private var isReleased = false
     private var resumeContinuation: CheckedContinuation<Void, Never>?
     private var removalBatches: [[String]] = []
     private var replacementIDs: [String] = []
 
-    init(pausedRemovalID: String? = nil, pausedReplacementID: String? = nil) {
+    init(
+        pausedRemovalID: String? = nil,
+        pausedReplacementID: String? = nil,
+        pausesAfterSubtreeReplacement: Bool = false
+    ) {
         self.pausedRemovalID = pausedRemovalID
         self.pausedReplacementID = pausedReplacementID
+        self.pausesAfterSubtreeReplacement = pausesAfterSubtreeReplacement
     }
 
     func waitUntilPaused() async throws {
@@ -2871,8 +2965,8 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
         reconcilesVolumeCapacity: Bool
     ) async throws -> ScanSnapshot? {
         replacementIDs.append(targetID)
-        await pauseIfNeeded(pausedReplacementID == targetID)
-        return try await service.replacingNodeForSubtreeRescan(
+        if !pausesAfterSubtreeReplacement { await pauseIfNeeded(pausedReplacementID == targetID) }
+        let result = try await service.replacingNodeForSubtreeRescan(
             in: snapshot,
             id: targetID,
             with: replacement,
@@ -2880,6 +2974,11 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
             volumeCapacity: volumeCapacity,
             reconcilesVolumeCapacity: reconcilesVolumeCapacity
         )
+        if pausesAfterSubtreeReplacement, pausedReplacementID == targetID, !didPause {
+            pausedSubtreeReplacement = result
+            await pauseIfNeeded(true)
+        }
+        return result
     }
 
     func removingNodes(
