@@ -348,6 +348,15 @@ struct FileBrowserModelTests {
 
         #expect(unit == .kilobytes)
         #expect(unit.byteCount(for: reopenedValue) == fractionalKilobytes)
+        let format = FloatingPointFormatStyle<Double>.number
+            .precision(.fractionLength(0...FileBrowserSizeUnit.editingFractionDigits))
+            .locale(Locale(identifier: "en_US"))
+        #expect(reopenedValue.formatted(format) == "1.5")
+        let megabyteUnit = FileBrowserSizeUnit.bestUnit(for: 1_230_000)
+        let fractionalMegabytes = Double(1_230_000) / Double(megabyteUnit.bytes)
+        #expect(megabyteUnit == .megabytes)
+        #expect(fractionalMegabytes.formatted(format) == "1.23")
+        #expect(megabyteUnit.byteCount(for: fractionalMegabytes) == 1_230_000)
         #expect(FileBrowserSizeUnit.bestUnit(for: 500_000_000) == .megabytes)
         #expect(FileBrowserSizeUnit.bestUnit(for: 1_500_000_000) == .gigabytes)
         #expect(FileBrowserSizeUnit.bestUnit(for: 1_234_560) == .kilobytes)

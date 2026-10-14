@@ -196,7 +196,7 @@ private struct FileBrowserFilterEditor: View {
             TextField(
                 "Any",
                 value: $sizeValue,
-                format: .number.precision(.fractionLength(0...2))
+                format: .number.precision(.fractionLength(0...FileBrowserSizeUnit.editingFractionDigits))
             )
             .frame(width: 80)
             .accessibilityLabel("Size value")
