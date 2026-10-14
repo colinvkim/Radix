@@ -26,7 +26,6 @@ struct TestSynchronizationTests {
         defer { sleeper.cancel() }
         try await waitUntil("clock sleep registered") { clock.pendingSleeps == 1 }
 
-        // Keep the main actor until advance wins the race against onCancel's queued cleanup.
         sleeper.cancel()
         clock.advance(by: .seconds(1))
 

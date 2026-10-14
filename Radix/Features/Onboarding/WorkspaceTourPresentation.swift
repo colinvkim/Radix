@@ -33,7 +33,6 @@ private extension WorkspaceTourController.Step {
     }
 }
 
-/// General guidance stays in the workspace; only specific controls get a pointer.
 @MainActor
 final class WorkspaceTourPresentation: NSObject, ObservableObject, NSPopoverDelegate {
     @Published private(set) var cardStep: WorkspaceTourController.Step?
@@ -96,8 +95,6 @@ final class WorkspaceTourPresentation: NSObject, ObservableObject, NSPopoverDele
     }
 
     fileprivate func register(_ anchor: WorkspaceTourAnchor, view: NSView) {
-        // The responsive header has two breadcrumb layouts; retain both so only
-        // the visible one can supply the path's position.
         var candidates = anchors[anchor, default: []]
         candidates.removeAll { $0.view == nil }
         if !candidates.contains(where: { $0.view === view }) {
@@ -198,14 +195,12 @@ final class WorkspaceTourPresentation: NSObject, ObservableObject, NSPopoverDele
         let edge: NSRectEdge
         switch anchor {
         case .search, .discardPile:
-            // Leave search results and the Discard Pile drop target unobstructed.
             edge = view.isFlipped ? .minY : .maxY
         case .diskMap, .folder:
             edge = .maxX
         default:
             edge = view.isFlipped ? .maxY : .minY
         }
-        // Position directly at the target's edge without window-coordinate offsets.
         popover.show(
             relativeTo: rect,
             of: view,
@@ -331,7 +326,6 @@ private struct WorkspaceTourAnchorModifier: ViewModifier {
                 }
             }
             .overlay(alignment: anchor.attachmentAlignment) {
-                // Keep positioning views mounted independently of the decoration.
                 if tour.isActive && enabled {
                     TourAnchorRepresentable(anchor: anchor, presentation: presentation)
                         .frame(width: 2, height: 2)

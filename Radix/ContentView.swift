@@ -1,10 +1,3 @@
-//
-//  ContentView.swift
-//  Radix
-//
-//  Created by Colin Kim on 4/1/26.
-//
-
 import AppKit
 import SwiftUI
 

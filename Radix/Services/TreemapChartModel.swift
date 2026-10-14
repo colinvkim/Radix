@@ -1,8 +1,3 @@
-//
-//  TreemapChartModel.swift
-//  Radix
-//
-
 import Combine
 import CoreGraphics
 import Foundation

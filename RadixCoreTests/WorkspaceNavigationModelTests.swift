@@ -4,18 +4,23 @@ import Testing
 
 @testable import RadixCore
 
+private enum NavigationTableLoadError: Error {
+    case failed
+}
+
 private actor NavigationTableLoadGate {
-    private var continuations: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var continuations: [Int: CheckedContinuation<Void, Error>] = [:]
     private(set) var requestCount = 0
 
-    func load(store: FileTreeStore, id: String) async -> [FileNodeRecord] {
+    func load(store: FileTreeStore, id: String) async throws -> [FileNodeRecord] {
         let index = requestCount
         requestCount += 1
-        await withCheckedContinuation { continuations[index] = $0 }
+        try await withCheckedThrowingContinuation { continuations[index] = $0 }
         return store.children(of: id)
     }
 
     func resume(at index: Int) { continuations.removeValue(forKey: index)?.resume() }
+    func fail(at index: Int) { continuations.removeValue(forKey: index)?.resume(throwing: NavigationTableLoadError.failed) }
 }
 
 @MainActor
@@ -27,7 +32,7 @@ struct WorkspaceNavigationModelTests {
         let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: files]))
         let gate = NavigationTableLoadGate()
         let model = WorkspaceNavigationModel(tableLoader: { store, id in
-            await gate.load(store: store, id: id)
+            try await gate.load(store: store, id: id)
         })
         model.updateScanContext(snapshot: snapshot)
         #expect(model.isLoadingTableNodes)
@@ -53,6 +58,29 @@ struct WorkspaceNavigationModelTests {
         try await waitUntil { !model.isLoadingTableNodes }
         #expect(model.tableNodes == files)
         #expect(model.tableContentRevision == revision + 1)
+    }
+
+    @Test
+    func testFailedLargeDirectoryLoadCanBeRequestedAgain() async throws {
+        let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }
+        let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
+        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: files]))
+        let gate = NavigationTableLoadGate()
+        let model = WorkspaceNavigationModel(tableLoader: { store, id in
+            try await gate.load(store: store, id: id)
+        })
+        model.updateScanContext(snapshot: snapshot)
+        try await waitUntil { await gate.requestCount == 1 }
+        await gate.fail(at: 0)
+        try await waitUntil { !model.isLoadingTableNodes }
+        #expect(model.tableNodes.isEmpty)
+
+        model.refreshTableNodesForCurrentContext()
+        #expect(model.isLoadingTableNodes)
+        try await waitUntil { await gate.requestCount == 2 }
+        await gate.resume(at: 1)
+        try await waitUntil { !model.isLoadingTableNodes }
+        #expect(model.tableNodes == files)
     }
 
     @Test
@@ -327,8 +355,6 @@ struct WorkspaceNavigationModelTests {
 
         #expect(publishedStates.count == 1)
         let state = try #require(publishedStates.first)
-        // Unlike selectAndFocus, reveal focuses the parent folder (docs) rather than the
-        // file itself, so the file list shows the file among its siblings.
         #expect(state.focusedNodeID == fixture.docs.id)
         #expect(state.selectedNodeID == fixture.docFile.id)
         #expect(state.tableNodes.map(\.id) == [fixture.docFile.id])

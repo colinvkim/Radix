@@ -1,8 +1,3 @@
-//
-//  IncrementalScanService.swift
-//  Radix
-//
-
 import Foundation
 import OSLog
 

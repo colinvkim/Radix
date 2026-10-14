@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 
-/// Advances informational tips explicitly and observes the Discard Pile exercise.
 @MainActor
 final class WorkspaceTourController: ObservableObject {
     enum Step: CaseIterable {
@@ -66,7 +65,6 @@ final class WorkspaceTourController: ObservableObject {
         if step == .finished { stop() }
     }
 
-    /// Next advances informational tips; Skip Exercise bypasses the Discard Pile exercise.
     func advance() {
         switch step {
         case .selectResult: step = .openFolder

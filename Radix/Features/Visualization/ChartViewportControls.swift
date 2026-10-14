@@ -3,7 +3,6 @@ import Combine
 import QuartzCore
 import SwiftUI
 
-/// Keeps viewport state and animation policy local to each chart view.
 struct ChartViewportState: DynamicProperty {
     @StateObject private var animator = ChartViewportAnimator()
     @State private var settledLayoutID: String?
@@ -19,7 +18,6 @@ struct ChartViewportState: DynamicProperty {
         animator.move(to: nextTransform, duration: animated && !reduceMotion ? 0.16 : 0)
     }
 
-    /// Initial presentation keeps its viewport; a different layout resets it.
     @discardableResult
     func reset(for layoutID: String) -> Bool {
         guard settledLayoutID != layoutID else { return false }
@@ -48,8 +46,6 @@ struct ChartViewportState: DynamicProperty {
     }
 }
 
-/// Drives both charts from the display's clock. The same published transform is
-/// used by Canvas and the native event callbacks, including during button zoom.
 @MainActor
 private final class ChartViewportAnimator: ObservableObject {
     @Published private var motion = ChartViewportMotion()

@@ -1,10 +1,3 @@
-//
-//  FileNodeRecord.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Foundation
 
 nonisolated struct FileNodeRecord: Equatable, Identifiable, Sendable {

@@ -99,13 +99,15 @@ nonisolated enum FileBrowserSizeUnit: CaseIterable, Hashable, Identifiable, Send
         return Int64(exactly: (value * Double(bytes)).rounded())
     }
 
+    static let editingFractionDigits = 2
+    private static let editingScale: Int64 = (0..<editingFractionDigits).reduce(1) { scale, _ in scale * 10 }
+
     static func bestUnit(for bytes: Int64) -> Self {
         guard bytes > 0 else { return .megabytes }
 
-        // Keep the threshold exact when the editor displays at most two fraction digits.
         for unit in allCases.reversed()
         where bytes >= unit.bytes &&
-            bytes.isMultiple(of: unit.bytes / 100) {
+            bytes.isMultiple(of: unit.bytes / editingScale) {
             return unit
         }
         return .kilobytes

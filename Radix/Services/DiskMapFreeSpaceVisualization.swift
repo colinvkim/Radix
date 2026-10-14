@@ -1,8 +1,3 @@
-//
-//  DiskMapFreeSpaceVisualization.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated protocol DiskMapTreeReading: Sendable {

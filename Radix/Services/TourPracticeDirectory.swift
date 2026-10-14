@@ -21,7 +21,6 @@ nonisolated struct TourPracticeDirectory: Sendable {
     static func create() throws -> TourPracticeDirectory {
         let manager = FileManager.default
         let base = baseURL
-        // The shared parent survives individual tours; reuse it after validating ownership.
         try manager.createDirectory(
             at: base, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
@@ -58,7 +57,6 @@ nonisolated struct TourPracticeDirectory: Sendable {
             }
             return TourPracticeDirectory(sessionID: id, containerURL: container, target: ScanTarget(url: root))
         } catch {
-            // This path was just created exclusively for this attempt.
             try? manager.removeItem(at: container)
             throw error
         }

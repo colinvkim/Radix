@@ -1,10 +1,3 @@
-//
-//  ScanWarningFactory.swift
-//  Radix
-//
-//  Created by Codex on 6/14/26.
-//
-
 import Darwin
 import Foundation
 

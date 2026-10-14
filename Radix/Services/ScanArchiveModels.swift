@@ -1,8 +1,3 @@
-//
-//  ScanArchiveModels.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated struct ScanArchiveResolvedTopology: Sendable {

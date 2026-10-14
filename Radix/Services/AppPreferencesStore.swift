@@ -1,8 +1,3 @@
-//
-//  AppPreferencesStore.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated enum ScanVisualizationMode: String, CaseIterable, Identifiable, Sendable {

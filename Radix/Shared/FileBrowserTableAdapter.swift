@@ -1,8 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Maintains native row sizing and file dragging for the SwiftUI table.
-/// Other data source messages remain with SwiftUI, including sorting and updates.
 struct FileBrowserTableAdapter: NSViewRepresentable {
     let nodes: [FileNodeRecord]
     let contentContext: FileBrowserDisplayContext

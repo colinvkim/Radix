@@ -1,8 +1,3 @@
-//
-//  ScanExclusionMatcher.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated struct ScanExclusionMatcher: Sendable {

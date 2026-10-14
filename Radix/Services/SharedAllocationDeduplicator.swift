@@ -1,10 +1,3 @@
-//
-//  SharedAllocationDeduplicator.swift
-//  Radix
-//
-//  Created by Codex on 6/12/26.
-//
-
 import Foundation
 
 nonisolated struct SharedAllocationDeduplicator {

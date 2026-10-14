@@ -1,8 +1,3 @@
-//
-//  TreemapGeometry.swift
-//  Radix
-//
-
 import CoreGraphics
 import Foundation
 

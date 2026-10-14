@@ -1,8 +1,3 @@
-//
-//  ChartLayoutRequestCoordinator.swift
-//  Radix
-//
-
 import Foundation
 
 struct ChartLayoutFailure: Equatable, Sendable {

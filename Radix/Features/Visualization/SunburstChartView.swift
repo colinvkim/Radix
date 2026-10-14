@@ -271,7 +271,6 @@ struct SunburstChartView: View {
                     },
                     isPanEnabled: canAdjustViewport && viewport.transform.isZoomed
                 )
-                // Keep SwiftUI focus on the NSView that handles arrow keys.
                 .focused($focusedWorkspaceTarget, equals: .chart)
                 .accessibilityHidden(true)
                 .allowsHitTesting(layoutPresentation.canUseRenderedLayout)

@@ -139,7 +139,6 @@ nonisolated struct ScanPathIndex {
                 indexingProgress(indexedItems)
             }
         }
-        // ASCII namespaces retain the existing dictionary's keys and capacity.
         var index = try fullPathKeys.mapValues { scanKey in
             let nodeIndex = FileTreeNodeIndex(rawValue: UInt32(nodes.count - scanKey - 1))
             try didIndexItem()

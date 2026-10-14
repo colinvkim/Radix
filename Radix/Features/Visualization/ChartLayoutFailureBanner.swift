@@ -1,8 +1,3 @@
-//
-//  ChartLayoutFailureBanner.swift
-//  Radix
-//
-
 import SwiftUI
 
 struct ChartLoadingOverlay<RequestID: Hashable>: View {

@@ -1249,8 +1249,6 @@ struct ScanArchiveServiceTests {
 
     @Test
     func testCancelledImportStopsBeforePublishingSnapshot() async throws {
-        // Cancel the importing task after a decoded batch has been materialized.
-        // This exercises in-flight cancellation without racing a large fixture.
         let service = ScanArchiveService(importProfileReporter: { phase, _ in
             if phase == .nodeMaterializationWork {
                 withUnsafeCurrentTask { $0?.cancel() }

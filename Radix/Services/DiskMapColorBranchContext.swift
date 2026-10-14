@@ -37,7 +37,6 @@ nonisolated struct DiskMapColorBranchContext {
 
         var indexByID: [String: Int] = [:]
         var branchCount = 0
-        // Aggregate-only layouts never consult branch positions.
         if !retainedBranchIDs.isEmpty {
             let rootChildren = layoutRootID == treeStore.rootID
                 ? layoutRootChildren

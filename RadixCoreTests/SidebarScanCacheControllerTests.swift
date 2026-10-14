@@ -631,6 +631,32 @@ struct SidebarScanCacheControllerTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func testUnsuccessfulFollowUpRemainsRequestableWithSameGeneration(cancelled: Bool) async throws {
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
+        let tree = makeParentAndChildSnapshot()
+        controller.prepareForScanStart(target: tree.snapshot.target, options: ScanOptions())
+        controller.handleCompletedScanSnapshot(tree.snapshot)
+        controller.markExternalFileTransfer(sourceDirectoryPaths: [tree.childTarget.url.path], currentSnapshot: tree.snapshot)
+        let initial = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
+        #expect(await controller.completeFileTransferReconciliation(initial, refreshedSnapshot: tree.snapshot))
+        #expect(controller.markForValidationOnActivation(currentSnapshot: tree.snapshot))
+        let followUp = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
+
+        let refreshed = cancelled ? tree.snapshot : makeCacheSnapshot("/cache/unrelated")
+        let completion = Task { await controller.completeFileTransferReconciliation(followUp, refreshedSnapshot: refreshed) }
+        if cancelled { completion.cancel() }
+        #expect(!(await completion.value))
+
+        #expect(controller.markForValidationOnActivation(currentSnapshot: tree.snapshot))
+        let retry = try #require(controller.fileTransferReconciliationRequest(for: tree.snapshot))
+        #expect(retry.generation == followUp.generation)
+        #expect(retry.forcedDirectoryPaths == [tree.childTarget.url.path])
+        #expect(await controller.completeFileTransferReconciliation(retry, refreshedSnapshot: tree.snapshot))
+        #expect(controller.fileTransferReconciliationRequest(for: tree.snapshot) == nil)
+        #expect(!controller.markForValidationOnActivation(currentSnapshot: tree.snapshot))
+    }
+
     @Test
     func testTransferDuringExpansionKeepsOriginalParentBaseline() async throws {
         let controller = SidebarScanCacheController(maxTotalNodeCount: 100)

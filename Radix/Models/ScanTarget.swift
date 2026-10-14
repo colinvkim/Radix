@@ -1,10 +1,3 @@
-//
-//  ScanTarget.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Foundation
 
 nonisolated enum ScanTargetKind: String, Hashable, Codable, Sendable {

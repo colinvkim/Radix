@@ -1,8 +1,3 @@
-//
-//  ScanIntegerMath.swift
-//  Radix
-//
-
 nonisolated enum ScanIntegerMath {
     nonisolated static func addingClamped<Value: FixedWidthInteger>(
         _ lhs: Value,

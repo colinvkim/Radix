@@ -1,8 +1,3 @@
-//
-//  FileBrowserModel.swift
-//  Radix
-//
-
 import Combine
 import Foundation
 

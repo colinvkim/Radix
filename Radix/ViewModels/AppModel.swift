@@ -1,10 +1,3 @@
-//
-//  AppModel.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Combine
 import Foundation
 
@@ -138,6 +131,7 @@ final class AppModel: ObservableObject {
         case focus(FileNodeRecord.ID?)
         case selectAndFocus(FileNodeRecord.ID)
         case reveal(FileNodeRecord.ID)
+        case revealComparison(comparisonID: UUID, snapshotID: UUID, nodeID: FileNodeRecord.ID)
         case navigateBack
         case navigateForward
         case navigateToParent
@@ -321,7 +315,6 @@ final class AppModel: ObservableObject {
     }
 
     private var deferredWorkBoxes: [DeferredWorkKind: DeferredWorkBox] = [:]
-    // Snapshot handles before cancellation so callers can await retired work.
     var deferredViewUpdateTasks: [Task<Void, Never>] {
         deferredWorkBoxes.values.compactMap(\.task)
     }
@@ -375,8 +368,6 @@ final class AppModel: ObservableObject {
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
         trashFlow.setReadOnlyMode(preferences.isReadOnlyMode)
 
-        // Read the previous launch history above before advancing it. A future
-        // What's New flow can use that history to distinguish upgrades from first launches.
         if let currentAppVersion, !currentAppVersion.isEmpty,
            preferences.highestLaunchedVersion == nil
             || preferences.highestLaunchedVersion?.compare(currentAppVersion, options: .numeric) == .orderedAscending {
@@ -594,7 +585,6 @@ final class AppModel: ObservableObject {
     }
 
     func dismissOnboarding() {
-        // Sheets also dismiss during application termination, without completing onboarding.
         showsOnboarding = false
     }
 
@@ -823,7 +813,6 @@ final class AppModel: ObservableObject {
         sidebarModel.clearActiveTargetIfNeededAfterRemovingRecentTarget(target)
     }
 
-    /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
     func expandSummarizedNode(_ node: FileNodeRecord, completion: @escaping () -> Void) {
         let target = ScanTarget(url: node.url)
         let options = scanOptions(
@@ -1201,16 +1190,14 @@ final class AppModel: ObservableObject {
             presentError(FileActionError.currentComparisonSnapshotUnavailable)
             return
         }
-        // Don't tear down the comparison unless the reveal will actually land — a node that
-        // is hidden (e.g. in the discard pile) would be filtered by performNavigationAction,
-        // leaving the user on an empty browser with their comparison gone.
-        guard isVisibleNavigationNode(nodeID) else { return }
-        closeScanComparison()
-        revealAfterViewUpdate(nodeID: nodeID)
+        guard isVisibleNavigationNode(nodeID),
+              let comparisonID = scanComparison?.id,
+              let snapshotID = scanCoordinator.snapshot?.id else { return }
+        scheduleDeferredNavigationAction(.revealComparison(
+            comparisonID: comparisonID, snapshotID: snapshotID, nodeID: nodeID
+        ))
     }
 
-    /// The node ID for a comparison row within the current live scan, or nil when the row's
-    /// side is not the current scan (e.g. comparing two imported archives) or the node is gone.
     private func currentScanNode(
         beforeNode: FileNodeRecord?,
         afterNode: FileNodeRecord?
@@ -1232,7 +1219,9 @@ final class AppModel: ObservableObject {
         beforeNode: FileNodeRecord?,
         afterNode: FileNodeRecord?
     ) -> String? {
-        currentScanNode(beforeNode: beforeNode, afterNode: afterNode)?.id
+        guard let node = currentScanNode(beforeNode: beforeNode, afterNode: afterNode),
+              scanCoordinator.fileTreeStore?.node(id: node.id) != nil else { return nil }
+        return node.id
     }
 
     func swapPendingComparisonSetup() {
@@ -1603,8 +1592,6 @@ final class AppModel: ObservableObject {
     }
 
     private func scheduleScanStart(_ target: ScanTarget, intent: ScanStartIntent) {
-        // Defer state mutations to the next runloop to avoid
-        // "Publishing changes from within view updates is not allowed."
         cancelArchiveOperation()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
@@ -1943,6 +1930,13 @@ final class AppModel: ObservableObject {
             navigationModel.selectAndFocus(nodeID: nodeID)
         case .reveal(let nodeID):
             guard isVisibleNavigationNode(nodeID) else { return }
+            navigationModel.reveal(nodeID: nodeID)
+        case .revealComparison(let comparisonID, let snapshotID, let nodeID):
+            guard scanComparison?.id == comparisonID,
+                  scanCoordinator.snapshot?.id == snapshotID,
+                  scanCoordinator.fileTreeStore?.node(id: nodeID) != nil,
+                  isVisibleNavigationNode(nodeID) else { return }
+            closeScanComparison()
             navigationModel.reveal(nodeID: nodeID)
         case .navigateBack:
             navigationModel.navigateBack()

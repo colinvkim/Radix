@@ -3,8 +3,6 @@ import SwiftUI
 struct TreemapChartView: View {
     private static let chartPadding: CGFloat = 18
     private static let viewportControlsAvoidanceSize = CGSize(width: 160, height: 56)
-    /// The tooltip sizes itself vertically. This maximum keeps edge placement safe
-    /// when a long name wraps onto its second line.
     private static let tooltipMaximumSize = CGSize(width: 272, height: 122)
 
     let rootNode: FileNodeRecord
@@ -197,14 +195,12 @@ struct TreemapChartView: View {
                     onDiscardPileDragActiveChange: onDiscardPileDragActiveChange,
                     isPanEnabled: canAdjustViewport && viewport.transform.isZoomed
                 )
-                // Keep SwiftUI focus on the NSView that handles arrow keys.
                 .focused($focusedWorkspaceTarget, equals: .chart)
                 .accessibilityHidden(true)
                 .allowsHitTesting(layoutPresentation.canUseRenderedLayout)
 
             }
             .overlay {
-                // Anchor inside the full-width map so the popover has room on the right.
                 Color.clear
                     .frame(width: 2, height: 2)
                     .workspaceTourAnchor(.diskMap)

@@ -1,8 +1,3 @@
-//
-//  TreemapColorResolver.swift
-//  Radix
-//
-
 import SwiftUI
 
 nonisolated enum TreemapColorAppearance: Equatable, Sendable {

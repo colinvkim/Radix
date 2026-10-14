@@ -1,8 +1,3 @@
-//
-//  SidebarScanCacheController.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated struct ScanCacheKey: Hashable, Sendable {
@@ -149,9 +144,26 @@ final class CompletedScanCache {
 }
 
 private struct FileTransferValidation {
-    var sourcePaths: Set<String> = []
-    var generation: UInt64?
-    var isFollowUp = false
+    enum Phase {
+        case initialPending(generation: UInt64)
+        case awaitingLateValidation
+        case followUpPending(generation: UInt64)
+    }
+
+    var sourcePaths: Set<String>
+    var phase: Phase
+
+    var generation: UInt64? {
+        switch phase {
+        case .initialPending(let generation), .followUpPending(let generation): generation
+        case .awaitingLateValidation: nil
+        }
+    }
+
+    var isFollowUp: Bool {
+        if case .followUpPending = phase { return true }
+        return false
+    }
 }
 
 @MainActor
@@ -222,11 +234,10 @@ final class SidebarScanCacheController {
         retainTransferTracking(for: keys)
         transferGeneration += 1
         for key in keys {
-            var validation = transferValidationByKey[key] ?? FileTransferValidation()
-            validation.sourcePaths.formUnion(paths)
-            validation.generation = transferGeneration
-            validation.isFollowUp = false
-            transferValidationByKey[key] = validation
+            transferValidationByKey[key] = FileTransferValidation(
+                sourcePaths: (transferValidationByKey[key]?.sourcePaths ?? []).union(paths),
+                phase: .initialPending(generation: transferGeneration)
+            )
         }
     }
 
@@ -243,12 +254,14 @@ final class SidebarScanCacheController {
         guard !transferValidationByKey.isEmpty else { return false }
         transferGeneration += 1
         for key in transferValidationByKey.keys {
-            // Repeated activations can retry a failed follow-up, but must not
-            // invalidate a follow-up that is already running.
-            guard var validation = transferValidationByKey[key], !validation.isFollowUp else { continue }
-            validation.generation = transferGeneration
-            validation.isFollowUp = true
-            transferValidationByKey[key] = validation
+            guard var validation = transferValidationByKey[key] else { continue }
+            switch validation.phase {
+            case .followUpPending:
+                continue
+            case .initialPending, .awaitingLateValidation:
+                validation.phase = .followUpPending(generation: transferGeneration)
+                transferValidationByKey[key] = validation
+            }
         }
         return true
     }
@@ -270,9 +283,8 @@ final class SidebarScanCacheController {
         let key = containingEntry?.key ?? displayedKey
         let baseline = containingEntry?.snapshot ?? snapshot
         let validations = [transferValidationByKey[key], transferValidationByKey[displayedKey]].compactMap { $0 }
-        guard let generation = validations.compactMap(\.generation).max() else { return nil }
-        var validation = mergeTransferValidations(validations)
-        validation.generation = generation
+        let validation = mergeTransferValidations(validations)
+        guard let generation = validation.generation else { return nil }
         transferValidationByKey[key] = validation
         // A scoped child retains the parent's nil exclusion root and summary
         // settings. Scan the retained parent with its original target/options.
@@ -321,8 +333,7 @@ final class SidebarScanCacheController {
             transferValidationByKey.removeValue(forKey: key)
         }
         if !request.isFollowUp {
-            // Keep the source paths only until one late-write check succeeds.
-            validation.generation = nil
+            validation.phase = .awaitingLateValidation
             transferValidationByKey[request.cacheKey] = validation
         }
         return true
@@ -343,7 +354,8 @@ final class SidebarScanCacheController {
     }
 
     private func mergeTransferValidations(_ validations: [FileTransferValidation]) -> FileTransferValidation {
-        var merged = validations.max { ($0.generation ?? 0) < ($1.generation ?? 0) } ?? FileTransferValidation()
+        var merged = validations.max { ($0.generation ?? 0) < ($1.generation ?? 0) }
+            ?? FileTransferValidation(sourcePaths: [], phase: .awaitingLateValidation)
         merged.sourcePaths = validations.reduce(into: Set<String>()) { $0.formUnion($1.sourcePaths) }
         return merged
     }
@@ -357,11 +369,9 @@ final class SidebarScanCacheController {
         if let existing = transferValidationByKey[key] { validations.append(existing) }
         guard !validations.isEmpty else { return }
         var validation = mergeTransferValidations(validations)
-        // Cached navigation can consume the same single follow-up as activation.
-        if validation.generation == nil {
+        if case .awaitingLateValidation = validation.phase {
             transferGeneration += 1
-            validation.generation = transferGeneration
-            validation.isFollowUp = true
+            validation.phase = .followUpPending(generation: transferGeneration)
         }
         transferValidationByKey[key] = validation
     }

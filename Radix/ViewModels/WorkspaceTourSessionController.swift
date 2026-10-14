@@ -55,7 +55,6 @@ final class WorkspaceTourSessionController: ObservableObject {
         return path == root || path.hasPrefix(root + "/")
     }
 
-    /// The caller restores the workspace before ending ownership of the session.
     var savedWorkspace: ReturnState? { returnState }
 
     func makeFileBrowser(snapshotID: UUID?) -> FileBrowserModel {

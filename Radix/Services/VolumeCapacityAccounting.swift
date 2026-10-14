@@ -1,8 +1,3 @@
-//
-//  VolumeCapacityAccounting.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated enum VolumeCapacityAccounting {

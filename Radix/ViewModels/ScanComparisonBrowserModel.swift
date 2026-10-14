@@ -1,9 +1,6 @@
 import Combine
 import Foundation
 
-/// Owns the derived state used by the comparison browser. Expensive filtering,
-/// sorting, and significant-tree projection happen away from the main actor;
-/// only the latest completed request is allowed to publish.
 @MainActor
 final class ScanComparisonBrowserModel: ObservableObject {
     nonisolated struct WorkInput: Equatable, Sendable {

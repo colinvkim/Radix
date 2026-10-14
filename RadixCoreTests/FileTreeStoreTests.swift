@@ -357,7 +357,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testReplacingAllocatedSizesHonorsCancellationDuringDisplayOrdering() throws {
+    func testReplacingWideAllocatedSizesHonorsCancellationWithoutChangingSource() throws {
         let children = (0..<1_024).map { index in
             makeFileNode(
                 id: "/root/item-\(index).bin",
@@ -371,24 +371,19 @@ struct FileTreeStoreTests {
             let nodeIndex = try #require(store.nodeIndex(id: child.id))
             return (nodeIndex: nodeIndex, allocatedSize: Int64(index + 1))
         }
-        // The replacement, ancestor, traversal, and repair passes account for
-        // four checks per child; this margin reaches the ordering merge.
-        let cancellationCheckLimit = children.count * 4 + 12
-        var cancellationCheckCount = 0
-
-        #expect(throws: CancellationError.self) {
-            try store.replacingAllocatedSizes(
-                replacements,
-                cancellationCheck: {
-                    cancellationCheckCount += 1
-                    if cancellationCheckCount == cancellationCheckLimit {
-                        throw CancellationError()
-                    }
-                }
-            )
+        let completed = CancellationProbe(throwOnCheck: .max)
+        let replaced = try store.replacingAllocatedSizes(replacements, cancellationCheck: completed.check)
+        #expect(replaced.childIDs(of: root.id) == children.reversed().map(\.id))
+        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+            let cancelled = CancellationProbe(throwOnCheck: poll)
+            #expect(throws: CancellationError.self) {
+                try store.replacingAllocatedSizes(replacements, cancellationCheck: cancelled.check)
+            }
+            #expect(cancelled.checkCount == poll)
+            #expect(store.childIDs(of: root.id) == children.map(\.id))
+            #expect(store.children(of: root.id).map(\.allocatedSize) == children.map(\.allocatedSize))
+            #expect(store.root.allocatedSize == root.allocatedSize)
         }
-        #expect(cancellationCheckCount == cancellationCheckLimit)
-        #expect(store.childIDs(of: root.id) == children.map(\.id))
     }
 
     @Test
@@ -621,7 +616,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testLogicalScopeWideRemovalHonorsCancellationDuringDirectoryRepair() throws {
+    func testLogicalScopeWideRemovalHonorsCancellationWithoutChangingSource() throws {
         let children = (0..<1_025).map { index in
             makeFileNode(
                 id: "/root/item-\(index).bin",
@@ -632,23 +627,21 @@ struct FileTreeStoreTests {
         let root = makeDirectoryNode(id: "/root", name: "root", children: children)
         let store = FileTreeStore(root: root, childrenByID: [root.id: children])
         let scope = try #require(store.logicalScope(rootedAt: root.id))
-        // Checks before repair reach the first combined child-order/totals entry.
-        // This probe requires the next periodic check after 256 surviving children.
-        let firstPeriodicDirectoryTotalsCheck = 37
-        var cancellationCheckCount = 0
-
-        #expect(throws: CancellationError.self) {
-            try scope.removingSubtree(
-                id: children[512].id,
-                cancellationCheck: {
-                    cancellationCheckCount += 1
-                    if cancellationCheckCount == firstPeriodicDirectoryTotalsCheck {
-                        throw CancellationError()
-                    }
-                }
-            )
+        let completed = CancellationProbe(throwOnCheck: .max)
+        let removed = try #require(try scope.removingSubtree(id: children[512].id, cancellationCheck: completed.check))
+        #expect(removed.nodeCount == children.count)
+        #expect(removed.childIDs(of: root.id) == children.filter { $0.id != children[512].id }.map(\.id))
+        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+            let cancelled = CancellationProbe(throwOnCheck: poll)
+            #expect(throws: CancellationError.self) {
+                try scope.removingSubtree(id: children[512].id, cancellationCheck: cancelled.check)
+            }
+            #expect(cancelled.checkCount == poll)
+            #expect(scope.childIDs(of: root.id) == children.map(\.id))
+            #expect(scope.nodeCount == children.count + 1)
+            #expect(scope.root.allocatedSize == root.allocatedSize)
+            #expect(store.childIDs(of: root.id) == children.map(\.id))
         }
-        #expect(cancellationCheckCount == firstPeriodicDirectoryTotalsCheck)
     }
 
     @Test

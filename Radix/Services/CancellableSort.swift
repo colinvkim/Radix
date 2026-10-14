@@ -1,8 +1,3 @@
-//
-//  CancellableSort.swift
-//  Radix
-//
-
 nonisolated enum CancellableSort {
     /// Keeps the standard library's adaptive sort for an already-owned buffer,
     /// including long presorted runs, while checking inside expensive tie sorts.

@@ -1,8 +1,3 @@
-//
-//  FileSystemEventHistory.swift
-//  Radix
-//
-
 import CoreServices
 import Darwin
 import Dispatch

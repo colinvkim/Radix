@@ -1,8 +1,6 @@
 import Combine
 import Foundation
 
-/// Serializes app-level sheets and dialogs so SwiftUI is never asked to present
-/// competing modal flows from the workspace window.
 @MainActor
 final class AppPresentationCoordinator: ObservableObject {
     enum Sheet: Hashable, Identifiable {
@@ -118,9 +116,6 @@ final class AppPresentationCoordinator: ObservableObject {
         activeDestination = destination
     }
 
-    /// Removes a presentation whether it is active or still waiting. If removing
-    /// the active presentation exposes a deferred archive open, its URL is returned
-    /// to the owner so it can begin reading the preview.
     func cancel(kind: DestinationKind) -> URL? {
         queue.removeAll { entry in
             guard case .destination(let destination) = entry else { return false }

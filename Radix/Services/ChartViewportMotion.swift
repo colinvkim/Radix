@@ -15,8 +15,6 @@ nonisolated struct ChartViewportMotion {
             animation = nil
             return
         }
-        // Interrupt from the last presented frame, including when several inputs
-        // arrive before the next display update.
         animation = Transition(from: transform, startedAt: time, duration: duration)
     }
 

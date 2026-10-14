@@ -4131,11 +4131,9 @@ struct ScanEngineTests {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        // Create a directory with small files — well below the default 5,000-file threshold
         let cacheURL = rootURL.appending(path: "cache", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
 
-        // Create 100 small files — below the default 5,000 threshold
         for i in 0..<100 {
             let fileURL = cacheURL.appending(path: "file_\(i).tmp")
             try Data(repeating: UInt8(i % 256), count: 64).write(to: fileURL)  // 64 bytes each
@@ -4146,8 +4144,6 @@ struct ScanEngineTests {
             options: ScanOptions()
         )
 
-        // The cache directory should NOT be auto-summarized (only 100 files, below threshold)
-        // This test verifies the mechanism doesn't trigger at low file counts
         let cacheNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
         #expect(!(cacheNode.isAutoSummarized), "Directory with only 100 files should not be auto-summarized")
         #expect(cacheNode.isDirectory)
@@ -4159,7 +4155,6 @@ struct ScanEngineTests {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        // Create a regular file for comparison
         let fileURL = rootURL.appending(path: "document.txt")
         try Data("Hello, World!".utf8).write(to: fileURL)
 
@@ -4179,17 +4174,14 @@ struct ScanEngineTests {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        // Create a deep directory structure
         let cacheURL = rootURL.appending(path: "cache", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
 
-        // Create many small files
         for i in 0..<100 {
             let fileURL = cacheURL.appending(path: "file_\(i).tmp")
             try Data(repeating: UInt8(i % 256), count: 64).write(to: fileURL)
         }
 
-        // Scan with autoSummarize disabled
         var options = ScanOptions()
         options.autoSummarizeDirectories = false
 
@@ -4198,7 +4190,6 @@ struct ScanEngineTests {
             options: options
         )
 
-        // Even with many files, the directory should NOT be auto-summarized
         let cacheNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
         #expect(!(cacheNode.isAutoSummarized))
         #expect(containsChildren(cacheNode, in: snapshot))
@@ -4250,20 +4241,16 @@ struct ScanEngineTests {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        // Create a directory at depth 2: rootURL/projects/cache/
-        // Depth 0 = rootURL, depth 1 = projects, depth 2 = cache
         let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: projectsURL, withIntermediateDirectories: true)
         let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
 
-        // Create 20 small files — enough to trigger with low thresholds
         for i in 0..<20 {
             let fileURL = cacheURL.appending(path: "file_\(i).tmp")
             try Data(repeating: UInt8(i % 256), count: 32).write(to: fileURL)  // 32 bytes each
         }
 
-        // Use low thresholds: min 10 files, max 256 bytes average, min depth 2
         var options = ScanOptions()
         options.autoSummarizeMinFileCount = 10
         options.autoSummarizeMaxAverageFileSize = 256
@@ -4826,7 +4813,6 @@ struct ScanEngineTests {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        // Create a directory at depth 2 with 20 LARGE files
         let projectsURL = rootURL.appending(path: "projects", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: projectsURL, withIntermediateDirectories: true)
         let cacheURL = projectsURL.appending(path: "cache", directoryHint: .isDirectory)

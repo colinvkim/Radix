@@ -1,10 +1,3 @@
-//
-//  AtomicDirectorySummaryModels.swift
-//  Radix
-//
-//  Created by Codex on 6/12/26.
-//
-
 import Foundation
 
 typealias CancellationCheck = @Sendable () throws -> Void

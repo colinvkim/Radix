@@ -4,7 +4,6 @@ import Testing
 
 @testable import RadixCore
 
-/// Timing runs share the main actor and must not overlap each other's fixtures.
 @Suite(.serialized)
 struct ChartResponsivenessBenchmarks {
     @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_TREEMAP"] == "1"))

@@ -235,14 +235,11 @@ struct ScanComparisonServiceTests {
         #expect(comparison.summary.fileCountDelta == 0)
         #expect(comparison.summary.grewCount == 1)
         #expect(comparison.summary.changedCount == 1)
-        // The aggregate delta still reflects the full change even though no directory row is emitted.
         #expect(comparison.summary.allocatedDelta == 90)
     }
 
     @Test
     func testSummarizedLeafDirectoryGrowthEmitsRow() async throws {
-        // An auto-summarized directory is a leaf node with no indexed children, so its size
-        // change has no descendant rows to represent it and must be reported directly.
         let beforeCache = makeTestSummarizedDirectoryNode(id: "/before/cache", name: "cache", size: 100)
         let beforeRoot = makeTestDirectoryNode(id: "/before", name: "before", children: [beforeCache])
         let beforeStore = FileTreeStore(root: beforeRoot, childrenByID: [beforeRoot.id: [beforeCache]])
@@ -935,51 +932,85 @@ struct ScanComparisonServiceTests {
         let native = FileIdentity(device: 99, inode: 900)
         let rootWithoutToken = FileIdentity(device: 99, inode: 1)
         let rootWithToken = FileIdentity(device: 99, inode: 1, volumeToken: 10)
-        let cases: [(FileIdentity, FileIdentity, FileIdentity, FileIdentity, Bool)] = [
-            // An older native archive can use a token recorded on the same device in the other scan.
-            (native, rootWithoutToken, native, rootWithToken, true),
-            // A root token cannot identify files on another volume with a coincidentally equal inode.
-            (
-                resourceIdentity(fileID: 900, volumeToken: 10), resourceIdentity(fileID: 1, volumeToken: 10),
-                FileIdentity(device: 100, inode: 900), rootWithToken, false
+        struct MoveIdentityScenario {
+            let name: String
+            let beforeFile: FileIdentity
+            let beforeRoot: FileIdentity
+            let afterFile: FileIdentity
+            let afterRoot: FileIdentity
+            let expectsMove: Bool
+        }
+        let scenarios = [
+            MoveIdentityScenario(
+                name: "Native archive uses same-device token from other scan",
+                beforeFile: native, beforeRoot: rootWithoutToken,
+                afterFile: native, afterRoot: rootWithToken, expectsMove: true
             ),
-            // Reused device numbers with conflicting recorded volume identities are ambiguous.
-            (native, rootWithToken, native, FileIdentity(device: 99, inode: 1, volumeToken: 20), false),
-            // A token from another scan does not identify an otherwise unknown native volume.
-            (
-                native, FileIdentity(device: 100, inode: 1, volumeToken: 20),
-                resourceIdentity(fileID: 900, volumeToken: 10), rootWithToken, false
+            MoveIdentityScenario(
+                name: "Root token cannot identify an equal inode on another device",
+                beforeFile: resourceIdentity(fileID: 900, volumeToken: 10),
+                beforeRoot: resourceIdentity(fileID: 1, volumeToken: 10),
+                afterFile: FileIdentity(device: 100, inode: 900),
+                afterRoot: rootWithToken, expectsMove: false
             ),
-            // Device reuse elsewhere must not invalidate a token known in the file's own scan.
-            (
-                resourceIdentity(fileID: 900, volumeToken: 10),
-                FileIdentity(device: 99, inode: 1, volumeToken: 20), native, rootWithToken, true
+            MoveIdentityScenario(
+                name: "Reused device with conflicting volume tokens is ambiguous",
+                beforeFile: native, beforeRoot: rootWithToken,
+                afterFile: native, afterRoot: FileIdentity(device: 99, inode: 1, volumeToken: 20),
+                expectsMove: false
             ),
-            // The volume token survives reassignment of its device number.
-            (
-                native, rootWithToken, FileIdentity(device: 100, inode: 900),
-                FileIdentity(device: 100, inode: 1, volumeToken: 10), true
+            MoveIdentityScenario(
+                name: "Other-device token cannot identify unknown native volume",
+                beforeFile: native, beforeRoot: FileIdentity(device: 100, inode: 1, volumeToken: 20),
+                afterFile: resourceIdentity(fileID: 900, volumeToken: 10),
+                afterRoot: rootWithToken, expectsMove: false
             ),
-            // Neither matching devices on different volumes nor matching inodes suffice.
-            (
-                native, rootWithToken, FileIdentity(device: 100, inode: 900),
-                FileIdentity(device: 100, inode: 1, volumeToken: 20), false
+            MoveIdentityScenario(
+                name: "Device reuse elsewhere preserves a token known in the file's scan",
+                beforeFile: resourceIdentity(fileID: 900, volumeToken: 10),
+                beforeRoot: FileIdentity(device: 99, inode: 1, volumeToken: 20),
+                afterFile: native, afterRoot: rootWithToken, expectsMove: true
             ),
-            (native, rootWithToken, FileIdentity(device: 99, inode: 901), rootWithToken, false),
-            // Native archives without supplementary tokens retain exact identity matching.
-            (native, rootWithoutToken, native, rootWithoutToken, true),
+            MoveIdentityScenario(
+                name: "Volume token survives device reassignment",
+                beforeFile: native, beforeRoot: rootWithToken,
+                afterFile: FileIdentity(device: 100, inode: 900),
+                afterRoot: FileIdentity(device: 100, inode: 1, volumeToken: 10), expectsMove: true
+            ),
+            MoveIdentityScenario(
+                name: "Matching inodes on different volume tokens do not identify moves",
+                beforeFile: native, beforeRoot: rootWithToken,
+                afterFile: FileIdentity(device: 100, inode: 900),
+                afterRoot: FileIdentity(device: 100, inode: 1, volumeToken: 20), expectsMove: false
+            ),
+            MoveIdentityScenario(
+                name: "Different inodes on the same volume do not identify moves",
+                beforeFile: native, beforeRoot: rootWithToken,
+                afterFile: FileIdentity(device: 99, inode: 901),
+                afterRoot: rootWithToken, expectsMove: false
+            ),
+            MoveIdentityScenario(
+                name: "Native archives without tokens retain exact identity matching",
+                beforeFile: native, beforeRoot: rootWithoutToken,
+                afterFile: native, afterRoot: rootWithoutToken, expectsMove: true
+            ),
         ]
-        for (index, entry) in cases.enumerated() {
-            let (beforeFile, beforeRoot, afterFile, afterRoot, moved) = entry
+        for scenario in scenarios {
             for afterRootPath in ["/scan", "/other-scan"] {
                 let before = snapshot(
-                    rootPath: "/scan", name: "old", fileIdentity: beforeFile, rootIdentity: beforeRoot)
+                    rootPath: "/scan", name: "old",
+                    fileIdentity: scenario.beforeFile, rootIdentity: scenario.beforeRoot)
                 let after = snapshot(
-                    rootPath: afterRootPath, name: "new", fileIdentity: afterFile, rootIdentity: afterRoot)
-                for (earlier, later) in [(before, after), (after, before)] {
+                    rootPath: afterRootPath, name: "new",
+                    fileIdentity: scenario.afterFile, rootIdentity: scenario.afterRoot)
+                for (direction, earlier, later) in [("forward", before, after), ("reverse", after, before)] {
                     let comparison = try await ScanComparisonService().compare(before: earlier, after: later)
-                    #expect(comparison.summary.movedCount == (moved ? 1 : 0), "Case \(index)")
-                    #expect(comparison.rows.count == (moved ? 1 : 2), "Case \(index)")
+                    #expect(
+                        comparison.summary.movedCount == (scenario.expectsMove ? 1 : 0),
+                        "\(scenario.name), root \(afterRootPath), \(direction)")
+                    #expect(
+                        comparison.rows.count == (scenario.expectsMove ? 1 : 2),
+                        "\(scenario.name), root \(afterRootPath), \(direction)")
                 }
             }
         }
@@ -2054,31 +2085,29 @@ struct ScanComparisonServiceTests {
     }
 
     @Test
-    func testRowQueryStopsBetweenLargeSortRuns() throws {
+    func testWideRowQueryHonorsCancellationAtEarlyMiddleAndFinalPolls() throws {
         let rows = makeComparisonRows(count: 20_000)
-        let filteringCheckCount = (rows.count + 255) / 256
-        // Entry, filtering, post-filter, offset preparation, first sorted run,
-        // then cancellation before the second run starts.
-        let secondSortedRunCheck = 1 + filteringCheckCount + 1 + filteringCheckCount + 2
-        let probe = CancellationProbe(throwOnCheck: secondSortedRunCheck)
         let query = ScanComparisonRowQuery(
             searchText: "",
             sortOrder: [
                 ScanComparisonRowComparator(field: .afterAllocatedSize, order: .reverse)
             ]
         )
-
-        #expect(throws: CancellationError.self) {
-            try query.applying(
-                to: rows,
-                cancellationCheck: probe.check
-            )
+        let completed = CancellationProbe(throwOnCheck: .max)
+        let sorted = try query.applying(to: rows, cancellationCheck: completed.check)
+        #expect(sorted.map(\.id) == rows.reversed().map(\.id))
+        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+            let cancelled = CancellationProbe(throwOnCheck: poll)
+            #expect(throws: CancellationError.self) {
+                try query.applying(to: rows, cancellationCheck: cancelled.check)
+            }
+            #expect(cancelled.checkCount == poll)
         }
-        #expect(probe.checkCount == secondSortedRunCheck)
+        #expect(rows.map { $0.afterNode?.allocatedSize } == (0..<rows.count).map { Int64($0) })
     }
 
     @Test
-    func testSignificantProjectionCancelsDuringCoverageAndRemainderWork() async throws {
+    func testSignificantProjectionHonorsCancellationAtEarlyMiddleAndFinalPolls() async throws {
         let files = (0..<600).map {
             makeTestFileNode(id: "/root/file-\($0).bin", name: "file-\($0).bin", size: Int64($0))
         }
@@ -2091,8 +2120,7 @@ struct ScanComparisonServiceTests {
             changeKinds: [.added], cancellationCheck: { checks += 1 }
         )
         #expect(measured == expected)
-        // Cancellation after eligibility preparation and near the end of remainder aggregation.
-        for limit in [6, checks - 1] {
+        for limit in [1, checks / 2, checks] {
             let probe = CancellationProbe(throwOnCheck: limit)
             #expect(throws: CancellationError.self) {
                 try comparison.changeTree.significantProjection(

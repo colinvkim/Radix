@@ -1,8 +1,3 @@
-//
-//  SidebarModel.swift
-//  Radix
-//
-
 import Combine
 import Foundation
 

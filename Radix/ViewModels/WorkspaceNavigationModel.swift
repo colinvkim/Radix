@@ -1,8 +1,3 @@
-//
-//  WorkspaceNavigationModel.swift
-//  Radix
-//
-
 import Combine
 import Foundation
 
@@ -12,6 +7,24 @@ struct WorkspaceNavigationState: Equatable {
     fileprivate struct TableSource: Equatable, Sendable {
         let treeContentID: UUID
         let directoryID: FileNodeRecord.ID
+    }
+
+    fileprivate enum TableMaterialization: Equatable {
+        case unrequested
+        case loading(TableSource)
+        case loaded(TableSource)
+
+        var source: TableSource? {
+            switch self {
+            case .unrequested: nil
+            case .loading(let source), .loaded(let source): source
+            }
+        }
+
+        var pendingSource: TableSource? {
+            if case .loading(let source) = self { return source }
+            return nil
+        }
     }
 
     var snapshotID: UUID?
@@ -25,9 +38,7 @@ struct WorkspaceNavigationState: Equatable {
     var tableContentID: String
     var tableContentRevision: Int
     var selectedAncestorIDs: Set<FileNodeRecord.ID>
-    // Identifies loaded or pending contents. Nil also preserves explicitly deferred loading.
-    fileprivate var tableSource: TableSource?
-    fileprivate var isLoadingTableNodes = false
+    fileprivate var tableMaterialization: TableMaterialization = .unrequested
 
     static let empty = WorkspaceNavigationState(
         snapshotID: nil,
@@ -53,8 +64,7 @@ struct WorkspaceNavigationState: Equatable {
             lhs.focusForwardStack == rhs.focusForwardStack &&
             lhs.tableContentID == rhs.tableContentID &&
             lhs.tableContentRevision == rhs.tableContentRevision &&
-            lhs.tableSource == rhs.tableSource &&
-            lhs.isLoadingTableNodes == rhs.isLoadingTableNodes &&
+            lhs.tableMaterialization == rhs.tableMaterialization &&
             lhs.selectedAncestorIDs == rhs.selectedAncestorIDs
     }
 }
@@ -180,9 +190,6 @@ private extension WorkspaceNavigationState {
             return selecting(nil)
         }
 
-        // Reveal the node in context: focus its containing folder (so the file list
-        // shows its siblings) and select it. Unlike selectingAndFocusing, this does not
-        // zoom into the node itself, which would show an empty view for a file.
         let focusTarget = fileTreeStore?.parent(of: nodeID)?.id ?? nodeID
         var next = self
         if next.focusedNodeID != focusTarget {
@@ -376,18 +383,21 @@ private extension WorkspaceNavigationState {
               let fileTreeStore,
               let focusNode,
               let directory = focusNode.isDirectory ? focusNode : fileTreeStore.parent(of: focusNode.id) else {
-            next.tableSource = nil
-            next.isLoadingTableNodes = false
+            next.tableMaterialization = .unrequested
             next.replaceTableNodes([])
             return next
         }
 
         let source = TableSource(treeContentID: fileTreeStore.contentID, directoryID: directory.id)
-        guard tableSource != source else { return next }
+        guard tableMaterialization.source != source else { return next }
 
-        next.tableSource = source
-        next.isLoadingTableNodes = fileTreeStore.childCount(of: directory.id) > 512
-        next.replaceTableNodes(next.isLoadingTableNodes ? [] : fileTreeStore.children(of: directory.id))
+        if fileTreeStore.childCount(of: directory.id) > 512 {
+            next.tableMaterialization = .loading(source)
+            next.replaceTableNodes([])
+        } else {
+            next.tableMaterialization = .loaded(source)
+            next.replaceTableNodes(fileTreeStore.children(of: directory.id))
+        }
         return next
     }
 
@@ -425,7 +435,7 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     deinit { tableLoadTask?.cancel() }
 
-    var isLoadingTableNodes: Bool { state.isLoadingTableNodes }
+    var isLoadingTableNodes: Bool { state.tableMaterialization.pendingSource != nil }
 
     var selectedNodeID: String? {
         state.selectedNodeID
@@ -620,7 +630,7 @@ final class WorkspaceNavigationModel: ObservableObject {
     }
 
     private func refreshPendingTableLoad() {
-        let source = state.isLoadingTableNodes ? state.tableSource : nil
+        let source = state.tableMaterialization.pendingSource
         guard source != tableLoadSource else { return }
         tableLoadTask?.cancel()
         tableLoadTask = nil
@@ -634,18 +644,17 @@ final class WorkspaceNavigationModel: ObservableObject {
                 try Task.checkCancellation()
                 await MainActor.run { [weak self] in
                     guard !Task.isCancelled, let self,
-                          state.tableSource == source, state.isLoadingTableNodes else { return }
+                          state.tableMaterialization == .loading(source) else { return }
                     var next = state
-                    next.isLoadingTableNodes = false
+                    next.tableMaterialization = .loaded(source)
                     next.replaceTableNodes(nodes)
                     publish(next)
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    guard !Task.isCancelled, let self, state.tableSource == source else { return }
+                    guard !Task.isCancelled, let self, state.tableMaterialization == .loading(source) else { return }
                     var next = state
-                    next.tableSource = nil
-                    next.isLoadingTableNodes = false
+                    next.tableMaterialization = .unrequested
                     publish(next)
                 }
             }

@@ -1,8 +1,3 @@
-//
-//  ScanArchiveSectionStream.swift
-//  Radix
-//
-
 import Compression
 import CryptoKit
 import Foundation

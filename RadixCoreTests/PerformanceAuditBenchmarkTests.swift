@@ -5,10 +5,8 @@ import Testing
 @testable import RadixCore
 
 /// Opt-in measurements for the performance audit; elapsed times are never test assertions.
-/// Cases run serially so their fixtures and measurements do not overlap within this suite.
 @Suite(.serialized)
 struct PerformanceAuditBenchmarkTests {
-    // MARK: - UI preparation and navigation
 
     @MainActor
     @Test(
@@ -143,7 +141,6 @@ struct PerformanceAuditBenchmarkTests {
                 comparisonID: comparison.id, rows: comparison.rows,
                 changeTree: comparison.changeTree, query: query
             )
-            // Avoid spinning the main actor while its background request runs.
             try await waitUntil("comparison refresh \(phase)", timeout: 60) { !model.isRefreshing }
             let seconds = BenchmarkSupport.durationSeconds(start.duration(to: .now))
             var fingerprint = ChartResponsivenessBenchmarkSupport.fnvOffsetBasis
@@ -340,7 +337,6 @@ struct PerformanceAuditBenchmarkTests {
     }
 }
 
-// MARK: - Filesystem and path storage
 
 extension PerformanceAuditBenchmarkTests {
     @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_ENUMERATION_PATH"] != nil))
@@ -380,7 +376,6 @@ extension PerformanceAuditBenchmarkTests {
     func testNativeTraversalBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
         let path = try #require(environment["RADIX_BENCH_TRAVERSAL_PATH"])
-        // Explicit concurrency keeps the baseline independent of scanner policy.
         let workers = max(environment["RADIX_BENCH_TRAVERSAL_WORKERS"].flatMap(Int.init) ?? 1, 1)
         let root = URL(filePath: path, directoryHint: .isDirectory)
         let loader = ScanMetadataLoader()
@@ -746,7 +741,6 @@ extension PerformanceAuditBenchmarkTests {
     }
 }
 
-// MARK: - Snapshot retention
 
 extension PerformanceAuditBenchmarkTests {
     @MainActor
@@ -807,7 +801,6 @@ extension PerformanceAuditBenchmarkTests {
         let relievedBytes = malloc_zone_pressure_relief(nil, 0)
         Self.reportRetention(phase: "allocator_relief", extra: "relieved_bytes=\(relievedBytes)")
         if let pauseSeconds = environment["RADIX_BENCH_RETENTION_PAUSE_SECONDS"].flatMap(Int.init), pauseSeconds > 0 {
-            // Allow a separate vmmap capture after every snapshot owner releases.
             fflush(nil)
             try await Task.sleep(for: .seconds(pauseSeconds))
         }
@@ -906,7 +899,6 @@ extension PerformanceAuditBenchmarkTests {
     }
 }
 
-// MARK: - Shared fixtures and reporting
 
 extension PerformanceAuditBenchmarkTests {
     private static func makeFlatSnapshot(fileCount: Int, rootID: String = "/audit") -> ScanSnapshot {

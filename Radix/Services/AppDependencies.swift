@@ -1,8 +1,3 @@
-//
-//  AppDependencies.swift
-//  Radix
-//
-
 import Foundation
 
 @MainActor

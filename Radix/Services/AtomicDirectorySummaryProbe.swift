@@ -1,10 +1,3 @@
-//
-//  AtomicDirectorySummaryProbe.swift
-//  Radix
-//
-//  Created by Codex on 6/12/26.
-//
-
 import Foundation
 
 nonisolated private struct AtomicProbeCancellation: Error {

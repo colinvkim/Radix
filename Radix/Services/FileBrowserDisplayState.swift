@@ -1,8 +1,3 @@
-//
-//  FileBrowserDisplayState.swift
-//  Radix
-//
-
 import Foundation
 
 struct FileBrowserDisplayRequest: Sendable {

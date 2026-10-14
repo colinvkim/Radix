@@ -1,8 +1,3 @@
-//
-//  SunburstColorResolver.swift
-//  Radix
-//
-
 import SwiftUI
 
 nonisolated enum SunburstColorRole: Hashable, Sendable {

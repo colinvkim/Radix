@@ -2,9 +2,6 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Enables collection commands for the workspace or its review sheet when
-/// the key window has non-text focus.
-/// Native text editors and other windows retain the standard Undo/Redo group.
 struct DiscardPileUndoFocusObserver: NSViewRepresentable {
     let includesAttachedSheet: Bool
     let onChange: (Bool) -> Void
