@@ -1,8 +1,3 @@
-//
-//  FileBrowserSorting.swift
-//  Radix
-//
-
 import Foundation
 
 struct FileNodeTableComparator: Equatable, SortComparator, Sendable {

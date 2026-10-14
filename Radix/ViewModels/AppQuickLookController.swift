@@ -31,8 +31,6 @@ final class AppQuickLookController: ObservableObject {
 
     private let validateSelection: ([FileNodeRecord], ScanSnapshotSource) async throws -> Void
     private var preparation: Task<Void, Never>?
-    // Retain intent while validation is pending, so selection changes follow and
-    // a second toggle cancels instead of opening a stale preview later.
     private var requestedScope: SelectionScope?
 
     var isActive: Bool { requestedScope != nil }

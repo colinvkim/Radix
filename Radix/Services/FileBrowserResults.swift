@@ -1,8 +1,3 @@
-//
-//  FileBrowserResults.swift
-//  Radix
-//
-
 import Foundation
 
 enum FileBrowserResults {
@@ -154,7 +149,6 @@ enum FileBrowserResults {
         }
         try cancellationCheck()
 
-        // Keep records and prepared keys in input order; only offsets move through sort buffers.
         let sortedIndices = try CancellableSort.sorted(
             &indices,
             cancellationCheck: cancellationCheck

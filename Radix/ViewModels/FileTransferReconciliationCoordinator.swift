@@ -1,7 +1,5 @@
 import Foundation
 
-/// Coalesces transfer work while preserving dirty cache entries across cancellation
-/// and navigation. Readiness is evaluated after synchronous scan mutations finish.
 @MainActor
 final class FileTransferReconciliationCoordinator {
     private let scanCoordinator: ScanCoordinator
@@ -89,8 +87,6 @@ final class FileTransferReconciliationCoordinator {
             completion: { [weak self] in
                 guard let self else { return }
                 isRunning = false
-                // Failure/cancellation leaves the cache dirty for a future explicit
-                // trigger. Only requests received during this operation drain now.
                 resumeIfPossible()
             }
         )

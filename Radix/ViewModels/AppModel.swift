@@ -1,10 +1,3 @@
-//
-//  AppModel.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Combine
 import Foundation
 
@@ -321,7 +314,6 @@ final class AppModel: ObservableObject {
     }
 
     private var deferredWorkBoxes: [DeferredWorkKind: DeferredWorkBox] = [:]
-    // Snapshot handles before cancellation so callers can await retired work.
     var deferredViewUpdateTasks: [Task<Void, Never>] {
         deferredWorkBoxes.values.compactMap(\.task)
     }
@@ -375,8 +367,6 @@ final class AppModel: ObservableObject {
         recentTargets = dependencies.recentTargets.loadAvailableTargets()
         trashFlow.setReadOnlyMode(preferences.isReadOnlyMode)
 
-        // Read the previous launch history above before advancing it. A future
-        // What's New flow can use that history to distinguish upgrades from first launches.
         if let currentAppVersion, !currentAppVersion.isEmpty,
            preferences.highestLaunchedVersion == nil
             || preferences.highestLaunchedVersion?.compare(currentAppVersion, options: .numeric) == .orderedAscending {
@@ -594,7 +584,6 @@ final class AppModel: ObservableObject {
     }
 
     func dismissOnboarding() {
-        // Sheets also dismiss during application termination, without completing onboarding.
         showsOnboarding = false
     }
 
@@ -823,7 +812,6 @@ final class AppModel: ObservableObject {
         sidebarModel.clearActiveTargetIfNeededAfterRemovingRecentTarget(target)
     }
 
-    /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
     func expandSummarizedNode(_ node: FileNodeRecord, completion: @escaping () -> Void) {
         let target = ScanTarget(url: node.url)
         let options = scanOptions(
@@ -1209,8 +1197,6 @@ final class AppModel: ObservableObject {
         revealAfterViewUpdate(nodeID: nodeID)
     }
 
-    /// The node ID for a comparison row within the current live scan, or nil when the row's
-    /// side is not the current scan (e.g. comparing two imported archives) or the node is gone.
     private func currentScanNode(
         beforeNode: FileNodeRecord?,
         afterNode: FileNodeRecord?
@@ -1603,8 +1589,6 @@ final class AppModel: ObservableObject {
     }
 
     private func scheduleScanStart(_ target: ScanTarget, intent: ScanStartIntent) {
-        // Defer state mutations to the next runloop to avoid
-        // "Publishing changes from within view updates is not allowed."
         cancelArchiveOperation()
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()

@@ -1,10 +1,3 @@
-//
-//  ScanSnapshot.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Foundation
 
 nonisolated enum ScanWarningCategory: String, Hashable, Sendable {
@@ -37,8 +30,6 @@ nonisolated struct ScanAggregateStats: Sendable {
         mutating func include(_ node: FileNodeRecord, hasMaterializedChildren: Bool) {
             if node.isDirectory {
                 directoryCount = ScanIntegerMath.addingClamped(directoryCount, 1)
-                // Descendants are counted individually when present in the tree.
-                // A collapsed package or summary contributes its file count once.
                 if !hasMaterializedChildren && (node.isPackage || node.isAutoSummarized) {
                     fileCount = ScanIntegerMath.addingClamped(fileCount, node.descendantFileCount)
                 }

@@ -289,7 +289,6 @@ func makeComparisonSnapshot(
     )
 }
 
-// Invalid opt-in benchmark configurations must fail, not silently skip work.
 struct TestFixtureError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
@@ -299,7 +298,6 @@ extension Tag {
     @Tag static var benchmark: Self
 }
 
-/// Each Swift Testing suite instance owns its fixtures, including on thrown requirements.
 final class TemporaryTestFiles {
     private var urls: [URL] = []
     func track(_ url: URL) { urls.append(url) }
@@ -349,8 +347,6 @@ final class TestTaskCancellation: @unchecked Sendable {
     }
 }
 
-/// One owner per suite instance keeps persistence tests isolated and cleans up
-/// even when a thrown requirement stops a test early.
 final class TemporaryTestDefaults {
     private var suiteNames: [String] = []
 

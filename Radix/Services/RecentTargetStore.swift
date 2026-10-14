@@ -1,8 +1,3 @@
-//
-//  RecentTargetStore.swift
-//  Radix
-//
-
 import Foundation
 
 protocol RecentTargetPersisting: AnyObject {

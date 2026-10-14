@@ -42,7 +42,6 @@ struct SignatureMapView: View {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) { appeared = false }
-            // Separate the starting and final states for the entrance animation.
             try? await Task.sleep(for: .milliseconds(40))
             guard !Task.isCancelled else { return }
             appeared = true

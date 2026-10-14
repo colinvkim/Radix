@@ -28,8 +28,6 @@ struct FileSizeFormatterTests {
 
     @Test
     func testPercentageDoesNotClampAboveOneHundredPercent() {
-        // A child can exceed its container (e.g. hard-link dedup or
-        // allocated-vs-logical accounting); the formatter reports the raw ratio.
         #expect(RadixFormatters.percentage(part: 3, total: 2) == "150.0%")
     }
 }

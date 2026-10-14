@@ -1,8 +1,3 @@
-//
-//  ScanArchiveNodeIO.swift
-//  Radix
-//
-
 import CryptoKit
 import Foundation
 

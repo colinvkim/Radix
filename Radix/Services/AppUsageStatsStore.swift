@@ -1,8 +1,3 @@
-//
-//  AppUsageStatsStore.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated struct AppUsageStats: Codable, Equatable, Sendable {

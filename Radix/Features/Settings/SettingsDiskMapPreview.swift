@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// A small in-memory volume rendered with the same layouts and colors as the workspace.
 struct SettingsDiskMapPreview: View {
     let mode: ScanVisualizationMode
     let depthLimit: Int

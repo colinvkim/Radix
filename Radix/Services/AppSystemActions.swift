@@ -1,8 +1,3 @@
-//
-//  AppSystemActions.swift
-//  Radix
-//
-
 import AppKit
 import Combine
 import Foundation

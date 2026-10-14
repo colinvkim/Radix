@@ -1,10 +1,3 @@
-//
-//  SharedAllocationOwnerAccumulator.swift
-//  Radix
-//
-//  Created by Codex on 7/10/26.
-//
-
 import Foundation
 
 /// Assigns hard-linked storage to one path, then assigns each APFS clone

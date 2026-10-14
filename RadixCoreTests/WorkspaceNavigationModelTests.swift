@@ -327,8 +327,6 @@ struct WorkspaceNavigationModelTests {
 
         #expect(publishedStates.count == 1)
         let state = try #require(publishedStates.first)
-        // Unlike selectAndFocus, reveal focuses the parent folder (docs) rather than the
-        // file itself, so the file list shows the file among its siblings.
         #expect(state.focusedNodeID == fixture.docs.id)
         #expect(state.selectedNodeID == fixture.docFile.id)
         #expect(state.tableNodes.map(\.id) == [fixture.docFile.id])

@@ -1,8 +1,3 @@
-//
-//  AtomicDirectorySummaryPool.swift
-//  Radix
-//
-
 import Dispatch
 import Foundation
 

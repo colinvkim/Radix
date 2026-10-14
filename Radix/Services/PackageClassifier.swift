@@ -1,8 +1,3 @@
-//
-//  PackageClassifier.swift
-//  Radix
-//
-
 import Foundation
 
 /// Avoids repeated Foundation package-property lookups by combining the native

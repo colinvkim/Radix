@@ -1,15 +1,6 @@
-//
-//  TrashFlowController.swift
-//  Radix
-//
-
 import Combine
 import Foundation
 
-/// Owns the state machines behind trash moves and the discard pile: pending
-/// confirmations, optimistic visibility during moves, post-trash snapshot
-/// removal bookkeeping, and the in-flight confirmed-move tasks. AppModel wires
-/// `onChange` to refresh dependent presentations and publish object changes.
 @MainActor
 final class TrashFlowController {
     struct OptimisticTrashVisibilityState: Equatable, Sendable {
@@ -49,7 +40,6 @@ final class TrashFlowController {
         let cloudImpact: CloudStorageLocation.Impact
     }
 
-    /// Invoked on the main actor after every mutating assignment below.
     var onChange: (() -> Void)?
 
     var pendingTrashSelection: PendingTrashSelection? {
@@ -153,8 +143,6 @@ final class TrashFlowController {
         replaceOptimisticTrashVisibility(nodeIDs: [], snapshotID: nil)
     }
 
-    /// Validates trash support, reduces nodes to top-level items, and stages
-    /// the pending confirmation. Throws when any node cannot be trashed.
     func stageTrashRequest(
         for nodes: [FileNodeRecord],
         activeTarget: ScanTarget?,
@@ -179,7 +167,6 @@ final class TrashFlowController {
         )
     }
 
-    /// Context is independent of the pile, which loses its snapshot ID when empty.
     func synchronizeDiscardPileContext(snapshotID: UUID?, treeContentID: UUID?) {
         guard discardPileHistorySnapshotID != snapshotID ||
                 discardPileHistoryTreeContentID != treeContentID else { return }
@@ -194,14 +181,12 @@ final class TrashFlowController {
         notifyChanged()
     }
 
-    /// Reconciliation and filesystem changes replace state without becoming undoable.
     func replaceDiscardPile(_ state: DiscardPileState) {
         invalidateDiscardPileHistory()
         guard state != discardPile else { return }
         discardPile = state
     }
 
-    /// One user edit stores the complete ordered state, including ancestor collapse.
     func changeDiscardPile(_ state: DiscardPileState, actionName: String) {
         guard state != discardPile else { return }
         if discardPileHistorySnapshotID == nil {
@@ -265,8 +250,6 @@ final class TrashFlowController {
         }
     }
 
-    /// Applies optimistic visibility for the duration of a move. Returns
-    /// whether any state changed so callers can run follow-up reconciliation.
     @discardableResult
     func hideTrashNodesDuringMove(
         _ nodes: [FileNodeRecord],
@@ -319,8 +302,6 @@ final class TrashFlowController {
         )
     }
 
-    /// Tracks every confirmed batch so cancelling also stops overlapping moves.
-    /// Completed filesystem moves are reported even if cancellation follows.
     func startConfirmedMove(
         _ nodes: [FileNodeRecord],
         moveToTrash: @escaping @MainActor (FileNodeRecord) async throws -> TrashIdentityVerificationResult,
@@ -369,7 +350,6 @@ final class TrashFlowController {
                 self?.postTrashRemovalRequests.removeFirst()
                 await removal()
             }
-            // A cancelled worker must not clear the handle of its replacement.
             guard !Task.isCancelled else { return }
             self?.postTrashRemovalTask = nil
         }

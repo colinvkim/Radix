@@ -40,8 +40,6 @@ struct ArchiveWorkflowCoordinatorTests {
             staleFails
             ? .failure(TestArchiveWorkflowError.failed) : .success(10)
         try #require(await probe.complete(id: 0, with: staleResult))
-        // Cleanup is called after the coordinator handles the result. A yield
-        // alone does not establish that the stale callbacks have been rejected.
         try await waitUntil("superseded archive task cleanup") { oldCleanupCount == 1 }
         #expect(successes.isEmpty)
         #expect(failures.isEmpty)

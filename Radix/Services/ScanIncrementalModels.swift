@@ -1,8 +1,3 @@
-//
-//  ScanIncrementalModels.swift
-//  Radix
-//
-
 import Foundation
 
 /// A persistent position in one volume's FSEvents journal.

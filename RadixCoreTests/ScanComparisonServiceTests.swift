@@ -235,14 +235,11 @@ struct ScanComparisonServiceTests {
         #expect(comparison.summary.fileCountDelta == 0)
         #expect(comparison.summary.grewCount == 1)
         #expect(comparison.summary.changedCount == 1)
-        // The aggregate delta still reflects the full change even though no directory row is emitted.
         #expect(comparison.summary.allocatedDelta == 90)
     }
 
     @Test
     func testSummarizedLeafDirectoryGrowthEmitsRow() async throws {
-        // An auto-summarized directory is a leaf node with no indexed children, so its size
-        // change has no descendant rows to represent it and must be reported directly.
         let beforeCache = makeTestSummarizedDirectoryNode(id: "/before/cache", name: "cache", size: 100)
         let beforeRoot = makeTestDirectoryNode(id: "/before", name: "before", children: [beforeCache])
         let beforeStore = FileTreeStore(root: beforeRoot, childrenByID: [beforeRoot.id: [beforeCache]])

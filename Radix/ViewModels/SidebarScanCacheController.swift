@@ -1,8 +1,3 @@
-//
-//  SidebarScanCacheController.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated struct ScanCacheKey: Hashable, Sendable {

@@ -1,10 +1,3 @@
-//
-//  ScanSnapshotTransformService.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Foundation
 
 nonisolated enum ScanSnapshotTransformError: Error, Sendable {

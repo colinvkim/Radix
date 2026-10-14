@@ -1,8 +1,3 @@
-//
-//  FileBrowserSearch.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated protocol FileSearching: Sendable {

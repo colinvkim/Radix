@@ -1,8 +1,3 @@
-//
-//  WorkspaceNavigationModel.swift
-//  Radix
-//
-
 import Combine
 import Foundation
 
@@ -180,9 +175,6 @@ private extension WorkspaceNavigationState {
             return selecting(nil)
         }
 
-        // Reveal the node in context: focus its containing folder (so the file list
-        // shows its siblings) and select it. Unlike selectingAndFocusing, this does not
-        // zoom into the node itself, which would show an empty view for a file.
         let focusTarget = fileTreeStore?.parent(of: nodeID)?.id ?? nodeID
         var next = self
         if next.focusedNodeID != focusTarget {

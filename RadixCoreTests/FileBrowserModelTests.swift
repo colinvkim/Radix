@@ -1845,7 +1845,6 @@ private func assertCancellation<T>(
         _ = try await task.value
         Issue.record("Expected cancellation", sourceLocation: sourceLocation)
     } catch is CancellationError {
-        // Expected.
     } catch {
         Issue.record("Expected CancellationError, got \(error)", sourceLocation: sourceLocation)
     }

@@ -16,8 +16,6 @@ struct ArchiveOperationState: Identifiable, Equatable, Sendable {
     var progressFraction: Double?
 }
 
-/// Owns the single-flight task, progress stream, and stale-result rules shared by
-/// archive import, export, preview, and comparison work.
 @MainActor
 final class ArchiveWorkflowCoordinator: ObservableObject {
     @Published private(set) var operation: ArchiveOperationState?

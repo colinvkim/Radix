@@ -214,7 +214,6 @@ struct TreemapDiscardPileOverlay: View, Equatable {
                             style: StrokeStyle(lineWidth: 2, dash: [5, 3])
                         )
                     case .queuedDescendant:
-                        // The queued root tile already covers nested treemap content.
                         break
                     case .containsQueuedItem:
                         context.stroke(
@@ -233,7 +232,6 @@ struct TreemapDiscardPileOverlay: View, Equatable {
                             lineWidth: 1.5
                         )
                     case .movingToTrashDescendant:
-                        // The moving root tile already covers nested treemap content.
                         break
                     case .containsMovingToTrashItem:
                         context.stroke(

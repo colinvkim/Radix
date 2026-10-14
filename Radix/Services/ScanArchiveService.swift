@@ -1,10 +1,3 @@
-//
-//  ScanArchiveService.swift
-//  Radix
-//
-//  Created by Codex on 6/22/26.
-//
-
 import CryptoKit
 import Foundation
 

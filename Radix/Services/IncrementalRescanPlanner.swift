@@ -1,8 +1,3 @@
-//
-//  IncrementalRescanPlanner.swift
-//  Radix
-//
-
 import Foundation
 
 /// Converts advisory filesystem events into conservative directory relists and

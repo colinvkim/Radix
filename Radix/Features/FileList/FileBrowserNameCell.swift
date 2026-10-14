@@ -118,7 +118,6 @@ private struct SharedStorageInfoButton: View {
     }
 }
 
-/// Button that appears next to auto-summarized directories, allowing users to expand them fully.
 private struct ExpandSummarizedButton: View {
     let node: FileNodeRecord
     let isExpanding: Bool

@@ -1,8 +1,3 @@
-//
-//  ScanArchiveTopologyValidator.swift
-//  Radix
-//
-
 import Foundation
 
 extension ScanArchiveService {

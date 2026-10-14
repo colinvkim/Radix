@@ -50,7 +50,6 @@ struct ScanSortSpeedAuditBenchmarkTests {
         }
     }
 
-    // Match the shipping comparator's owned record temporaries.
     @inline(never)
     private static func sortRecords(_ keys: inout [Int], nodes: [FileNodeRecord]) throws {
         try CancellableSort.sort(&keys, cancellationCheck: Task.checkCancellation) { lhsKey, rhsKey in
@@ -63,7 +62,6 @@ struct ScanSortSpeedAuditBenchmarkTests {
         }
     }
 
-    // Read just the sort fields, keeping identical collation and cancellation.
     @inline(never)
     private static func sortFields(_ keys: inout [Int], nodes: [FileNodeRecord]) throws {
         try CancellableSort.sort(&keys, cancellationCheck: Task.checkCancellation) { lhsKey, rhsKey in

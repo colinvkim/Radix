@@ -17,8 +17,6 @@ struct WorkspaceQuickLookPreview: ViewModifier {
     }
 }
 
-/// Forward single-item browsing to the existing responder. SwiftUI remains the
-/// panel's owner, and selected groups keep Quick Look's native item navigation.
 private struct QuickLookSourceNavigation: NSViewRepresentable {
     let isEnabled: Bool
 
@@ -69,7 +67,6 @@ private struct QuickLookSourceNavigation: NSViewRepresentable {
                   event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
             else { return event }
 
-            // Explicitly focused preview controls retain their own keyboard input.
             if panel.firstResponder is NSControl { return event }
             if let text = panel.firstResponder as? NSTextView, text.isEditable { return event }
 

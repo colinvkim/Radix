@@ -1,8 +1,3 @@
-//
-//  ScanComparisonService.swift
-//  Radix
-//
-
 import Foundation
 
 nonisolated enum ScanComparisonIntegerMath {

@@ -1,10 +1,3 @@
-//
-//  ScanEngine.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import Darwin
 import Dispatch
 import Foundation
@@ -1160,7 +1153,6 @@ actor ScanEngine {
         return snapshot
     }
 
-    // MARK: - Iterative Directory Scanning
 
     /// Scans a directory iteratively (no recursion) and returns a fully assembled flat tree.
     private nonisolated func scanDirectory(
@@ -1236,7 +1228,6 @@ actor ScanEngine {
         let directoryResourceKeys = ScanMetadataLoader.scanResourceKeys
 
         do {
-        // If the root itself shouldn't be traversed, return a leaf node.
         guard shouldTraverseDirectory(metadata: rootMetadata, options: options) else {
             let summarizesRootPackage = rootMetadata.isPackage
                 && rootMetadata.isDirectory
@@ -1303,8 +1294,6 @@ actor ScanEngine {
             return store
         }
 
-        // Phase 1: Walk the tree iteratively, collecting completed nodes by key.
-        // We use a stack for DFS. Each item knows its parent key and depth for assembly.
         metrics.discoveredDirectoryCount = 1
         metrics.pendingDirectoryCount = 1
         var workStack: [ScanWorkItem] = [
@@ -1318,9 +1307,7 @@ actor ScanEngine {
                 weight: 1
             )
         ]
-        // Maps a key to its completed result (leaf or assembled directory).
         var completedByKey: [CompletedDirScan?] = []
-        // Maps parent key → child keys, built during phase 1.
         var childrenKeysByKey: [[Int]?] = []
         var scanKeyByNodeID = ScanPathIndex()
         var nextKey = 0
@@ -1380,7 +1367,6 @@ actor ScanEngine {
                     completedByKey.append(nil)
                     childrenKeysByKey.append(nil)
 
-                    // Register this child with its parent (skip root which has parentKey -1).
                     if item.parentKey >= 0 {
                         if childrenKeysByKey[item.parentKey] == nil {
                             childrenKeysByKey[item.parentKey] = []
@@ -1695,8 +1681,6 @@ actor ScanEngine {
                     break
                 }
                 guard let traversalResult = try await group.next() else { break }
-                // Set when a drained result yields an enumerated directory whose children
-                // should be expanded normally; handled once after the switch.
                 var directoryToExpand: AtomicDirectoryScanCandidate?
                 var probeFullyExhaustedForExpansion = false
 
@@ -1732,7 +1716,6 @@ actor ScanEngine {
                     let totalWeightUnits = success.totalWeightUnits
                     metrics.discoveredDirectoryCount += childDirectoryCount
                     metrics.pendingDirectoryCount += childDirectoryCount
-                    // Check if this directory should be summarized as atomic (many small files)
                     let candidate = AtomicDirectoryScanCandidate(
                         item: item,
                         itemKey: itemKey,
@@ -1858,7 +1841,6 @@ actor ScanEngine {
                             reusableProbeListings[path] = listing
                             reusableProbeListingCost += listingCost
                         }
-                        // Probe declined: expand the directory normally.
                         directoryToExpand = candidate
                         probeFullyExhaustedForExpansion = atomicResult.decision
                             .descendantProbeFullyExhausted
@@ -1868,7 +1850,6 @@ actor ScanEngine {
                     }
                     let item = candidate.item
                     let meta = candidate.metadata
-                    // Treat as atomic: create a leaf node with summary stats.
                     let atomicNode = FileNodeRecord(
                         id: item.url.path,
                         url: item.url,
@@ -1958,11 +1939,9 @@ actor ScanEngine {
                 let totalWeightUnits = candidate.totalWeightUnits
 
                 if childEntries.isEmpty {
-                    // Nothing below this directory: its whole weight is done.
                     metrics.completedTraversalWeight += item.weight
                 }
 
-                // Enqueue children onto the stack. Each child records its parent key.
                 var lastQueuedLeafChunkStart: Int?
                 for (offset, childEntry) in childEntries.enumerated() {
                     if offset.isMultiple(of: 256) {
@@ -2050,7 +2029,6 @@ actor ScanEngine {
                     var retainedParents: Set<Int> = []
                     for request in pendingOrdinaryLeafRequests {
                         queuedSlots += request.range.count
-                        // Every request for one parent shares the same listing array.
                         if retainedParents.insert(request.parentKey).inserted {
                             retainedEntries += request.entries.count
                         }
@@ -2063,7 +2041,6 @@ actor ScanEngine {
                     diagnostics.recordPeak("work_stack.items", value: workStack.count)
                 }
                 #endif
-                // Register this directory so phase 2 can assemble it.
                 completedByKey[itemKey] = .traversableDirectory(
                     metadata: candidate.metadata,
                     url: item.url
@@ -2081,8 +2058,6 @@ actor ScanEngine {
 
         scanKeyByNodeID.releaseDiscoveryState()
 
-        // Phase 2: Assemble the tree bottom-up from completed results.
-        // Process keys in reverse order (children always have higher keys than parents).
         metrics.currentPath = String(
             localized: "Summarizing results…",
             comment: "Progress text shown while a scan is finalizing."
@@ -2099,9 +2074,7 @@ actor ScanEngine {
         #if DEBUG
         let finalizationStart = diagnostics?.start()
         #endif
-        // Assembly and lookup indexing each visit every accepted node.
         let finalizationTotal = max(nextKey * 2, 1)
-        // Cap stream traffic to roughly 100 updates across both passes.
         let finalizationProgressInterval = max(512, finalizationTotal / 100)
         var finalizedItems = 0
         #if DEBUG
@@ -2208,7 +2181,6 @@ actor ScanEngine {
 
                 metrics.completedItems = min(metrics.discoveredItems, metrics.completedItems + 1)
             case .leaf(let onlyChild):
-                // Leaf node or inaccessible directory: use the child directly.
                 let correctedChild = SharedAllocationDeduplicator.deduplicatedNode(
                     onlyChild,
                     duplicateAllocatedSize: duplicateAllocatedSizeByOwner[onlyChild.id] ?? 0,
@@ -2307,7 +2279,6 @@ actor ScanEngine {
         }
     }
 
-    // MARK: - Helpers
 
     private nonisolated func sortDirectoryChildKeys(
         _ childKeys: inout [Int],

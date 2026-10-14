@@ -1,10 +1,3 @@
-//
-//  SunburstGeometry.swift
-//  Radix
-//
-//  Created by Codex on 4/2/26.
-//
-
 import SwiftUI
 
 nonisolated struct SunburstSegment: Identifiable, Hashable, Sendable {

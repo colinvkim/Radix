@@ -74,7 +74,6 @@ nonisolated struct ScanComparisonCandidate: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Pure setup state and compatibility validation for a two-snapshot comparison.
 nonisolated struct ScanComparisonSetup: Identifiable, Equatable, Sendable {
     let id: UUID
     var before: ScanComparisonCandidate?

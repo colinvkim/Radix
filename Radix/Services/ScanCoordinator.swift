@@ -1,8 +1,3 @@
-//
-//  ScanCoordinator.swift
-//  Radix
-//
-
 import Combine
 import Foundation
 

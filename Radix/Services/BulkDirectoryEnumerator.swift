@@ -1,10 +1,3 @@
-//
-//  BulkDirectoryEnumerator.swift
-//  Radix
-//
-//  Created by Codex on 7/9/26.
-//
-
 import Darwin
 import Foundation
 

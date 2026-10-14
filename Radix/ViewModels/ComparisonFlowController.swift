@@ -1,16 +1,7 @@
-//
-//  ComparisonFlowController.swift
-//  Radix
-//
-
 import Foundation
 
-/// Owns the snapshot-comparison state machines: the pending setup sheet and
-/// the active comparison result. AppModel wires `onChange` to refresh the
-/// setup-sheet presentation and publish object changes.
 @MainActor
 final class ComparisonFlowController {
-    /// Invoked on the main actor after every mutating assignment below.
     var onChange: (() -> Void)?
 
     private(set) var scanComparison: ScanComparison? {
@@ -44,8 +35,6 @@ final class ComparisonFlowController {
         case noPendingSetup
     }
 
-    /// Exchanges the two slots along with any in-flight load, then refreshes
-    /// the staged error message from the resulting validation state.
     func swapPendingSetup() {
         guard var setup = pendingComparisonSetup else { return }
         setup.swap()
@@ -60,9 +49,6 @@ final class ComparisonFlowController {
         return true
     }
 
-    /// Confirms the pending setup if it is complete and still current. A
-    /// validation failure is staged on the sheet; a stale live scan clears the
-    /// sheet so the caller can surface that specific error.
     func confirmPendingSetup(currentLiveSnapshotID: UUID?) -> SetupConfirmationOutcome {
         guard let setup = pendingComparisonSetup else { return .noPendingSetup }
         guard setup.canCompare else {
@@ -91,8 +77,6 @@ final class ComparisonFlowController {
         pendingComparisonSetup = setup
     }
 
-    /// Assigns the live snapshot to a slot, staging the standard error on the
-    /// sheet when the current scan cannot participate.
     func assignCurrentSnapshot(
         _ snapshot: ScanSnapshot?,
         for slot: ScanComparisonSlot,
@@ -116,9 +100,6 @@ final class ComparisonFlowController {
         let setupID: UUID
     }
 
-    /// Stages a preview load into a slot. When `savedScanExtension` is set, a
-    /// mismatching file stages the drop error instead. Returns nil when the
-    /// caller should not start the preview workflow.
     func beginPreview(
         from sourceURL: URL,
         for slot: ScanComparisonSlot,
@@ -146,7 +127,6 @@ final class ComparisonFlowController {
         return info
     }
 
-    /// Applies a finished preview to its slot. Returns whether it landed.
     @discardableResult
     func applyPreview(
         _ preview: ScanArchivePreview,
@@ -164,7 +144,6 @@ final class ComparisonFlowController {
         return true
     }
 
-    /// Clears an in-flight load after a failure, staging the failure message.
     @discardableResult
     func failPreview(info: PreviewBeginInfo, message: String) -> Bool {
         guard var setup = pendingComparisonSetup,

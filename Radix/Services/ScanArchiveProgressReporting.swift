@@ -1,8 +1,3 @@
-//
-//  ScanArchiveProgressReporting.swift
-//  Radix
-//
-
 nonisolated enum ScanArchiveProgressReporting {
     private static let progressReportInterval = 512
 
