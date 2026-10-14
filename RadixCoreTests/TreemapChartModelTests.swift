@@ -29,17 +29,34 @@ struct TreemapChartModelTests {
     }
 
     @Test
-    func testPreparationCanCancelWhileBuildingHitTestBuckets() {
+    func testLayoutPreparationHonorsCancellationAtEarlyMiddleAndFinalPolls() throws {
         let segments = (0..<8).map { makeTreemapSegment(id: "node-\($0)") }
-        var checks = 0
-        #expect(throws: CancellationError.self) {
-            _ = try TreemapChartLayout(segments: segments) {
-                checks += 1
-                // Initial check and paint preparation finish before bucket indexing.
-                if checks == segments.count + 4 { throw CancellationError() }
+        let completed = CancellationProbe(throwOnCheck: .max)
+        let layout = try TreemapChartLayout(segments: segments, cancellationCheck: completed.check)
+        #expect(layout.segments == segments)
+        #expect(layout.paint.count == segments.count)
+        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+            let cancelled = CancellationProbe(throwOnCheck: poll)
+            #expect(throws: CancellationError.self) {
+                try TreemapChartLayout(segments: segments, cancellationCheck: cancelled.check)
             }
+            #expect(cancelled.checkCount == poll)
         }
-        #expect(checks == segments.count + 4)
+    }
+
+    @Test
+    func testHitTestIndexHonorsCancellationAtEarlyMiddleAndFinalPolls() throws {
+        let segment = makeTreemapSegment(id: "node")
+        let completed = CancellationProbe(throwOnCheck: .max)
+        let index = try TreemapHitTestIndex(segments: [segment], cancellationCheck: completed.check)
+        #expect(index.segment(at: CGPoint(x: 100, y: 100), in: CGSize(width: 600, height: 300)) == segment)
+        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+            let cancelled = CancellationProbe(throwOnCheck: poll)
+            #expect(throws: CancellationError.self) {
+                try TreemapHitTestIndex(segments: [segment], cancellationCheck: cancelled.check)
+            }
+            #expect(cancelled.checkCount == poll)
+        }
     }
 
     @Test

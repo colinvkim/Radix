@@ -678,29 +678,27 @@ struct FileBrowserModelTests {
         #expect(probe.checkCount == 3)
     }
 
-    @Test
-    func testCancellableSortThrowsDuringResultProjection() throws {
-        let nodes = (0..<600).map { index in
+    @Test(arguments: [600, 20_000])
+    func testNodeSortingHonorsCancellationAtEarlyMiddleAndFinalPolls(count: Int) throws {
+        let nodes = (0..<count).map { index in
             makeTestFileNode(
                 id: "/root/file-\(index).txt",
                 name: "file-\(index).txt",
                 size: Int64(index)
             )
         }
-        let preparationCheckCount = (nodes.count + 255) / 256
-        // Entry, preparation, post-preparation, pre-allocation, and the first
-        // completed projection chunk.
-        let secondProjectionCheck = preparationCheckCount + 4
-        let probe = CancellationProbe(throwOnCheck: secondProjectionCheck)
-
-        #expect(throws: CancellationError.self) {
-            try FileBrowserResults.sorted(
-                nodes,
-                sortOrder: [FileNodeTableComparator(field: .allocatedSize)],
-                cancellationCheck: probe.check
-            )
+        let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
+        let completed = CancellationProbe(throwOnCheck: .max)
+        let sorted = try FileBrowserResults.sorted(nodes, sortOrder: sortOrder, cancellationCheck: completed.check)
+        #expect(sorted.map(\.id) == nodes.reversed().map(\.id))
+        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+            let cancelled = CancellationProbe(throwOnCheck: poll)
+            #expect(throws: CancellationError.self) {
+                try FileBrowserResults.sorted(nodes, sortOrder: sortOrder, cancellationCheck: cancelled.check)
+            }
+            #expect(cancelled.checkCount == poll)
         }
-        #expect(probe.checkCount == secondProjectionCheck)
+        #expect(nodes.map(\.allocatedSize) == (0..<count).map { Int64($0) })
     }
 
     @Test
@@ -771,30 +769,6 @@ struct FileBrowserModelTests {
             return false  // Allocated sizes are unique in this fixture.
         }
         #expect(FileBrowserResults.sorted(nodes, sortOrder: sortOrder).map(\.id) == expected.map(\.id))
-    }
-
-    @Test
-    func testCancellableSortChecksCancellationBetweenLargeRuns() throws {
-        let nodes = (0..<20_000).map { index in
-            makeTestFileNode(
-                id: "/root/file-\(index).dat",
-                name: "file-\(index).dat",
-                size: Int64(index)
-            )
-        }
-        let preparationCheckCount = (nodes.count + 255) / 256
-        // Entry, preparation, post-preparation, and one check before each sorted run.
-        let firstCheckAfterOneSortedRun = preparationCheckCount + 4
-        let probe = CancellationProbe(throwOnCheck: firstCheckAfterOneSortedRun)
-
-        #expect(throws: CancellationError.self) {
-            try FileBrowserResults.sorted(
-                nodes,
-                sortOrder: [FileNodeTableComparator(field: .allocatedSize, order: .reverse)],
-                cancellationCheck: probe.check
-            )
-        }
-        #expect(probe.checkCount == firstCheckAfterOneSortedRun)
     }
 
     @Test
