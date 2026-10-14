@@ -116,7 +116,7 @@ private nonisolated final class DirectoryNamespaceResolver: @unchecked Sendable 
     }
 }
 
-actor ScanEngine {
+nonisolated final class ScanEngine: Sendable {
     protocol DirectoryObjectEnumerating: AnyObject {
         func nextObject() -> Any?
     }
@@ -495,7 +495,7 @@ actor ScanEngine {
     private let usesWorkerSideLeafPreparation: Bool
     private let workerSideLeafPreparationBatchLimit: Int
 
-    init(
+    convenience init(
         volumeFileSystemTypeProvider: @escaping VolumeFileSystemTypeProvider = ScanEngine.defaultVolumeFileSystemType,
         atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver? = nil,
         atomicSummaryProgressEmissionInterval: TimeInterval = 0.15,
@@ -554,7 +554,7 @@ actor ScanEngine {
     }
     #endif
 
-    init(
+    convenience init(
         enumeratedDirectoryContents: @escaping DirectoryContentsProvider,
         volumeFileSystemTypeProvider: @escaping VolumeFileSystemTypeProvider = ScanEngine.defaultVolumeFileSystemType,
         atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver? = nil,
@@ -607,7 +607,7 @@ actor ScanEngine {
         )
     }
 
-    init(
+    convenience init(
         directoryContents: @escaping URLDirectoryContentsProvider,
         volumeFileSystemTypeProvider: @escaping VolumeFileSystemTypeProvider = ScanEngine.defaultVolumeFileSystemType,
         atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver? = nil,
@@ -621,7 +621,7 @@ actor ScanEngine {
            atomicSummaryProgressEmissionInterval: atomicSummaryProgressEmissionInterval)
     }
 
-    nonisolated static func defaultDirectoryContents(
+    static func defaultDirectoryContents(
         url: URL,
         keys: [URLResourceKey]?,
         options: FileManager.DirectoryEnumerationOptions,
@@ -661,7 +661,7 @@ actor ScanEngine {
         )
     }
 
-    nonisolated static func defaultVolumeFileSystemType(for url: URL) -> String? {
+    static func defaultVolumeFileSystemType(for url: URL) -> String? {
         var fileSystemStats = statfs()
         let result = url.withUnsafeFileSystemRepresentation { path in
             guard let path else { return Int32(-1) }
@@ -676,7 +676,7 @@ actor ScanEngine {
         }
     }
 
-    nonisolated static func defaultMountedFileSystems() -> [ScanMountedFileSystem] {
+    static func defaultMountedFileSystems() -> [ScanMountedFileSystem] {
         var mountBuffer: UnsafeMutablePointer<statfs>?
         let mountCount = getmntinfo_r_np(&mountBuffer, MNT_NOWAIT)
         guard mountCount > 0, let mountBuffer else { return [] }
@@ -715,7 +715,7 @@ actor ScanEngine {
         }
     }
 
-    nonisolated static func enumeratedDirectoryContents(
+    static func enumeratedDirectoryContents(
         url: URL,
         keys: [URLResourceKey]?,
         options: FileManager.DirectoryEnumerationOptions,
@@ -886,11 +886,11 @@ actor ScanEngine {
         }
     }
 
-    nonisolated func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         scan(target: target, options: options, preservingBehaviorOf: target)
     }
 
-    nonisolated func scan(
+    func scan(
         target: ScanTarget,
         options: ScanOptions,
         preservingBehaviorOf scanTarget: ScanTarget
@@ -919,7 +919,7 @@ actor ScanEngine {
         }
     }
 
-    nonisolated func shallowDirectoryListing(
+    func shallowDirectoryListing(
         at directoryURL: URL,
         scanTarget: ScanTarget,
         options: ScanOptions,
@@ -969,11 +969,11 @@ actor ScanEngine {
         )
     }
 
-    nonisolated static func shallowRelistWorkerLimit(for options: ScanOptions) -> Int {
+    static func shallowRelistWorkerLimit(for options: ScanOptions) -> Int {
         ScanConcurrencyPolicy.directoryTraversalWorkerLimit(for: options)
     }
 
-    nonisolated static func shallowRelistClassificationWorkerLimit(
+    static func shallowRelistClassificationWorkerLimit(
         for options: ScanOptions,
         relistWorkerLimit: Int
     ) -> Int {
@@ -985,7 +985,7 @@ actor ScanEngine {
         )
     }
 
-    nonisolated static func requiresDeepScanForAutoSummary(
+    static func requiresDeepScanForAutoSummary(
         at directoryURL: URL,
         scanTarget: ScanTarget,
         options: ScanOptions
@@ -1005,7 +1005,7 @@ actor ScanEngine {
         )
     }
 
-    nonisolated static func subtreeScanOptions(
+    static func subtreeScanOptions(
         _ options: ScanOptions,
         at subtreeURL: URL,
         scanTarget: ScanTarget
@@ -1025,7 +1025,7 @@ actor ScanEngine {
         return adjusted
     }
 
-    private nonisolated static func relativeDepth(
+    private static func relativeDepth(
         of directoryURL: URL,
         under rootURL: URL
     ) -> Int? {
@@ -1038,7 +1038,7 @@ actor ScanEngine {
         return directoryComponents.count - rootComponents.count
     }
 
-    private nonisolated static func canProbeForAutoSummary(
+    private static func canProbeForAutoSummary(
         depth: Int,
         minimumDepth: Int,
         isNodeDependencyLayout: Bool
@@ -1047,14 +1047,7 @@ actor ScanEngine {
             || (depth >= 1 && isNodeDependencyLayout)
     }
 
-    // The scan path (`performScan` and the helpers it calls) is `nonisolated` on
-    // purpose. `ScanEngine`'s stored properties are all `let`, so the scan holds no
-    // actor-mutable state and isolation bought us nothing but serialization on the
-    // actor's executor — which let a previous, still-cancelling scan block a freshly
-    // started one from running. Keeping these `nonisolated` is what allows overlapping
-    // scans to make progress independently. Do not re-isolate without reintroducing
-    // that bug (see testNewScanCanFinishWhilePreviousEnumerationIsStillCancelling).
-    private nonisolated func performScan(
+    private func performScan(
         target: ScanTarget,
         scanTarget: ScanTarget,
         options: ScanOptions,
@@ -1155,7 +1148,7 @@ actor ScanEngine {
 
 
     /// Scans a directory iteratively (no recursion) and returns a fully assembled flat tree.
-    private nonisolated func scanDirectory(
+    private func scanDirectory(
         target: ScanTarget,
         includeVolumeDetails: Bool,
         options: ScanOptions,
@@ -1428,7 +1421,7 @@ actor ScanEngine {
 
                     if traversesDirectory, boundaryError == nil {
                         metrics.directoriesVisited += 1
-                        maybeEmitProgress(metrics: &metrics, continuation: continuation, emissionState: &emissionState, summaryPool: atomicSummaryPool)
+                        publishProgressIfDue(metrics: &metrics, continuation: continuation, emissionState: &emissionState, summaryPool: atomicSummaryPool)
 
                         let taskItem = item
                         let taskItemKey = itemKey
@@ -1584,7 +1577,7 @@ actor ScanEngine {
                                 continuation.yield(.warning(warning))
                             }
                         }
-                        maybeEmitProgress(metrics: &metrics, continuation: continuation, emissionState: &emissionState, summaryPool: atomicSummaryPool)
+                        publishProgressIfDue(metrics: &metrics, continuation: continuation, emissionState: &emissionState, summaryPool: atomicSummaryPool)
 
                         completedByKey[itemKey] = .leaf(leafResult.node)
                     }
@@ -1740,11 +1733,11 @@ actor ScanEngine {
                     } else {
                         directoryToExpand = candidate
                     }
-                    // Refresh the summary pool's canonical base unconditionally. It emits
-                    // worker progress independently and must not retain the frontier state
-                    // from before this enumeration.
-                    metrics.recalculateProgress()
-                    atomicSummaryPool.updateProgress(metrics, continuation: continuation)
+                    publishProgress(
+                        metrics: &metrics,
+                        continuation: continuation,
+                        summaryPool: atomicSummaryPool
+                    )
 
                 case .directory(.failure(let failure)):
                     activeDirectoryTasks -= 1
@@ -1811,10 +1804,11 @@ actor ScanEngine {
                             continuation.yield(.warning(warning))
                         }
                     }
-                    // Committed summary weight must reach the pool's base metrics even
-                    // when `maybeEmitProgress`'s item-count gate would skip the update.
-                    metrics.recalculateProgress()
-                    atomicSummaryPool.updateProgress(metrics, continuation: continuation)
+                    publishProgress(
+                        metrics: &metrics,
+                        continuation: continuation,
+                        summaryPool: atomicSummaryPool
+                    )
                     completedByKey[packageResult.itemKey] = .leaf(leafResult.node)
 
                 case .atomicDirectory(let atomicResult):
@@ -1904,10 +1898,11 @@ actor ScanEngine {
                             continuation.yield(.warning(warning))
                         }
                     }
-                    // Committed summary weight must reach the pool's base metrics even
-                    // when `maybeEmitProgress`'s item-count gate would skip the update.
-                    metrics.recalculateProgress()
-                    atomicSummaryPool.updateProgress(metrics, continuation: continuation)
+                    publishProgress(
+                        metrics: &metrics,
+                        continuation: continuation,
+                        summaryPool: atomicSummaryPool
+                    )
 
                     completedByKey[candidate.itemKey] = .leaf(atomicNode)
                 case .ordinaryLeaves(let batch):
@@ -2240,7 +2235,7 @@ actor ScanEngine {
         metrics.completedItems = max(metrics.completedItems, metrics.discoveredItems)
         metrics.finalizationFraction = 1
         metrics.recalculateProgress()
-        maybeEmitProgress(metrics: &metrics, continuation: continuation, emissionState: &emissionState, summaryPool: atomicSummaryPool)
+        publishProgressIfDue(metrics: &metrics, continuation: continuation, emissionState: &emissionState, summaryPool: atomicSummaryPool)
 
         #if DEBUG
         let storeConstructionStart = diagnostics?.start()
@@ -2280,7 +2275,7 @@ actor ScanEngine {
     }
 
 
-    private nonisolated func sortDirectoryChildKeys(
+    private func sortDirectoryChildKeys(
         _ childKeys: inout [Int],
         nodes: [FileNodeRecord],
         totalNodeCount: Int
@@ -2327,7 +2322,7 @@ actor ScanEngine {
         }
     }
 
-    private nonisolated func prepareOrdinaryLeaves(
+    private func prepareOrdinaryLeaves(
         _ request: OrdinaryLeafPreparationRequest,
         cancellationCheck: CancellationCheck
     ) throws -> PreparedOrdinaryLeafBatch {
@@ -2357,7 +2352,7 @@ actor ScanEngine {
         return PreparedOrdinaryLeafBatch(parentKey: request.parentKey, items: items)
     }
 
-    private nonisolated func recordPreparedOrdinaryLeaf(
+    private func recordPreparedOrdinaryLeaf(
         _ item: PreparedOrdinaryLeafItem,
         parentKey: Int,
         nextKey: inout Int,
@@ -2402,7 +2397,7 @@ actor ScanEngine {
         }
         metrics.currentPath = childPath
         applyLeafMetrics(childNode, weight: item.weight, metrics: &metrics)
-        maybeEmitProgress(
+        publishProgressIfDue(
             metrics: &metrics,
             continuation: continuation,
             emissionState: &emissionState,
@@ -2411,7 +2406,7 @@ actor ScanEngine {
         completedByKey[childKey] = .leaf(childNode)
     }
 
-    private nonisolated func applyLeafMetrics(
+    private func applyLeafMetrics(
         _ node: FileNodeRecord,
         weight: Double,
         summaryVisitedItemCount: Int = 0,
@@ -2456,7 +2451,7 @@ actor ScanEngine {
 
     /// Classifies an item the same way at discovery time and at pop time so the
     /// frontier accounting in `ScanMetrics` stays balanced.
-    private nonisolated static func isLikelyTraversableDirectory(
+    private static func isLikelyTraversableDirectory(
         metadata: NodeMetadata?,
         url: URL,
         isDirectoryHint: Bool? = nil
@@ -2467,11 +2462,11 @@ actor ScanEngine {
         return metadata.isDirectory && !metadata.isSymbolicLink
     }
 
-    private nonisolated static func traversalWeightUnits(for entry: DirectoryEntry) -> Double {
+    private static func traversalWeightUnits(for entry: DirectoryEntry) -> Double {
         isLikelyTraversableDirectory(entry: entry) ? directoryChildWeightUnits : 1
     }
 
-    private nonisolated static func isLikelyTraversableDirectory(entry: DirectoryEntry) -> Bool {
+    private static func isLikelyTraversableDirectory(entry: DirectoryEntry) -> Bool {
         isLikelyTraversableDirectory(
             metadata: entry.metadata,
             url: entry.url,
@@ -2482,7 +2477,7 @@ actor ScanEngine {
     /// Removes an item's frontier claim once its fate is known (enumerated, leaf,
     /// duplicate, or unavailable). Uses the same classifier as discovery so the
     /// pending count stays balanced.
-    private nonisolated func releasePendingDirectoryIfNeeded(for item: ScanWorkItem, metrics: inout ScanMetrics) {
+    private func releasePendingDirectoryIfNeeded(for item: ScanWorkItem, metrics: inout ScanMetrics) {
         guard Self.isLikelyTraversableDirectory(
             metadata: item.metadata,
             url: item.url,
@@ -2491,7 +2486,7 @@ actor ScanEngine {
         metrics.pendingDirectoryCount = max(metrics.pendingDirectoryCount - 1, 0)
     }
 
-    private nonisolated func recordDuplicateNode(
+    private func recordDuplicateNode(
         at url: URL,
         weight: Double,
         metrics: inout ScanMetrics,
@@ -2505,7 +2500,7 @@ actor ScanEngine {
         continuation.yield(.warning(warning))
         metrics.completedItems += 1
         metrics.completedTraversalWeight += weight
-        maybeEmitProgress(
+        publishProgressIfDue(
             metrics: &metrics,
             continuation: continuation,
             emissionState: &emissionState,
@@ -2513,7 +2508,7 @@ actor ScanEngine {
         )
     }
 
-    private nonisolated func recordUnavailableItem(
+    private func recordUnavailableItem(
         _ item: ScanWorkItem,
         itemKey: Int,
         error: Error,
@@ -2534,7 +2529,7 @@ actor ScanEngine {
         continuation.yield(.warning(warning))
         metrics.completedItems += 1
         metrics.completedTraversalWeight += item.weight
-        maybeEmitProgress(
+        publishProgressIfDue(
             metrics: &metrics,
             continuation: continuation,
             emissionState: &emissionState,
@@ -2546,7 +2541,7 @@ actor ScanEngine {
         )
     }
 
-    private nonisolated func makeUnavailableNode(for url: URL, isDirectory: Bool) -> FileNodeRecord {
+    private func makeUnavailableNode(for url: URL, isDirectory: Bool) -> FileNodeRecord {
         FileNodeRecord(
             id: url.path,
             url: url,
@@ -2565,7 +2560,7 @@ actor ScanEngine {
         )
     }
 
-    private nonisolated static func directoryEntries(
+    private static func directoryEntries(
         of url: URL,
         includeHiddenFiles: Bool,
         behavior: ScanBehavior,
@@ -2838,7 +2833,7 @@ actor ScanEngine {
         #endif
     }
 
-    private nonisolated static func classifiedDirectoryEntries(
+    private static func classifiedDirectoryEntries(
         _ contents: [URL],
         under parentURL: URL,
         behavior: ScanBehavior,
@@ -2908,7 +2903,7 @@ actor ScanEngine {
         return entries
     }
 
-    private nonisolated static func classifiedDirectoryEntries(
+    private static func classifiedDirectoryEntries(
         _ contents: [URL],
         range: Range<Int>,
         under parentURL: URL,
@@ -2955,7 +2950,7 @@ actor ScanEngine {
         return entries
     }
 
-    private nonisolated static func shouldFilterStartupVolumeInternals(under parentURL: URL, behavior: ScanBehavior) -> Bool {
+    private static func shouldFilterStartupVolumeInternals(under parentURL: URL, behavior: ScanBehavior) -> Bool {
         behavior.excludesStartupVolumeInternals && (parentURL.path == "/" || parentURL.path == "/System")
     }
 
@@ -2963,7 +2958,7 @@ actor ScanEngine {
     /// volume into the Data volume. Their enumerated and opened identities are
     /// therefore expected to differ; all other directory opens retain strict
     /// replacement detection.
-    nonisolated static func verifiesDirectoryIdentity(
+    static func verifiesDirectoryIdentity(
         at url: URL,
         behavior: ScanBehavior
     ) -> Bool {
@@ -2971,7 +2966,7 @@ actor ScanEngine {
             || !TrashSafetyPolicy.isStartupVolumeFirmlinkRoot(url)
     }
 
-    nonisolated func makeFileNode(
+    func makeFileNode(
         url: URL,
         metadata: NodeMetadata
     ) -> FileNodeRecord {
@@ -2999,7 +2994,7 @@ actor ScanEngine {
         )
     }
 
-    private nonisolated func makeLeafNode(
+    private func makeLeafNode(
         url: URL,
         metadata: NodeMetadata,
         options: ScanOptions,
@@ -3104,7 +3099,7 @@ actor ScanEngine {
         )
     }
 
-    private nonisolated func makeSnapshot(
+    private func makeSnapshot(
         target: ScanTarget,
         treeStore: FileTreeStore,
         startedAt: Date,
@@ -3135,7 +3130,20 @@ actor ScanEngine {
         )
     }
 
-    private nonisolated func maybeEmitProgress(
+    private func publishProgress(
+        metrics: inout ScanMetrics,
+        continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
+        summaryPool: AtomicDirectorySummaryPool?
+    ) {
+        metrics.recalculateProgress()
+        if let summaryPool {
+            summaryPool.updateProgress(metrics, continuation: continuation)
+        } else {
+            continuation.yield(.progress(metrics))
+        }
+    }
+
+    private func publishProgressIfDue(
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
         emissionState: inout ScanEmissionState,
@@ -3151,15 +3159,14 @@ actor ScanEngine {
         guard shouldEmit else { return }
 
         emissionState.lastProgressEmission = now
-        metrics.recalculateProgress()
-        if let summaryPool {
-            summaryPool.updateProgress(metrics, continuation: continuation)
-        } else {
-            continuation.yield(.progress(metrics))
-        }
+        publishProgress(
+            metrics: &metrics,
+            continuation: continuation,
+            summaryPool: summaryPool
+        )
     }
 
-    private nonisolated func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {
+    private func shouldTraverseDirectory(metadata: NodeMetadata, options: ScanOptions) -> Bool {
         guard metadata.isDirectory else { return false }
         guard !metadata.isSymbolicLink else { return false }
         guard !metadata.isDataless else { return false }
@@ -3170,7 +3177,7 @@ actor ScanEngine {
     /// safely to any one mounted volume (including the startup volume). Reconciling it
     /// against per-file allocations creates a misleading synthetic remainder, so keep
     /// capacity accounting separate from the scanned tree on every APFS volume.
-    private nonisolated func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
+    private func estimatedTotalBytes(for target: ScanTarget, metadata: NodeMetadata) -> Int64 {
         guard target.kind == .volume,
               let volumeCapacity = metadata.volumeCapacity,
               shouldReconcileVolumeCapacity(for: target.url) else {
@@ -3179,14 +3186,14 @@ actor ScanEngine {
         return max(volumeCapacity.usedCapacity, metadata.allocatedSize)
     }
 
-    private nonisolated func shouldReconcileVolumeCapacity(for url: URL) -> Bool {
+    private func shouldReconcileVolumeCapacity(for url: URL) -> Bool {
         guard let fileSystemType = volumeFileSystemTypeProvider(url) else {
             return false
         }
         return Self.shouldReconcileVolumeCapacity(fileSystemType: fileSystemType)
     }
 
-    nonisolated static func shouldReconcileVolumeCapacity(fileSystemType: String) -> Bool {
+    static func shouldReconcileVolumeCapacity(fileSystemType: String) -> Bool {
         let normalizedType = fileSystemType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalizedType.isEmpty else { return false }
         return normalizedType != "apfs"
