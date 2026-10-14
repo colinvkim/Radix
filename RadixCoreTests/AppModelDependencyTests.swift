@@ -3493,6 +3493,101 @@ struct AppModelDependencyTests {
         #expect(previewedURLs == [newURL])
     }
 
+    enum ComparisonRevealInterruption: CaseIterable, Equatable {
+        case none
+        case cancelled
+        case hidden
+        case removed
+        case replacedSnapshot
+        case replacedComparison
+        case refreshedMetadata
+    }
+
+    @Test(arguments: ComparisonRevealInterruption.allCases)
+    func testComparisonRevealClosesOnlyAfterDeferredAcceptance(
+        interruption: ComparisonRevealInterruption
+    ) async throws {
+        let before = makeComparisonSnapshot(rootPath: "/comparison-reveal", fileSize: 10)
+        let current = makeComparisonSnapshot(rootPath: "/comparison-reveal", fileSize: 20)
+        let comparison = try await ScanComparisonService().compare(before: before, after: current)
+        let replacement = try await ScanComparisonService().compare(before: before, after: current)
+        let row = try #require(comparison.rows.first)
+        let node = try #require(row.afterNode)
+        let model = AppModel(dependencies: makeDependencies())
+        defer { model.cleanup() }
+        model.dismissOnboarding()
+        model.scanState.restoreCompletedSnapshot(current)
+        model.navigation.reconcileAfterSnapshotApplied(current)
+        model.comparisonFlow.setScanComparison(comparison)
+
+        model.showComparisonRowInBrowser(row)
+        let pending = model.deferredViewUpdateTasks
+        #expect(model.scanComparison?.id == comparison.id)
+
+        switch interruption {
+        case .none:
+            break
+        case .cancelled:
+            model.clearSelection()
+        case .hidden:
+            model.trashFlow.replaceDiscardPile(
+                DiscardPileState(nodeIDs: [node.id], snapshotID: current.id)
+            )
+        case .removed:
+            let removed = try #require(current.removingNode(id: node.id))
+            model.scanState.replaceCurrentSnapshot(removed)
+            model.navigation.reconcileAfterSnapshotApplied(removed)
+        case .replacedSnapshot:
+            let other = makeComparisonSnapshot(rootPath: "/comparison-reveal", fileSize: 30)
+            model.scanState.restoreCompletedSnapshot(other)
+            model.navigation.reconcileAfterSnapshotApplied(other)
+        case .replacedComparison:
+            model.comparisonFlow.setScanComparison(replacement)
+        case .refreshedMetadata:
+            let tree = makeComparisonSnapshot(rootPath: "/comparison-reveal", fileSize: 40).treeStore
+            let refreshed = ScanSnapshot(
+                id: current.id, target: current.target, treeStore: tree,
+                startedAt: current.startedAt, finishedAt: current.finishedAt,
+                scanWarnings: [], isComplete: true
+            )
+            model.scanState.replaceCurrentSnapshot(refreshed)
+            model.navigation.reconcileAfterSnapshotApplied(refreshed)
+        }
+        for task in pending { await task.value }
+
+        if interruption == .none || interruption == .refreshedMetadata {
+            #expect(model.scanComparison == nil)
+            #expect(model.navigation.selectedNodeID == node.id)
+            #expect(model.navigation.focusedNodeID == current.root.id)
+            let expectedSize: Int64 = interruption == .refreshedMetadata ? 40 : 20
+            #expect(model.navigation.selectedNode?.allocatedSize == expectedSize)
+        } else {
+            let expectedID = interruption == .replacedComparison ? replacement.id : comparison.id
+            #expect(model.scanComparison?.id == expectedID)
+            #expect(model.navigation.selectedNodeID == nil)
+        }
+    }
+
+    @Test
+    func testComparisonBrowserRevealRejectsAlreadyRemovedLiveNode() async throws {
+        let before = makeComparisonSnapshot(rootPath: "/comparison-missing", fileSize: 10)
+        let current = makeComparisonSnapshot(rootPath: "/comparison-missing", fileSize: 20)
+        let comparison = try await ScanComparisonService().compare(before: before, after: current)
+        let row = try #require(comparison.rows.first)
+        let node = try #require(row.afterNode)
+        let removed = try #require(current.removingNode(id: node.id))
+        let model = AppModel(dependencies: makeDependencies())
+        defer { model.cleanup() }
+        model.scanState.restoreCompletedSnapshot(removed)
+        model.navigation.reconcileAfterSnapshotApplied(removed)
+        model.comparisonFlow.setScanComparison(comparison)
+
+        #expect(!model.canShowComparisonRowInBrowser(row))
+        model.showComparisonRowInBrowser(row)
+        #expect(model.scanComparison?.id == comparison.id)
+        #expect(model.navigation.selectedNodeID == nil)
+    }
+
     @Test
     func testCompareScansCanUseCurrentScanAsAfter() async throws {
         let archiveURL = URL(filePath: "/tmp/current-compare.radixscan", directoryHint: .isDirectory)

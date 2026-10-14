@@ -131,6 +131,7 @@ final class AppModel: ObservableObject {
         case focus(FileNodeRecord.ID?)
         case selectAndFocus(FileNodeRecord.ID)
         case reveal(FileNodeRecord.ID)
+        case revealComparison(comparisonID: UUID, snapshotID: UUID, nodeID: FileNodeRecord.ID)
         case navigateBack
         case navigateForward
         case navigateToParent
@@ -1189,12 +1190,12 @@ final class AppModel: ObservableObject {
             presentError(FileActionError.currentComparisonSnapshotUnavailable)
             return
         }
-        // Don't tear down the comparison unless the reveal will actually land — a node that
-        // is hidden (e.g. in the discard pile) would be filtered by performNavigationAction,
-        // leaving the user on an empty browser with their comparison gone.
-        guard isVisibleNavigationNode(nodeID) else { return }
-        closeScanComparison()
-        revealAfterViewUpdate(nodeID: nodeID)
+        guard isVisibleNavigationNode(nodeID),
+              let comparisonID = scanComparison?.id,
+              let snapshotID = scanCoordinator.snapshot?.id else { return }
+        scheduleDeferredNavigationAction(.revealComparison(
+            comparisonID: comparisonID, snapshotID: snapshotID, nodeID: nodeID
+        ))
     }
 
     private func currentScanNode(
@@ -1218,7 +1219,9 @@ final class AppModel: ObservableObject {
         beforeNode: FileNodeRecord?,
         afterNode: FileNodeRecord?
     ) -> String? {
-        currentScanNode(beforeNode: beforeNode, afterNode: afterNode)?.id
+        guard let node = currentScanNode(beforeNode: beforeNode, afterNode: afterNode),
+              scanCoordinator.fileTreeStore?.node(id: node.id) != nil else { return nil }
+        return node.id
     }
 
     func swapPendingComparisonSetup() {
@@ -1927,6 +1930,13 @@ final class AppModel: ObservableObject {
             navigationModel.selectAndFocus(nodeID: nodeID)
         case .reveal(let nodeID):
             guard isVisibleNavigationNode(nodeID) else { return }
+            navigationModel.reveal(nodeID: nodeID)
+        case .revealComparison(let comparisonID, let snapshotID, let nodeID):
+            guard scanComparison?.id == comparisonID,
+                  scanCoordinator.snapshot?.id == snapshotID,
+                  scanCoordinator.fileTreeStore?.node(id: nodeID) != nil,
+                  isVisibleNavigationNode(nodeID) else { return }
+            closeScanComparison()
             navigationModel.reveal(nodeID: nodeID)
         case .navigateBack:
             navigationModel.navigateBack()
