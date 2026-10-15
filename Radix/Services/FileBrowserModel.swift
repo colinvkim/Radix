@@ -117,6 +117,8 @@ final class FileBrowserModel: ObservableObject {
             return
         }
 
+        let previousContext = currentDisplayContext
+        let requiresRefresh = forceRefresh || needsRefreshAfterCleanup
         needsRefreshAfterCleanup = false
         contentRevision += 1
         if self.nodes.count > 512 { releases.discard(self.nodes) }
@@ -130,7 +132,9 @@ final class FileBrowserModel: ObservableObject {
         self.fileTreeStore = fileTreeStore
         self.hiddenNodeIDs = hiddenNodeIDs
         pruneSearchIndexesIfNeeded(previousSnapshotID: previousSnapshotID, nextSnapshotID: nextSnapshotID)
-        refreshDisplayedNodes()
+        if requiresRefresh || currentDisplayContext != previousContext {
+            refreshDisplayedNodes()
+        }
     }
 
     func setSearchScope(_ scope: FileBrowserFindTarget) {
@@ -192,10 +196,11 @@ final class FileBrowserModel: ObservableObject {
 
     private var currentDisplayContext: FileBrowserDisplayContext {
         FileBrowserDisplayContext(
-            contentID: contentID,
-            contentRevision: contentRevision,
+            source: isShowingEntireScanResults
+                ? .entireScan
+                : .currentContents(contentID: contentID, revision: contentRevision),
             snapshotID: snapshotID,
-            searchScope: searchScope,
+            treeContentID: fileTreeStore?.contentID,
             query: activeQuery,
             sortOrder: sortOrder,
             hiddenNodeIDs: hiddenNodeIDs

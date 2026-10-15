@@ -100,10 +100,6 @@ struct FileBrowserTableView: View {
         )
     }
 
-    private var showsTableChrome: Bool {
-        navigation.isLoadingTableNodes || !nodes.isEmpty || model.isShowingEntireScanResults
-    }
-
     private var isSearchBarLoading: Bool {
         navigation.isLoadingTableNodes || model.isRefreshingCurrentContents || model.isSearchingEntireScan
     }
@@ -131,28 +127,17 @@ struct FileBrowserTableView: View {
     }
 
     var body: some View {
-        Group {
-            if !showsTableChrome {
-                ContentUnavailableView(
-                    "Nothing to Show",
-                    systemImage: "folder",
-                    description: Text("Zoom into a directory with contents to populate this table.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                VStack(spacing: 0) {
-                    FileBrowserSearchFilterBar(
-                        scope: searchScopeBinding,
-                        query: activeQuery,
-                        isLoading: isSearchBarLoading,
-                        isFocused: $isSearchFieldFocused
-                    )
+        VStack(spacing: 0) {
+            FileBrowserSearchFilterBar(
+                scope: searchScopeBinding,
+                query: activeQuery,
+                isLoading: isSearchBarLoading,
+                isFocused: $isSearchFieldFocused
+            )
 
-                    Divider()
+            Divider()
 
-                    tableContent
-                }
-            }
+            tableContent
         }
         .focusedSceneValue(\.fileListFilterAction) { target in
             model.setSearchScope(target)
@@ -190,6 +175,13 @@ struct FileBrowserTableView: View {
             model.isSearchingEntireScan &&
             !model.isDisplayingCurrentResults {
             loadingContent(String(localized: "Searching Entire Scan…", comment: "Progress message while the entire scan is searched."))
+        } else if nodes.isEmpty && !model.isShowingEntireScanResults {
+            ContentUnavailableView(
+                "Nothing to Show",
+                systemImage: "folder",
+                description: Text("Zoom into a directory with contents to populate this table.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.displayedNodes.isEmpty {
             ContentUnavailableView(
                 "No Matching Items",
@@ -499,7 +491,7 @@ struct FileBrowserTableView: View {
     }
 
     private func selectionContext(for selectedIDs: Set<FileNodeRecord.ID>) -> FileBrowserSelectionContext? {
-        let nodes = selectedNodes(for: selectedIDs)
+        let nodes = model.displayedNodes(ids: selectedIDs)
         guard !nodes.isEmpty else {
             return nil
         }
@@ -521,10 +513,6 @@ struct FileBrowserTableView: View {
                 isReadOnlyMode: isReadOnlyMode
             )
         )
-    }
-
-    private func selectedNodes(for selectedIDs: Set<FileNodeRecord.ID>) -> [FileNodeRecord] {
-        model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
     private func primarySelectionID(in selectedIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {

@@ -6,19 +6,22 @@ struct FileBrowserDisplayRequest: Sendable {
 }
 
 struct FileBrowserDisplayContext: Equatable, Sendable {
-    let contentID: String
-    let contentRevision: Int
+    enum Source: Equatable, Sendable {
+        case currentContents(contentID: String, revision: Int)
+        case entireScan
+    }
+
+    let source: Source
     let snapshotID: UUID?
-    let searchScope: FileBrowserFindTarget
+    let treeContentID: UUID?
     let query: FileBrowserQuery
     let sortOrder: [FileNodeTableComparator]
     let hiddenNodeIDs: Set<FileNodeRecord.ID>
 
     static let empty = FileBrowserDisplayContext(
-        contentID: "",
-        contentRevision: 0,
+        source: .currentContents(contentID: "", revision: 0),
         snapshotID: nil,
-        searchScope: .currentContents,
+        treeContentID: nil,
         query: FileBrowserQuery(),
         sortOrder: [],
         hiddenNodeIDs: []

@@ -185,6 +185,14 @@ actor FileSearchService: FileSearching {
                 continue
             }
 
+            guard let normalizedPathComponent = entry.normalizedPathComponent else {
+                if let node = treeStore.node(at: entry.nodeIndex),
+                   SearchNormalizer.normalize(node.url.path).contains(preparedQuery.normalizedPathText) {
+                    matchedNodes.append(node)
+                }
+                continue
+            }
+
             let parentPathOffset = Int(entry.parentPathSlot)
             let parentQueryState: ParentPathMatchState
             if parentQueryStates[parentPathOffset].isResolved {
@@ -202,7 +210,7 @@ actor FileSearchService: FileSearching {
                 (pathQuery.parentSuffixMatcher.isFullMatch(
                     state: parentQueryState.parentSuffixMatchLength
                 ) &&
-                    entry.normalizedPathComponent.hasPrefix(pathQuery.componentPrefix))
+                    normalizedPathComponent.hasPrefix(pathQuery.componentPrefix))
             if matchesPath, let node = treeStore.node(at: entry.nodeIndex) {
                 matchedNodes.append(node)
             }
@@ -257,13 +265,19 @@ actor FileSearchService: FileSearching {
             }
 
             let nodePath = node.url.path
-            let finalSeparator = nodePath.lastIndex(of: "/")
-            let pathComponent: String
+            let finalSeparator = nodePath.unicodeScalars.lastIndex(of: "/")
+            let pathComponent: String?
             let containingPath: Substring
             if let finalSeparator {
-                let componentStart = nodePath.index(after: finalSeparator)
-                let component = nodePath[componentStart...]
-                pathComponent = component == node.name[...] ? node.name : String(component)
+                let componentStart = nodePath.unicodeScalars.index(after: finalSeparator)
+                // Folding and grapheme segmentation can cross a path separator.
+                if finalSeparator.samePosition(in: nodePath) != nil,
+                   componentStart.samePosition(in: nodePath) != nil {
+                    let component = nodePath[componentStart...]
+                    pathComponent = component == node.name[...] ? node.name : String(component)
+                } else {
+                    pathComponent = nil
+                }
                 containingPath = nodePath[..<finalSeparator]
             } else {
                 pathComponent = nodePath == node.name ? node.name : nodePath
@@ -311,7 +325,7 @@ actor FileSearchService: FileSearching {
             entries.append(FileSearchEntry(
                 nodeIndex: nodeIndex,
                 parentPathSlot: parentPathSlot,
-                normalizedPathComponent: SearchNormalizer.normalizePathComponent(pathComponent),
+                normalizedPathComponent: pathComponent.map(SearchNormalizer.normalizePathComponent),
                 normalizedNameKindHaystack: SearchNormalizer.normalizedNameKindHaystack(for: node),
                 allocatedSize: node.allocatedSize,
                 itemKind: FileBrowserItemKindFilter.classification(for: node)
@@ -323,6 +337,7 @@ actor FileSearchService: FileSearching {
                 try Task.checkCancellation()
             }
             guard entry.parentPathSlot != UInt32.max,
+                  entry.normalizedPathComponent != nil,
                   hasCanonicalPathByEntry[entryOffset] else {
                 continue
             }
@@ -435,7 +450,7 @@ private nonisolated struct FileSearchIndex {
             case .containingDirectory(let nodeIndex):
                 let path: String
                 if let sourcePath = treeStore.node(at: nodeIndex)?.url.path,
-                   let finalSeparator = sourcePath.lastIndex(of: "/") {
+                   let finalSeparator = sourcePath.unicodeScalars.lastIndex(of: "/") {
                     path = String(sourcePath[..<finalSeparator])
                 } else {
                     path = ""
@@ -447,12 +462,13 @@ private nonisolated struct FileSearchIndex {
         }
 
         for unresolvedOffset in unresolvedOffsets.reversed() {
-            guard case .entry(let entryOffset) = parentGroups[unresolvedOffset] else {
+            guard case .entry(let entryOffset) = parentGroups[unresolvedOffset],
+                  let normalizedPathComponent = entries[Int(entryOffset)].normalizedPathComponent else {
                 continue
             }
             state = query.advancing(
                 state,
-                component: entries[Int(entryOffset)].normalizedPathComponent
+                component: normalizedPathComponent
             )
             states[unresolvedOffset] = state
         }
@@ -476,12 +492,12 @@ private nonisolated struct ParentPathQuery {
     let componentPrefix: String
 
     init?(normalizedPathText: String) {
-        guard let finalSlash = normalizedPathText.lastIndex(of: "/") else { return nil }
+        guard let finalSlash = normalizedPathText.unicodeScalars.lastIndex(of: "/") else { return nil }
         // A child path match is either already present in its parent path or
         // crosses the final parent/component separator.
         wholePathMatcher = PathSubstringMatcher(normalizedPathText)
         parentSuffixMatcher = PathSubstringMatcher(String(normalizedPathText[..<finalSlash]))
-        componentPrefix = String(normalizedPathText[normalizedPathText.index(after: finalSlash)...])
+        componentPrefix = String(normalizedPathText[normalizedPathText.unicodeScalars.index(after: finalSlash)...])
     }
 
     func matchState(for path: String) -> ParentPathMatchState {
@@ -606,7 +622,7 @@ private nonisolated struct FileSearchIndexKey: Hashable, Sendable {
 private struct FileSearchEntry {
     let nodeIndex: FileTreeNodeIndex
     let parentPathSlot: UInt32
-    let normalizedPathComponent: String
+    let normalizedPathComponent: String?
     let normalizedNameKindHaystack: String
     let allocatedSize: Int64
     let itemKind: FileBrowserItemKindFilter?

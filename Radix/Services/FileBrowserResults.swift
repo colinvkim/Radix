@@ -182,7 +182,7 @@ enum FileBrowserResults {
         ) -> ComparisonResult {
             let result: ComparisonResult = switch comparator.field {
             case .name:
-                nodes[lhs].name.localizedStandardCompare(nodes[rhs].name)
+                nodes[lhs].displayName.localizedStandardCompare(nodes[rhs].displayName)
             case .allocatedSize:
                 FileNodeSortComparison.compare(nodes[lhs].allocatedSize, nodes[rhs].allocatedSize)
             case .itemKind:
@@ -215,9 +215,9 @@ enum FileBrowserResults {
                 }
             }
             return FileNodeSortComparison.fallback(
-                lhsName: nodes[lhs].name,
+                lhsName: nodes[lhs].displayName,
                 lhsID: nodes[lhs].id,
-                rhsName: nodes[rhs].name,
+                rhsName: nodes[rhs].displayName,
                 rhsID: nodes[rhs].id
             ) == .orderedAscending
         }

@@ -155,6 +155,71 @@ struct FileBrowserModelTests {
         #expect(entireScanResults.map(\.id) == expectedIDs, "Entire scan query: \(query)")
     }
 
+    @Test(arguments: [
+        ("/root/\u{FE0F}x", "/root/\u{FE0F}x", "\u{FE0F}x", ["/root/\u{FE0F}x"]),
+        ("/root/\u{034F}x", "/root/\u{034F}x", "\u{034F}x", ["/root/\u{034F}x"]),
+        ("imported-child", "/detached/\u{FE0F}x", "\u{FE0F}x", ["imported-child"]),
+        ("imported-child", "/detached/\u{034F}x", "\u{034F}x", ["imported-child"]),
+    ])
+    func testPathSearchMatchesNamesBeginningWithCombiningMarks(
+        id: String,
+        path: String,
+        name: String,
+        expectedIDs: [String]
+    ) async throws {
+        let file = makeSearchTestFileNode(id: id, path: path, name: name)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let query = FileBrowserQuery(text: "/x")
+        let currentContentsResults = FileBrowserResults.filteredAndSortedCurrentContents(
+            [file],
+            query: query,
+            sortOrder: [],
+            fileTreeStore: store
+        )
+        let entireScanResults = try await FileSearchService().search(
+            snapshotID: UUID(),
+            treeStore: store,
+            query: query,
+            sortOrder: []
+        )
+
+        #expect(currentContentsResults.map(\.id) == expectedIDs)
+        #expect(entireScanResults.map(\.id) == expectedIDs)
+    }
+
+    @Test(arguments: [
+        ("a", "\u{200D}x", "a/", [] as [String]),
+        ("a", "\u{200D}x", "a/\u{200D}x/", ["/root/a/\u{200D}x/target"]),
+        ("x\u{0600}", "a", "/a", [] as [String]),
+        ("x\u{0600}", "a", "x\u{0600}/a/", ["/root/x\u{0600}/a/target"]),
+    ])
+    func testPathSearchPreservesGraphemeBoundariesAcrossDirectories(
+        outerName: String,
+        innerName: String,
+        queryText: String,
+        expectedIDs: [String]
+    ) async throws {
+        let file = makeTestFileNode(id: "/root/\(outerName)/\(innerName)/target", name: "target")
+        let inner = makeTestDirectoryNode(id: "/root/\(outerName)/\(innerName)", name: innerName, children: [file])
+        let outer = makeTestDirectoryNode(id: "/root/\(outerName)", name: outerName, children: [inner])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [outer])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [root.id: [outer], outer.id: [inner], inner.id: [file]]
+        )
+        let query = FileBrowserQuery(text: queryText)
+        let currentContentsResults = FileBrowserResults.filteredAndSortedCurrentContents(
+            [file], query: query, sortOrder: [], fileTreeStore: store
+        )
+        let entireScanResults = try await FileSearchService().search(
+            snapshotID: UUID(), treeStore: store, query: query, sortOrder: []
+        )
+
+        #expect(currentContentsResults.map(\.id) == expectedIDs)
+        #expect(entireScanResults.map(\.id) == expectedIDs)
+    }
+
     @Test
     func testEntireScanSearchCannotObserveLogicalScopeSiblings() async throws {
         let visible = makeTestFileNode(
@@ -1468,6 +1533,130 @@ struct FileBrowserModelTests {
         model.setActiveSearchText("beta")
         try await waitForSearchToFinish(model)
         #expect(model.displayedNodes.map(\.id) == [beta.id])
+    }
+
+    @MainActor
+    @Test
+    func testCompletedEntireScanSearchSurvivesFolderNavigation() async throws {
+        let initial = makeTestFileNode(id: "/root/initial.txt", name: "initial.txt", size: 10)
+        let latest = makeTestFileNode(id: "/root/folder/latest.txt", name: "latest.txt", size: 15)
+        let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [latest])
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [initial, folder, target])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [root.id: [initial, folder, target], folder.id: [latest]]
+        )
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let query = SearchNormalizer.normalize("target")
+        let service = DelayedFileSearchService(
+            delayedQuery: "delayed",
+            delayedIDs: [],
+            immediateIDsByQuery: [query: [target.id]]
+        )
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+        defer { model.cleanup() }
+
+        model.updateContent(
+            nodes: [initial],
+            contentID: "initial-folder",
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+        try await waitForSearchToFinish(model)
+        #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
+        let acceptedContext = model.displayedContentContext
+
+        model.updateContent(
+            nodes: [latest],
+            contentID: "next-folder",
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+
+        #expect(!(model.isSearchingEntireScan))
+        #expect(model.isDisplayingCurrentResults)
+        #expect(model.displayedContentContext == acceptedContext)
+        #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
+        try await waitForSearchToFinish(model)
+        #expect(await service.startCount(for: query) == 1)
+
+        model.updateContent(
+            nodes: [latest],
+            contentID: "next-folder",
+            snapshot: snapshot,
+            fileTreeStore: store,
+            forceRefresh: true
+        )
+        #expect(model.isSearchingEntireScan)
+        try await waitForSearchToFinish(model)
+        #expect(model.isDisplayingCurrentResults)
+        #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
+        #expect(await service.startCount(for: query) == 2)
+
+        model.clearActiveQuery()
+
+        #expect(!(model.isSearchingEntireScan))
+        #expect(model.isDisplayingCurrentResults)
+        #expect(model.displayedNodes.map(\.id) == ["/root/folder/latest.txt"])
+    }
+
+    @MainActor
+    @Test
+    func testInFlightEntireScanSearchSurvivesFolderNavigation() async throws {
+        let initial = makeTestFileNode(id: "/root/initial.txt", name: "initial.txt", size: 10)
+        let latest = makeTestFileNode(id: "/root/folder/latest.txt", name: "latest.txt", size: 15)
+        let folder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [latest])
+        let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [initial, folder, target])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [root.id: [initial, folder, target], folder.id: [latest]]
+        )
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let query = SearchNormalizer.normalize("target")
+        let service = DelayedFileSearchService(
+            delayedQuery: query,
+            delayedIDs: [target.id],
+            immediateIDsByQuery: [:]
+        )
+        defer { Task { try? await service.releaseDelayedResults() } }
+        let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
+        defer { model.cleanup() }
+
+        model.updateContent(
+            nodes: [initial],
+            contentID: "initial-folder",
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        model.setSearchScope(.entireScan)
+        model.setActiveSearchText("target")
+        try await service.waitUntilStarted(query)
+
+        model.updateContent(
+            nodes: [latest],
+            contentID: "next-folder",
+            snapshot: snapshot,
+            fileTreeStore: store
+        )
+        #expect(model.isSearchingEntireScan)
+
+        try await service.releaseDelayedResults()
+        try await waitForSearchToFinish(model)
+
+        #expect(model.isDisplayingCurrentResults)
+        #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
+        #expect(await service.completedCancellationStates == [false])
+        #expect(await service.startCount(for: query) == 1)
+
+        model.setSearchScope(.currentContents)
+
+        #expect(!(model.isSearchingEntireScan))
+        #expect(model.isDisplayingCurrentResults)
+        #expect(model.displayedNodes.map(\.id) == ["/root/folder/latest.txt"])
     }
 
     @MainActor
