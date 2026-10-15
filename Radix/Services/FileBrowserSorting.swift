@@ -23,7 +23,7 @@ struct FileNodeTableComparator: Equatable, SortComparator, Sendable {
     ) -> ComparisonResult {
         let result: ComparisonResult = switch field {
         case .name:
-            lhs.name.localizedStandardCompare(rhs.name)
+            lhs.displayName.localizedStandardCompare(rhs.displayName)
         case .allocatedSize:
             FileNodeSortComparison.compare(lhs.allocatedSize, rhs.allocatedSize)
         case .itemKind:
