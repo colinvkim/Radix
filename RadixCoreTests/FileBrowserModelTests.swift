@@ -155,6 +155,39 @@ struct FileBrowserModelTests {
         #expect(entireScanResults.map(\.id) == expectedIDs, "Entire scan query: \(query)")
     }
 
+    @Test(arguments: [
+        ("/root/\u{FE0F}x", "/root/\u{FE0F}x", "\u{FE0F}x", ["/root/\u{FE0F}x"]),
+        ("/root/\u{034F}x", "/root/\u{034F}x", "\u{034F}x", ["/root/\u{034F}x"]),
+        ("imported-child", "/detached/\u{FE0F}x", "\u{FE0F}x", ["imported-child"]),
+        ("imported-child", "/detached/\u{034F}x", "\u{034F}x", ["imported-child"]),
+    ])
+    func testPathSearchMatchesNamesBeginningWithCombiningMarks(
+        id: String,
+        path: String,
+        name: String,
+        expectedIDs: [String]
+    ) async throws {
+        let file = makeSearchTestFileNode(id: id, path: path, name: name)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let query = FileBrowserQuery(text: "/x")
+        let currentContentsResults = FileBrowserResults.filteredAndSortedCurrentContents(
+            [file],
+            query: query,
+            sortOrder: [],
+            fileTreeStore: store
+        )
+        let entireScanResults = try await FileSearchService().search(
+            snapshotID: UUID(),
+            treeStore: store,
+            query: query,
+            sortOrder: []
+        )
+
+        #expect(currentContentsResults.map(\.id) == expectedIDs)
+        #expect(entireScanResults.map(\.id) == expectedIDs)
+    }
+
     @Test
     func testEntireScanSearchCannotObserveLogicalScopeSiblings() async throws {
         let visible = makeTestFileNode(
