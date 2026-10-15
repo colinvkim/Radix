@@ -491,7 +491,7 @@ struct FileBrowserTableView: View {
     }
 
     private func selectionContext(for selectedIDs: Set<FileNodeRecord.ID>) -> FileBrowserSelectionContext? {
-        let nodes = selectedNodes(for: selectedIDs)
+        let nodes = model.displayedNodes(ids: selectedIDs)
         guard !nodes.isEmpty else {
             return nil
         }
@@ -513,10 +513,6 @@ struct FileBrowserTableView: View {
                 isReadOnlyMode: isReadOnlyMode
             )
         )
-    }
-
-    private func selectedNodes(for selectedIDs: Set<FileNodeRecord.ID>) -> [FileNodeRecord] {
-        model.displayedNodes.filter { selectedIDs.contains($0.id) }
     }
 
     private func primarySelectionID(in selectedIDs: Set<FileNodeRecord.ID>) -> FileNodeRecord.ID? {
