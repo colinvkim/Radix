@@ -88,10 +88,32 @@ struct AppQuickLookControllerTests {
     }
 
     @Test
-    func automaticUpdatesValidateImportedIdentityAndFailSilently() async throws {
-        let identified = makeTestFileNode(
-            id: second.id, name: second.name, fileIdentity: FileIdentity(device: 1, inode: 2)
-        )
+    func importedPreviewUsesReplacementAtSavedPath() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "preview.txt")
+        try Data("original".utf8).write(to: url)
+        let identity = try ScanMetadataLoader().fileSystemIdentity(at: url)
+        let node = makeTestFileNode(id: url.path, name: "preview.txt", fileIdentity: identity)
+        try FileManager.default.moveItem(at: url, to: directory.appending(path: "original.txt"))
+        try Data("replacement".utf8).write(to: url)
+        #expect(SystemIntegration.verifyTrashIdentity(node) == .mismatch)
+
+        let delegate = PreviewDelegate(nodes: [node], source: importedSource())
+        var actions = AppSystemActions.inert
+        actions.validateQuickLookSelection = AppSystemActions.live.validateQuickLookSelection
+        let controller = AppQuickLookController(systemActions: actions)
+        controller.delegate = delegate
+
+        controller.previewSelected()
+        try await waitUntil { controller.session != nil || !delegate.errors.isEmpty }
+        #expect(controller.session?.urls == [url])
+        #expect(controller.session?.selection == url)
+        #expect(delegate.errors.isEmpty)
+    }
+
+    @Test
+    func automaticUpdatesRejectMissingImportedPathAndFailSilently() async throws {
         let source = importedSource()
         let delegate = PreviewDelegate(nodes: [first], source: source)
         var checked: [URL] = []
@@ -99,7 +121,8 @@ struct AppQuickLookControllerTests {
         actions.validateQuickLookSelection = { nodes, source in
             for node in nodes {
                 checked.append(node.url)
-                try FileActionValidation.validateLivePath(node, source: source, fileExists: { _ in true }, verifyIdentity: { _ in .mismatch })
+                try FileActionValidation.validateLivePath(
+                    node, source: source, fileExists: { $0 != second.url }, verifyIdentity: { _ in .matches })
             }
         }
         let controller = AppQuickLookController(systemActions: actions)
@@ -107,7 +130,7 @@ struct AppQuickLookControllerTests {
         controller.previewSelected()
         try await waitUntil { controller.session != nil }
 
-        delegate.quickLookSelectionContext = .init(selectedNodes: [identified], primaryURL: identified.url, snapshotSource: source)
+        delegate.quickLookSelectionContext = .init(selectedNodes: [second], primaryURL: second.url, snapshotSource: source)
         controller.syncVisiblePreview()
         try await waitUntil { !controller.isActive }
         #expect(controller.session == nil)

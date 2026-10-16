@@ -821,8 +821,8 @@ struct AppModelDependencyTests {
         #expect(relaunchedModel.onboardingPage == .access)
     }
 
-    @Test
-    func testSelectedFileActionsUseInjectedSystemActions() async {
+    @Test(arguments: [false, true])
+    func testSelectedFileActionsUseInjectedSystemActions(isImported: Bool) async {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -830,8 +830,15 @@ struct AppModelDependencyTests {
         actions.openInTerminal = { recorder.terminalDirectoryURLs.append($0) }
         actions.reveal = { recorder.revealedURLs.append($0) }
         actions.copyPath = { recorder.copiedPathURLs.append($0) }
+        actions.verifyTrashIdentity = { _ in .mismatch }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
+        defer { model.cleanup() }
+        let file = installSelection(
+            on: model,
+            file: makeTestFileNode(
+                id: "/selection/file.txt", name: "file.txt", fileIdentity: FileIdentity(device: 1, inode: 2)),
+            isImported: isImported
+        )
 
         model.revealSelectedInFinder()
         model.openSelected()
@@ -903,14 +910,15 @@ struct AppModelDependencyTests {
         #expect(model.lastErrorMessage == nil)
     }
 
-    @Test
-    func testUnavailableSelectionClearsSelectionAndSkipsInjectedAction() {
+    @Test(arguments: [false, true])
+    func testUnavailableSelectionClearsSelectionAndSkipsInjectedAction(isImported: Bool) {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in false }
         actions.open = { recorder.openedURLs.append($0) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
+        defer { model.cleanup() }
+        let file = installSelection(on: model, isImported: isImported)
 
         model.openSelected()
 
@@ -4015,12 +4023,21 @@ private func makeDependencies(
 private func installSelection(
     on model: AppModel,
     selectNode: Bool = true,
-    file inputFile: FileNodeRecord? = nil
+    file inputFile: FileNodeRecord? = nil,
+    isImported: Bool = false
 ) -> FileNodeRecord {
     let file = inputFile ?? makeTestFileNode(id: "/selection/file.txt", name: "file.txt")
     let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [file])
     let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
-    let snapshot = makeTestSnapshot(root: root, store: store)
+    let snapshot = ScanSnapshot(
+        target: ScanTarget(url: root.url), treeStore: store,
+        startedAt: Date(), finishedAt: Date(), scanWarnings: [], isComplete: true,
+        source: isImported
+            ? .imported(.init(
+                sourceURL: URL(filePath: "/selection.radixscan"), pathMode: .absolute,
+                liveActionCapability: .pathValidation))
+            : .live
+    )
     model.scanState.replaceCurrentSnapshot(snapshot)
     model.navigation.reconcileAfterSnapshotApplied(snapshot)
     model.navigation.setFocusedNodeID(root.id)
