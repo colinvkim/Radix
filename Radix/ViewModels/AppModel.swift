@@ -2743,8 +2743,7 @@ final class AppModel: ObservableObject {
             try FileActionValidation.validateLivePath(
                 node,
                 source: scanCoordinator.snapshotSource,
-                fileExists: dependencies.systemActions.fileExists,
-                verifyIdentity: dependencies.systemActions.verifyTrashIdentity
+                fileExists: dependencies.systemActions.fileExists
             )
         } catch {
             if case FileActionError.unavailable = error { clearSelection() }

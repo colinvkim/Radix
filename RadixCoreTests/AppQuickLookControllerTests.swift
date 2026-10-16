@@ -122,7 +122,7 @@ struct AppQuickLookControllerTests {
             for node in nodes {
                 checked.append(node.url)
                 try FileActionValidation.validateLivePath(
-                    node, source: source, fileExists: { $0 != second.url }, verifyIdentity: { _ in .matches })
+                    node, source: source, fileExists: { $0 != second.url })
             }
         }
         let controller = AppQuickLookController(systemActions: actions)
