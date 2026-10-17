@@ -3008,94 +3008,68 @@ nonisolated final class ScanEngine: Sendable {
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) async throws -> LeafNodeResult {
         try cancellationCheck()
-        guard summarizesPackageContents,
-              metadata.isPackage,
-              metadata.isDirectory,
-              !options.treatPackagesAsDirectories else {
-            let node = makeFileNode(
-                url: url,
-                metadata: metadata
-            )
-            let sharedAllocationClaim = SharedAllocationDeduplicator.claim(
-                for: metadata,
-                ownerNodeID: node.id,
-                path: url.path
-            )
-            var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-            if let sharedAllocationClaim {
-                sharedAllocationAccumulator.record(sharedAllocationClaim)
-            }
+        if summarizesPackageContents,
+           metadata.isPackage,
+           metadata.isDirectory,
+           !options.treatPackagesAsDirectories,
+           let summary = try await atomicDirectorySummarizer.summarize(
+               at: url,
+               includeHiddenFiles: options.includeHiddenFiles,
+               treatPackagesAsDirectories: true,
+               progressWeight: progressWeight,
+               progressKind: .package,
+               representedItemCount: 0,
+               ownerNodeID: url.path,
+               expectedRootIdentity: Self.verifiesDirectoryIdentity(
+                   at: url,
+                   behavior: behavior
+               ) ? metadata.fileIdentity : nil,
+               exclusionMatcher: exclusionMatcher,
+               cancellationCheck: cancellationCheck,
+               metrics: &metrics,
+               continuation: continuation
+           ) {
             return LeafNodeResult(
-                node: node,
-                warnings: [],
-                sharedAllocationAccumulator: sharedAllocationAccumulator,
-                minimumAllocatedSize: nil,
-                summaryVisitedItemCount: 0
+                node: FileNodeRecord(
+                    id: url.path,
+                    url: url,
+                    name: ScanTarget.displayName(for: url),
+                    isDirectory: true,
+                    isSymbolicLink: false,
+                    allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
+                    logicalSize: max(metadata.logicalSize, summary.logicalSize),
+                    descendantFileCount: summary.descendantFileCount,
+                    lastModified: metadata.lastModified,
+                    fileIdentity: metadata.fileIdentity,
+                    linkCount: metadata.linkCount,
+                    isPackage: true,
+                    isAccessible: metadata.isReadable && summary.isAccessible,
+                    isSelfAccessible: metadata.isReadable,
+                    isSynthetic: false,
+                    isAutoSummarized: false
+                ),
+                warnings: summary.warnings,
+                sharedAllocationAccumulator: summary.sharedAllocationAccumulator,
+                minimumAllocatedSize: metadata.allocatedSize,
+                summaryVisitedItemCount: summary.visitedItemCount
             )
         }
 
-        guard let summary = try await atomicDirectorySummarizer.summarize(
-            at: url,
-            includeHiddenFiles: options.includeHiddenFiles,
-            treatPackagesAsDirectories: true,
-            progressWeight: progressWeight,
-            progressKind: .package,
-            representedItemCount: 0,
-            ownerNodeID: url.path,
-            expectedRootIdentity: Self.verifiesDirectoryIdentity(
-                at: url,
-                behavior: behavior
-            ) ? metadata.fileIdentity : nil,
-            exclusionMatcher: exclusionMatcher,
-            cancellationCheck: cancellationCheck,
-            metrics: &metrics,
-            continuation: continuation
-        ) else {
-            let node = makeFileNode(
-                url: url,
-                metadata: metadata
-            )
-            let sharedAllocationClaim = SharedAllocationDeduplicator.claim(
-                for: metadata,
-                ownerNodeID: node.id,
-                path: url.path
-            )
-            var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-            if let sharedAllocationClaim {
-                sharedAllocationAccumulator.record(sharedAllocationClaim)
-            }
-            return LeafNodeResult(
-                node: node,
-                warnings: [],
-                sharedAllocationAccumulator: sharedAllocationAccumulator,
-                minimumAllocatedSize: nil,
-                summaryVisitedItemCount: 0
-            )
+        let node = makeFileNode(url: url, metadata: metadata)
+        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
+        if let claim = SharedAllocationDeduplicator.claim(
+            for: metadata,
+            ownerNodeID: node.id,
+            path: url.path
+        ) {
+            sharedAllocationAccumulator.record(claim)
         }
-
         return LeafNodeResult(
-            node: FileNodeRecord(
-                id: url.path,
-                url: url,
-                name: ScanTarget.displayName(for: url),
-                isDirectory: true,
-                isSymbolicLink: false,
-                allocatedSize: max(metadata.allocatedSize, summary.allocatedSize),
-                logicalSize: max(metadata.logicalSize, summary.logicalSize),
-                descendantFileCount: summary.descendantFileCount,
-                lastModified: metadata.lastModified,
-                fileIdentity: metadata.fileIdentity,
-                linkCount: metadata.linkCount,
-                isPackage: true,
-                isAccessible: metadata.isReadable && summary.isAccessible,
-                isSelfAccessible: metadata.isReadable,
-                isSynthetic: false,
-                isAutoSummarized: false
-            ),
-            warnings: summary.warnings,
-            sharedAllocationAccumulator: summary.sharedAllocationAccumulator,
-            minimumAllocatedSize: metadata.allocatedSize,
-            summaryVisitedItemCount: summary.visitedItemCount
+            node: node,
+            warnings: [],
+            sharedAllocationAccumulator: sharedAllocationAccumulator,
+            minimumAllocatedSize: nil,
+            summaryVisitedItemCount: 0
         )
     }
 
