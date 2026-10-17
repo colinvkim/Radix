@@ -12,13 +12,8 @@ struct FileBrowserBenchmarkTests {
         }
 
         let expectedError = OperationError(message: "search failed")
-        do {
-            _ = try await Self.measureAsyncWithMemory { throw expectedError }
-            Issue.record("Memory measurement returned after its operation failed.")
-        } catch let error as OperationError {
-            #expect(error == expectedError)
-        } catch {
-            Issue.record("Memory measurement replaced the operation error.")
+        await #expect(throws: expectedError) {
+            try await Self.measureAsyncWithMemory { throw expectedError }
         }
     }
 
