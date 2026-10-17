@@ -255,10 +255,8 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
     private let importProfileReporter: (@Sendable (ScanArchiveImportProfilePhase, Duration) -> Void)?
 
     init(
-        fileManager: FileManager = .default,
         importProfileReporter: (@Sendable (ScanArchiveImportProfilePhase, Duration) -> Void)? = nil
     ) {
-        _ = fileManager
         self.importProfileReporter = importProfileReporter
     }
 

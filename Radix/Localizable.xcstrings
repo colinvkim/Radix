@@ -26890,47 +26890,6 @@
         }
       }
     },
-    "The FSEvents history stream ended before reporting HistoryDone." : {
-      "comment" : "Error shown when an FSEvents history stream ends unexpectedly.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der FSEvents-Verlaufsstream endete, bevor HistoryDone gemeldet wurde."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El flujo del historial de FSEvents terminó antes de informar HistoryDone."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le flux d’historique FSEvents s’est terminé avant de signaler HistoryDone."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il flusso della cronologia di FSEvents si è concluso prima di segnalare HistoryDone."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поток истории FSEvents завершился до получения события HistoryDone."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FSEvents 历史记录流在报告 HistoryDone 前结束。"
-          }
-        }
-      }
-    },
     "The incremental scan target is not a directory: %@." : {
       "comment" : "Error shown when an incremental scan target is not a directory.",
       "localizations" : {
