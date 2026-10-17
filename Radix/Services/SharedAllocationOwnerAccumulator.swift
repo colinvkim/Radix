@@ -42,7 +42,10 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
                 try cancellationCheck()
             }
             let (ownerNodeID, allocatedSize) = correction
-            corrections[ownerNodeID, default: 0] += allocatedSize
+            corrections[ownerNodeID] = ScanIntegerMath.addingClamped(
+                corrections[ownerNodeID, default: 0],
+                allocatedSize
+            )
         }
         var hardLinkCloneWinnerByIdentity: [CloneIdentity: CloneWinner] = [:]
 
@@ -121,10 +124,16 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
     /// Merges disjoint package-local state without reconstructing discarded claims.
     nonisolated mutating func merge(_ other: Self) {
         for (ownerNodeID, allocatedSize) in other.hardLinkDuplicateAllocatedSizeByOwner {
-            hardLinkDuplicateAllocatedSizeByOwner[ownerNodeID, default: 0] += allocatedSize
+            hardLinkDuplicateAllocatedSizeByOwner[ownerNodeID] = ScanIntegerMath.addingClamped(
+                hardLinkDuplicateAllocatedSizeByOwner[ownerNodeID, default: 0],
+                allocatedSize
+            )
         }
         for (ownerNodeID, allocatedSize) in other.standaloneCloneDuplicateAllocatedSizeByOwner {
-            standaloneCloneDuplicateAllocatedSizeByOwner[ownerNodeID, default: 0] += allocatedSize
+            standaloneCloneDuplicateAllocatedSizeByOwner[ownerNodeID] = ScanIntegerMath.addingClamped(
+                standaloneCloneDuplicateAllocatedSizeByOwner[ownerNodeID, default: 0],
+                allocatedSize
+            )
         }
         for winner in other.hardLinkWinnerByIdentity.values {
             record(winner)
@@ -165,10 +174,16 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
         }
 
         if precedes(winner, currentWinner) {
-            corrections[currentWinner.ownerNodeID, default: 0] += currentWinner.cloneAllocatedSize
+            corrections[currentWinner.ownerNodeID] = ScanIntegerMath.addingClamped(
+                corrections[currentWinner.ownerNodeID, default: 0],
+                currentWinner.cloneAllocatedSize
+            )
             winnerByIdentity[identity] = winner
         } else {
-            corrections[winner.ownerNodeID, default: 0] += winner.cloneAllocatedSize
+            corrections[winner.ownerNodeID] = ScanIntegerMath.addingClamped(
+                corrections[winner.ownerNodeID, default: 0],
+                winner.cloneAllocatedSize
+            )
         }
     }
 
@@ -187,6 +202,9 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
     }
 
     private nonisolated mutating func addHardLinkDuplicate(_ claim: SharedAllocationClaim) {
-        hardLinkDuplicateAllocatedSizeByOwner[claim.ownerNodeID, default: 0] += claim.allocatedSize
+        hardLinkDuplicateAllocatedSizeByOwner[claim.ownerNodeID] = ScanIntegerMath.addingClamped(
+            hardLinkDuplicateAllocatedSizeByOwner[claim.ownerNodeID, default: 0],
+            claim.allocatedSize
+        )
     }
 }

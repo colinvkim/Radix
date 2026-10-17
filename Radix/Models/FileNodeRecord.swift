@@ -131,13 +131,19 @@ nonisolated struct FileNodeRecord: Equatable, Identifiable, Sendable {
         var descendantFileCount = 0
         var childrenAreAccessible = true
         for child in children {
-            allocatedSize += child.allocatedSize
-            logicalSize += child.logicalSize
+            allocatedSize = ScanIntegerMath.saturatingAdd(
+                allocatedSize,
+                child.allocatedSize
+            )
+            logicalSize = ScanIntegerMath.saturatingAdd(logicalSize, child.logicalSize)
             childrenAreAccessible = childrenAreAccessible && child.isAccessible
             if child.isDirectory {
-                descendantFileCount += child.descendantFileCount
+                descendantFileCount = ScanIntegerMath.addingClamped(
+                    descendantFileCount,
+                    child.descendantFileCount
+                )
             } else if !child.isSymbolicLink && !child.isSynthetic {
-                descendantFileCount += 1
+                descendantFileCount = ScanIntegerMath.addingClamped(descendantFileCount, 1)
             }
         }
         let isFullyAccessible = isAccessible && childrenAreAccessible
