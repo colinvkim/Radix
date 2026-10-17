@@ -426,23 +426,23 @@ struct SharedAllocationOwnerAccumulatorTests {
             ])
     }
 
-    @Test
-    func testStandaloneCloneMergeMatchesDirectAccumulationInEitherOrder() {
+    @Test(arguments: [Int64(80), Int64.max])
+    func testStandaloneCloneMergeMatchesDirectAccumulationInEitherOrder(dataSize: Int64) {
         let cloneIdentity = CloneIdentity(device: 2, cloneID: 7)
         let firstClaims = [
             cloneClaim(
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-a",
                 path: "/z",
-                totalSize: 100,
-                dataSize: 80
+                totalSize: max(100, dataSize),
+                dataSize: dataSize
             ),
             cloneClaim(
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-a",
                 path: "/y",
-                totalSize: 100,
-                dataSize: 80
+                totalSize: max(100, dataSize),
+                dataSize: dataSize
             ),
         ]
         let secondClaims = [
@@ -450,8 +450,8 @@ struct SharedAllocationOwnerAccumulatorTests {
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-b",
                 path: "/a",
-                totalSize: 100,
-                dataSize: 80
+                totalSize: max(100, dataSize),
+                dataSize: dataSize
             )
         ]
         let first = SharedAllocationOwnerAccumulator(firstClaims)
@@ -467,7 +467,7 @@ struct SharedAllocationOwnerAccumulatorTests {
         #expect(reverse.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
         #expect(
             forward.duplicateAllocatedSizeByOwner == [
-                "/summary-a": 160
+                "/summary-a": dataSize == .max ? Int64.max : 160
             ])
         #expect(forward.identityCount == 1)
         #expect(reverse.identityCount == 1)
