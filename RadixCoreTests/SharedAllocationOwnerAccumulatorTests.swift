@@ -138,7 +138,6 @@ struct SharedAllocationOwnerAccumulatorTests {
             let cloneIdentity = CloneIdentity(device: 7, cloneID: UInt64(index))
             return [
                 cloneClaim(
-                    fileIdentity: FileIdentity(device: 7, inode: UInt64(index * 2)),
                     cloneIdentity: cloneIdentity,
                     owner: "/winner-\(index)",
                     path: "/a-\(index)",
@@ -146,7 +145,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                     dataSize: 1
                 ),
                 cloneClaim(
-                    fileIdentity: FileIdentity(device: 7, inode: UInt64(index * 2 + 1)),
                     cloneIdentity: cloneIdentity,
                     owner: "/loser-\(index)",
                     path: "/z-\(index)",
@@ -177,7 +175,6 @@ struct SharedAllocationOwnerAccumulatorTests {
             let hardLinkIdentity = FileIdentity(device: device, inode: UInt64(index * 2))
             return [
                 cloneClaim(
-                    fileIdentity: FileIdentity(device: device, inode: UInt64(index * 2 + 1)),
                     cloneIdentity: cloneIdentity,
                     owner: "/standalone-\(index)",
                     path: "/a-\(index)",
@@ -185,7 +182,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                     dataSize: 1
                 ),
                 cloneClaim(
-                    fileIdentity: hardLinkIdentity,
                     hardLinkIdentity: hardLinkIdentity,
                     cloneIdentity: cloneIdentity,
                     owner: "/hard-link-\(index)",
@@ -215,7 +211,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         let cloneIdentity = CloneIdentity(device: device, cloneID: 1)
         let standalone = SharedAllocationOwnerAccumulator([
             cloneClaim(
-                fileIdentity: FileIdentity(device: device, inode: 1),
                 cloneIdentity: cloneIdentity,
                 owner: "/standalone",
                 totalSize: 32,
@@ -225,7 +220,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         let hardLinkIdentity = FileIdentity(device: device, inode: 2)
         let hardLinked = SharedAllocationOwnerAccumulator([
             cloneClaim(
-                fileIdentity: hardLinkIdentity,
                 hardLinkIdentity: hardLinkIdentity,
                 cloneIdentity: cloneIdentity,
                 owner: "/hard-link",
@@ -247,7 +241,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         let fileIdentity = FileIdentity(device: 1, inode: 10)
         let cloneIdentity = CloneIdentity(device: 1, cloneID: 99)
         let source = cloneClaim(
-            fileIdentity: fileIdentity,
             hardLinkIdentity: fileIdentity,
             cloneIdentity: cloneIdentity,
             owner: "/a-source",
@@ -255,7 +248,6 @@ struct SharedAllocationOwnerAccumulatorTests {
             dataSize: 80
         )
         let hardLink = cloneClaim(
-            fileIdentity: fileIdentity,
             hardLinkIdentity: fileIdentity,
             cloneIdentity: cloneIdentity,
             owner: "/b-hard-link",
@@ -263,7 +255,6 @@ struct SharedAllocationOwnerAccumulatorTests {
             dataSize: 80
         )
         let cloneWithResourceFork = cloneClaim(
-            fileIdentity: FileIdentity(device: 1, inode: 11),
             cloneIdentity: cloneIdentity,
             owner: "/z-clone",
             totalSize: 130,
@@ -286,7 +277,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         let secondHardLinkIdentity = FileIdentity(device: 1, inode: 21)
         let claims = [
             cloneClaim(
-                fileIdentity: firstHardLinkIdentity,
                 hardLinkIdentity: firstHardLinkIdentity,
                 cloneIdentity: cloneIdentity,
                 owner: "/hard-link-b",
@@ -295,7 +285,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                 dataSize: 80
             ),
             cloneClaim(
-                fileIdentity: secondHardLinkIdentity,
                 hardLinkIdentity: secondHardLinkIdentity,
                 cloneIdentity: cloneIdentity,
                 owner: "/hard-link-c",
@@ -304,7 +293,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                 dataSize: 80
             ),
             cloneClaim(
-                fileIdentity: secondHardLinkIdentity,
                 hardLinkIdentity: secondHardLinkIdentity,
                 cloneIdentity: cloneIdentity,
                 owner: "/hard-link-d",
@@ -313,7 +301,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                 dataSize: 80
             ),
             cloneClaim(
-                fileIdentity: FileIdentity(device: 1, inode: 22),
                 cloneIdentity: cloneIdentity,
                 owner: "/standalone-a",
                 path: "/a",
@@ -337,7 +324,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         let cloneIdentity = CloneIdentity(device: 1, cloneID: 99)
         let claims = (0..<10_000).map { index in
             cloneClaim(
-                fileIdentity: FileIdentity(device: 1, inode: UInt64(index)),
                 cloneIdentity: cloneIdentity,
                 owner: "/summary",
                 path: String(format: "/file-%05d", index),
@@ -360,7 +346,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         let cloneIdentity = CloneIdentity(device: 2, cloneID: 7)
         let firstClaims = [
             cloneClaim(
-                fileIdentity: FileIdentity(device: 2, inode: 1),
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-a",
                 path: "/z",
@@ -368,7 +353,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                 dataSize: 80
             ),
             cloneClaim(
-                fileIdentity: FileIdentity(device: 2, inode: 2),
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-a",
                 path: "/y",
@@ -378,7 +362,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         ]
         let secondClaims = [
             cloneClaim(
-                fileIdentity: FileIdentity(device: 2, inode: 3),
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-b",
                 path: "/a",
@@ -420,7 +403,6 @@ struct SharedAllocationOwnerAccumulatorTests {
     }
 
     private func cloneClaim(
-        fileIdentity: FileIdentity,
         hardLinkIdentity: FileIdentity? = nil,
         cloneIdentity: CloneIdentity,
         owner: String,
@@ -429,7 +411,6 @@ struct SharedAllocationOwnerAccumulatorTests {
         dataSize: Int64
     ) -> SharedAllocationClaim {
         SharedAllocationClaim(
-            fileIdentity: fileIdentity,
             hardLinkIdentity: hardLinkIdentity,
             cloneIdentity: cloneIdentity,
             ownerNodeID: owner,

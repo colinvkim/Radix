@@ -17,7 +17,6 @@ nonisolated struct SharedAllocationDeduplicator {
         }
 
         return SharedAllocationClaim(
-            fileIdentity: metadata.fileIdentity,
             hardLinkIdentity: hardLinkIdentity,
             cloneIdentity: metadata.cloneIdentity,
             ownerNodeID: ownerNodeID,
@@ -242,7 +241,6 @@ nonisolated struct SharedAllocationDeduplicator {
         }
 
         return SharedAllocationClaim(
-            fileIdentity: node.fileIdentity,
             hardLinkIdentity: hardLinkIdentity,
             cloneIdentity: node.cloneIdentity,
             ownerNodeID: node.id,
@@ -305,7 +303,6 @@ nonisolated struct SharedAllocationDeduplicator {
 }
 
 nonisolated struct SharedAllocationClaim: Sendable {
-    let fileIdentity: FileIdentity?
     let hardLinkIdentity: FileIdentity?
     let cloneIdentity: CloneIdentity?
     let ownerNodeID: String
@@ -320,7 +317,6 @@ nonisolated struct SharedAllocationClaim: Sendable {
         allocatedSize: Int64
     ) {
         self.init(
-            fileIdentity: identity,
             hardLinkIdentity: identity,
             cloneIdentity: nil,
             ownerNodeID: ownerNodeID,
@@ -331,7 +327,6 @@ nonisolated struct SharedAllocationClaim: Sendable {
     }
 
     init(
-        fileIdentity: FileIdentity?,
         hardLinkIdentity: FileIdentity?,
         cloneIdentity: CloneIdentity?,
         ownerNodeID: String,
@@ -339,7 +334,6 @@ nonisolated struct SharedAllocationClaim: Sendable {
         allocatedSize: Int64,
         cloneAllocatedSize: Int64
     ) {
-        self.fileIdentity = fileIdentity
         self.hardLinkIdentity = hardLinkIdentity
         self.cloneIdentity = cloneIdentity
         self.ownerNodeID = ownerNodeID

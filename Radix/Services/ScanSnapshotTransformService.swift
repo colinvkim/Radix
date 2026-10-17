@@ -27,11 +27,6 @@ nonisolated protocol ScanSnapshotTransforming: Sendable {
         reconcilesVolumeCapacity: Bool
     ) async throws -> ScanSnapshot?
 
-    func removingNode(
-        in snapshot: ScanSnapshot,
-        id targetID: String
-    ) async throws -> ScanSnapshot?
-
     func removingNodes(
         in snapshot: ScanSnapshot,
         ids targetIDs: [String]
@@ -41,15 +36,6 @@ nonisolated protocol ScanSnapshotTransforming: Sendable {
         _ snapshot: ScanSnapshot,
         to target: ScanTarget
     ) async throws -> ScanSnapshot?
-}
-
-extension ScanSnapshotTransforming {
-    func removingNode(
-        in snapshot: ScanSnapshot,
-        id targetID: String
-    ) async throws -> ScanSnapshot? {
-        try await removingNodes(in: snapshot, ids: [targetID])
-    }
 }
 
 actor ScanSnapshotTransformService {
