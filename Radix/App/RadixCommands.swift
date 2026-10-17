@@ -155,7 +155,7 @@ struct RadixCommands: Commands {
             .labelStyle(.titleOnly)
 
             Button(
-                FileNodeAction.openInTerminal.title(for: navigation.selectedNode),
+                FileNodeAction.openInTerminal.title,
                 systemImage: FileNodeAction.openInTerminal.systemImageName
             ) {
                 commandSelectedFileActions.perform(.openInTerminal)

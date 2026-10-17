@@ -71,19 +71,6 @@ nonisolated enum FileNodeAction: CaseIterable, Equatable, Identifiable, Sendable
     }
 }
 
-extension FileNodeAction {
-    nonisolated func title(for node: FileNodeRecord?) -> String {
-        guard self == .openInTerminal,
-              node?.opensTerminalInContainingFolder == true else {
-            return title
-        }
-        return String(
-            localized: "Open Containing Folder in Terminal",
-            comment: "File action that opens a shell in the folder containing the selected file, package, or symbolic link."
-        )
-    }
-}
-
 nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
     let canOpen: Bool
     let canPreviewWithQuickLook: Bool
@@ -181,14 +168,6 @@ nonisolated enum ScanPostTrashAction: Equatable {
 }
 
 extension FileNodeRecord {
-    nonisolated var opensTerminalInContainingFolder: Bool {
-        !isDirectory || isPackage || isSymbolicLink
-    }
-
-    nonisolated var terminalDirectoryURL: URL {
-        opensTerminalInContainingFolder ? url.deletingLastPathComponent() : url
-    }
-
     nonisolated var supportsMoveToTrash: Bool {
         supportsMoveToTrash(trashSafetyPolicy: .live())
     }

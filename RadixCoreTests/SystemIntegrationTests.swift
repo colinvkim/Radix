@@ -67,7 +67,9 @@ struct SystemIntegrationTests {
 
         try await SystemIntegration.openInTerminal(itemURL, workspace: workspace)
 
-        let expectedURL = itemKind == .directory ? URL(filePath: itemURL.path) : rootURL
+        let expectedURL = itemKind == .directory
+            ? URL(filePath: itemURL.path, directoryHint: .isDirectory)
+            : rootURL
         #expect(workspace.requestedApplicationBundleIdentifiers == ["com.apple.Terminal"])
         #expect(workspace.applicationOpenedURLs == [[expectedURL]])
         #expect(workspace.openedApplicationURLs == [terminalURL])

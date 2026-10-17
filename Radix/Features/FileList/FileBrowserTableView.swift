@@ -389,8 +389,7 @@ struct FileBrowserTableView: View {
             fileActionButton(
                 .openInTerminal,
                 availability: selection.actionAvailability,
-                selectedID: selection.id,
-                node: node
+                selectedID: selection.id
             )
 
             if node.isAutoSummarized {
@@ -538,10 +537,9 @@ struct FileBrowserTableView: View {
     private func fileActionButton(
         _ action: FileNodeAction,
         availability: FileNodeActionAvailability,
-        selectedID: FileNodeRecord.ID,
-        node: FileNodeRecord? = nil
+        selectedID: FileNodeRecord.ID
     ) -> some View {
-        Button(action.title(for: node), systemImage: action.systemImageName) {
+        Button(action.title, systemImage: action.systemImageName) {
             actions.selectNode(selectedID)
             actions.selectedFileActions.perform(action)
         }
