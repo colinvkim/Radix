@@ -55,8 +55,7 @@ struct AppSystemActions {
                     try FileActionValidation.validateLivePath(
                         node,
                         source: source,
-                        fileExists: { FileManager.default.fileExists(atPath: $0.path) },
-                        verifyIdentity: { SystemIntegration.verifyTrashIdentity($0) }
+                        fileExists: { FileManager.default.fileExists(atPath: $0.path) }
                     )
                 }
             }
