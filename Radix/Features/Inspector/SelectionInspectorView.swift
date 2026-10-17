@@ -46,15 +46,15 @@ struct SelectionInspectorView: View {
             snapshotSource: scanState.snapshotSource,
             isReadOnlyMode: isReadOnlyMode
         )
-        let removalAvailability = FileNodeActionAvailability(
+        let removalEligibility = FileNodeActionAvailability(
             nodes: summary.topLevelSelectedNodes,
             activeTarget: scanState.selectedTarget,
             trashSafetyPolicy: scanState.trashSafetyPolicy,
-            snapshotSource: scanState.snapshotSource,
-            isReadOnlyMode: isReadOnlyMode
+            snapshotSource: scanState.snapshotSource
         )
         let canMoveSelectionToTrash = summary.missingSelectedNodeCount == 0
-            && removalAvailability.canMoveToTrash
+            && removalEligibility.canMoveToTrash
+            && !isReadOnlyMode
         let warnings = relevantWarnings(for: summary.topLevelSelectedNodes)
 
         return InspectorMultiSelectionView(
@@ -64,7 +64,7 @@ struct SelectionInspectorView: View {
             canMoveSelectionToTrash: canMoveSelectionToTrash,
             availabilityNotice: multiSelectionAvailabilityNotice(
                 summary: summary,
-                canMoveSelectionToTrash: canMoveSelectionToTrash
+                removalIsEligible: removalEligibility.canMoveToTrash
             ),
             warnings: warnings,
             fullDiskAccessAdvice: fullDiskAccessAdvice(for: warnings),
@@ -292,7 +292,7 @@ struct SelectionInspectorView: View {
 
     private func multiSelectionAvailabilityNotice(
         summary: InspectorSelectionSummary,
-        canMoveSelectionToTrash: Bool
+        removalIsEligible: Bool
     ) -> InspectorAvailabilityNoticeKind? {
         if scanState.snapshotSource.isImported {
             return .savedScan
@@ -300,8 +300,14 @@ struct SelectionInspectorView: View {
         if summary.selectedNodes.contains(where: { !$0.supportsFileActions }) {
             return .limitedSelection
         }
-        if summary.missingSelectedNodeCount == 0, !canMoveSelectionToTrash {
+        if summary.missingSelectedNodeCount > 0 {
+            return nil
+        }
+        if !removalIsEligible {
             return .protectedSelection
+        }
+        if isReadOnlyMode {
+            return .readOnlyMode
         }
         return nil
     }
