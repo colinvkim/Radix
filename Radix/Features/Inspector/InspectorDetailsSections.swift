@@ -7,14 +7,16 @@ struct InspectorStorageSection: View {
     var notes: [String] = []
 
     var body: some View {
+        let allocatedSizeText = RadixFormatters.size(allocatedSize)
+
         Section {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text(RadixFormatters.size(allocatedSize))
+                    Text(allocatedSizeText)
                         .font(.title2.weight(.semibold).monospacedDigit())
                         .accessibilityLabel(
                             String(
-                                localized: "Allocated size \(RadixFormatters.size(allocatedSize))",
+                                localized: "Allocated size \(allocatedSizeText)",
                                 comment: "Accessibility label for the allocated storage value in the Inspector."
                             )
                         )
@@ -161,6 +163,7 @@ enum InspectorAvailabilityNoticeKind {
     case protectedLocation
     case protectedSelection
     case limitedSelection
+    case readOnlyMode
 }
 
 struct InspectorAvailabilityNotice: View {
@@ -169,11 +172,15 @@ struct InspectorAvailabilityNotice: View {
     var body: some View {
         Section {
             VStack(alignment: .leading, spacing: 6) {
-                Label(title, systemImage: systemImage)
+                Label {
+                    title
+                } icon: {
+                    Image(systemName: systemImage)
+                }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(color)
 
-                Text(message)
+                message
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -181,28 +188,34 @@ struct InspectorAvailabilityNotice: View {
         }
     }
 
-    private var title: LocalizedStringKey {
+    private var title: Text {
         switch kind {
-        case .savedScan: "Saved scan"
-        case .scanRoot: "Scan root"
-        case .protectedLocation: "Protected location"
-        case .protectedSelection: "Protected selection"
-        case .limitedSelection: "Limited actions"
+        case .savedScan: Text("Saved scan")
+        case .scanRoot: Text("Scan root")
+        case .protectedLocation: Text("Protected location")
+        case .protectedSelection: Text("Protected selection")
+        case .limitedSelection: Text("Limited actions")
+        case .readOnlyMode: Text("Read-only mode", tableName: "Interface")
         }
     }
 
-    private var message: LocalizedStringKey {
+    private var message: Text {
         switch kind {
         case .savedScan:
-            "This selection comes from a saved scan. Removal actions are unavailable."
+            Text("This selection comes from a saved scan. Removal actions are unavailable.")
         case .scanRoot:
-            "The scanned volume itself cannot be added to the Discard Pile or moved to Trash."
+            Text("The scanned volume itself cannot be added to the Discard Pile or moved to Trash.")
         case .protectedLocation:
-            "This location is protected from removal. You can still open it or reveal it in Finder."
+            Text("This location is protected from removal. You can still open it or reveal it in Finder.")
         case .protectedSelection:
-            "Some selected items are protected from removal. You can still reveal them in Finder."
+            Text("Some selected items are protected from removal. You can still reveal them in Finder.")
         case .limitedSelection:
-            "Some selected items do not represent regular file paths, so file actions are unavailable."
+            Text("Some selected items do not represent regular file paths, so file actions are unavailable.")
+        case .readOnlyMode:
+            Text(
+                "Read-only mode is enabled. Turn it off in Settings to use file cleanup actions.",
+                tableName: "Localizable"
+            )
         }
     }
 
@@ -213,12 +226,13 @@ struct InspectorAvailabilityNotice: View {
         case .protectedLocation: "lock.fill"
         case .protectedSelection: "lock.fill"
         case .limitedSelection: "exclamationmark.triangle.fill"
+        case .readOnlyMode: "lock.fill"
         }
     }
 
     private var color: Color {
         switch kind {
-        case .savedScan, .scanRoot: .accentColor
+        case .savedScan, .scanRoot, .readOnlyMode: .accentColor
         case .protectedLocation, .protectedSelection, .limitedSelection: .orange
         }
     }
