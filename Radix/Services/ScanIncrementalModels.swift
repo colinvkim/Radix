@@ -187,7 +187,6 @@ nonisolated enum FileSystemEventHistoryError: LocalizedError, Sendable {
     case invalidCheckpointRange
     case streamCreationFailed
     case streamStartFailed
-    case historyEndedWithoutSentinel
 
     var errorDescription: String? {
         switch self {
@@ -211,8 +210,6 @@ nonisolated enum FileSystemEventHistoryError: LocalizedError, Sendable {
             return String(localized: "Radix could not create an FSEvents history stream.", comment: "Error shown when an FSEvents history stream cannot be created.")
         case .streamStartFailed:
             return String(localized: "Radix could not start the FSEvents history stream.", comment: "Error shown when an FSEvents history stream cannot be started.")
-        case .historyEndedWithoutSentinel:
-            return String(localized: "The FSEvents history stream ended before reporting HistoryDone.", comment: "Error shown when an FSEvents history stream ends unexpectedly.")
         }
     }
 }

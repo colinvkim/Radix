@@ -452,8 +452,6 @@ private extension WorkspaceNavigationState {
 
 @MainActor
 final class WorkspaceNavigationModel: ObservableObject {
-    nonisolated static let emptyTableContentID = "no-snapshot|no-focus"
-
     @Published private(set) var state = WorkspaceNavigationState.empty
 
     typealias TableLoader = @Sendable (FileTreeStore, String) async throws -> [FileNodeRecord]
