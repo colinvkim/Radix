@@ -233,49 +233,6 @@ nonisolated struct ScanComparisonRow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// A non-overlapping, top-level attribution of the comparison rows.
-///
-/// Each final comparison row belongs to exactly one location: its first relative-path
-/// component. This lets the UI rank locations without summing a directory and its changed
-/// descendants twice. A move belongs to its destination location.
-nonisolated struct ScanComparisonLocationChange: Identifiable, Equatable, Sendable {
-    let id: String
-    let relativePath: String
-    let name: String
-    let allocatedDelta: Int64
-    let increasedAllocatedSize: Int64
-    let reclaimedAllocatedSize: Int64
-    let addedCount: Int
-    let removedCount: Int
-    let grewCount: Int
-    let shrankCount: Int
-    let movedCount: Int
-    /// A changed row within this location, chosen by the largest absolute allocated delta.
-    let representativeRelativePath: String
-    /// The node at `relativePath` in the before snapshot, when it was indexed.
-    let beforeNode: FileNodeRecord?
-    /// The node at `relativePath` in the after snapshot, when it was indexed.
-    let afterNode: FileNodeRecord?
-
-    /// Non-overlapping comparison rows attributed to this location.
-    var affectedCount: Int {
-        addedCount + removedCount + grewCount + shrankCount + movedCount
-    }
-
-    var absoluteAllocatedDelta: Int64 {
-        abs(allocatedDelta)
-    }
-
-    var grossChangedAllocatedSize: Int64 {
-        ScanComparisonIntegerMath.addingClamped(increasedAllocatedSize, reclaimedAllocatedSize)
-    }
-
-    /// Prefer the current node so an overview can navigate to the location in the active scan.
-    var fileURL: URL? {
-        (afterNode ?? beforeNode)?.url
-    }
-}
-
 /// Inclusive change totals for one path in the comparison hierarchy.
 ///
 /// Every final, non-overlapping evidence row contributes to each of its path ancestors. Growth
@@ -468,16 +425,13 @@ nonisolated struct ScanComparison: Identifiable, Equatable, Sendable {
     let rows: [ScanComparisonRow]
     /// Inclusive path rollups built from the final, non-overlapping evidence rows.
     let changeTree: ScanComparisonChangeTree
-    /// Non-overlapping first-level locations derived from `rows`, ordered by impact.
-    let topLevelChanges: [ScanComparisonLocationChange]
 
     init(
         beforeSnapshot: ScanSnapshot,
         afterSnapshot: ScanSnapshot,
         rows: [ScanComparisonRow],
         summary: ScanComparisonSummary,
-        changeTree: ScanComparisonChangeTree,
-        topLevelChanges: [ScanComparisonLocationChange]
+        changeTree: ScanComparisonChangeTree
     ) {
         self.id = UUID()
         self.before = ComparedSnapshotSummary(snapshot: beforeSnapshot)
@@ -486,7 +440,6 @@ nonisolated struct ScanComparison: Identifiable, Equatable, Sendable {
         self.summary = summary
         self.coverage = ScanComparisonCoverage(before: beforeSnapshot, after: afterSnapshot)
         self.changeTree = changeTree
-        self.topLevelChanges = topLevelChanges
     }
 }
 
@@ -498,7 +451,6 @@ nonisolated enum ScanComparisonProfilePhase: String, CaseIterable, Sendable {
     case buildRows = "build_rows"
     case sortRows = "sort_rows"
     case buildChangeTree = "build_change_tree"
-    case buildTopLevelChanges = "build_top_level_changes"
     case finalize
 }
 
@@ -797,14 +749,6 @@ nonisolated struct ScanComparisonService: Sendable {
         )
         finishProfile(.buildChangeTree, startedAt: changeTreeStartedAt)
 
-        let topLevelChangesStartedAt = profileStart()
-        let topLevelChanges = try Self.topLevelChanges(
-            from: changeTreeBuild.topLevelAggregates,
-            beforeNodes: beforeNodes,
-            afterNodes: afterNodes
-        )
-        finishProfile(.buildTopLevelChanges, startedAt: topLevelChangesStartedAt)
-
         let finalizationStartedAt = profileStart()
         let rowAggregate = changeTreeBuild.rowAggregate
         let summary = ScanComparisonSummary(
@@ -823,8 +767,7 @@ nonisolated struct ScanComparisonService: Sendable {
             afterSnapshot: after,
             rows: sortedRows,
             summary: summary,
-            changeTree: changeTreeBuild.tree,
-            topLevelChanges: topLevelChanges
+            changeTree: changeTreeBuild.tree
         )
         finishProfile(.finalize, startedAt: finalizationStartedAt)
         return comparison
@@ -1145,7 +1088,6 @@ nonisolated struct ScanComparisonService: Sendable {
     private struct AggregateAccumulator {
         let parentPath: String?
         var directChangeKind: ScanComparisonChangeKind?
-        var representativeRelativePath: String?
         var allocatedDelta: Int64 = 0
         var increasedAllocatedSize: Int64 = 0
         var reclaimedAllocatedSize: Int64 = 0
@@ -1158,9 +1100,6 @@ nonisolated struct ScanComparisonService: Sendable {
         var reclaimedAllocatedSizeByKind: [ScanComparisonChangeKind: Int64] = [:]
 
         mutating func include(_ row: ScanComparisonRow, isDirect: Bool) {
-            if representativeRelativePath == nil {
-                representativeRelativePath = row.relativePath
-            }
             if isDirect {
                 directChangeKind = row.kind
             }
@@ -1204,22 +1143,8 @@ nonisolated struct ScanComparisonService: Sendable {
         }
     }
 
-    private struct TopLevelAggregate {
-        let relativePath: String
-        let representativeRelativePath: String
-        let allocatedDelta: Int64
-        let increasedAllocatedSize: Int64
-        let reclaimedAllocatedSize: Int64
-        let addedCount: Int
-        let removedCount: Int
-        let grewCount: Int
-        let shrankCount: Int
-        let movedCount: Int
-    }
-
     private struct ChangeTreeBuildOutput {
         let tree: ScanComparisonChangeTree
-        let topLevelAggregates: [TopLevelAggregate]
         let rowAggregate: AggregateAccumulator
     }
 
@@ -1274,7 +1199,6 @@ nonisolated struct ScanComparisonService: Sendable {
         guard !rows.isEmpty else {
             return ChangeTreeBuildOutput(
                 tree: .empty,
-                topLevelAggregates: [],
                 rowAggregate: AggregateAccumulator(parentPath: nil)
             )
         }
@@ -1323,7 +1247,6 @@ nonisolated struct ScanComparisonService: Sendable {
             try Task.checkCancellation()
             let path = pathInterner.path(at: nodeIndex)
             let accumulator = accumulators[nodeIndex]
-            guard accumulator.representativeRelativePath != nil else { continue }
             let displayNode = afterNodes[path] ?? beforeNodes[path]
             var childIndices = Array(pathInterner.childIndices(of: nodeIndex))
             let sortedChildren = try CancellableSort.sorted(
@@ -1362,71 +1285,10 @@ nonisolated struct ScanComparisonService: Sendable {
             try Task.checkCancellation()
             return pathInterner.path(at: index)
         }
-        let topLevelAggregates = try rootIndices.compactMap { rootIndex -> TopLevelAggregate? in
-            try Task.checkCancellation()
-            let accumulator = accumulators[rootIndex]
-            guard let representativeRelativePath = accumulator.representativeRelativePath else {
-                return nil
-            }
-            return TopLevelAggregate(
-                relativePath: pathInterner.path(at: rootIndex),
-                representativeRelativePath: representativeRelativePath,
-                allocatedDelta: accumulator.allocatedDelta,
-                increasedAllocatedSize: accumulator.increasedAllocatedSize,
-                reclaimedAllocatedSize: accumulator.reclaimedAllocatedSize,
-                addedCount: accumulator.addedCount,
-                removedCount: accumulator.removedCount,
-                grewCount: accumulator.grewCount,
-                shrankCount: accumulator.shrankCount,
-                movedCount: accumulator.movedCount
-            )
-        }
         return ChangeTreeBuildOutput(
             tree: ScanComparisonChangeTree(rootPaths: rootPaths, nodesByPath: nodesByPath),
-            topLevelAggregates: topLevelAggregates,
             rowAggregate: accumulators[0]
         )
-    }
-
-    private static func topLevelChanges(
-        from aggregates: [TopLevelAggregate],
-        beforeNodes: [String: FileNodeRecord],
-        afterNodes: [String: FileNodeRecord]
-    ) throws -> [ScanComparisonLocationChange] {
-        let changes = try aggregates.map { aggregate in
-            try Task.checkCancellation()
-            let relativePath = aggregate.relativePath
-            let beforeNode = beforeNodes[relativePath]
-            let afterNode = afterNodes[relativePath]
-            let displayNode = afterNode ?? beforeNode
-            return ScanComparisonLocationChange(
-                id: relativePath,
-                relativePath: relativePath,
-                name: displayNode?.name ?? URL(filePath: relativePath).lastPathComponent,
-                allocatedDelta: aggregate.allocatedDelta,
-                increasedAllocatedSize: aggregate.increasedAllocatedSize,
-                reclaimedAllocatedSize: aggregate.reclaimedAllocatedSize,
-                addedCount: aggregate.addedCount,
-                removedCount: aggregate.removedCount,
-                grewCount: aggregate.grewCount,
-                shrankCount: aggregate.shrankCount,
-                movedCount: aggregate.movedCount,
-                representativeRelativePath: aggregate.representativeRelativePath,
-                beforeNode: beforeNode,
-                afterNode: afterNode
-            )
-        }
-        return try CancellableSort.sortedByIndex(
-            changes, cancellationCheck: { try Task.checkCancellation() }
-        ) { lhs, rhs in
-            if lhs.grossChangedAllocatedSize != rhs.grossChangedAllocatedSize {
-                return lhs.grossChangedAllocatedSize > rhs.grossChangedAllocatedSize
-            }
-            if lhs.absoluteAllocatedDelta != rhs.absoluteAllocatedDelta {
-                return lhs.absoluteAllocatedDelta > rhs.absoluteAllocatedDelta
-            }
-            return lhs.relativePath.localizedStandardCompare(rhs.relativePath) == .orderedAscending
-        }
     }
 
     private static func warningBoundaryPaths(in snapshot: ScanSnapshot) -> Set<String> {

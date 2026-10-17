@@ -796,11 +796,8 @@ struct ScanComparisonServiceTests {
         #expect(comparison.summary.removedCount == 0)
         #expect(comparison.summary.movedCount == 1)
 
-        #expect(comparison.topLevelChanges.count == 1)
-        let location = try #require(comparison.topLevelChanges.first)
-        #expect(location.relativePath == "Documents")
+        let location = try #require(comparison.changeTree.node(at: "Documents"))
         #expect(location.movedCount == 1)
-        #expect(location.representativeRelativePath == "Documents/new-name.bin")
         #expect(location.afterNode?.id == "/scan/Documents")
 
         let movedProjection = comparison.changeTree.significantProjection(changeKinds: [.moved])
@@ -1126,7 +1123,7 @@ struct ScanComparisonServiceTests {
     }
 
     @Test
-    func testTopLevelChangesPartitionFinalRowsAndReportGrossSpaceChanges() async throws {
+    func testChangeTreeRootsReportGrossSpaceChanges() async throws {
         let beforeLibraryFile = makeTestFileNode(
             id: "/scan/Library/cache.bin",
             name: "cache.bin",
@@ -1201,17 +1198,83 @@ struct ScanComparisonServiceTests {
 
         let comparison = try await ScanComparisonService().compare(before: beforeSnapshot, after: afterSnapshot)
 
-        #expect(comparison.topLevelChanges.map(\.relativePath) == ["Work", "Downloads", "Library"])
-        #expect(comparison.topLevelChanges.map(\.allocatedDelta) == [40, -20, 20])
-        #expect(comparison.topLevelChanges[0].addedCount == 1)
-        #expect(comparison.topLevelChanges[1].removedCount == 1)
-        #expect(comparison.topLevelChanges[2].grewCount == 1)
-        #expect(comparison.topLevelChanges.reduce(0) { $0 + $1.allocatedDelta } == 40)
-        #expect(comparison.topLevelChanges.reduce(0) { $0 + $1.affectedCount } == 3)
+        #expect(comparison.changeTree.rootPaths == ["Work", "Downloads", "Library"])
+        let work = try #require(comparison.changeTree.node(at: "Work"))
+        let downloads = try #require(comparison.changeTree.node(at: "Downloads"))
+        let library = try #require(comparison.changeTree.node(at: "Library"))
+        #expect(work.allocatedDelta == 40)
+        #expect(work.addedCount == 1)
+        #expect(work.affectedCount == 1)
+        #expect(downloads.allocatedDelta == -20)
+        #expect(downloads.removedCount == 1)
+        #expect(downloads.affectedCount == 1)
+        #expect(library.allocatedDelta == 20)
+        #expect(library.grewCount == 1)
+        #expect(library.affectedCount == 1)
         #expect(comparison.summary.grossIncreasedAllocatedSize == 60)
         #expect(comparison.summary.grossReclaimedAllocatedSize == 20)
         #expect(comparison.summary.attributedAllocatedDelta == 40)
         #expect(comparison.summary.allocatedDelta == 40)
+    }
+
+    @Test
+    func testChangeTreeOrdersEqualGrossRootsByPathBeforeNetDelta() async throws {
+        let beforeAlphaFile = makeTestFileNode(id: "/scan/Alpha/old.bin", name: "old.bin", size: 10)
+        let beforeBetaFile = makeTestFileNode(id: "/scan/Beta/old.bin", name: "old.bin", size: 3)
+        let beforeAlpha = makeTestDirectoryNode(
+            id: "/scan/Alpha", name: "Alpha", children: [beforeAlphaFile]
+        )
+        let beforeBeta = makeTestDirectoryNode(
+            id: "/scan/Beta", name: "Beta", children: [beforeBetaFile]
+        )
+        let beforeRoot = makeTestDirectoryNode(
+            id: "/scan", name: "scan", children: [beforeAlpha, beforeBeta]
+        )
+        let beforeStore = FileTreeStore(
+            root: beforeRoot,
+            childrenByID: [
+                beforeRoot.id: [beforeAlpha, beforeBeta],
+                beforeAlpha.id: [beforeAlphaFile],
+                beforeBeta.id: [beforeBetaFile],
+            ]
+        )
+
+        let afterAlphaFile = makeTestFileNode(id: "/scan/Alpha/new.bin", name: "new.bin", size: 10)
+        let afterBetaFile = makeTestFileNode(id: "/scan/Beta/new.bin", name: "new.bin", size: 17)
+        let afterAlpha = makeTestDirectoryNode(
+            id: "/scan/Alpha", name: "Alpha", children: [afterAlphaFile]
+        )
+        let afterBeta = makeTestDirectoryNode(
+            id: "/scan/Beta", name: "Beta", children: [afterBetaFile]
+        )
+        let afterRoot = makeTestDirectoryNode(
+            id: "/scan", name: "scan", children: [afterAlpha, afterBeta]
+        )
+        let afterStore = FileTreeStore(
+            root: afterRoot,
+            childrenByID: [
+                afterRoot.id: [afterAlpha, afterBeta],
+                afterAlpha.id: [afterAlphaFile],
+                afterBeta.id: [afterBetaFile],
+            ]
+        )
+
+        let comparison = try await ScanComparisonService().compare(
+            before: makeTestSnapshot(root: beforeRoot, store: beforeStore),
+            after: makeTestSnapshot(root: afterRoot, store: afterStore)
+        )
+
+        #expect(comparison.changeTree.rootPaths == ["Alpha", "Beta"])
+        let alpha = try #require(comparison.changeTree.node(at: "Alpha"))
+        let beta = try #require(comparison.changeTree.node(at: "Beta"))
+        #expect(alpha.grossChangedAllocatedSize == 20)
+        #expect(alpha.allocatedDelta == 0)
+        #expect(alpha.addedCount == 1)
+        #expect(alpha.removedCount == 1)
+        #expect(beta.grossChangedAllocatedSize == 20)
+        #expect(beta.allocatedDelta == 14)
+        #expect(beta.addedCount == 1)
+        #expect(beta.removedCount == 1)
     }
 
     @Test
@@ -1581,7 +1644,6 @@ struct ScanComparisonServiceTests {
         )
 
         #expect(comparison.rows.map(\.relativePath) == ["Documents/alpha.bin", "Documents/zeta.bin"])
-        #expect(comparison.topLevelChanges.first?.representativeRelativePath == "Documents/alpha.bin")
     }
 
     @Test
@@ -1827,9 +1889,6 @@ struct ScanComparisonServiceTests {
         #expect(colin.reclaimedAllocatedSize == 60)
         #expect(colin.childPaths == ["Users/colin/Library", "Users/colin/Downloads"])
         #expect(comparison.changeTree.rootPaths == ["Users", "Applications"])
-        #expect(comparison.topLevelChanges.map(\.relativePath) == ["Users", "Applications"])
-        #expect(comparison.topLevelChanges.first?.increasedAllocatedSize == 100)
-        #expect(comparison.topLevelChanges.first?.reclaimedAllocatedSize == 60)
         #expect(
             comparison.changeTree.rootPaths.compactMap(comparison.changeTree.node).reduce(0) {
                 $0 + $1.increasedAllocatedSize
@@ -2006,12 +2065,11 @@ struct ScanComparisonServiceTests {
             before: makeTestSnapshot(root: beforeRoot, store: beforeStore),
             after: makeTestSnapshot(root: afterRoot, store: afterStore)
         )
-        let location = try #require(comparison.topLevelChanges.first)
+        let location = try #require(comparison.changeTree.node(at: "folder"))
 
         #expect(comparison.rows.count == 2)
         #expect(location.relativePath == "folder")
         #expect(location.allocatedDelta == -Int64.max)
-        #expect(location.absoluteAllocatedDelta == Int64.max)
         #expect(location.reclaimedAllocatedSize == Int64.max)
     }
 

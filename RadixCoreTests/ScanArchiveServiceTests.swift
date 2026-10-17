@@ -249,7 +249,6 @@ struct ScanArchiveServiceTests {
         #expect(reverse.summary.fileCountDelta == 0)
         #expect(forward.coverage == reverse.coverage)
         #expect(forward.changeTree == reverse.changeTree)
-        #expect(forward.topLevelChanges == reverse.topLevelChanges)
     }
 
     @Test
@@ -301,8 +300,6 @@ struct ScanArchiveServiceTests {
         #expect(fiveToFour.coverage == baseline.coverage)
         #expect(fourToFive.changeTree == baseline.changeTree)
         #expect(fiveToFour.changeTree == baseline.changeTree)
-        #expect(fourToFive.topLevelChanges == baseline.topLevelChanges)
-        #expect(fiveToFour.topLevelChanges == baseline.topLevelChanges)
     }
 
     @Test
