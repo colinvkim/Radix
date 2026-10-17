@@ -1093,6 +1093,7 @@ struct ScanEngineTests {
         let scanTask = cancellation.start {
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+                    try Task.checkCancellation()
                     if case .finished = event { return true }
                 }
             } catch is CancellationError {
@@ -2756,6 +2757,7 @@ struct ScanEngineTests {
             var didFinish = false
             do {
                 for try await event in engine.scan(target: ScanTarget(url: rootURL), options: ScanOptions()) {
+                    try Task.checkCancellation()
                     if case .finished = event {
                         didFinish = true
                     }
@@ -2834,6 +2836,7 @@ struct ScanEngineTests {
                         target: ScanTarget(url: rootURL),
                         options: ScanOptions()
                     ) {
+                        try Task.checkCancellation()
                         if case .finished = event {
                             didFinish = true
                         }
