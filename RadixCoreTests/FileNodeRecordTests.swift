@@ -32,6 +32,42 @@ struct FileNodeRecordTests {
     }
 
     @Test
+    func testDirectoryClampsSignedSizesAndNonnegativeFileCount() {
+        let positiveOverflow = makeTestDirectoryNode(
+            id: "/positive",
+            name: "positive",
+            children: [
+                makeTestFileNode(id: "/positive/a", name: "a", size: .max),
+                makeTestFileNode(id: "/positive/b", name: "b", size: 1),
+            ]
+        )
+        let negativeOverflow = makeTestDirectoryNode(
+            id: "/negative",
+            name: "negative",
+            children: [
+                makeTestFileNode(id: "/negative/a", name: "a", size: .min),
+                makeTestFileNode(id: "/negative/b", name: "b", size: -1),
+            ]
+        )
+        let countOverflow = makeTestDirectoryNode(
+            id: "/count",
+            name: "count",
+            children: [
+                makeTestSummarizedDirectoryNode(
+                    id: "/count/summary", name: "summary", size: 0, descendantFileCount: .max
+                ),
+                makeTestFileNode(id: "/count/file", name: "file"),
+            ]
+        )
+
+        #expect(positiveOverflow.allocatedSize == Int64.max)
+        #expect(positiveOverflow.logicalSize == Int64.max)
+        #expect(negativeOverflow.allocatedSize == Int64.min)
+        #expect(negativeOverflow.logicalSize == Int64.min)
+        #expect(countOverflow.descendantFileCount == Int.max)
+    }
+
+    @Test
     func testVolumeRootUsesVolumeKindWhileOrdinaryDirectoriesRemainFolders() {
         let volumeRoot = makeTestDirectoryNode(id: "/", name: "Macintosh HD", children: [])
         let volumeTarget = ScanTarget(url: volumeRoot.url, kind: .volume)

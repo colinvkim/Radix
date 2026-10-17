@@ -109,6 +109,91 @@ struct SharedAllocationOwnerAccumulatorTests {
     }
 
     @Test
+    func testHardLinkCorrectionsSaturateAndMergeClampedTotals() {
+        let firstIdentity = FileIdentity(device: 10, inode: 1)
+        let secondIdentity = FileIdentity(device: 10, inode: 2)
+        let first = SharedAllocationOwnerAccumulator([
+            claim(firstIdentity, owner: "/owner", path: "/a", size: .max),
+            claim(firstIdentity, owner: "/owner", path: "/b", size: .max),
+            claim(firstIdentity, owner: "/owner", path: "/e", size: .max),
+        ])
+        let second = SharedAllocationOwnerAccumulator([
+            claim(secondIdentity, owner: "/owner", path: "/c", size: .max),
+            claim(secondIdentity, owner: "/owner", path: "/d", size: .max),
+        ])
+
+        #expect(first.duplicateAllocatedSizeByOwner == ["/owner": Int64.max])
+        var merged = first
+        merged.merge(second)
+        #expect(merged.duplicateAllocatedSizeByOwner == ["/owner": Int64.max])
+    }
+
+    @Test
+    func testCloneCorrectionsAndMaterializedMapCombinationSaturate() {
+        let cloneIdentity = CloneIdentity(device: 11, cloneID: 1)
+        let cloneAccumulator = SharedAllocationOwnerAccumulator([
+            cloneClaim(
+                cloneIdentity: cloneIdentity, owner: "/winner", path: "/a",
+                totalSize: .max, dataSize: .max
+            ),
+            cloneClaim(
+                cloneIdentity: cloneIdentity, owner: "/loser", path: "/b",
+                totalSize: .max, dataSize: .max
+            ),
+            cloneClaim(
+                cloneIdentity: cloneIdentity, owner: "/loser", path: "/c",
+                totalSize: .max, dataSize: .max
+            ),
+        ])
+
+        #expect(cloneAccumulator.duplicateAllocatedSizeByOwner == ["/loser": Int64.max])
+
+        let hardLinkIdentity = FileIdentity(device: 11, inode: 2)
+        let combined = SharedAllocationOwnerAccumulator([
+            claim(hardLinkIdentity, owner: "/shared", path: "/a", size: .max),
+            claim(hardLinkIdentity, owner: "/shared", path: "/b", size: .max),
+            cloneClaim(
+                cloneIdentity: CloneIdentity(device: 11, cloneID: 3),
+                owner: "/winner", path: "/c", totalSize: 1, dataSize: 1
+            ),
+            cloneClaim(
+                cloneIdentity: CloneIdentity(device: 11, cloneID: 3),
+                owner: "/shared", path: "/d", totalSize: .max, dataSize: .max
+            ),
+        ])
+
+        #expect(combined.duplicateAllocatedSizeByOwner == ["/shared": Int64.max])
+
+        let firstCloneID = CloneIdentity(device: 12, cloneID: 1)
+        let secondCloneID = CloneIdentity(device: 12, cloneID: 2)
+        let firstCloneGroup = SharedAllocationOwnerAccumulator([
+            cloneClaim(
+                cloneIdentity: firstCloneID, owner: "/clone-owner", path: "/a",
+                totalSize: .max, dataSize: .max
+            ),
+            cloneClaim(
+                cloneIdentity: firstCloneID, owner: "/clone-owner", path: "/b",
+                totalSize: .max, dataSize: .max
+            ),
+        ])
+        let secondCloneGroup = SharedAllocationOwnerAccumulator([
+            cloneClaim(
+                cloneIdentity: secondCloneID, owner: "/clone-owner", path: "/c",
+                totalSize: .max, dataSize: .max
+            ),
+            cloneClaim(
+                cloneIdentity: secondCloneID, owner: "/clone-owner", path: "/d",
+                totalSize: .max, dataSize: .max
+            ),
+        ])
+        var mergedClones = firstCloneGroup
+        mergedClones.merge(secondCloneGroup)
+
+        #expect(firstCloneGroup.duplicateAllocatedSizeByOwner == ["/clone-owner": Int64.max])
+        #expect(mergedClones.duplicateAllocatedSizeByOwner == ["/clone-owner": Int64.max])
+    }
+
+    @Test
     func testCorrectionMaterializationChecksCancellationDuringTraversal() throws {
         let claims = (0..<512).map { index in
             claim(
@@ -341,23 +426,23 @@ struct SharedAllocationOwnerAccumulatorTests {
             ])
     }
 
-    @Test
-    func testStandaloneCloneMergeMatchesDirectAccumulationInEitherOrder() {
+    @Test(arguments: [Int64(80), Int64.max])
+    func testStandaloneCloneMergeMatchesDirectAccumulationInEitherOrder(dataSize: Int64) {
         let cloneIdentity = CloneIdentity(device: 2, cloneID: 7)
         let firstClaims = [
             cloneClaim(
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-a",
                 path: "/z",
-                totalSize: 100,
-                dataSize: 80
+                totalSize: max(100, dataSize),
+                dataSize: dataSize
             ),
             cloneClaim(
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-a",
                 path: "/y",
-                totalSize: 100,
-                dataSize: 80
+                totalSize: max(100, dataSize),
+                dataSize: dataSize
             ),
         ]
         let secondClaims = [
@@ -365,8 +450,8 @@ struct SharedAllocationOwnerAccumulatorTests {
                 cloneIdentity: cloneIdentity,
                 owner: "/summary-b",
                 path: "/a",
-                totalSize: 100,
-                dataSize: 80
+                totalSize: max(100, dataSize),
+                dataSize: dataSize
             )
         ]
         let first = SharedAllocationOwnerAccumulator(firstClaims)
@@ -382,7 +467,7 @@ struct SharedAllocationOwnerAccumulatorTests {
         #expect(reverse.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
         #expect(
             forward.duplicateAllocatedSizeByOwner == [
-                "/summary-a": 160
+                "/summary-a": dataSize == .max ? Int64.max : 160
             ])
         #expect(forward.identityCount == 1)
         #expect(reverse.identityCount == 1)

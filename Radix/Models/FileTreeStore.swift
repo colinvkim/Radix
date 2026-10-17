@@ -520,16 +520,19 @@ nonisolated struct FileTreeStore: Sendable {
         var childrenAreAccessible = true
 
         mutating func include(_ child: FileNodeRecord) {
-            allocatedSize = FileTreeStore.saturatingAdd(allocatedSize, child.allocatedSize)
-            logicalSize = FileTreeStore.saturatingAdd(logicalSize, child.logicalSize)
+            allocatedSize = ScanIntegerMath.saturatingAdd(
+                allocatedSize,
+                child.allocatedSize
+            )
+            logicalSize = ScanIntegerMath.saturatingAdd(logicalSize, child.logicalSize)
             childrenAreAccessible = childrenAreAccessible && child.isAccessible
             if child.isDirectory {
-                descendantFileCount = FileTreeStore.saturatingAdd(
+                descendantFileCount = ScanIntegerMath.saturatingAdd(
                     descendantFileCount,
                     child.descendantFileCount
                 )
             } else if !child.isSymbolicLink && !child.isSynthetic {
-                descendantFileCount = FileTreeStore.saturatingAdd(descendantFileCount, 1)
+                descendantFileCount = ScanIntegerMath.saturatingAdd(descendantFileCount, 1)
             }
         }
     }
@@ -2377,7 +2380,7 @@ nonisolated struct FileTreeStore: Sendable {
         if !topologyArena.children(of: targetIndex).isEmpty {
             orderedNodeIndices.reserveCapacity(min(
                 nodeRecords.count,
-                Self.saturatingAdd(targetRecord.descendantFileCount, 1)
+                ScanIntegerMath.saturatingAdd(targetRecord.descendantFileCount, 1)
             ))
         }
         var statsAccumulator = ScanAggregateStats.Accumulator()
@@ -2875,18 +2878,5 @@ nonisolated struct FileTreeStore: Sendable {
             isSynthetic: node.isSynthetic,
             isAutoSummarized: node.isAutoSummarized
         )
-    }
-
-    /// Tree totals originate from filesystem metadata and imported archives. A
-    /// malformed archive can contain individually valid nonnegative values whose
-    /// sum exceeds the integer representation; clamp instead of trapping while
-    /// rebuilding a safe in-memory tree.
-    private nonisolated static func saturatingAdd<Value: FixedWidthInteger>(
-        _ lhs: Value,
-        _ rhs: Value
-    ) -> Value {
-        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
-        guard overflow else { return sum }
-        return rhs >= .zero ? .max : .min
     }
 }
