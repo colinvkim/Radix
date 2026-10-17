@@ -6,6 +6,16 @@ enum FileBrowserFindTarget: Equatable, Sendable {
     case entireScan
 }
 
+struct BrowserPresentation {
+    let nodes: [FileNodeRecord]
+    let context: FileBrowserDisplayContext
+
+    fileprivate init(state: FileBrowserDisplayState) {
+        nodes = state.nodes
+        context = state.context
+    }
+}
+
 @MainActor
 final class FileBrowserModel: ObservableObject {
     @Published private(set) var currentContentsQuery = FileBrowserQuery()
@@ -24,13 +34,14 @@ final class FileBrowserModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private var searchIndexPruneTask: Task<Void, Never>?
     private var searchGeneration = 0
-    private var nodes: [FileNodeRecord] = []
-    private var contentID = ""
+    private var content = BrowserContent.empty
     private var contentRevision = 0
-    private var snapshotID: UUID?
-    private var fileTreeStore: FileTreeStore?
-    private var hiddenNodeIDs: Set<FileNodeRecord.ID> = []
     private var needsRefreshAfterCleanup = false
+
+    private var nodes: [FileNodeRecord] { content.nodes }
+    private var snapshotID: UUID? { content.snapshotID }
+    private var fileTreeStore: FileTreeStore? { content.fileTreeStore }
+    private var hiddenNodeIDs: Set<FileNodeRecord.ID> { content.hiddenNodeIDs }
 
     init(
         searchService: any FileSearching = FileSearchService(),
@@ -58,8 +69,8 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
-    var displayedContentContext: FileBrowserDisplayContext {
-        displayState.context
+    var presentation: BrowserPresentation {
+        BrowserPresentation(state: displayState)
     }
 
     var displayedNodes: [FileNodeRecord] {
@@ -97,40 +108,23 @@ final class FileBrowserModel: ObservableObject {
         searchScope == .currentContents && currentContentsQuery.isActive
     }
 
-    func updateContent(
-        nodes: [FileNodeRecord],
-        contentID: String,
-        snapshot: ScanSnapshot?,
-        fileTreeStore: FileTreeStore?,
-        hiddenNodeIDs: Set<FileNodeRecord.ID> = [],
-        forceRefresh: Bool = false
-    ) {
-        let nextSnapshotID = snapshot?.id
+    func updateContent(_ content: BrowserContent) {
+        let nextSnapshotID = content.snapshotID
         let previousSnapshotID = snapshotID
-        guard forceRefresh ||
-            needsRefreshAfterCleanup ||
-            self.contentID != contentID ||
-            snapshotID != nextSnapshotID ||
-            self.fileTreeStore?.contentID != fileTreeStore?.contentID ||
-            self.hiddenNodeIDs != hiddenNodeIDs ||
-            self.nodes != nodes else {
+        guard needsRefreshAfterCleanup || self.content.refreshID != content.refreshID else {
             return
         }
 
         let previousContext = currentDisplayContext
-        let requiresRefresh = forceRefresh || needsRefreshAfterCleanup
+        let requiresRefresh = needsRefreshAfterCleanup
         needsRefreshAfterCleanup = false
         contentRevision += 1
-        if self.nodes.count > 512 { releases.discard(self.nodes) }
-        if self.fileTreeStore?.contentID != fileTreeStore?.contentID,
-           let oldStore = self.fileTreeStore, oldStore.backingNodeCapacity > 512 {
+        if nodes.count > 512 { releases.discard(nodes) }
+        if fileTreeStore?.contentID != content.fileTreeStore?.contentID,
+           let oldStore = fileTreeStore, oldStore.backingNodeCapacity > 512 {
             releases.discard(oldStore)
         }
-        self.nodes = nodes
-        self.contentID = contentID
-        snapshotID = nextSnapshotID
-        self.fileTreeStore = fileTreeStore
-        self.hiddenNodeIDs = hiddenNodeIDs
+        self.content = content
         pruneSearchIndexesIfNeeded(previousSnapshotID: previousSnapshotID, nextSnapshotID: nextSnapshotID)
         if requiresRefresh || currentDisplayContext != previousContext {
             refreshDisplayedNodes()
@@ -198,7 +192,7 @@ final class FileBrowserModel: ObservableObject {
         FileBrowserDisplayContext(
             source: isShowingEntireScanResults
                 ? .entireScan
-                : .currentContents(contentID: contentID, revision: contentRevision),
+                : .currentContents(contentID: content.contentID, revision: contentRevision),
             snapshotID: snapshotID,
             treeContentID: fileTreeStore?.contentID,
             query: activeQuery,

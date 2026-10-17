@@ -14,14 +14,6 @@ struct FileBrowserActions {
     let setDiscardPileDragActive: (Bool) -> Void
 }
 
-private struct FileBrowserContentRefreshID: Hashable {
-    let tableContentID: String
-    let tableContentRevision: Int
-    let snapshotID: UUID?
-    let treeContentID: UUID?
-    let hiddenNodeIDs: Set<FileNodeRecord.ID>
-}
-
 struct FileBrowserTableView: View {
     @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @EnvironmentObject private var tour: WorkspaceTourController
@@ -101,29 +93,15 @@ struct FileBrowserTableView: View {
     }
 
     private var isSearchBarLoading: Bool {
-        navigation.isLoadingTableNodes || model.isRefreshingCurrentContents || model.isSearchingEntireScan
+        browserContent.isLoading || model.isRefreshingCurrentContents || model.isSearchingEntireScan
     }
 
     private var nodes: [FileNodeRecord] {
-        navigation.tableNodes
+        browserContent.nodes
     }
 
-    private var contentID: String {
-        navigation.tableContentID
-    }
-
-    private var contentRevision: Int {
-        navigation.tableContentRevision
-    }
-
-    private var contentRefreshID: FileBrowserContentRefreshID {
-        FileBrowserContentRefreshID(
-            tableContentID: contentID,
-            tableContentRevision: contentRevision,
-            snapshotID: scanState.snapshot?.id,
-            treeContentID: scanState.fileTreeStore?.contentID,
-            hiddenNodeIDs: hiddenNodeIDs
-        )
+    private var browserContent: BrowserContent {
+        navigation.browserContent(excluding: hiddenNodeIDs)
     }
 
     var body: some View {
@@ -148,7 +126,7 @@ struct FileBrowserTableView: View {
             isSearchFieldFocused || model.activeQuery.isActive
         )
         .onExitCommand(perform: handleExitCommand)
-        .task(id: contentRefreshID) {
+        .task(id: browserContent.refreshID) {
             await Task.yield()
             guard !Task.isCancelled else { return }
             updateModelContent()
@@ -168,7 +146,7 @@ struct FileBrowserTableView: View {
 
     @ViewBuilder
     private var tableContent: some View {
-        if navigation.isLoadingTableNodes ||
+        if browserContent.isLoading ||
             (model.isRefreshingCurrentContents && !model.isDisplayingCurrentResults) {
             loadingContent(String(localized: "Loading Contents…", comment: "Progress message while the current directory contents load."))
         } else if model.isShowingEntireScanResults &&
@@ -255,8 +233,7 @@ struct FileBrowserTableView: View {
         }
         .background {
             FileBrowserTableAdapter(
-                nodes: model.displayedNodes,
-                contentContext: model.displayedContentContext,
+                presentation: model.presentation,
                 controller: fileDragController,
                 onDragActiveChange: actions.setDiscardPileDragActive
             )
@@ -297,13 +274,7 @@ struct FileBrowserTableView: View {
     }
 
     private func updateModelContent() {
-        model.updateContent(
-            nodes: nodes,
-            contentID: contentID,
-            snapshot: scanState.snapshot,
-            fileTreeStore: scanState.fileTreeStore,
-            hiddenNodeIDs: hiddenNodeIDs
-        )
+        model.updateContent(browserContent)
     }
 
     private func subtitle(for node: FileNodeRecord) -> String? {

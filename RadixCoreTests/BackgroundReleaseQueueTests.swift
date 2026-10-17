@@ -36,7 +36,9 @@ struct BackgroundReleaseQueueTests {
         let snapshot = makeTestSnapshot(root: root, store: store)
         let navigation = WorkspaceNavigationModel(releases: releases)
         let browser = FileBrowserModel(searchDebounceDuration: .zero, releases: releases)
-        browser.updateContent(nodes: files, contentID: root.id, snapshot: snapshot, fileTreeStore: store)
+        let browserNavigation = makeBrowserTestNavigation(snapshot: snapshot)
+        try await waitUntil { !browserNavigation.isLoadingTableNodes }
+        browser.updateContent(browserNavigation.browserContent())
         try await waitUntil { !browser.isRefreshingCurrentContents }
         queue.suspend()
         var isSuspended = true
@@ -84,12 +86,12 @@ struct BackgroundReleaseQueueTests {
         let navigation = WorkspaceNavigationModel(releases: releases)
         let browser = FileBrowserModel(releases: releases)
         navigation.updateScanContext(snapshot: scope)
-        browser.updateContent(nodes: [leaf], contentID: folder.id, snapshot: scope, fileTreeStore: scope.treeStore)
+        browser.updateContent(navigation.browserContent())
         #expect(!(releases.isReleasing))
         navigation.reset()
         #expect(releases.isReleasing)
         await releases.waitForPendingReleases()
-        browser.updateContent(nodes: [], contentID: "empty", snapshot: nil, fileTreeStore: nil)
+        browser.updateContent(navigation.browserContent())
         #expect(releases.isReleasing)
         await releases.waitForPendingReleases()
     }

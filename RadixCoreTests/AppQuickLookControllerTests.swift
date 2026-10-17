@@ -32,7 +32,7 @@ struct AppQuickLookControllerTests {
     func groupUsesDisplayedOrderAndPreviewNavigationPreservesSelectedGroup() async throws {
         let delegate = PreviewDelegate(nodes: [first, second], primaryURL: first.url)
         let browser = FileBrowserModel()
-        browser.updateContent(nodes: [first, second], contentID: "test", snapshot: nil, fileTreeStore: nil)
+        browser.updateContent(makeBrowserTestNavigation(children: [first, second], rootID: "/preview").browserContent())
         let controller = AppQuickLookController(systemActions: .inert)
         controller.delegate = delegate
         controller.fileBrowser = browser

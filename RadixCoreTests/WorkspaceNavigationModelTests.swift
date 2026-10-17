@@ -26,6 +26,44 @@ private actor NavigationTableLoadGate {
 @MainActor
 struct WorkspaceNavigationModelTests {
     @Test
+    func testBrowserHandoffPublishesLoadedRowsWithTheirScanContext() async throws {
+        let files = (0..<600).map {
+            makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)", size: Int64($0 + 1))
+        }
+        let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
+        let snapshot = makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: files]))
+        let gate = NavigationTableLoadGate()
+        let navigation = WorkspaceNavigationModel(tableLoader: { store, id in
+            try await gate.load(store: store, id: id)
+        })
+        let browser = FileBrowserModel(searchDebounceDuration: .zero)
+        defer { browser.cleanup() }
+        navigation.updateScanContext(snapshot: snapshot)
+        let loading = navigation.browserContent()
+        browser.updateContent(loading)
+        #expect(loading.isLoading)
+        #expect(browser.presentation.nodes.isEmpty)
+
+        try await waitUntil { await gate.requestCount == 1 }
+        await gate.resume(at: 0)
+        try await waitUntil { !navigation.isLoadingTableNodes }
+        let loaded = navigation.browserContent()
+        #expect(loaded.refreshID != loading.refreshID)
+        #expect(loaded.contentID == loading.contentID)
+        #expect(loaded.snapshotID == loading.snapshotID)
+        #expect(loaded.fileTreeStore?.contentID == loading.fileTreeStore?.contentID)
+        #expect(!loaded.isLoading)
+
+        browser.updateContent(loaded)
+        try await waitUntil { !browser.isRefreshingCurrentContents }
+        let presentation = browser.presentation
+        #expect(presentation.nodes.map(\.id) == files.reversed().map(\.id))
+        #expect(presentation.context.snapshotID == snapshot.id)
+        #expect(presentation.context.treeContentID == snapshot.treeStore.contentID)
+        #expect(browser.isDisplayingCurrentResults)
+    }
+
+    @Test
     func testLargeDirectoryLoadsInBackgroundAndIgnoresSupersededResult() async throws {
         let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }
         let root = makeTestDirectoryNode(id: "/large", name: "large", children: files)
@@ -433,6 +471,7 @@ struct WorkspaceNavigationModelTests {
         model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
 
         let deferredRevision = model.tableContentRevision
+        let deferredContent = model.browserContent()
         #expect(model.tableNodes.isEmpty)
         #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
 
@@ -441,10 +480,14 @@ struct WorkspaceNavigationModelTests {
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
         #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         #expect(model.tableContentRevision == deferredRevision + 1)
+        #expect(model.browserContent().refreshID != deferredContent.refreshID)
+
+        let loadedContent = model.browserContent()
 
         model.refreshTableNodesForCurrentContext()
 
         #expect(model.tableContentRevision == deferredRevision + 1)
+        #expect(model.browserContent().refreshID == loadedContent.refreshID)
 
         model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
 

@@ -2,12 +2,11 @@ import AppKit
 import SwiftUI
 
 struct FileBrowserTableAdapter: NSViewRepresentable {
-    let nodes: [FileNodeRecord]
-    let contentContext: FileBrowserDisplayContext
+    let presentation: BrowserPresentation
     let controller: FileDragController
     let onDragActiveChange: (Bool) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(presentation: presentation) }
 
     func makeNSView(context: Context) -> AttachmentView {
         let view = AttachmentView()
@@ -19,8 +18,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
     }
 
     func updateNSView(_ view: AttachmentView, context: Context) {
-        context.coordinator.nodes = nodes
-        context.coordinator.contentContext = contentContext
+        context.coordinator.presentation = presentation
         context.coordinator.controller = controller
         context.coordinator.onDragActiveChange = onDragActiveChange
         // SwiftUI may replace its data source when it updates table contents.
@@ -42,8 +40,8 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTableViewDataSource, NSOutlineViewDataSource {
-        var nodes: [FileNodeRecord] = []
-        var contentContext = FileBrowserDisplayContext.empty
+        var presentation: BrowserPresentation
+        private var nodes: [FileNodeRecord] { presentation.nodes }
         private var laidOutContentContext: FileBrowserDisplayContext?
         var controller: FileDragController?
         var onDragActiveChange: (Bool) -> Void = { _ in }
@@ -51,6 +49,11 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         // Objective-C forwarding is synchronous on AppKit’s main thread.
         private nonisolated(unsafe) weak var original: (any NSTableViewDataSource)?
         private var session: FileDragSession?
+
+        init(presentation: BrowserPresentation) {
+            self.presentation = presentation
+            super.init()
+        }
 
         func attach(from view: NSView) {
             var ancestor = view.superview
@@ -69,6 +72,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         }
 
         private func refreshRowHeights(in table: NSTableView) {
+            let contentContext = presentation.context
             guard laidOutContentContext != contentContext else { return }
             let visibleRows = table.rows(in: table.visibleRect)
             guard visibleRows.location != NSNotFound, visibleRows.length > 0 else { return }
