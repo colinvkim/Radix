@@ -278,6 +278,28 @@ struct ScanCompletionNoticeBanner: View {
     }
 }
 
+struct BackgroundRefreshPausedBanner: View {
+    let rescan: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.clockwise.circle")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Refresh this folder manually")
+                    .font(.subheadline.weight(.semibold))
+                Text("Automatic refresh could not safely update this folder.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Rescan Entire Scan", action: rescan)
+                .buttonStyle(.borderless)
+        }
+        .topBannerSurface()
+    }
+}
+
 struct FolderRescanProgressBanner: View {
     let state: FolderRescanState
     @ObservedObject var progress: ScanProgressState

@@ -38,16 +38,19 @@ final class FileDragController {
     private let context: () -> Context?
     private let verifyIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
     private let refresh: (FileTransfer) -> Void
+    private let draggingChanged: () -> Void
     private weak var activeSession: FileDragSession?
 
     init(
         context: @escaping () -> Context?,
         verifyIdentity: @escaping (FileNodeRecord) -> TrashIdentityVerificationResult,
-        refresh: @escaping (FileTransfer) -> Void
+        refresh: @escaping (FileTransfer) -> Void,
+        draggingChanged: @escaping () -> Void = {}
     ) {
         self.context = context
         self.verifyIdentity = verifyIdentity
         self.refresh = refresh
+        self.draggingChanged = draggingChanged
     }
 
     var isDragging: Bool { activeSession != nil }
@@ -80,13 +83,17 @@ final class FileDragController {
         return FileDragSession(
             snapshotID: context.snapshot.id, nodes: nodes,
             canCollect: canCollect, exportsURLs: exportsURLs,
-            onBegin: { [weak self] session in self?.activeSession = session },
+            onBegin: { [weak self] session in
+                self?.activeSession = session
+                self?.draggingChanged()
+            },
             onEnd: { [weak self] session, operation in
                 guard let self, activeSession === session else { return }
                 activeSession = nil
                 if !session.wasDroppedInternally, session.exportsURLs, !operation.isEmpty {
                     refresh(FileTransfer(snapshot: context.snapshot, nodes: session.nodes, operation: operation))
                 }
+                draggingChanged()
             }
         )
     }

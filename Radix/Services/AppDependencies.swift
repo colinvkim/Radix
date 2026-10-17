@@ -6,6 +6,7 @@ struct AppDependencies {
     var recentTargets: RecentTargetStore
     var systemActions: AppSystemActions
     var scanService: any ScanEventStreaming
+    var fileSystemChangeWatcher: any FileSystemChangeWatching
     var scanArchiveService: any ScanArchiveServicing
     var usageStats: any AppUsageStatsPersisting
 
@@ -14,6 +15,7 @@ struct AppDependencies {
         recentTargets: RecentTargetStore,
         systemActions: AppSystemActions,
         scanService: any ScanEventStreaming = IncrementalScanService(),
+        fileSystemChangeWatcher: any FileSystemChangeWatching = DarwinFileSystemChangeWatcher(),
         scanArchiveService: any ScanArchiveServicing = ScanArchiveService(),
         usageStats: any AppUsageStatsPersisting = InMemoryAppUsageStatsStore()
     ) {
@@ -21,6 +23,7 @@ struct AppDependencies {
         self.recentTargets = recentTargets
         self.systemActions = systemActions
         self.scanService = scanService
+        self.fileSystemChangeWatcher = fileSystemChangeWatcher
         self.scanArchiveService = scanArchiveService
         self.usageStats = usageStats
     }

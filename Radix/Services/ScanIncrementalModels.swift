@@ -48,13 +48,15 @@ nonisolated struct FileSystemEventFlags: OptionSet, Codable, Hashable, Sendable 
     static let itemIsLastHardLink = Self(rawValue: 1 << 17)
 }
 
+/// Producers supply absolute paths in the scan's namespace. Preserve them:
+/// Foundation standardization can rewrite `/private/var` to `/var`.
 nonisolated struct FileSystemEventRecord: Codable, Hashable, Sendable {
     let path: String
     let eventID: UInt64
     let flags: FileSystemEventFlags
 
     init(path: String, eventID: UInt64, flags: FileSystemEventFlags) {
-        self.path = URL(filePath: path).standardizedFileURL.path
+        self.path = path
         self.eventID = eventID
         self.flags = flags
     }

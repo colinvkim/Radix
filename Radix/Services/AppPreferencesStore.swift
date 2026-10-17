@@ -16,6 +16,7 @@ nonisolated struct AppScanPreferences: Equatable {
     var visualizationMode: ScanVisualizationMode
     var useScanExclusions: Bool
     var exclusionPatterns: [String]
+    var automaticallyRefreshFocusedFolder = true
 
     static let defaults = AppScanPreferences(
         showHiddenFiles: true,
@@ -68,6 +69,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         static let visualizationMode = "scanVisualizationMode"
         static let useScanExclusions = "useScanExclusions"
         static let exclusionPatterns = "exclusionPatterns"
+        static let automaticallyRefreshFocusedFolder = "automaticallyRefreshFocusedFolder"
     }
 
     private let defaults: UserDefaults
@@ -126,7 +128,10 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
                 showFreeSpaceInDiskMaps: showFreeSpaceInDiskMaps,
                 visualizationMode: visualizationMode,
                 useScanExclusions: useScanExclusions,
-                exclusionPatterns: exclusionPatterns
+                exclusionPatterns: exclusionPatterns,
+                automaticallyRefreshFocusedFolder: defaults.object(forKey: Key.automaticallyRefreshFocusedFolder) == nil
+                    ? AppScanPreferences.defaults.automaticallyRefreshFocusedFolder
+                    : defaults.bool(forKey: Key.automaticallyRefreshFocusedFolder)
             ),
             didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding),
             onboardingPage: defaults.string(forKey: Key.onboardingPage)
@@ -141,6 +146,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         defaults.set(preferences.treatPackagesAsDirectories, forKey: Key.treatPackagesAsDirectories)
         defaults.set(preferences.maxRenderedDepth, forKey: Key.maxRenderedDepth)
         defaults.set(preferences.autoSummarizeDirectories, forKey: Key.autoSummarizeDirectories)
+        defaults.set(preferences.automaticallyRefreshFocusedFolder, forKey: Key.automaticallyRefreshFocusedFolder)
         defaults.set(preferences.showFreeSpaceInDiskMaps, forKey: Key.showFreeSpaceInDiskMaps)
         defaults.set(preferences.visualizationMode.rawValue, forKey: Key.visualizationMode)
         defaults.set(preferences.useScanExclusions, forKey: Key.useScanExclusions)

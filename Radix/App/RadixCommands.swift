@@ -96,7 +96,7 @@ struct RadixCommands: Commands {
                 appModel.presentOpenPanelAndScan()
             }
             .keyboardShortcut("o")
-            .disabled(isWorkspaceWindowFocused != true || scanState.isScanOperationInProgress)
+            .disabled(isWorkspaceWindowFocused != true || scanState.isForegroundScanOperationInProgress)
 
             Button("Import Snapshot…", systemImage: "square.and.arrow.down") {
                 appModel.importScanSnapshot()

@@ -1,7 +1,44 @@
+import Foundation
 import Testing
+
+@testable import RadixCore
 
 @MainActor
 struct TestSynchronizationTests {
+    @Test
+    func watcherDeliveryBarrierWaitsForConsumerProcessingAndSupportsCancellation() async throws {
+        let watcher = TestFileSystemChangeWatcher()
+        let stream = watcher.changes(for: URL(filePath: "/fixture"), since: nil)
+        let clock = ManualTestClock()
+        var handledBatches = 0
+        var deliveryFinished = false
+        let consumer = Task {
+            for try await _ in stream {
+                try await clock.sleep(for: .seconds(1))
+                handledBatches += 1
+            }
+        }
+        defer { consumer.cancel() }
+        let delivery = Task {
+            try await watcher.emitAndWaitUntilProcessed([
+                FileSystemEventRecord(path: "/fixture/file", eventID: 1, flags: .itemCreated)
+            ])
+            deliveryFinished = true
+        }
+        defer { delivery.cancel() }
+
+        try await waitUntil("consumer processing suspended") { clock.pendingSleeps == 1 }
+        #expect(!deliveryFinished)
+        #expect(handledBatches == 0)
+        clock.advance(by: .seconds(1))
+        try await waitUntil("delivery acknowledged after processing") { deliveryFinished }
+        #expect(handledBatches == 1)
+
+        consumer.cancel()
+        try await consumer.value
+        try await waitUntil("active watcher read cancelled") { watcher.cancellations == 1 }
+    }
+
     @Test
     func timedOutWaitStopsTheTestInsteadOfContinuingWithInvalidState() async {
         var continuedAfterTimeout = false
