@@ -5,6 +5,23 @@ import Testing
 @testable import RadixCore
 
 struct FileBrowserBenchmarkTests {
+    @Test
+    func testMemoryMeasurementRethrowsOperationError() async {
+        struct OperationError: Error, Equatable {
+            let message: String
+        }
+
+        let expectedError = OperationError(message: "search failed")
+        do {
+            _ = try await Self.measureAsyncWithMemory { throw expectedError }
+            Issue.record("Memory measurement returned after its operation failed.")
+        } catch let error as OperationError {
+            #expect(error == expectedError)
+        } catch {
+            Issue.record("Memory measurement replaced the operation error.")
+        }
+    }
+
     @Test(
         .tags(.benchmark),
         .enabled(
@@ -951,7 +968,14 @@ struct FileBrowserBenchmarkTests {
             }
         }
         let startedAt = ContinuousClock.now
-        let value = try await operation()
+        let value: Value
+        do {
+            value = try await operation()
+        } catch {
+            samplerTask.cancel()
+            _ = await samplerTask.result
+            throw error
+        }
         let seconds = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
         samplerTask.cancel()
         _ = await samplerTask.result
