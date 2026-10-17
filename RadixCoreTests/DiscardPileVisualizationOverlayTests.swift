@@ -159,6 +159,32 @@ struct DiscardPileVisualizationOverlayTests {
     }
 
     @Test
+    func testMixedMembershipsResolveAtDifferentAncestorDepths() {
+        let fixture = makeFixture()
+        let overlay = DiscardPileVisualizationOverlay(
+            renderedNodeIDs: [fixture.folder.id, fixture.child.id],
+            queuedRootNodeIDs: [fixture.child.id],
+            movingToTrashRootNodeIDs: [fixture.folder.id],
+            treeStore: fixture.store
+        )
+
+        #expect(overlay.queuedNodeIDs == [fixture.child.id])
+        #expect(overlay.movingToTrashNodeIDs == [fixture.folder.id, fixture.child.id])
+        #expect(overlay.role(for: fixture.child.id) == .movingToTrashDescendant)
+
+        let reversedMemberships = DiscardPileVisualizationOverlay(
+            renderedNodeIDs: [fixture.folder.id, fixture.child.id],
+            queuedRootNodeIDs: [fixture.folder.id],
+            movingToTrashRootNodeIDs: [fixture.child.id],
+            treeStore: fixture.store
+        )
+
+        #expect(reversedMemberships.queuedNodeIDs == [fixture.folder.id, fixture.child.id])
+        #expect(reversedMemberships.movingToTrashNodeIDs == [fixture.child.id])
+        #expect(reversedMemberships.role(for: fixture.child.id) == .movingToTrashRoot)
+    }
+
+    @Test
     func testUnrenderedMovingItemMarksNearestRenderedContainer() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(

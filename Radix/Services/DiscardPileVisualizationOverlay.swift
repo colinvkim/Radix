@@ -202,8 +202,9 @@ nonisolated struct DiscardPileVisualizationOverlay: Equatable, Sendable {
                 if movingToTrashRootNodeIDs.contains(currentID) {
                     movingToTrashNodeIDs.insert(renderedNodeID)
                 }
-                if queuedNodeIDs.contains(renderedNodeID)
-                    && movingToTrashNodeIDs.contains(renderedNodeID) {
+                if (queuedRootNodeIDs.isEmpty || queuedNodeIDs.contains(renderedNodeID))
+                    && (movingToTrashRootNodeIDs.isEmpty
+                        || movingToTrashNodeIDs.contains(renderedNodeID)) {
                     break
                 }
                 candidateID = treeStore.parentID(of: currentID)

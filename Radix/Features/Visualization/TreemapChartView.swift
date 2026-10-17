@@ -7,10 +7,7 @@ struct TreemapChartView: View {
 
     let rootNode: FileNodeRecord
     let treeStore: DiskMapTreeStore
-    let snapshotID: UUID
     let activeTarget: ScanTarget?
-    let trashSafetyPolicy: TrashSafetyPolicy
-    let snapshotSource: ScanSnapshotSource
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let selectedNodeID: String?
     let depthLimit: Int
@@ -32,10 +29,7 @@ struct TreemapChartView: View {
     init(
         rootNode: FileNodeRecord,
         treeStore: DiskMapTreeStore,
-        snapshotID: UUID,
         activeTarget: ScanTarget?,
-        trashSafetyPolicy: TrashSafetyPolicy,
-        snapshotSource: ScanSnapshotSource,
         focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
         selectedNodeID: String?,
         depthLimit: Int,
@@ -51,10 +45,7 @@ struct TreemapChartView: View {
     ) {
         self.rootNode = rootNode
         self.treeStore = treeStore
-        self.snapshotID = snapshotID
         self.activeTarget = activeTarget
-        self.trashSafetyPolicy = trashSafetyPolicy
-        self.snapshotSource = snapshotSource
         self._focusedWorkspaceTarget = focusedWorkspaceTarget
         self.selectedNodeID = selectedNodeID
         self.depthLimit = depthLimit
