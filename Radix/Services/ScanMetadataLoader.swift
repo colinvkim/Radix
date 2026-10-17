@@ -666,7 +666,7 @@ nonisolated struct ScanMetadataLoader: Sendable {
                 return CloneMappingCapabilityCache.ProbeResult(identity: nil, supportsCloneMapping: nil)
             }
 
-            var cursor = ScanMetadataAttributeCursor(
+            var cursor = AttributeBufferCursor(
                 current: baseAddress.advanced(by: MemoryLayout<UInt32>.size),
                 end: baseAddress.advanced(by: reportedLength)
             )
@@ -854,22 +854,5 @@ nonisolated enum FileIdentity: Hashable, Sendable {
               let identity = resourceIdentity?.darwinIdentity,
               identity.fileID == inode else { return self }
         return .fileSystem(device: device, inode: inode, volumeToken: identity.volumeToken)
-    }
-}
-
-private nonisolated struct ScanMetadataAttributeCursor {
-    var current: UnsafeRawPointer
-    let end: UnsafeRawPointer
-
-    mutating func read<T>() -> T? {
-        let size = MemoryLayout<T>.size
-        let alignedSize = (size + 3) & ~3
-        guard size <= current.distance(to: end),
-              alignedSize <= current.distance(to: end) else {
-            return nil
-        }
-        let value = current.loadUnaligned(as: T.self)
-        current = current.advanced(by: alignedSize)
-        return value
     }
 }
