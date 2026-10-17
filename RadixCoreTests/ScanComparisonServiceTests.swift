@@ -2013,7 +2013,7 @@ struct ScanComparisonServiceTests {
     }
 
     @Test
-    func testTopLevelChangesClampLargeReclamationUnderOnePath() async throws {
+    func testChangeTreeClampsLargeReclamationUnderOnePath() async throws {
         let first = makeTestFileNode(id: "/scan/folder/first.bin", name: "first.bin", size: .max)
         let second = makeTestFileNode(id: "/scan/folder/second.bin", name: "second.bin", size: .max)
         let beforeFolder = FileNodeRecord(
