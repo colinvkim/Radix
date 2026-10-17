@@ -495,33 +495,13 @@ final class SidebarScanCacheController {
         restoreSnapshot: SnapshotRestoration
     ) {
         inheritTransferTracking(for: cacheKey, from: snapshot)
-        if currentSnapshot?.id == snapshot.id {
-            cancelPendingSidebarTargetRestore()
-            cancelDeferredScanStart()
-            activeScanCacheKey = nil
-            displayedScanCacheKey = cacheKey
-        } else {
-            restoreCachedSnapshot(
-                snapshot,
-                cacheKey: cacheKey,
-                cancelDeferredScanStart: cancelDeferredScanStart,
-                restoreSnapshot: restoreSnapshot
-            )
-        }
-    }
-
-    private func restoreCachedSnapshot(
-        _ snapshot: ScanSnapshot,
-        cacheKey: ScanCacheKey,
-        cancelDeferredScanStart: () -> Void,
-        restoreSnapshot: SnapshotRestoration
-    ) {
         cancelPendingSidebarTargetRestore()
         cancelDeferredScanStart()
         activeScanCacheKey = nil
         displayedScanCacheKey = cacheKey
-        inheritTransferTracking(for: cacheKey, from: snapshot)
-        restoreSnapshot(snapshot, snapshot.target)
+        if currentSnapshot?.id != snapshot.id {
+            restoreSnapshot(snapshot, snapshot.target)
+        }
     }
 
     private func scheduleContainedSidebarTargetRestore(
