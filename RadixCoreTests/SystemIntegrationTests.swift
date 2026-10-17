@@ -29,23 +29,74 @@ struct SystemIntegrationTests {
         #expect(workspace.openedURLs == [url])
     }
 
-    @Test
-    func testOpenInTerminalOpensDirectoryWithTerminal() async throws {
-        let directoryURL = URL(filePath: "/tmp/example", directoryHint: .isDirectory)
+    @Test(arguments: TerminalItemKind.allCases)
+    fileprivate func testOpenInTerminalUsesCurrentItemType(itemKind: TerminalItemKind) async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let initiallyDirectory = itemKind == .file || itemKind == .directorySymbolicLink
+        let itemURL = rootURL.appending(
+            path: itemKind == .package ? "Selected.app" : "selected",
+            directoryHint: initiallyDirectory ? .isDirectory : .notDirectory
+        )
+        if initiallyDirectory {
+            try FileManager.default.createDirectory(at: itemURL, withIntermediateDirectories: false)
+        } else {
+            try Data("original".utf8).write(to: itemURL)
+        }
+        _ = try itemURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey])
+        try FileManager.default.removeItem(at: itemURL)
+
+        switch itemKind {
+        case .directory:
+            try FileManager.default.createDirectory(at: itemURL, withIntermediateDirectories: false)
+        case .file:
+            try Data("replacement".utf8).write(to: itemURL)
+        case .package:
+            let contentsURL = itemURL.appending(path: "Contents", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+            let info = ["CFBundleIdentifier": "com.example.Selected", "CFBundlePackageType": "APPL"]
+            try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+                .write(to: contentsURL.appending(path: "Info.plist"))
+        case .directorySymbolicLink:
+            let destinationURL = rootURL.appending(path: "destination", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: false)
+            try FileManager.default.createSymbolicLink(at: itemURL, withDestinationURL: destinationURL)
+        }
         let terminalURL = URL(filePath: "/System/Applications/Utilities/Terminal.app")
         let workspace = WorkspaceSpy(openResult: true, terminalApplicationURL: terminalURL)
 
-        try await SystemIntegration.openInTerminal(directoryURL, workspace: workspace)
+        try await SystemIntegration.openInTerminal(itemURL, workspace: workspace)
 
+        let expectedURL = itemKind == .directory ? URL(filePath: itemURL.path) : rootURL
         #expect(workspace.requestedApplicationBundleIdentifiers == ["com.apple.Terminal"])
-        #expect(workspace.applicationOpenedURLs == [[directoryURL]])
+        #expect(workspace.applicationOpenedURLs == [[expectedURL]])
         #expect(workspace.openedApplicationURLs == [terminalURL])
         #expect(workspace.openConfigurationsActivate == [true])
     }
 
     @Test
+    func testOpenInTerminalRejectsMissingItem() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let missingURL = rootURL.appending(path: "missing")
+        let workspace = WorkspaceSpy(
+            openResult: true,
+            terminalApplicationURL: URL(filePath: "/System/Applications/Utilities/Terminal.app")
+        )
+
+        do {
+            try await SystemIntegration.openInTerminal(missingURL, workspace: workspace)
+            Issue.record("Expected opening Terminal to fail for a missing item.")
+        } catch {
+            #expect(error.localizedDescription == "macOS could not open Terminal at \(missingURL.path).")
+        }
+        #expect(workspace.applicationOpenedURLs.isEmpty)
+    }
+
+    @Test
     func testOpenInTerminalThrowsWhenTerminalIsUnavailable() async throws {
-        let directoryURL = URL(filePath: "/tmp/example", directoryHint: .isDirectory)
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
         let workspace = WorkspaceSpy(openResult: true, terminalApplicationURL: nil)
 
         do {
@@ -64,7 +115,8 @@ struct SystemIntegrationTests {
 
     @Test
     func testOpenInTerminalThrowsWhenWorkspaceReportsFailure() async throws {
-        let directoryURL = URL(filePath: "/tmp/example", directoryHint: .isDirectory)
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
         let terminalURL = URL(filePath: "/System/Applications/Utilities/Terminal.app")
         let workspace = WorkspaceSpy(
             openResult: true,
@@ -390,6 +442,13 @@ struct SystemIntegrationTests {
             throw NSError(domain: "RadixTests", code: 1)
         }
     }
+}
+
+private enum TerminalItemKind: CaseIterable {
+    case directory
+    case file
+    case package
+    case directorySymbolicLink
 }
 
 private final class WorkspaceSpy: SystemWorkspace {

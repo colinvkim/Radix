@@ -827,7 +827,7 @@ struct AppModelDependencyTests {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         actions.open = { recorder.openedURLs.append($0) }
-        actions.openInTerminal = { recorder.terminalDirectoryURLs.append($0) }
+        actions.openInTerminal = { recorder.terminalItemURLs.append($0) }
         actions.reveal = { recorder.revealedURLs.append($0) }
         actions.copyPath = { recorder.copiedPathURLs.append($0) }
         actions.verifyTrashIdentity = { _ in .mismatch }
@@ -847,7 +847,7 @@ struct AppModelDependencyTests {
 
         #expect(recorder.revealedURLs == [file.url])
         #expect(recorder.openedURLs == [file.url])
-        #expect(recorder.terminalDirectoryURLs == [file.url.deletingLastPathComponent()])
+        #expect(recorder.terminalItemURLs == [file.url])
         #expect(recorder.copiedPathURLs == [file.url])
         #expect(model.lastErrorMessage == nil)
     }
@@ -4195,7 +4195,7 @@ private final class SpyRecentTargetPersistence: RecentTargetPersisting {
 @MainActor
 private final class AppModelActionRecorder {
     var openedURLs: [URL] = []
-    var terminalDirectoryURLs: [URL] = []
+    var terminalItemURLs: [URL] = []
     var revealedURLs: [URL] = []
     var revealedManyURLs: [[URL]] = []
     var copiedPathURLs: [URL] = []
