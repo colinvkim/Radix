@@ -190,6 +190,7 @@ struct SidebarScanCacheControllerTests {
         let recorder = SidebarScanCacheRecorder()
         let snapshot = makeCacheSnapshot("/cache/exact")
         let options = ScanOptions(includeHiddenFiles: true)
+        var callbacks: [String] = []
 
         controller.prepareForScanStart(target: snapshot.target, options: options)
         controller.handleCompletedScanSnapshot(snapshot)
@@ -201,8 +202,10 @@ struct SidebarScanCacheControllerTests {
             isTargetActive: { _ in true },
             cancelDeferredScanStart: {
                 recorder.cancelDeferredScanStartCount += 1
+                callbacks.append("cancel")
             },
             restoreSnapshot: { snapshot, target in
+                callbacks.append("restore")
                 recorder.restoredSnapshots.append(snapshot)
                 recorder.restoredTargets.append(target)
             },
@@ -216,6 +219,7 @@ struct SidebarScanCacheControllerTests {
         #expect(recorder.restoredSnapshots.map(\.id) == [snapshot.id])
         #expect(recorder.restoredTargets == [snapshot.target])
         #expect(recorder.startedTargets.isEmpty)
+        #expect(callbacks == ["cancel", "restore"])
     }
 
     @Test

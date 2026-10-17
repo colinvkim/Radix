@@ -21,8 +21,6 @@ final class SidebarModel: ObservableObject {
     private let preferredSmartTargetIDs: () -> [String]
     private var availableTargets: [ScanTarget] = []
     private var recentTargets: [ScanTarget] = []
-    private var smartTargetValues: [ScanTarget] = []
-    private var recentScanTargetValues: [ScanTarget] = []
 
     init(
         recentTargetStore: RecentTargetStore,
@@ -33,11 +31,11 @@ final class SidebarModel: ObservableObject {
     }
 
     var smartTargets: [ScanTarget] {
-        smartTargetValues
+        smartTargetRows.map(\.target)
     }
 
     var recentScanTargets: [ScanTarget] {
-        recentScanTargetValues
+        recentScanTargetRows.map(\.target)
     }
 
     func refreshTargetSections(
@@ -64,7 +62,7 @@ final class SidebarModel: ObservableObject {
 
     func clearActiveTargetIfNeededAfterRemovingRecentTarget(_ target: ScanTarget) {
         guard activeTargetID == target.id,
-              !smartTargetValues.contains(where: { $0.id == target.id }) else {
+              !smartTargetRows.contains(where: { $0.id == target.id }) else {
             return
         }
 
@@ -72,7 +70,8 @@ final class SidebarModel: ObservableObject {
     }
 
     func target(id: String) -> ScanTarget? {
-        (availableTargets + recentScanTargetValues).first { $0.id == id }
+        availableTargets.first { $0.id == id }
+            ?? recentScanTargetRows.first { $0.id == id }?.target
     }
 
     func subtitle(for target: ScanTarget) -> String {
@@ -90,15 +89,14 @@ final class SidebarModel: ObservableObject {
             .availableTargets(from: recentTargets)
             .filter { !excludedTargetIDs.contains($0.id) }
 
-        smartTargetValues = smartTargets
-        recentScanTargetValues = recentScanTargets
-        rebuildTargetRows()
+        smartTargetRows = smartTargets.map(makeTargetDisplay)
+        recentScanTargetRows = recentScanTargets.map(makeTargetDisplay)
         clearActiveTargetIfMissing()
     }
 
     private func rebuildTargetRows() {
-        smartTargetRows = smartTargetValues.map(makeTargetDisplay)
-        recentScanTargetRows = recentScanTargetValues.map(makeTargetDisplay)
+        smartTargetRows = smartTargetRows.map { makeTargetDisplay(for: $0.target) }
+        recentScanTargetRows = recentScanTargetRows.map { makeTargetDisplay(for: $0.target) }
     }
 
     private func makeTargetDisplay(for target: ScanTarget) -> SidebarTargetDisplay {
@@ -107,8 +105,8 @@ final class SidebarModel: ObservableObject {
 
     private func clearActiveTargetIfMissing() {
         guard let activeTargetID,
-              !smartTargetValues.contains(where: { $0.id == activeTargetID }),
-              !recentScanTargetValues.contains(where: { $0.id == activeTargetID }) else {
+              !smartTargetRows.contains(where: { $0.id == activeTargetID }),
+              !recentScanTargetRows.contains(where: { $0.id == activeTargetID }) else {
             return
         }
 
