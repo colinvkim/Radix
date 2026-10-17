@@ -2066,7 +2066,7 @@ final class AppModel: ObservableObject {
     func openSelectedInTerminal() async {
         do {
             let node = try validatedSelection(requiresLivePath: true)
-            try await dependencies.systemActions.openInTerminal(node.terminalDirectoryURL)
+            try await dependencies.systemActions.openInTerminal(node.url)
         } catch {
             presentError(error)
         }

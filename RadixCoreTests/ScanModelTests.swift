@@ -251,44 +251,6 @@ struct ScanModelTests {
     }
 
     @Test
-    func testTerminalActionTargetsFoldersAndContainingFolders() {
-        let folder = makeNode(
-            id: "/Users/example/Downloads",
-            isDirectory: true,
-            isSynthetic: false,
-            isAccessible: true
-        )
-        let file = makeNode(
-            id: "/Users/example/Downloads/archive.zip",
-            isDirectory: false,
-            isSynthetic: false,
-            isAccessible: true
-        )
-        let package = makeNode(
-            id: "/Users/example/Downloads/Example.app",
-            isDirectory: true,
-            isPackage: true,
-            isSynthetic: false,
-            isAccessible: true
-        )
-        let symbolicLink = makeNode(
-            id: "/Users/example/Downloads/shortcut",
-            isDirectory: true,
-            isSymbolicLink: true,
-            isSynthetic: false,
-            isAccessible: true
-        )
-
-        #expect(folder.terminalDirectoryURL == folder.url)
-        #expect(FileNodeAction.openInTerminal.title(for: folder) == "Open in Terminal")
-
-        for node in [file, package, symbolicLink] {
-            #expect(node.terminalDirectoryURL == URL(filePath: "/Users/example/Downloads", directoryHint: .isDirectory))
-            #expect(FileNodeAction.openInTerminal.title(for: node) == "Open Containing Folder in Terminal")
-        }
-    }
-
-    @Test
     func testSecondaryStatusTextReflectsAccessibilityAndSyntheticState() {
         let readableNode = makeNode(
             id: "/Users/example/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)

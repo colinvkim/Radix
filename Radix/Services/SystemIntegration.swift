@@ -370,9 +370,20 @@ enum SystemIntegration {
 
     @MainActor
     static func openInTerminal(
-        _ directoryURL: URL,
+        _ itemURL: URL,
         workspace: SystemWorkspace = NSWorkspace.shared
     ) async throws {
+        let currentURL = URL(filePath: itemURL.path)
+        let values: URLResourceValues
+        do {
+            values = try currentURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey])
+        } catch {
+            throw SystemIntegrationError.openInTerminalFailed(path: itemURL.path)
+        }
+        let directoryURL = values.isDirectory == true && values.isPackage != true && values.isSymbolicLink != true
+            ? URL(filePath: currentURL.path, directoryHint: .isDirectory)
+            : currentURL.deletingLastPathComponent()
+
         guard let terminalURL = workspace.urlForApplication(
             withBundleIdentifier: "com.apple.Terminal"
         ) else {
