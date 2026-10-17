@@ -23,12 +23,7 @@ struct FileBrowserModelTests {
         let folder = makeTestDirectoryNode(id: "/root/Folder", name: "Folder", children: [nested])
         let model = FileBrowserModel()
 
-        model.updateContent(
-            nodes: [small, large, folder],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(makeBrowserTestNavigation(children: [small, large, folder]).browserContent())
 
         #expect(model.displayedNodes.map(\.id) == [large.id, folder.id, small.id])
         #expect(model.displayedNode(id: large.id)?.name == "large.log")
@@ -43,27 +38,25 @@ struct FileBrowserModelTests {
 
     @MainActor
     @Test
-    func testCurrentContentsRefreshesRowsWhenIDsStayTheSame() {
+    func testCurrentContentsRefreshesRowsWhenIDsStayTheSame() throws {
         let small = makeTestFileNode(id: "/root/small.txt", name: "small.txt", size: 10)
         let large = makeTestFileNode(id: "/root/large.log", name: "large.log", size: 30)
         let model = FileBrowserModel()
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [small, large])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [small, large]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let navigation = makeBrowserTestNavigation(snapshot: snapshot)
 
-        model.updateContent(
-            nodes: [small, large],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(navigation.browserContent())
         #expect(model.displayedNodes.map(\.id) == [large.id, small.id])
         #expect(model.displayedNode(id: small.id)?.allocatedSize == 10)
 
         let resizedSmall = makeTestFileNode(id: small.id, name: small.name, size: 100)
-        model.updateContent(
-            nodes: [resizedSmall, large],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        let replacementRoot = makeTestDirectoryNode(id: root.id, name: root.name, children: [resizedSmall, large])
+        let replacementStore = FileTreeStore(root: replacementRoot, childrenByID: [root.id: [resizedSmall, large]])
+        let updatedSnapshot = try #require(snapshot.replacingNode(id: root.id, with: replacementStore))
+        navigation.updateScanContext(snapshot: updatedSnapshot)
+        model.updateContent(navigation.browserContent())
 
         #expect(model.displayedNodes.map(\.id) == [small.id, large.id])
         #expect(model.displayedNode(id: small.id)?.allocatedSize == 100)
@@ -465,12 +458,7 @@ struct FileBrowserModelTests {
         let snapshot = makeTestSnapshot(root: root, store: store)
         let model = FileBrowserModel(searchDebounceDuration: .zero)
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveQuery(
             FileBrowserQuery(
@@ -527,23 +515,12 @@ struct FileBrowserModelTests {
             currentContentsAsyncThreshold: 1
         )
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store,
-            hiddenNodeIDs: [hiddenFile.id]
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent(excluding: [hiddenFile.id]))
 
         try await waitForCurrentContentsRefreshToFinish(model)
         #expect(model.displayedNodes.map(\.id) == [visibleFile.id])
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
 
         try await waitForCurrentContentsRefreshToFinish(model)
         #expect(model.displayedNodes.map(\.id) == [hiddenFile.id, visibleFile.id])
@@ -585,13 +562,7 @@ struct FileBrowserModelTests {
         let snapshot = makeTestSnapshot(root: root, store: store)
         let model = FileBrowserModel(searchDebounceDuration: .zero)
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store,
-            hiddenNodeIDs: [hiddenFolder.id]
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent(excluding: [hiddenFolder.id]))
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
 
@@ -929,12 +900,7 @@ struct FileBrowserModelTests {
             currentContentsAsyncThreshold: 1
         )
 
-        model.updateContent(
-            nodes: [small, large, other],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(makeBrowserTestNavigation(children: [small, large, other]).browserContent())
         #expect(!(model.isDisplayingCurrentResults))
         try await waitForCurrentContentsRefreshToFinish(model)
         #expect(model.isDisplayingCurrentResults)
@@ -964,12 +930,7 @@ struct FileBrowserModelTests {
             currentContentsAsyncThreshold: 1
         )
 
-        model.updateContent(
-            nodes: [small, large, other],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(makeBrowserTestNavigation(children: [small, large, other]).browserContent())
         try await waitForCurrentContentsRefreshToFinish(model)
 
         model.setSearchScope(.entireScan)
@@ -989,23 +950,21 @@ struct FileBrowserModelTests {
             searchDebounceDuration: .milliseconds(40),
             currentContentsAsyncThreshold: 1
         )
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [old])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [old]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let navigation = makeBrowserTestNavigation(snapshot: snapshot)
 
-        model.updateContent(
-            nodes: [old],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(navigation.browserContent())
         try await waitForCurrentContentsRefreshToFinish(model)
         #expect(model.isDisplayingCurrentResults)
         #expect(model.displayedNodes.map(\.id) == [old.id])
 
-        model.updateContent(
-            nodes: [new],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        let replacementRoot = makeTestDirectoryNode(id: root.id, name: root.name, children: [new])
+        let replacementStore = FileTreeStore(root: replacementRoot, childrenByID: [root.id: [new]])
+        let updatedSnapshot = try #require(snapshot.replacingNode(id: root.id, with: replacementStore))
+        navigation.updateScanContext(snapshot: updatedSnapshot)
+        model.updateContent(navigation.browserContent())
 
         #expect(model.isRefreshingCurrentContents)
         #expect(!(model.isDisplayingCurrentResults))
@@ -1027,12 +986,7 @@ struct FileBrowserModelTests {
             publishCount += 1
         }
 
-        model.updateContent(
-            nodes: [small, large],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(makeBrowserTestNavigation(children: [small, large]).browserContent())
 
         #expect(model.displayedNodes.map(\.id) == [large.id, small.id])
         #expect(model.displayedNode(id: small.id)?.name == small.name)
@@ -1068,12 +1022,7 @@ struct FileBrowserModelTests {
         )
         let model = FileBrowserModel()
 
-        model.updateContent(
-            nodes: [file, folder, package],
-            contentID: "snapshot|/root",
-            snapshot: nil,
-            fileTreeStore: nil
-        )
+        model.updateContent(makeBrowserTestNavigation(children: [file, folder, package]).browserContent())
 
         let fileValues = model.displayValues(for: file)
         let folderValues = model.displayValues(for: folder)
@@ -1467,12 +1416,7 @@ struct FileBrowserModelTests {
         let snapshot = makeTestSnapshot(root: root, store: store)
         let model = FileBrowserModel(searchDebounceDuration: .zero)
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         #expect(!(model.isDisplayingCurrentResults))
@@ -1485,25 +1429,23 @@ struct FileBrowserModelTests {
     @MainActor
     @Test
     func testEntireScanSearchRefreshesForNewTreeContentWithSameSnapshotAndVisibleRows() async throws {
-        let visible = makeTestFileNode(id: "/root/visible.txt", name: "visible.txt", size: 10)
+        let visible = makeTestFileNode(id: "/root/current/visible.txt", name: "visible.txt", size: 10)
+        let current = makeTestDirectoryNode(id: "/root/current", name: "current", children: [visible])
         let alpha = makeTestFileNode(id: "/root/archive/alpha.txt", name: "alpha.txt", size: 20)
         let archive = makeTestDirectoryNode(id: "/root/archive", name: "archive", children: [alpha])
-        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [archive, visible])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [archive, current])
         let store = FileTreeStore(
             root: root,
             childrenByID: [
-                root.id: [archive, visible],
+                root.id: [archive, current],
                 archive.id: [alpha],
+                current.id: [visible],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
         let model = FileBrowserModel(searchDebounceDuration: .zero)
+        let navigation = makeBrowserTestNavigation(snapshot: snapshot, focusedNodeID: current.id)
 
-        model.updateContent(
-            nodes: [visible],
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(navigation.browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("alpha")
         try await waitForSearchToFinish(model)
@@ -1521,12 +1463,8 @@ struct FileBrowserModelTests {
         )
         let updatedSnapshot = try #require(snapshot.replacingNode(id: archive.id, with: replacementStore))
 
-        model.updateContent(
-            nodes: [visible],
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: updatedSnapshot,
-            fileTreeStore: updatedSnapshot.treeStore
-        )
+        navigation.updateScanContext(snapshot: updatedSnapshot)
+        model.updateContent(navigation.browserContent())
         try await waitForSearchToFinish(model)
         #expect(model.displayedNodes.isEmpty)
 
@@ -1557,44 +1495,23 @@ struct FileBrowserModelTests {
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
 
-        model.updateContent(
-            nodes: [initial],
-            contentID: "initial-folder",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        let navigation = makeBrowserTestNavigation(snapshot: snapshot)
+        model.updateContent(navigation.browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await waitForSearchToFinish(model)
         #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
-        let acceptedContext = model.displayedContentContext
+        let acceptedContext = model.presentation.context
 
-        model.updateContent(
-            nodes: [latest],
-            contentID: "next-folder",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        navigation.setFocusedNodeID(folder.id)
+        model.updateContent(navigation.browserContent())
 
         #expect(!(model.isSearchingEntireScan))
         #expect(model.isDisplayingCurrentResults)
-        #expect(model.displayedContentContext == acceptedContext)
+        #expect(model.presentation.context == acceptedContext)
         #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
         try await waitForSearchToFinish(model)
         #expect(await service.startCount(for: query) == 1)
-
-        model.updateContent(
-            nodes: [latest],
-            contentID: "next-folder",
-            snapshot: snapshot,
-            fileTreeStore: store,
-            forceRefresh: true
-        )
-        #expect(model.isSearchingEntireScan)
-        try await waitForSearchToFinish(model)
-        #expect(model.isDisplayingCurrentResults)
-        #expect(model.displayedNodes.map(\.id) == ["/root/target.txt"])
-        #expect(await service.startCount(for: query) == 2)
 
         model.clearActiveQuery()
 
@@ -1626,22 +1543,14 @@ struct FileBrowserModelTests {
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
 
-        model.updateContent(
-            nodes: [initial],
-            contentID: "initial-folder",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        let navigation = makeBrowserTestNavigation(snapshot: snapshot)
+        model.updateContent(navigation.browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await service.waitUntilStarted(query)
 
-        model.updateContent(
-            nodes: [latest],
-            contentID: "next-folder",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        navigation.setFocusedNodeID(folder.id)
+        model.updateContent(navigation.browserContent())
         #expect(model.isSearchingEntireScan)
 
         try await service.releaseDelayedResults()
@@ -1678,12 +1587,7 @@ struct FileBrowserModelTests {
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("slow")
         try await service.waitUntilStarted(slowQuery)
@@ -1701,10 +1605,15 @@ struct FileBrowserModelTests {
     @MainActor
     @Test
     func testSwitchingToCurrentContentsClearsWholeScanLoadingAndIgnoresLateResult() async throws {
-        let current = makeTestFileNode(id: "/root/current.log", name: "current.log", size: 10)
+        let current = makeTestFileNode(id: "/root/current/current.log", name: "current.log", size: 10)
         let wholeScanOnly = makeTestFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
-        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [current, wholeScanOnly]])
+        let currentFolder = makeTestDirectoryNode(id: "/root/current", name: "current", children: [current])
+        let archive = makeTestDirectoryNode(id: "/root/archive", name: "archive", children: [wholeScanOnly])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [currentFolder, archive])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [root.id: [currentFolder, archive], currentFolder.id: [current], archive.id: [wholeScanOnly]]
+        )
         let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
@@ -1716,12 +1625,7 @@ struct FileBrowserModelTests {
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
 
-        model.updateContent(
-            nodes: [current],
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot, focusedNodeID: currentFolder.id).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await service.waitUntilStarted(query)
@@ -1740,10 +1644,15 @@ struct FileBrowserModelTests {
     @MainActor
     @Test
     func testCleanupCancelsActiveSearchAndKeepsCurrentRows() async throws {
-        let current = makeTestFileNode(id: "/root/current.txt", name: "current.txt", size: 10)
+        let current = makeTestFileNode(id: "/root/current/current.txt", name: "current.txt", size: 10)
         let wholeScanOnly = makeTestFileNode(id: "/root/archive/target.txt", name: "target.txt", size: 20)
-        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [current, wholeScanOnly])
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [current, wholeScanOnly]])
+        let currentFolder = makeTestDirectoryNode(id: "/root/current", name: "current", children: [current])
+        let archive = makeTestDirectoryNode(id: "/root/archive", name: "archive", children: [wholeScanOnly])
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [currentFolder, archive])
+        let store = FileTreeStore(
+            root: root,
+            childrenByID: [root.id: [currentFolder, archive], currentFolder.id: [current], archive.id: [wholeScanOnly]]
+        )
         let snapshot = makeTestSnapshot(root: root, store: store)
         let query = SearchNormalizer.normalize("target")
         let service = DelayedFileSearchService(
@@ -1755,12 +1664,7 @@ struct FileBrowserModelTests {
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
 
-        model.updateContent(
-            nodes: [current],
-            contentID: "\(snapshot.id.uuidString)|\(root.id)",
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot, focusedNodeID: currentFolder.id).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await service.waitUntilStarted(query)
@@ -1786,18 +1690,8 @@ struct FileBrowserModelTests {
         let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
         let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
 
-        model.updateContent(
-            nodes: [],
-            contentID: "\(firstSnapshot.id.uuidString)|\(firstRoot.id)",
-            snapshot: firstSnapshot,
-            fileTreeStore: firstStore
-        )
-        model.updateContent(
-            nodes: [],
-            contentID: "\(secondSnapshot.id.uuidString)|\(secondRoot.id)",
-            snapshot: secondSnapshot,
-            fileTreeStore: secondStore
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: firstSnapshot).browserContent())
+        model.updateContent(makeBrowserTestNavigation(snapshot: secondSnapshot).browserContent())
         try await service.waitUntilPruneStarted()
 
         model.cleanup()
@@ -1806,8 +1700,8 @@ struct FileBrowserModelTests {
     }
 
     @MainActor
-    @Test(arguments: [false, true])
-    func testSameContentRestartsCancelledSearch(forceRefresh: Bool) async throws {
+    @Test
+    func testSameContentRestartsCancelledSearch() async throws {
         let target = makeTestFileNode(id: "/root/target.txt", name: "target.txt", size: 20)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [target])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [target]])
@@ -1821,26 +1715,14 @@ struct FileBrowserModelTests {
         defer { Task { try? await service.releaseDelayedResults() } }
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
-        let contentID = "\(snapshot.id.uuidString)|\(root.id)"
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: contentID,
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await service.waitUntilStarted(query)
         model.cleanup()
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: contentID,
-            snapshot: snapshot,
-            fileTreeStore: store,
-            forceRefresh: forceRefresh
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
 
         try await waitForStartCount(service, query: query, count: 2)
         #expect(model.isSearchingEntireScan)
@@ -1866,14 +1748,8 @@ struct FileBrowserModelTests {
         defer { Task { try? await service.releaseDelayedResults() } }
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
-        let contentID = "\(snapshot.id.uuidString)|\(root.id)"
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: contentID,
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await waitForSearchToFinish(model)
@@ -1881,12 +1757,7 @@ struct FileBrowserModelTests {
         #expect(initialStartCount == 1)
 
         model.cleanup()
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: contentID,
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
 
         try await waitForSearchToFinish(model)
         #expect(model.displayedNodes.map(\.id) == [target.id])
@@ -1910,24 +1781,13 @@ struct FileBrowserModelTests {
         defer { Task { try? await service.releaseDelayedResults() } }
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
-        let contentID = "\(snapshot.id.uuidString)|\(root.id)"
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: contentID,
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
         model.setSearchScope(.entireScan)
         model.setActiveSearchText("target")
         try await service.waitUntilStarted(query)
 
-        model.updateContent(
-            nodes: store.children(of: root.id),
-            contentID: contentID,
-            snapshot: snapshot,
-            fileTreeStore: store
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: snapshot).browserContent())
 
         try await service.releaseDelayedResults()
         try await waitForSearchToFinish(model)
@@ -1950,18 +1810,8 @@ struct FileBrowserModelTests {
         let model = FileBrowserModel(searchService: service, searchDebounceDuration: .zero)
         defer { model.cleanup() }
 
-        model.updateContent(
-            nodes: [],
-            contentID: "\(firstSnapshot.id.uuidString)|\(firstRoot.id)",
-            snapshot: firstSnapshot,
-            fileTreeStore: firstStore
-        )
-        model.updateContent(
-            nodes: [],
-            contentID: "\(secondSnapshot.id.uuidString)|\(secondRoot.id)",
-            snapshot: secondSnapshot,
-            fileTreeStore: secondStore
-        )
+        model.updateContent(makeBrowserTestNavigation(snapshot: firstSnapshot).browserContent())
+        model.updateContent(makeBrowserTestNavigation(snapshot: secondSnapshot).browserContent())
 
         try await waitForPruneCount(service, count: 1)
         let retainedSnapshotIDs = await service.retainedSnapshotIDs()

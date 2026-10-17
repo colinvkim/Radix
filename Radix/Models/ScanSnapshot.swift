@@ -154,6 +154,16 @@ nonisolated enum ScanSnapshotSource: Sendable {
     }
 }
 
+nonisolated struct ScanBrowserSource: Sendable {
+    let snapshotID: UUID
+    let treeStore: FileTreeStore
+
+    fileprivate init(snapshot: ScanSnapshot) {
+        snapshotID = snapshot.id
+        treeStore = snapshot.treeStore
+    }
+}
+
 nonisolated struct ScanSnapshot: Identifiable, Sendable {
     let id: UUID
     let target: ScanTarget
@@ -195,6 +205,10 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
 
     nonisolated var root: FileNodeRecord {
         treeStore.root
+    }
+
+    nonisolated var browserSource: ScanBrowserSource {
+        ScanBrowserSource(snapshot: self)
     }
 
     nonisolated var aggregateStats: ScanAggregateStats {

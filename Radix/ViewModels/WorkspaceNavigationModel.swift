@@ -4,12 +4,12 @@ import Foundation
 struct WorkspaceNavigationState: Equatable {
     static let emptyTableContentID = "no-snapshot|no-focus"
 
-    fileprivate struct TableSource: Equatable, Sendable {
+    fileprivate struct TableSource: Hashable, Sendable {
         let treeContentID: UUID
         let directoryID: FileNodeRecord.ID
     }
 
-    fileprivate enum TableMaterialization: Equatable {
+    fileprivate enum TableMaterialization: Hashable, Sendable {
         case unrequested
         case loading(TableSource)
         case loaded(TableSource)
@@ -27,22 +27,22 @@ struct WorkspaceNavigationState: Equatable {
         }
     }
 
-    var snapshotID: UUID?
-    var fileTreeStore: FileTreeStore?
+    fileprivate var scanSource: ScanBrowserSource?
+    var snapshotID: UUID? { scanSource?.snapshotID }
+    var fileTreeStore: FileTreeStore? { scanSource?.treeStore }
     var selectedNodeID: FileNodeRecord.ID?
     var selectedNodeIDs: Set<FileNodeRecord.ID>
     var focusedNodeID: FileNodeRecord.ID?
     var focusBackStack: [FileNodeRecord.ID]
     var focusForwardStack: [FileNodeRecord.ID]
-    var tableNodes: [FileNodeRecord]
-    var tableContentID: String
-    var tableContentRevision: Int
+    fileprivate(set) var tableNodes: [FileNodeRecord]
+    fileprivate(set) var tableContentID: String
+    fileprivate(set) var tableContentRevision: Int
     var selectedAncestorIDs: Set<FileNodeRecord.ID>
     fileprivate var tableMaterialization: TableMaterialization = .unrequested
 
     static let empty = WorkspaceNavigationState(
-        snapshotID: nil,
-        fileTreeStore: nil,
+        scanSource: nil,
         selectedNodeID: nil,
         selectedNodeIDs: [],
         focusedNodeID: nil,
@@ -69,6 +69,45 @@ struct WorkspaceNavigationState: Equatable {
     }
 }
 
+struct BrowserContent: Sendable {
+    struct RefreshID: Hashable, Sendable {
+        fileprivate let snapshotID: UUID?
+        fileprivate let treeContentID: UUID?
+        fileprivate let contentID: String
+        fileprivate let revision: Int
+        fileprivate let materialization: WorkspaceNavigationState.TableMaterialization
+        fileprivate let hiddenNodeIDs: Set<FileNodeRecord.ID>
+    }
+
+    static let empty = BrowserContent(state: .empty, hiddenNodeIDs: [])
+
+    private let scanSource: ScanBrowserSource?
+    let nodes: [FileNodeRecord]
+    let contentID: String
+    let hiddenNodeIDs: Set<FileNodeRecord.ID>
+    let isLoading: Bool
+    let refreshID: RefreshID
+
+    var snapshotID: UUID? { scanSource?.snapshotID }
+    var fileTreeStore: FileTreeStore? { scanSource?.treeStore }
+
+    fileprivate init(state: WorkspaceNavigationState, hiddenNodeIDs: Set<FileNodeRecord.ID>) {
+        scanSource = state.scanSource
+        nodes = state.tableNodes
+        contentID = state.tableContentID
+        self.hiddenNodeIDs = hiddenNodeIDs
+        isLoading = state.tableMaterialization.pendingSource != nil
+        refreshID = RefreshID(
+            snapshotID: state.snapshotID,
+            treeContentID: state.fileTreeStore?.contentID,
+            contentID: state.tableContentID,
+            revision: state.tableContentRevision,
+            materialization: state.tableMaterialization,
+            hiddenNodeIDs: hiddenNodeIDs
+        )
+    }
+}
+
 private extension WorkspaceNavigationState {
     var resolvedFocusNode: FileNodeRecord? {
         fileTreeStore?.node(id: focusedNodeID) ?? fileTreeStore?.root
@@ -79,8 +118,7 @@ private extension WorkspaceNavigationState {
         loadTableNodesImmediately: Bool = true
     ) -> WorkspaceNavigationState {
         var next = self
-        next.snapshotID = snapshot?.id
-        next.fileTreeStore = snapshot?.treeStore
+        next.scanSource = snapshot?.browserSource
 
         guard let snapshot else {
             next.selectedNodeID = nil
@@ -100,8 +138,7 @@ private extension WorkspaceNavigationState {
 
     func reconcilingAfterSnapshotApplied(_ snapshot: ScanSnapshot?) -> WorkspaceNavigationState {
         var next = self
-        next.snapshotID = snapshot?.id
-        next.fileTreeStore = snapshot?.treeStore
+        next.scanSource = snapshot?.browserSource
         next.focusBackStack = []
         next.focusForwardStack = []
 
@@ -543,6 +580,10 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     func updateScanContext(snapshot: ScanSnapshot?, loadTableNodesImmediately: Bool = true) {
         publish(state.applyingScanContext(snapshot, loadTableNodesImmediately: loadTableNodesImmediately))
+    }
+
+    func browserContent(excluding hiddenNodeIDs: Set<FileNodeRecord.ID> = []) -> BrowserContent {
+        BrowserContent(state: state, hiddenNodeIDs: hiddenNodeIDs)
     }
 
     func refreshTableNodesForCurrentContext() {

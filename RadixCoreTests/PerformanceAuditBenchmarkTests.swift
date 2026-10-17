@@ -78,10 +78,9 @@ struct PerformanceAuditBenchmarkTests {
         }
 
         let browser = FileBrowserModel(searchDebounceDuration: .zero)
-        browser.updateContent(
-            nodes: store.children(of: dense.root.id), contentID: dense.root.id,
-            snapshot: snapshot, fileTreeStore: store
-        )
+        navigation.setFocusedNodeID(dense.root.id)
+        try await waitUntil(timeout: 60) { !navigation.isLoadingTableNodes }
+        browser.updateContent(navigation.browserContent())
         try await waitUntil(timeout: 60) { !browser.isRefreshingCurrentContents }
         #expect(browser.displayedNodes.count == count)
         for iteration in 1...3 {
@@ -95,8 +94,9 @@ struct PerformanceAuditBenchmarkTests {
             try await waitUntil(timeout: 60) { !browser.isRefreshingCurrentContents }
             #expect(browser.displayedNodes.count == count)
         }
+        let emptyContent = WorkspaceNavigationModel().browserContent()
         try await sample("browser_content_clear") {
-            browser.updateContent(nodes: [], contentID: "empty", snapshot: nil, fileTreeStore: nil)
+            browser.updateContent(emptyContent)
         } ready: {
             !browser.isRefreshingCurrentContents
         }

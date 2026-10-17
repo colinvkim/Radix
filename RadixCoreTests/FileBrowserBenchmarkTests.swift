@@ -491,12 +491,9 @@ struct FileBrowserBenchmarkTests {
             searchDebounceDuration: .zero,
             currentContentsAsyncThreshold: .max
         )
-        model.updateContent(
-            nodes: fixture.store.children(of: fixture.store.root.id),
-            contentID: "\(snapshot.id.uuidString)|\(snapshot.root.id)",
-            snapshot: snapshot,
-            fileTreeStore: fixture.store
-        )
+        let navigation = makeBrowserTestNavigation(snapshot: snapshot)
+        try await waitUntil("benchmark directory materialization", timeout: 60) { !navigation.isLoadingTableNodes }
+        model.updateContent(navigation.browserContent())
         model.setSearchScope(.entireScan)
 
         let startedAt = ContinuousClock.now
