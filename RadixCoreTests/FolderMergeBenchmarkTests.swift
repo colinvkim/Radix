@@ -4,7 +4,7 @@ import Testing
 
 @testable import RadixCore
 
-struct TemporaryFolderMergeBenchmarkTests {
+struct FolderMergeBenchmarkTests {
     @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_FOLDER_MERGE"] == "1"))
     func measureRetainedTreeMerge() throws {
         let directories = Int(ProcessInfo.processInfo.environment["RADIX_BENCH_MERGE_DIRECTORIES"] ?? "200") ?? 200

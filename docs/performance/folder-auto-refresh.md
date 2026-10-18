@@ -2,24 +2,28 @@
 
 The watcher covers the completed live scan and replays its original FSEvents
 checkpoint. Dirty paths survive navigation and replacement of a subtree. Only
-the folder being browsed is refreshed; selecting a file does not change that
-scope. Imported snapshots do not start a watcher. A volume's root remains
-manual; the root of a folder scan can refresh automatically.
+the folder being browsed is refreshed when its contents change; selecting a
+file does not change that scope. If the focused folder disappears, refresh
+targets its nearest existing ancestor in the retained scan. Imported snapshots
+do not start a watcher. A volume's root remains manual; the root of a folder
+scan can refresh automatically.
 
 Settings → Scanning → “Keep the current folder updated” controls this behavior.
 It is enabled by default and persists across launches. Disabling it cancels
 automatic work; re-enabling it catches up from the retained scan checkpoint.
 
-Refreshes debounce relevant changes for one second and run one at a time.
+Refreshes debounce relevant changes for one second, capped at five seconds
+under sustained writes, and run one at a time.
 After completion, the next refresh waits at least five seconds, or twice the
 previous refresh's elapsed time when that is longer. Old results remain visible
 while scanning and merging. Publication waits for active interactions to end.
-Cancellation during window closure retains dirty work; explicit Stop pauses
-known changes until another relevant event. Unsafe shared-allocation updates
+Cancellation during window closure retains dirty work. Automatic refresh does
+not enable the Stop command. Unsafe shared-allocation updates
 and scan failures pause that folder and offer an explicit manual rescan.
 
-Automatic refresh preserves expanded folders and their materialized descendants;
-collapsed and newly discovered folders can still use automatic summaries.
+Manual and automatic folder refreshes preserve expanded folders and their
+materialized descendants. Collapsed and newly discovered folders can still use
+automatic summaries.
 Explicit scan, import, export, comparison, and tour commands preempt background
 work. Manual folder refresh acknowledges changes known when it starts, while
 events received during that scan stay pending. Native drags also defer publication.
@@ -48,14 +52,11 @@ the retained fixture; peaks come from process high-water RSS, with a concurrent
 20 ms RSS sampler. Large scans still require memory headroom, and these numbers
 are observations rather than performance assertions.
 
-The opt-in harness is saved beside this report, outside normal test discovery.
-Copy it into the test target temporarily to reproduce:
+The opt-in test is compiled with the core tests. Run it to reproduce:
 
 ```sh
-cp docs/performance/FolderMergeBenchmark.swift RadixCoreTests/TemporaryFolderMergeBenchmarkTests.swift
-RADIX_BENCH_FOLDER_MERGE=1 RADIX_BENCH_MERGE_DIRECTORIES=200 rtk swift test -c release --scratch-path /private/tmp/radix-folder-merge-benchmark --filter TemporaryFolderMergeBenchmarkTests
-RADIX_BENCH_FOLDER_MERGE=1 RADIX_BENCH_MERGE_DIRECTORIES=1000 rtk swift test -c release --scratch-path /private/tmp/radix-folder-merge-benchmark --skip-build --filter TemporaryFolderMergeBenchmarkTests
-rm RadixCoreTests/TemporaryFolderMergeBenchmarkTests.swift
+RADIX_BENCH_FOLDER_MERGE=1 RADIX_BENCH_MERGE_DIRECTORIES=200 swift test -c release --scratch-path /private/tmp/radix-folder-merge-benchmark --filter FolderMergeBenchmarkTests
+RADIX_BENCH_FOLDER_MERGE=1 RADIX_BENCH_MERGE_DIRECTORIES=1000 swift test -c release --scratch-path /private/tmp/radix-folder-merge-benchmark --skip-build --filter FolderMergeBenchmarkTests
 ```
 
 The complete core suite and Debug app build passed. Manual testing used this
