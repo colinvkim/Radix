@@ -238,7 +238,7 @@ final class ScanCoordinator: ObservableObject {
     }
 
     var canStopScan: Bool {
-        isScanOperationInProgress
+        isForegroundScanOperationInProgress
     }
 
     var snapshotSource: ScanSnapshotSource {
@@ -338,12 +338,12 @@ final class ScanCoordinator: ObservableObject {
             stopScan(resetState: false)
         }
         cancelExpansion(completeWith: .cancelled)
-        dismissScanCompletionNotice()
-        scanErrorMessage = nil
-        scanMetrics = ScanMetrics()
-        progress.executionMode = nil
-        resetProgressThrottling()
         if !isBackground {
+            dismissScanCompletionNotice()
+            scanErrorMessage = nil
+            scanMetrics = ScanMetrics()
+            progress.executionMode = nil
+            resetProgressThrottling()
             backgroundRefreshManualRescanNodeIDs.remove(nodeID)
         }
 
@@ -491,6 +491,7 @@ final class ScanCoordinator: ObservableObject {
     }
 
     func stopScan(resetState: Bool = true) {
+        let isBackground = folderRescanState?.isBackground == true
         let cancelledFolderNodeID = activeFolderRescanNodeID
         activeFolderRescanNodeID = nil
         activeScanID = nil
@@ -500,9 +501,11 @@ final class ScanCoordinator: ObservableObject {
         resetProgressThrottling()
         cancelExpansion(completeWith: .cancelled)
 
-        var metrics = scanMetrics
-        metrics.isFinalizing = false
-        scanMetrics = metrics
+        if !isBackground {
+            var metrics = scanMetrics
+            metrics.isFinalizing = false
+            scanMetrics = metrics
+        }
 
         if resetState {
             phase = snapshot == nil ? .idle : .displaying
@@ -693,6 +696,7 @@ final class ScanCoordinator: ObservableObject {
                 guard activeScanID == rescanID else { return }
                 switch event {
                 case .progress(var metrics):
+                    guard folderRescanState?.isBackground != true else { continue }
                     metrics.progressFraction = min(metrics.progressFraction * 0.95, 0.95)
                     handleProgress(metrics, operationID: rescanID)
                 case .finished(let snapshot):
@@ -1187,15 +1191,26 @@ final class ScanCoordinator: ObservableObject {
         let isBackground = folderRescanState?.isBackground == true
         activeFolderRescanNodeID = nil
 
-        flushPendingProgress(operationID: rescanID)
+        if !isBackground {
+            flushPendingProgress(operationID: rescanID)
+        }
         if let updatedSnapshot {
             publishSnapshot(updatedSnapshot, startsNewContext: false)
             completedScanSnapshot = updatedSnapshot
         }
 
-        var completedMetrics = scanMetrics
-        completedMetrics.recalculateProgress(isComplete: true)
-        publishProgress(completedMetrics)
+        if !isBackground {
+            var completedMetrics = scanMetrics
+            completedMetrics.recalculateProgress(isComplete: true)
+            publishProgress(completedMetrics)
+        }
+
+        if let folderNodeID {
+            let prefix = folderNodeID == "/" ? "/" : folderNodeID + "/"
+            backgroundRefreshManualRescanNodeIDs = backgroundRefreshManualRescanNodeIDs.filter {
+                $0 != folderNodeID && !$0.hasPrefix(prefix)
+            }
+        }
 
         activeScanID = nil
         scanTask = nil

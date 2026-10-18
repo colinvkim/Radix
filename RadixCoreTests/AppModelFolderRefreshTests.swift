@@ -355,6 +355,8 @@ private struct AppFolderRefreshHarness {
     let model: AppModel
 
     init(isEnabled: Bool = true, systemActions: AppSystemActions = .inert) {
+        var systemActions = systemActions
+        systemActions.isExistingDirectory = { _ in true }
         var preferences = AppScanPreferences.defaults
         preferences.automaticallyRefreshFocusedFolder = isEnabled
         model = AppModel(dependencies: AppDependencies(

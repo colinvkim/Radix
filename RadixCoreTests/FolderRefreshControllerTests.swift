@@ -5,6 +5,61 @@ import Testing
 
 @MainActor
 struct FolderRefreshControllerTests {
+    @Test
+    func missingFocusedDirectoryRefreshesItsNearestExistingAncestor() async throws {
+        let harness = FolderRefreshHarness(directoryExists: { $0 != self.downloads })
+        let snapshot = makeFolderRefreshSnapshot()
+        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { harness.watcher.requests.count == 1 }
+        try await harness.watcher.emitAndWaitUntilProcessed([
+            FileSystemEventRecord(path: downloads, eventID: 43, flags: [.itemRemoved, .itemIsDirectory])
+        ])
+        try await waitUntil { harness.clock.pendingSleeps == 1 }
+        harness.clock.advance(by: .seconds(1))
+        try await waitUntil { harness.requests == [home] }
+        harness.controller.refreshFinished(nodeID: home, result: .updated)
+        harness.clock.advance(by: .seconds(10))
+        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.requests == [home])
+        #expect(harness.clock.pendingSleeps == 0)
+    }
+
+    @Test
+    func missingScanRootKeepsChangesPendingUntilItExists() async throws {
+        let harness = FolderRefreshHarness(directoryExists: { _ in false })
+        let snapshot = makeFolderRefreshSnapshot()
+        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { harness.watcher.requests.count == 1 }
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/pending.zip")])
+        try await waitUntil { harness.clock.pendingSleeps == 1 }
+        harness.clock.advance(by: .seconds(10))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.requests.isEmpty)
+        harness.directoryExists = { _ in true }
+        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { harness.requests == [downloads] }
+    }
+
+    @Test
+    func laterContentsEventDoesNotDowngradePendingSubtreeChange() async throws {
+        let harness = FolderRefreshHarness()
+        let snapshot = makeFolderRefreshSnapshot()
+        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { harness.watcher.requests.count == 1 }
+        try await harness.watcher.emitAndWaitUntilProcessed([
+            FileSystemEventRecord(path: home, eventID: 43, flags: [.mustScanSubdirectories]),
+            changedFile(home + "/notes.txt"),
+        ])
+        try await waitUntil { harness.clock.pendingSleeps == 1 }
+        harness.clock.advance(by: .seconds(1))
+        try await waitUntil { harness.requests == [downloads] }
+        harness.controller.refreshFinished(nodeID: downloads, result: .updated)
+        harness.clock.advance(by: .seconds(5))
+        harness.controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
+        try await waitUntil { harness.requests == [downloads, documents] }
+    }
+
     @Test(arguments: [false, true])
     func fileChangesInParentOnlyRefreshTheParent(focusParent: Bool) async throws {
         let harness = FolderRefreshHarness()
@@ -255,19 +310,20 @@ struct FolderRefreshControllerTests {
         #expect(harness.clock.pendingSleeps == 0)
     }
 
-    @Test
-    func explicitStopSuppressesKnownWorkUntilANewEvent() async throws {
+    @Test(arguments: [false, true])
+    func explicitStopSuppressesKnownWorkUntilANewEvent(nestedChange: Bool) async throws {
         let harness = FolderRefreshHarness()
         let snapshot = makeFolderRefreshSnapshot()
+        let changedDirectory = downloads + (nestedChange ? "/nested" : "")
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/first.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/first.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
         // Include changes received while the refresh was running: Stop should
         // not immediately launch those already pending writes as another scan.
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/second.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/second.zip")])
         harness.controller.pauseCurrentRefresh()
         harness.controller.refreshFinished(nodeID: downloads, result: .cancelled)
         harness.clock.advance(by: .seconds(10))
@@ -275,19 +331,20 @@ struct FolderRefreshControllerTests {
         try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.requests == [downloads])
         #expect(harness.clock.pendingSleeps == 0)
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/third.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/third.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads, downloads] }
     }
 
-    @Test
-    func failureWaitsForANewRelevantEventRatherThanRetryingOnNavigation() async throws {
+    @Test(arguments: [false, true])
+    func failureWaitsForANewRelevantEventRatherThanRetryingOnNavigation(nestedChange: Bool) async throws {
         let harness = FolderRefreshHarness()
         let snapshot = makeFolderRefreshSnapshot()
+        let changedDirectory = downloads + (nestedChange ? "/nested" : "")
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { harness.watcher.requests.count == 1 }
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/a.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/a.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests.count == 1 }
@@ -298,7 +355,7 @@ struct FolderRefreshControllerTests {
         try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.requests.count == 1)
         #expect(harness.clock.pendingSleeps == 0)
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/b.zip")])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/b.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests.count == 2 }
@@ -482,6 +539,7 @@ private final class FolderRefreshHarness {
     var allowsRequests = true
     var sleepRequests = 0
     private let maximumPendingPaths: Int
+    var directoryExists: @MainActor (String) -> Bool
     lazy var controller = FolderRefreshController(
         watcher: watcher,
         maximumPendingPaths: maximumPendingPaths,
@@ -490,6 +548,7 @@ private final class FolderRefreshHarness {
             self?.sleepRequests += 1
             try await clock.sleep(for: $0)
         },
+        directoryExists: { [weak self] in self?.directoryExists($0) == true },
         requestRefresh: { [weak self] nodeID in
             guard let self else { return false }
             requests.append(nodeID)
@@ -498,7 +557,11 @@ private final class FolderRefreshHarness {
         }
     )
 
-    init(maximumPendingPaths: Int = 4_096) {
+    init(
+        maximumPendingPaths: Int = 4_096,
+        directoryExists: @escaping @MainActor (String) -> Bool = { _ in true }
+    ) {
         self.maximumPendingPaths = maximumPendingPaths
+        self.directoryExists = directoryExists
     }
 }

@@ -398,6 +398,9 @@ final class AppModel: ObservableObject {
         quickLookController.delegate = self
         folderRefreshController = FolderRefreshController(
             watcher: dependencies.fileSystemChangeWatcher,
+            directoryExists: { [systemActions = dependencies.systemActions] path in
+                systemActions.isExistingDirectory(URL(filePath: path))
+            },
             requestRefresh: { [weak self] nodeID in
                 self?.scanCoordinator.refreshFolderInBackground(id: nodeID) ?? false
             }
@@ -518,7 +521,7 @@ final class AppModel: ObservableObject {
         trashFlow.cancelPostTrashSnapshotRemoval()
         trashFlow.cancelConfirmedTrashMoves()
         sidebarScanCacheController.clearActiveScanTracking()
-        if scanCoordinator.canStopScan {
+        if scanCoordinator.isScanOperationInProgress {
             scanCoordinator.stopScan()
         } else {
             scanCoordinator.stopScan(resetState: false)
@@ -921,6 +924,7 @@ final class AppModel: ObservableObject {
 
     /// Expands an auto-summarized directory by scanning it fully and replacing the node in the tree.
     func expandSummarizedNode(_ node: FileNodeRecord, completion: @escaping () -> Void) {
+        preemptAutomaticFolderRefresh()
         let target = ScanTarget(url: node.url)
         let options = scanOptions(
             for: target,
@@ -2409,7 +2413,7 @@ final class AppModel: ObservableObject {
     private var canReplayDiscardPileChange: Bool {
         !isReadOnlyMode && scanCoordinator.snapshot?.isComplete == true &&
             scanCoordinator.snapshotSource.allowsFileMutation &&
-            !scanCoordinator.isScanOperationInProgress && scanCoordinator.expandingNodeID == nil &&
+            !scanCoordinator.isForegroundScanOperationInProgress && scanCoordinator.expandingNodeID == nil &&
             !isArchiveOperationInProgress && !trashFlow.isMovingFiles &&
             pendingTrashSelection == nil && pendingCloudFileAction == nil &&
             canUseWorkspaceCommands
@@ -2428,11 +2432,13 @@ final class AppModel: ObservableObject {
 
     func undoDiscardPileChange() {
         guard canUndoDiscardPileChange else { return }
+        preemptAutomaticFolderRefresh()
         discardPileUndoManager.undo()
     }
 
     func redoDiscardPileChange() {
         guard canRedoDiscardPileChange else { return }
+        preemptAutomaticFolderRefresh()
         discardPileUndoManager.redo()
     }
 

@@ -20,6 +20,33 @@ private actor NavigationTableLoadGate {
 
 @MainActor
 struct WorkspaceNavigationModelTests {
+    @Test(arguments: [false, true])
+    func removedFocusReturnsToNearestRetainedAncestor(removeParent: Bool) {
+        let leaf = makeTestDirectoryNode(id: "/home/Projects/app/cache", name: "cache", children: [])
+        let app = makeTestDirectoryNode(id: "/home/Projects/app", name: "app", children: [leaf])
+        let projects = makeTestDirectoryNode(id: "/home/Projects", name: "Projects", children: [app])
+        let root = makeTestDirectoryNode(id: "/home", name: "Home", children: [projects])
+        let model = WorkspaceNavigationModel()
+        model.reconcileAfterSnapshotApplied(makeTestSnapshot(
+            root: root, store: FileTreeStore(root: root, childrenByID: [
+                root.id: [projects], projects.id: [app], app.id: [leaf],
+            ])
+        ))
+        model.focus(nodeID: leaf.id)
+        let updatedApp = makeTestDirectoryNode(id: app.id, name: app.name, children: [])
+        let updatedProjects = makeTestDirectoryNode(
+            id: projects.id, name: projects.name, children: removeParent ? [] : [updatedApp]
+        )
+        let updatedRoot = makeTestDirectoryNode(id: root.id, name: root.name, children: [updatedProjects])
+        model.reconcileAfterSnapshotApplied(makeTestSnapshot(
+            root: updatedRoot,
+            store: FileTreeStore(root: updatedRoot, childrenByID: [
+                root.id: [updatedProjects], projects.id: removeParent ? [] : [updatedApp],
+            ])
+        ))
+        #expect(model.focusedNodeID == (removeParent ? projects.id : app.id))
+    }
+
     @Test
     func testLargeDirectoryLoadsInBackgroundAndIgnoresSupersededResult() async throws {
         let files = (0..<600).map { makeTestFileNode(id: "/large/file-\($0)", name: "file-\($0)") }

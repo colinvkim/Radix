@@ -15,9 +15,16 @@ final class FolderRefreshController {
         let options: ScanOptions?
     }
 
+    private enum ChangeScope {
+        case contents
+        case subtree
+    }
+
     private struct Change {
+        let scope: ChangeScope
         let version: UInt64
         let receivedAt: ContinuousClock.Instant
+        let firstReceivedAt: ContinuousClock.Instant
     }
 
     private struct Refresh {
@@ -29,10 +36,12 @@ final class FolderRefreshController {
 
     private let watcher: any FileSystemChangeWatching
     private let debounce: Duration
+    private let maximumDelay: Duration
     private let minimumRefreshInterval: Duration
     private let maximumPendingPaths: Int
     private let now: @MainActor () -> ContinuousClock.Instant
     private let sleep: @MainActor (Duration) async throws -> Void
+    private let directoryExists: @MainActor (String) -> Bool
     private let requestRefresh: @MainActor (String) -> Bool
     private var watchIdentity: WatchIdentity?
     private var snapshot: ScanSnapshot?
@@ -55,20 +64,24 @@ final class FolderRefreshController {
     init(
         watcher: any FileSystemChangeWatching = DarwinFileSystemChangeWatcher(),
         debounce: Duration = .seconds(1),
+        maximumDelay: Duration = .seconds(5),
         minimumRefreshInterval: Duration = .seconds(5),
         maximumPendingPaths: Int = 4_096,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
         sleep: @escaping @MainActor (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
         },
+        directoryExists: @escaping @MainActor (String) -> Bool,
         requestRefresh: @escaping @MainActor (String) -> Bool
     ) {
         self.watcher = watcher
         self.debounce = max(debounce, .zero)
+        self.maximumDelay = max(maximumDelay, .zero)
         self.minimumRefreshInterval = max(minimumRefreshInterval, .zero)
         self.maximumPendingPaths = max(maximumPendingPaths, 1)
         self.now = now
         self.sleep = sleep
+        self.directoryExists = directoryExists
         self.requestRefresh = requestRefresh
     }
 
@@ -196,7 +209,7 @@ final class FolderRefreshController {
         var recordedChange = false
         for event in events {
             if !event.flags.intersection(uncertainFlags).isEmpty {
-                recordChange(at: identity.targetPath)
+                recordChange(at: identity.targetPath, scope: .subtree)
                 recordedChange = true
                 continue
             }
@@ -204,12 +217,18 @@ final class FolderRefreshController {
                   Self.contains(event.path, in: identity.targetPath),
                   !isExcluded(event, rootPath: identity.targetPath, options: options, matcher: matcher)
             else { continue }
-            // File events are folded into their containing directory. A
-            // directory event also intersects its parent when that is focused.
-            let path = event.flags.contains(.itemIsFile) || event.flags.contains(.itemIsSymbolicLink)
+            let isFile = event.flags.contains(.itemIsFile) || event.flags.contains(.itemIsSymbolicLink)
+            let path = isFile
                 ? URL(filePath: event.path).deletingLastPathComponent().path
                 : event.path
-            recordChange(at: path)
+            let changesMembership = !isFile
+                && !event.flags.intersection([.itemCreated, .itemRemoved, .itemRenamed]).isEmpty
+            let scope: ChangeScope = changesMembership || event.flags.contains(.mustScanSubdirectories)
+                ? .subtree : .contents
+            recordChange(at: path, scope: scope)
+            if changesMembership, path != identity.targetPath {
+                recordChange(at: URL(filePath: path).deletingLastPathComponent().path, scope: .contents)
+            }
             recordedChange = true
         }
         if recordedChange {
@@ -237,14 +256,32 @@ final class FolderRefreshController {
         return false
     }
 
-    private func recordChange(at path: String) {
+    private func recordChange(at path: String, scope: ChangeScope) {
         version += 1
-        let change = Change(version: version, receivedAt: now())
+        let receivedAt = now()
+        let previous = pendingChanges[path]
+        var blockedVersion: UInt64 = 0
+        var ancestor = path
+        while true {
+            blockedVersion = max(blockedVersion, blockedScopes[ancestor] ?? 0)
+            guard ancestor != "/" else { break }
+            ancestor = URL(filePath: ancestor).deletingLastPathComponent().path
+        }
+        let firstReceivedAt = previous.flatMap { $0.version > blockedVersion ? $0.firstReceivedAt : nil }
+        let change = Change(
+            scope: previous?.scope == .subtree ? .subtree : scope,
+            version: version,
+            receivedAt: receivedAt,
+            firstReceivedAt: firstReceivedAt ?? receivedAt
+        )
         if pendingChanges[path] == nil, pendingChanges.count >= maximumPendingPaths,
            let rootPath = watchIdentity?.targetPath {
             // Never discard unseen changes: collapse to a conservative root
             // marker. Each visited folder can acknowledge it independently.
-            pendingChanges = [rootPath: change]
+            let firstReceivedAt = pendingChanges.values.reduce(change.firstReceivedAt) { min($0, $1.firstReceivedAt) }
+            pendingChanges = [rootPath: Change(
+                scope: .subtree, version: version, receivedAt: receivedAt, firstReceivedAt: firstReceivedAt
+            )]
             acknowledgedScopes.removeAll(keepingCapacity: true)
         } else {
             pendingChanges[path] = change
@@ -261,7 +298,9 @@ final class FolderRefreshController {
         return node
     }
 
-    private func latestChange(in scope: String) -> Change? {
+    private func latestChange(
+        in scope: String
+    ) -> (receivedAt: ContinuousClock.Instant, firstReceivedAt: ContinuousClock.Instant)? {
         let blockedVersion = blockedScopes[scope] ?? 0
         var acknowledgedVersion: UInt64 = 0
         var ancestor = scope
@@ -271,12 +310,17 @@ final class FolderRefreshController {
             ancestor = URL(filePath: ancestor).deletingLastPathComponent().path
         }
         var latest: Change?
+        var firstReceivedAt: ContinuousClock.Instant?
         for (path, change) in pendingChanges where change.version > blockedVersion {
             let intersects = Self.contains(path, in: scope)
-                || (Self.contains(scope, in: path) && change.version > acknowledgedVersion)
-            if intersects, change.version > (latest?.version ?? 0) { latest = change }
+                || (change.scope == .subtree && Self.contains(scope, in: path) && change.version > acknowledgedVersion)
+            if intersects {
+                firstReceivedAt = min(firstReceivedAt ?? change.firstReceivedAt, change.firstReceivedAt)
+                if change.version > (latest?.version ?? 0) { latest = change }
+            }
         }
-        return latest
+        guard let latest, let firstReceivedAt else { return nil }
+        return (latest.receivedAt, firstReceivedAt)
     }
 
     private func scheduleRefresh() {
@@ -286,7 +330,7 @@ final class FolderRefreshController {
             return
         }
         let due = max(
-            change.receivedAt.advanced(by: debounce),
+            min(change.receivedAt.advanced(by: debounce), change.firstReceivedAt.advanced(by: maximumDelay)),
             nextRefreshNotBefore ?? change.receivedAt
         )
         // Progress, hover, and unrelated filesystem activity may update the
@@ -324,13 +368,24 @@ final class FolderRefreshController {
         scheduledTask = nil
         scheduledNodeID = nil
         scheduledDue = nil
-        let refresh = Refresh(nodeID: node.id, path: node.url.path, version: version, startedAt: now())
+        guard let target = existingRefreshTarget(for: node) else { return }
+        let refresh = Refresh(nodeID: target.id, path: target.url.path, version: version, startedAt: now())
         inFlight = refresh
-        if !requestRefresh(node.id), inFlight?.nodeID == node.id {
+        if !requestRefresh(target.id), inFlight?.nodeID == target.id {
             // Eligibility can change before its deferred UI observation arrives.
             // A rejected start leaves changes pending for the next readiness update.
             inFlight = nil
         }
+    }
+
+    private func existingRefreshTarget(for node: FileNodeRecord) -> FileNodeRecord? {
+        guard let store = snapshot?.treeStore else { return nil }
+        var candidate = node
+        while !directoryExists(candidate.url.path) {
+            guard let parent = store.parent(of: candidate.id) else { return nil }
+            candidate = parent
+        }
+        return candidate
     }
 
     private func applyCooldown(after refresh: Refresh) {

@@ -102,8 +102,12 @@ private extension WorkspaceNavigationState {
             return next.refreshedDerivedState()
         }
 
-        if next.focusedNodeID == nil || next.fileTreeStore?.node(id: next.focusedNodeID) == nil {
-            next.focusedNodeID = snapshot.root.id
+        if next.focusedNodeID == nil || snapshot.treeStore.node(id: next.focusedNodeID) == nil {
+            var ancestorID = focusedNodeID
+            while let missingID = ancestorID, snapshot.treeStore.node(id: missingID) == nil {
+                ancestorID = fileTreeStore?.parentID(of: missingID)
+            }
+            next.focusedNodeID = ancestorID ?? snapshot.root.id
         }
 
         next.clearMissingSelectionReferences()

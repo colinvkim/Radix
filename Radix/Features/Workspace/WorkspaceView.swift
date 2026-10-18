@@ -167,7 +167,7 @@ struct WorkspaceView: View {
                 .disabled(scanState.isForegroundScanOperationInProgress)
                 .help("Choose Folder")
 
-                if scanState.canStopScan, scanState.folderRescanState?.isBackground != true {
+                if scanState.canStopScan {
                     Button {
                         actions.stopScan()
                     } label: {
