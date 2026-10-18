@@ -7,6 +7,102 @@ import Testing
 @MainActor
 struct ScanCoordinatorTests {
     @Test
+    func backgroundRefreshPreservesCompletionNoticeAndPublishedProgress() async throws {
+        let service = ControlledScanService()
+        let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .zero)
+        defer { coordinator.stopScan() }
+        let target = makeCoordinatorTarget("/scan/presentation")
+        let folderTarget = makeCoordinatorTarget(target.id + "/Downloads")
+        coordinator.restoreCompletedSnapshot(makeCoordinatorHomeSnapshot(
+            target: target, downloadsTarget: folderTarget, rootName: "Home", scanOptions: ScanOptions()
+        ))
+        let replacement = makeCoordinatorSnapshot(target: folderTarget, scanOptions: ScanOptions())
+        try #require(coordinator.rescanFolder(id: folderTarget.id))
+        let manualTask = try #require(coordinator.scanTask)
+        service.yield(.finished(replacement), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        await manualTask.value
+        let notice = try #require(coordinator.scanCompletionNotice)
+        #expect(notice == .folderUpdated(name: "Downloads"))
+        let metrics = makeCoordinatorMetrics(path: "/previous/progress", filesVisited: 7)
+        coordinator.scanMetrics = metrics
+        coordinator.progress.executionMode = .incremental
+        var progressPublications = 0
+        let subscription = coordinator.progress.objectWillChange.sink { progressPublications += 1 }
+        defer { subscription.cancel() }
+
+        try #require(coordinator.refreshFolderInBackground(id: folderTarget.id))
+        #expect(coordinator.scanCompletionNotice == notice)
+        #expect(coordinator.scanMetrics.currentPath == metrics.currentPath)
+        #expect(coordinator.progress.executionMode == .incremental)
+        let task = try #require(coordinator.scanTask)
+        service.yield(.progress(makeCoordinatorMetrics(path: "/background/progress", filesVisited: 2)), scanIndex: 1)
+        service.yield(.finished(replacement), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        await task.value
+        #expect(coordinator.scanCompletionNotice == notice)
+        #expect(coordinator.scanMetrics.currentPath == metrics.currentPath)
+        #expect(coordinator.scanMetrics.filesVisited == metrics.filesVisited)
+        #expect(coordinator.scanMetrics.progressFraction == metrics.progressFraction)
+        #expect(coordinator.progress.executionMode == .incremental)
+        #expect(progressPublications == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func stopIsAvailableOnlyForManualFolderRescans(isBackground: Bool) throws {
+        let service = ControlledScanService()
+        let coordinator = ScanCoordinator(scanService: service)
+        defer { coordinator.stopScan() }
+        let target = makeCoordinatorTarget("/scan/stop")
+        let folder = makeCoordinatorTarget(target.id + "/Downloads")
+        coordinator.restoreCompletedSnapshot(makeCoordinatorHomeSnapshot(
+            target: target, downloadsTarget: folder, rootName: "Home", scanOptions: ScanOptions()
+        ))
+        try #require(isBackground
+            ? coordinator.refreshFolderInBackground(id: folder.id)
+            : coordinator.rescanFolder(id: folder.id))
+        #expect(coordinator.isScanOperationInProgress)
+        #expect(coordinator.canStopScan == !isBackground)
+    }
+
+    @Test
+    func manualAncestorRescanClearsFailuresForRetainedAndRemovedDescendants() async throws {
+        let service = ControlledScanService()
+        let coordinator = ScanCoordinator(scanService: service)
+        defer { coordinator.stopScan() }
+        let target = makeCoordinatorTarget("/scan/failures")
+        let projectsTarget = makeCoordinatorTarget(target.id + "/Projects")
+        let app = makeTestDirectoryNode(id: projectsTarget.id + "/app", name: "app", children: [])
+        let removed = makeTestDirectoryNode(id: projectsTarget.id + "/removed", name: "removed", children: [])
+        let sibling = makeTestDirectoryNode(id: projectsTarget.id + "-other", name: "Projects-other", children: [])
+        let projects = makeTestDirectoryNode(id: projectsTarget.id, name: "Projects", children: [app, removed])
+        let root = makeTestDirectoryNode(id: target.id, name: "Home", children: [projects, sibling])
+        coordinator.restoreCompletedSnapshot(makeCoordinatorSnapshot(
+            target: target, root: root,
+            store: FileTreeStore(root: root, childrenByID: [root.id: [projects, sibling], projects.id: [app, removed]]),
+            scanOptions: ScanOptions()
+        ))
+        for (index, folder) in [app, removed, sibling].enumerated() {
+            try #require(coordinator.refreshFolderInBackground(id: folder.id))
+            let task = try #require(coordinator.scanTask)
+            service.finish(scanIndex: index, throwing: CocoaError(.fileReadNoPermission))
+            await task.value
+        }
+        #expect(coordinator.backgroundRefreshManualRescanNodeIDs == [app.id, removed.id, sibling.id])
+        try #require(coordinator.rescanFolder(id: projects.id))
+        let task = try #require(coordinator.scanTask)
+        let updatedProjects = makeTestDirectoryNode(id: projects.id, name: projects.name, children: [app])
+        service.yield(.finished(makeCoordinatorSnapshot(
+            target: projectsTarget, root: updatedProjects,
+            store: FileTreeStore(root: updatedProjects, childrenByID: [projects.id: [app]])
+        )), scanIndex: 3)
+        service.finish(scanIndex: 3)
+        await task.value
+        #expect(coordinator.snapshot?.treeStore.node(id: removed.id) == nil)
+        #expect(coordinator.backgroundRefreshManualRescanNodeIDs == [sibling.id])
+    }
+
+    @Test
     func testExternalTransferRefreshKeepsContextAndRejectsStaleRequests() async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))

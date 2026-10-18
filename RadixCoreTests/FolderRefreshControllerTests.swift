@@ -5,6 +5,39 @@ import Testing
 
 @MainActor
 struct FolderRefreshControllerTests {
+    @Test(arguments: [false, true])
+    func fileChangesInParentOnlyRefreshTheParent(focusParent: Bool) async throws {
+        let harness = FolderRefreshHarness()
+        harness.controller.update(
+            snapshot: makeFolderRefreshSnapshot(), focusedNodeID: focusParent ? home : downloads, canRefresh: true
+        )
+        try await waitUntil { harness.watcher.requests.count == 1 }
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(home + "/notes.txt")])
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        harness.clock.advance(by: .seconds(30))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.requests == (focusParent ? [home] : []))
+    }
+
+    @Test
+    func continuousWritesRefreshWithinFiveSeconds() async throws {
+        let harness = FolderRefreshHarness()
+        harness.controller.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { harness.watcher.requests.count == 1 }
+        let firstEventAt = harness.clock.now
+        for _ in 0..<30 {
+            try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/growing.part")])
+            // Let each timer register, then cross its deadline in 100 ms steps.
+            try await harness.watcher.emitAndWaitUntilProcessed([])
+            for _ in 0..<9 {
+                harness.clock.advance(by: .milliseconds(100))
+                try await harness.watcher.emitAndWaitUntilProcessed([])
+            }
+        }
+        #expect(harness.requests.first == downloads)
+        #expect(harness.requestTimes.first.map { firstEventAt.duration(to: $0) <= .seconds(5) } == true)
+    }
+
     @Test
     func rejectedStartRetriesWhenScannerBecomesReadyWithoutAnotherEvent() async throws {
         let harness = FolderRefreshHarness()
@@ -445,6 +478,7 @@ private final class FolderRefreshHarness {
     let watcher = TestFileSystemChangeWatcher()
     let clock = ManualTestClock()
     var requests: [String] = []
+    var requestTimes: [ContinuousClock.Instant] = []
     var allowsRequests = true
     var sleepRequests = 0
     private let maximumPendingPaths: Int
@@ -457,8 +491,10 @@ private final class FolderRefreshHarness {
             try await clock.sleep(for: $0)
         },
         requestRefresh: { [weak self] nodeID in
-            self?.requests.append(nodeID)
-            return self?.allowsRequests == true
+            guard let self else { return false }
+            requests.append(nodeID)
+            requestTimes.append(clock.now)
+            return allowsRequests
         }
     )
 
