@@ -18,13 +18,8 @@ nonisolated protocol ScanEventStreaming: Sendable {
     nonisolated func scanSubtree(
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
-        options: ScanOptions
-    ) -> AsyncThrowingStream<ScanProgressEvent, Error>
-    nonisolated func scanSubtree(
-        target: ScanTarget,
-        preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error>
     nonisolated func rescan(
         target: ScanTarget,
@@ -40,15 +35,6 @@ nonisolated protocol ScanEventStreaming: Sendable {
 }
 
 extension ScanEventStreaming {
-    nonisolated func scanSubtree(
-        target: ScanTarget,
-        preservingBehaviorOf scanTarget: ScanTarget,
-        options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore
-    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
-        scanSubtree(target: target, preservingBehaviorOf: scanTarget, options: options)
-    }
-
     nonisolated func rescan(
         target: ScanTarget,
         options: ScanOptions,
@@ -56,14 +42,6 @@ extension ScanEventStreaming {
         relistingDirectoryPaths: [String]
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         rescan(target: target, options: options, from: baseline)
-    }
-
-    nonisolated func scanSubtree(
-        target: ScanTarget,
-        preservingBehaviorOf scanTarget: ScanTarget,
-        options: ScanOptions
-    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
-        scan(target: target, options: options)
     }
 }
 
@@ -88,9 +66,31 @@ nonisolated enum ScanCompletionNotice: Equatable, Sendable {
     }
 }
 
+nonisolated enum FolderRescanOrigin: Equatable, Sendable {
+    case manualFolder(nodeID: FileNodeRecord.ID)
+    case automaticFolder(nodeID: FileNodeRecord.ID)
+    case fileTransfer
+
+    var nodeID: FileNodeRecord.ID? {
+        switch self {
+        case .manualFolder(let nodeID), .automaticFolder(let nodeID): nodeID
+        case .fileTransfer: nil
+        }
+    }
+
+    var isBackground: Bool {
+        switch self {
+        case .automaticFolder: true
+        case .manualFolder, .fileTransfer: false
+        }
+    }
+}
+
 nonisolated struct FolderRescanState: Equatable, Sendable {
     let nodeName: String
-    var isBackground = false
+    let origin: FolderRescanOrigin
+
+    var isBackground: Bool { origin.isBackground }
 }
 
 nonisolated enum FolderRescanResult: Equatable, Sendable {
@@ -170,7 +170,6 @@ final class ScanCoordinator: ObservableObject {
     private var lastProgressPublishTime: ContinuousClock.Instant?
     private var snapshotContextID = UUID()
     private var snapshotRevision: UInt64 = 0
-    private var activeFolderRescanNodeID: FileNodeRecord.ID?
     var onScanFinished: ((ScanSnapshot) -> Void)?
     var onBecameIdle: (() -> Void)?
     var onFolderRescanStarted: ((FileNodeRecord.ID) -> Void)?
@@ -254,20 +253,17 @@ final class ScanCoordinator: ObservableObject {
     }
 
     func canRescanFolder(id nodeID: FileNodeRecord.ID) -> Bool {
-        canRefreshFolder(id: nodeID, allowsFolderRoot: false, isBackground: false)
+        canRefreshFolder(origin: .manualFolder(nodeID: nodeID))
     }
 
     func canRefreshFolderInBackground(id nodeID: FileNodeRecord.ID) -> Bool {
-        !backgroundRefreshManualRescanNodeIDs.contains(nodeID)
-            && canRefreshFolder(id: nodeID, allowsFolderRoot: true, isBackground: true)
+        canRefreshFolder(origin: .automaticFolder(nodeID: nodeID))
     }
 
-    private func canRefreshFolder(
-        id nodeID: FileNodeRecord.ID,
-        allowsFolderRoot: Bool,
-        isBackground: Bool
-    ) -> Bool {
-        guard !(isBackground ? isScanOperationInProgress : isForegroundScanOperationInProgress),
+    private func canRefreshFolder(origin: FolderRescanOrigin) -> Bool {
+        guard let nodeID = origin.nodeID,
+              !origin.isBackground || !backgroundRefreshManualRescanNodeIDs.contains(nodeID),
+              !(origin.isBackground ? isScanOperationInProgress : isForegroundScanOperationInProgress),
               expandingNodeID == nil,
               let snapshot,
               snapshot.isComplete,
@@ -280,7 +276,7 @@ final class ScanCoordinator: ObservableObject {
             && !node.isSymbolicLink
             && !node.isSynthetic
             && (!node.isPackage || options.treatPackagesAsDirectories)
-            && (nodeID != snapshot.root.id || (allowsFolderRoot && snapshot.target.kind == .folder))
+            && (nodeID != snapshot.root.id || (origin.isBackground && snapshot.target.kind == .folder))
     }
 
     func startScan(
@@ -318,27 +314,28 @@ final class ScanCoordinator: ObservableObject {
 
     @discardableResult
     func rescanFolder(id nodeID: FileNodeRecord.ID) -> Bool {
-        startFolderRescan(id: nodeID, isBackground: false)
+        startFolderRescan(origin: .manualFolder(nodeID: nodeID))
     }
 
     @discardableResult
     func refreshFolderInBackground(id nodeID: FileNodeRecord.ID) -> Bool {
-        startFolderRescan(id: nodeID, isBackground: true)
+        startFolderRescan(origin: .automaticFolder(nodeID: nodeID))
     }
 
-    private func startFolderRescan(id nodeID: FileNodeRecord.ID, isBackground: Bool) -> Bool {
-        guard (isBackground ? canRefreshFolderInBackground(id: nodeID) : canRescanFolder(id: nodeID)),
+    private func startFolderRescan(origin: FolderRescanOrigin) -> Bool {
+        guard canRefreshFolder(origin: origin),
+              let nodeID = origin.nodeID,
               let baseline = snapshot,
               let node = baseline.treeStore.node(id: nodeID),
               var options = baseline.scanOptions else {
             return false
         }
 
-        if !isBackground, folderRescanState?.isBackground == true {
+        if !origin.isBackground, folderRescanState?.isBackground == true {
             stopScan(resetState: false)
         }
         cancelExpansion(completeWith: .cancelled)
-        if !isBackground {
+        if !origin.isBackground {
             dismissScanCompletionNotice()
             scanErrorMessage = nil
             scanMetrics = ScanMetrics()
@@ -360,26 +357,16 @@ final class ScanCoordinator: ObservableObject {
         let baselineContextID = snapshotContextID
         let baselineRevision = snapshotRevision
         activeScanID = rescanID
-        activeFolderRescanNodeID = nodeID
-        folderRescanState = FolderRescanState(nodeName: node.name, isBackground: isBackground)
+        folderRescanState = FolderRescanState(nodeName: node.name, origin: origin)
         onFolderRescanStarted?(nodeID)
 
         let subtreeTarget = ScanTarget(url: node.url, kind: .folder)
-        let stream: AsyncThrowingStream<ScanProgressEvent, Error>
-        if isBackground {
-            stream = scanService.scanSubtree(
-                target: subtreeTarget,
-                preservingBehaviorOf: baseline.target,
-                options: options,
-                preservingMaterializedDirectoriesIn: baseline.treeStore
-            )
-        } else {
-            stream = scanService.scanSubtree(
-                target: subtreeTarget,
-                preservingBehaviorOf: baseline.target,
-                options: options
-            )
-        }
+        let stream = scanService.scanSubtree(
+            target: subtreeTarget,
+            preservingBehaviorOf: baseline.target,
+            options: options,
+            preservingMaterializedDirectoriesIn: baseline.treeStore
+        )
         scanTask = Task { [weak self] in
             await self?.consumeFolderRescanStream(
                 stream,
@@ -416,7 +403,7 @@ final class ScanCoordinator: ObservableObject {
         scanMetrics = ScanMetrics()
         resetProgressThrottling()
         progress.executionMode = .preparingIncremental
-        folderRescanState = FolderRescanState(nodeName: baseline.target.displayName)
+        folderRescanState = FolderRescanState(nodeName: baseline.target.displayName, origin: .fileTransfer)
         let operationID = UUID()
         let contextID = snapshotContextID
         let revision = snapshotRevision
@@ -492,8 +479,7 @@ final class ScanCoordinator: ObservableObject {
 
     func stopScan(resetState: Bool = true) {
         let isBackground = folderRescanState?.isBackground == true
-        let cancelledFolderNodeID = activeFolderRescanNodeID
-        activeFolderRescanNodeID = nil
+        let cancelledFolderNodeID = folderRescanState?.origin.nodeID
         activeScanID = nil
         scanTask?.cancel()
         scanTask = nil
@@ -874,7 +860,9 @@ final class ScanCoordinator: ObservableObject {
         }
 
         progress.executionMode = .fullFallback(.sharedAllocationTopologyChanged)
-        folderRescanState = FolderRescanState(nodeName: baseline.target.displayName)
+        folderRescanState = folderRescanState.map {
+            FolderRescanState(nodeName: baseline.target.displayName, origin: $0.origin)
+        }
         scanMetrics = ScanMetrics()
         resetProgressThrottling()
         do {
@@ -1074,8 +1062,7 @@ final class ScanCoordinator: ObservableObject {
     private func finishScan(with snapshot: ScanSnapshot, scanID: UUID) {
         guard activeScanID == scanID else { return }
 
-        let folderNodeID = activeFolderRescanNodeID
-        activeFolderRescanNodeID = nil
+        let folderNodeID = folderRescanState?.origin.nodeID
         flushPendingProgress(operationID: scanID)
         apply(snapshot: snapshot)
         completedScanSnapshot = snapshot
@@ -1187,9 +1174,8 @@ final class ScanCoordinator: ObservableObject {
         showsCompletionNotice: Bool = true
     ) {
         guard activeScanID == rescanID else { return }
-        let folderNodeID = activeFolderRescanNodeID
+        let folderNodeID = folderRescanState?.origin.nodeID
         let isBackground = folderRescanState?.isBackground == true
-        activeFolderRescanNodeID = nil
 
         if !isBackground {
             flushPendingProgress(operationID: rescanID)
@@ -1229,8 +1215,7 @@ final class ScanCoordinator: ObservableObject {
         result: FolderRescanResult = .cancelled
     ) {
         guard activeScanID == rescanID else { return }
-        let folderNodeID = activeFolderRescanNodeID
-        activeFolderRescanNodeID = nil
+        let folderNodeID = folderRescanState?.origin.nodeID
 
         resetProgressThrottling()
         activeScanID = nil
@@ -1248,7 +1233,7 @@ final class ScanCoordinator: ObservableObject {
         rescanID: UUID
     ) {
         guard activeScanID == rescanID else { return }
-        if folderRescanState?.isBackground == true, let nodeID = activeFolderRescanNodeID {
+        if case .automaticFolder(let nodeID) = folderRescanState?.origin {
             backgroundRefreshManualRescanNodeIDs.insert(nodeID)
             completeFolderRescanWithoutReplacement(id: rescanID, result: .failed)
             return

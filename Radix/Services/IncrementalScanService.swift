@@ -57,20 +57,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
     nonisolated func scanSubtree(
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
-        options: ScanOptions
-    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
-        engine.scan(
-            target: target,
-            options: options,
-            preservingBehaviorOf: scanTarget
-        )
-    }
-
-    nonisolated func scanSubtree(
-        target: ScanTarget,
-        preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         engine.scan(
             target: target,

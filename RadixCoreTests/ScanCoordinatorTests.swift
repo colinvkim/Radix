@@ -120,6 +120,7 @@ struct ScanCoordinatorTests {
         #expect(model.scanState.refreshAfterFileTransfer(snapshotID: baseline.id))
         #expect(model.scanState.snapshot?.id == baseline.id)
         #expect(model.scanState.phase == .displaying)
+        #expect(model.scanState.folderRescanState?.origin == .fileTransfer)
         #expect(!model.scanState.refreshAfterFileTransfer(snapshotID: baseline.id))
         #expect(service.rescanRequests.first?.baselineID == baseline.id)
         let incoming = makeTestFileNode(id: folder.id + "/incoming.txt", name: "incoming.txt")
@@ -498,13 +499,16 @@ struct ScanCoordinatorTests {
         #expect(!(coordinator.rescanFolder(id: folderTarget.id)))
         #expect(coordinator.snapshot?.id == baseline.id)
         #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
-        #expect(coordinator.folderRescanState == FolderRescanState(nodeName: "Downloads"))
+        #expect(coordinator.folderRescanState == FolderRescanState(
+            nodeName: "Downloads", origin: .manualFolder(nodeID: folderTarget.id)
+        ))
         #expect(coordinator.isScanOperationInProgress)
         #expect(
             service.requests.map(\.target) == [
                 ScanTarget(url: folderTarget.url, kind: .folder)
             ])
         #expect(service.subtreeBehaviorTargets == [rootTarget])
+        #expect(service.subtreeMaterializedTreeContentIDs == [baseline.treeStore.contentID])
         #expect(service.requests.first?.options.includeHiddenFiles == true)
         #expect(service.requests.first?.options.exclusionRootPath == rootTarget.id)
 
@@ -660,7 +664,9 @@ struct ScanCoordinatorTests {
         let fallbackRequest = try #require(service.requests.dropFirst().first)
         #expect(fallbackRequest.target == rootTarget)
         #expect(fallbackRequest.options == options)
-        #expect(coordinator.folderRescanState == FolderRescanState(nodeName: rootTarget.displayName))
+        #expect(coordinator.folderRescanState == FolderRescanState(
+            nodeName: rootTarget.displayName, origin: .manualFolder(nodeID: folderTarget.id)
+        ))
 
         let fullSnapshot = makeCoordinatorSnapshot(
             target: rootTarget,
@@ -917,6 +923,7 @@ struct ScanCoordinatorTests {
 
         #expect(coordinator.refreshFolderInBackground(id: target.id))
         #expect(coordinator.folderRescanState?.isBackground == true)
+        #expect(coordinator.folderRescanState?.origin == .automaticFolder(nodeID: target.id))
         #expect(coordinator.phase == .displaying)
         #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
         let file = makeTestFileNode(id: target.id + "/new.dat", name: "new.dat", size: 90)
@@ -2888,6 +2895,15 @@ private final class RescanRecordingService: ScanEventStreaming, @unchecked Senda
         return finishedStream()
     }
 
+    func scanSubtree(
+        target: ScanTarget,
+        preservingBehaviorOf scanTarget: ScanTarget,
+        options: ScanOptions,
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        scan(target: target, options: options)
+    }
+
     func rescan(
         target: ScanTarget,
         options: ScanOptions,
@@ -3110,6 +3126,7 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
     private var storedRequests: [ControlledScanRequest] = []
     private var storedRescanRequests: [ControlledRescanRequest] = []
     private var storedSubtreeBehaviorTargets: [ScanTarget] = []
+    private var storedSubtreeMaterializedTreeContentIDs: [UUID?] = []
     private var storedTerminationCount = 0
 
     var requests: [ControlledScanRequest] {
@@ -3134,6 +3151,12 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
         lock.lock()
         defer { lock.unlock() }
         return storedSubtreeBehaviorTargets
+    }
+
+    var subtreeMaterializedTreeContentIDs: [UUID?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSubtreeMaterializedTreeContentIDs
     }
 
     func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
@@ -3172,10 +3195,12 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
     func scanSubtree(
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
-        options: ScanOptions
+        options: ScanOptions,
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         lock.lock()
         storedSubtreeBehaviorTargets.append(scanTarget)
+        storedSubtreeMaterializedTreeContentIDs.append(treeStore?.contentID)
         lock.unlock()
         return scan(target: target, options: options)
     }
