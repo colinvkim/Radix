@@ -3163,9 +3163,9 @@ nonisolated final class ScanEngine: Sendable {
         emissionState: inout ScanEmissionState,
         summaryPool: AtomicDirectorySummaryPool? = nil
     ) {
-        let visitedItems = metrics.filesVisited + metrics.directoriesVisited
-        let isFixedEmissionPoint = visitedItems <= 2 || visitedItems.isMultiple(of: 1_000)
-        guard isFixedEmissionPoint || visitedItems.isMultiple(of: 64) else { return }
+        let processedItems = metrics.completedItems + metrics.enumeratedDirectoryCount
+        let isFixedEmissionPoint = processedItems <= 2 || processedItems.isMultiple(of: 1_000)
+        guard isFixedEmissionPoint || processedItems.isMultiple(of: 64) else { return }
 
         let now = Date()
         let elapsed = now.timeIntervalSince(emissionState.lastProgressEmission)
