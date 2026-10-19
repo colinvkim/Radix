@@ -1,4 +1,5 @@
 import CoreServices
+import Darwin
 import Foundation
 import Testing
 
@@ -79,6 +80,118 @@ struct IncrementalScanServiceTests {
         )
     }
 
+    @Test(arguments: ["/tmp/example", "/private/tmp/example", "/System/Volumes/Data/private/tmp/example", "/alias"])
+    func testHistoryPathsProjectIntoCapturedScanNamespace(scanPath: String) {
+        let volume = DarwinFileSystemEventHistoryProvider.VolumeContext(
+            deviceID: 1,
+            uuid: "volume",
+            rootPath: "/System/Volumes/Data",
+            relativeTargetPath: "private/tmp/example",
+            scanTargetPath: scanPath
+        )
+
+        #expect(volume.scanPath(for: "private/tmp/example") == scanPath)
+        #expect(volume.scanPath(for: "private/tmp/example/removed/é.dat") == scanPath + "/removed/é.dat")
+        #expect(volume.scanPath(for: "private/tmp/example-other/file") == "/System/Volumes/Data/private/tmp/example-other/file")
+        #expect(volume.scanPath(for: "private/tmp") == "/System/Volumes/Data/private/tmp")
+        #expect(volume.scanPath(for: "") == "/System/Volumes/Data")
+    }
+
+    @Test
+    func testHistoryVolumeRootProjectionPreservesScanRoot() {
+        let volume = DarwinFileSystemEventHistoryProvider.VolumeContext(
+            deviceID: 1,
+            uuid: "volume",
+            rootPath: "/System/Volumes/Data/Volumes/Recovery",
+            relativeTargetPath: "",
+            scanTargetPath: "/Volumes/Recovery"
+        )
+        #expect(volume.scanPath(for: "") == "/Volumes/Recovery")
+        #expect(volume.scanPath(for: "folder/deleted") == "/Volumes/Recovery/folder/deleted")
+        let root = DarwinFileSystemEventHistoryProvider.VolumeContext(
+            deviceID: 1,
+            uuid: "volume",
+            rootPath: "/",
+            relativeTargetPath: "",
+            scanTargetPath: "/"
+        )
+        #expect(root.scanPath(for: "") == "/")
+        #expect(root.scanPath(for: "folder/file") == "/folder/file")
+    }
+
+    @Test
+    func testHistoryCollectorPreservesUncertaintyAndUnmatchedPaths() async throws {
+        let collector = FSEventHistoryCollector(
+            since: checkpoint(10),
+            through: checkpoint(20),
+            volume: DarwinFileSystemEventHistoryProvider.VolumeContext(
+                deviceID: 1,
+                uuid: "test-volume",
+                rootPath: "/System/Volumes/Data",
+                relativeTargetPath: "private/tmp/example",
+                scanTargetPath: "/tmp/example"
+            )
+        )
+        let rawEvents: [(String, Int, UInt64)] = [
+            ("private/tmp/example/before", kFSEventStreamEventFlagItemModified, 10),
+            ("private/tmp/example/removed", kFSEventStreamEventFlagItemRenamed, 11),
+            ("private/tmp/example/later", kFSEventStreamEventFlagItemCreated, 21),
+            ("private/tmp/example", kFSEventStreamEventFlagRootChanged, 0),
+            ("private/tmp", kFSEventStreamEventFlagUserDropped, 12),
+            ("private/tmp/example-other/file", kFSEventStreamEventFlagItemModified, 13),
+            ("", kFSEventStreamEventFlagHistoryDone, 20),
+        ]
+        let ownedPaths = try rawEvents.map { try #require(strdup($0.0)) }
+        defer { ownedPaths.forEach { free($0) } }
+        let paths = ownedPaths.map { UnsafePointer($0) }
+        let flags = rawEvents.map { UInt32($0.1) }
+        let ids = rawEvents.map(\.2)
+        paths.withUnsafeBufferPointer { paths in
+            flags.withUnsafeBufferPointer { flags in
+                ids.withUnsafeBufferPointer { ids in
+                    collector.receive(
+                        eventCount: rawEvents.count,
+                        relativePaths: paths.baseAddress!,
+                        rawFlags: flags.baseAddress!,
+                        eventIDs: ids.baseAddress!
+                    )
+                }
+            }
+        }
+        let history = try await collector.value()
+
+        #expect(history.events == [
+            FileSystemEventRecord(path: "/tmp/example/removed", eventID: 11, flags: .itemRenamed),
+            FileSystemEventRecord(path: "/tmp/example", eventID: 0, flags: .rootChanged),
+            FileSystemEventRecord(path: "/System/Volumes/Data/private/tmp", eventID: 12, flags: .userDropped),
+            FileSystemEventRecord(path: "/System/Volumes/Data/private/tmp/example-other/file", eventID: 13, flags: .itemModified),
+        ])
+        let target = ScanTarget(url: URL(filePath: "/tmp/example", directoryHint: .isDirectory))
+        let tree = FileTreeStore(root: FileNodeRecord(
+            id: target.id,
+            url: target.url,
+            name: "example",
+            isDirectory: true,
+            isSymbolicLink: false,
+            allocatedSize: 0,
+            logicalSize: 0,
+            descendantFileCount: 0,
+            lastModified: nil,
+            isPackage: false,
+            isAccessible: true,
+            isSelfAccessible: true,
+            isSynthetic: false,
+            isAutoSummarized: false
+        ))
+        for (event, reason) in zip(history.events.suffix(3), [
+            IncrementalRescanFallbackReason.watchedRootChanged, .userDroppedEvents, .eventOutsideTarget,
+        ]) {
+            let isolatedHistory = FileSystemEventHistory(since: history.since, through: history.through, events: [event])
+            let plan = IncrementalRescanPlanner().plan(history: isolatedHistory, target: target, treeStore: tree)
+            #expect(plan == .fullScan(reason: reason))
+        }
+    }
+
     @Test(arguments: ["/tmp", "/private/tmp", "/System/Volumes/Data/private/tmp", "symlink"])
     func testDarwinHistoryProviderPreservesRenameEndpointsInTemporaryAlias(parentPath: String) async throws {
         let fixture = URL(filePath: "/tmp/radix-history-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -109,6 +222,41 @@ struct IncrementalScanServiceTests {
 
         #expect(history.events.contains { $0.path == source.path && $0.flags.contains(.itemRenamed) })
         #expect(history.events.contains { $0.path == destination.path && $0.flags.contains(.itemRenamed) })
+    }
+
+    @Test
+    func testTemporaryAliasRescanReflectsFileGrowth() async throws {
+        let rootURL = URL(filePath: "/tmp/radix-rescan-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let changedURL = rootURL.appending(path: "Changed", directoryHint: .isDirectory)
+        let unchangedURL = rootURL.appending(path: "Untouched", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: changedURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unchangedURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let payloadURL = changedURL.appending(path: "payload.bin")
+        try Data(repeating: 1, count: 8_192).write(to: payloadURL)
+        try Data(repeating: 2, count: 4_096).write(to: unchangedURL.appending(path: "kept.bin"))
+        try await Task.sleep(for: .seconds(1))
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let provider = DarwinFileSystemEventHistoryProvider()
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let baseline = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        #expect(baseline.aggregateStats.totalLogicalSize == 12_288)
+        let since = try #require(baseline.incrementalCheckpoint)
+        try Data(repeating: 3, count: 16_384).write(to: payloadURL)
+        _ = try await incrementalHistoryContaining(
+            [payloadURL.path],
+            provider: provider,
+            rootURL: target.url,
+            since: since
+        )
+        let result = try await incrementalScanResult(from: service.rescan(target: target, options: options, from: baseline))
+        let fresh = try await finishedIncrementalSnapshot(from: ScanEngine().scan(target: target, options: options))
+
+        #expect(!result.executionModes.contains(.incrementalNoChanges))
+        #expect(result.snapshot.aggregateStats.totalLogicalSize == 20_480)
+        #expect(result.snapshot.treeStore.node(id: payloadURL.path)?.logicalSize == 16_384)
+        try assertEquivalent(result.snapshot, fresh)
     }
 
     @Test

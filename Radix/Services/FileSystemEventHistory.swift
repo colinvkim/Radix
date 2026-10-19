@@ -60,7 +60,7 @@ nonisolated struct DarwinFileSystemEventHistoryProvider: FileSystemEventHistoryP
         let collector = FSEventHistoryCollector(
             since: since,
             through: through,
-            volumeRootURL: volume.rootURL
+            volume: volume
         )
         var context = FSEventStreamContext(
             version: 0,
@@ -106,67 +106,99 @@ nonisolated struct DarwinFileSystemEventHistoryProvider: FileSystemEventHistoryP
         }
     }
 
-    struct VolumeContext {
+    struct VolumeContext: Sendable {
         let deviceID: dev_t
         let uuid: String
-        let rootURL: URL
+        let rootPath: String
         let relativeTargetPath: String
+        let scanTargetPath: String
+
+        func scanPath(for relativePath: String) -> String {
+            let suffix: String
+            if relativePath == relativeTargetPath {
+                return scanTargetPath
+            } else if relativeTargetPath.isEmpty {
+                suffix = relativePath
+            } else if relativePath.hasPrefix(relativeTargetPath + "/") {
+                suffix = String(relativePath.dropFirst(relativeTargetPath.count + 1))
+            } else {
+                if relativePath.isEmpty { return rootPath }
+                return rootPath == "/" ? "/" + relativePath : rootPath + "/" + relativePath
+            }
+            return scanTargetPath == "/" ? "/" + suffix : scanTargetPath + "/" + suffix
+        }
     }
 
     static func volumeContext(for targetURL: URL) throws -> VolumeContext {
-        let targetURL = targetURL.standardizedFileURL
-        var targetStat = stat()
-        let statResult = targetURL.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return Int32(-1) }
-            return stat(path, &targetStat)
+        let targetPath = targetURL.path
+        let descriptor = targetURL.withUnsafeFileSystemRepresentation { path in
+            path.map { open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC) } ?? -1
         }
-        guard statResult == 0 else {
-            throw FileSystemEventHistoryError.targetUnavailable(targetURL.path)
+        guard descriptor >= 0 else {
+            if errno == ENOTDIR {
+                throw FileSystemEventHistoryError.targetIsNotDirectory(targetPath)
+            }
+            throw FileSystemEventHistoryError.targetUnavailable(targetPath)
         }
-        guard targetStat.st_mode & S_IFMT == S_IFDIR else {
-            throw FileSystemEventHistoryError.targetIsNotDirectory(targetURL.path)
-        }
+        defer { close(descriptor) }
 
+        var targetStat = stat()
         var fileSystemStats = statfs()
-        let statFSResult = targetURL.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return Int32(-1) }
-            return statfs(path, &fileSystemStats)
-        }
-        guard statFSResult == 0 else {
-            throw FileSystemEventHistoryError.targetUnavailable(targetURL.path)
+        guard fstat(descriptor, &targetStat) == 0,
+              fstatfs(descriptor, &fileSystemStats) == 0 else {
+            throw FileSystemEventHistoryError.targetUnavailable(targetPath)
         }
         guard fileSystemStats.f_flags & UInt32(MNT_LOCAL) != 0 else {
-            throw FileSystemEventHistoryError.nonLocalVolume(targetURL.path)
+            throw FileSystemEventHistoryError.nonLocalVolume(targetPath)
+        }
+
+        let physicalTargetPath = try physicalPath(for: descriptor, targetPath: targetPath)
+        let mountPath = withUnsafeBytes(of: fileSystemStats.f_mntonname) { bytes in
+            String(cString: bytes.bindMemory(to: CChar.self).baseAddress!)
+        }
+        let mountDescriptor = mountPath.withCString {
+            open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        }
+        guard mountDescriptor >= 0 else {
+            throw FileSystemEventHistoryError.targetUnavailable(targetPath)
+        }
+        defer { close(mountDescriptor) }
+        var mountStat = stat()
+        guard fstat(mountDescriptor, &mountStat) == 0,
+              mountStat.st_dev == targetStat.st_dev else {
+            throw FileSystemEventHistoryError.targetUnavailable(targetPath)
+        }
+        let rootPath = try physicalPath(for: mountDescriptor, targetPath: targetPath)
+        let relativeTargetPath: String
+        if physicalTargetPath == rootPath {
+            relativeTargetPath = ""
+        } else {
+            let prefix = rootPath == "/" ? "/" : rootPath + "/"
+            guard physicalTargetPath.hasPrefix(prefix) else {
+                throw FileSystemEventHistoryError.targetUnavailable(targetPath)
+            }
+            relativeTargetPath = String(physicalTargetPath.dropFirst(prefix.count))
         }
 
         guard let volumeUUID = FSEventsCopyUUIDForDevice(targetStat.st_dev),
               let volumeUUIDString = CFUUIDCreateString(nil, volumeUUID) as String? else {
-            throw FileSystemEventHistoryError.volumeUUIDUnavailable(targetURL.path)
+            throw FileSystemEventHistoryError.volumeUUIDUnavailable(targetPath)
         }
-        let resourceValues = try targetURL.resourceValues(forKeys: [.volumeURLKey])
-        guard let rootURL = resourceValues.volume?.standardizedFileURL else {
-            throw FileSystemEventHistoryError.volumeUUIDUnavailable(targetURL.path)
-        }
-
-        let rootPath = rootURL.path
-        let targetPath = targetURL.path
-        let relativeTargetPath: String
-        if targetPath == rootPath {
-            relativeTargetPath = ""
-        } else {
-            let prefix = rootPath == "/" ? "/" : rootPath + "/"
-            guard targetPath.hasPrefix(prefix) else {
-                throw FileSystemEventHistoryError.volumeUUIDUnavailable(targetURL.path)
-            }
-            relativeTargetPath = String(targetPath.dropFirst(prefix.count))
-        }
-
         return VolumeContext(
             deviceID: targetStat.st_dev,
             uuid: volumeUUIDString,
-            rootURL: rootURL,
-            relativeTargetPath: relativeTargetPath
+            rootPath: rootPath,
+            relativeTargetPath: relativeTargetPath,
+            scanTargetPath: targetPath
         )
+    }
+
+    private static func physicalPath(for descriptor: Int32, targetPath: String) throws -> String {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(descriptor, F_GETPATH_NOFIRMLINK, &buffer) == 0 else {
+            throw FileSystemEventHistoryError.targetUnavailable(targetPath)
+        }
+        return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
     }
 }
 
@@ -185,11 +217,11 @@ private nonisolated let radixFSEventHistoryCallback: FSEventStreamCallback = {
     )
 }
 
-private nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
+nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
     private let lock = NSLock()
     private let since: ScanIncrementalCheckpoint
     private let through: ScanIncrementalCheckpoint
-    private let volumeRootURL: URL
+    private let volume: DarwinFileSystemEventHistoryProvider.VolumeContext
     private var events: [FileSystemEventRecord] = []
     private var continuation: CheckedContinuation<FileSystemEventHistory, Error>?
     private var completion: Result<FileSystemEventHistory, Error>?
@@ -197,11 +229,11 @@ private nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
     init(
         since: ScanIncrementalCheckpoint,
         through: ScanIncrementalCheckpoint,
-        volumeRootURL: URL
+        volume: DarwinFileSystemEventHistoryProvider.VolumeContext
     ) {
         self.since = since
         self.through = through
-        self.volumeRootURL = volumeRootURL
+        self.volume = volume
     }
 
     func value() async throws -> FileSystemEventHistory {
@@ -247,11 +279,8 @@ private nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
             }
 
             let relativePath = String(cString: relativePaths[index])
-            let absoluteURL = relativePath.isEmpty
-                ? volumeRootURL
-                : volumeRootURL.appending(path: relativePath)
             received.append(FileSystemEventRecord(
-                path: absoluteURL.path,
+                path: volume.scanPath(for: relativePath),
                 eventID: eventID,
                 flags: mappedFlags
             ))
