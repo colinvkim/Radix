@@ -401,6 +401,288 @@ struct IncrementalScanServiceTests {
         #expect(incremental.incrementalCheckpoint?.eventID == 20)
     }
 
+    @Test(arguments: [false, true])
+    func testIncompleteChildMetadataRecoversLocally(localizedFailure: Bool) async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let changedURL = rootURL.appending(path: "Changed", directoryHint: .isDirectory)
+        let otherChangedURL = rootURL.appending(path: "OtherChanged", directoryHint: .isDirectory)
+        let untouchedURL = rootURL.appending(path: "Untouched", directoryHint: .isDirectory)
+        for url in [changedURL, otherChangedURL, untouchedURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            try Data([0x1]).write(to: url.appending(path: "payload.dat"))
+        }
+        let leafURL = changedURL.appending(path: "payload.dat")
+        let otherLeafURL = otherChangedURL.appending(path: "payload.dat")
+        let removedURL = changedURL.appending(path: "removed.dat")
+        try Data([0x2]).write(to: removedURL)
+        let target = ScanTarget(url: rootURL)
+        let excludedURL = changedURL.appending(path: "excluded.dat")
+        try Data([0x5]).write(to: excludedURL)
+        let options = ScanOptions(exclusionPatterns: ["Changed/excluded.dat"])
+        let baseline = try await finishedIncrementalSnapshot(
+            from: IncrementalScanService(
+                engine: ScanEngine(enumeratedDirectoryContents: ScanEngine.defaultDirectoryContents),
+                eventHistoryProvider: IncrementalHistoryStub(checkpoints: [checkpoint(10)], events: [])
+            ).scan(target: target, options: options)
+        )
+        try Data(repeating: 0x3, count: 8_192).write(to: leafURL)
+        try Data(repeating: 0x4, count: 4_096).write(to: otherLeafURL)
+        try FileManager.default.removeItem(at: removedURL)
+        let visits = IncrementalDirectoryVisits()
+        let engine = ScanEngine(enumeratedDirectoryContents: { url, keys, options, checkCancellation in
+            try checkCancellation()
+            let visit = visits.record(url)
+            if url == changedURL, visit == 1 {
+                if localizedFailure {
+                    return ScanEngine.DirectoryEnumerationResult(
+                        urls: [leafURL],
+                        localizedFailures: [
+                            ScanEngine.DirectoryEnumerationFailure(
+                                url: removedURL,
+                                error: NSError(domain: NSPOSIXErrorDomain, code: Int(EIO)),
+                                isDirectoryHint: false
+                            )
+                        ]
+                    )
+                }
+                return ScanEngine.DirectoryEnumerationResult(urls: [leafURL, removedURL])
+            }
+            return try ScanEngine.defaultDirectoryContents(
+                url: url,
+                keys: keys,
+                options: options,
+                cancellationCheck: checkCancellation
+            )
+        })
+        let service = IncrementalScanService(
+            engine: engine,
+            eventHistoryProvider: IncrementalHistoryStub(
+                checkpoints: [checkpoint(20), checkpoint(30)],
+                events: [leafURL, otherLeafURL].enumerated().map { index, url in
+                    FileSystemEventRecord(
+                        path: url.path,
+                        eventID: UInt64(15 + index),
+                        flags: [.itemModified, .itemIsFile]
+                    )
+                }
+            )
+        )
+
+        let result = try await incrementalScanResult(
+            from: service.rescan(target: target, options: options, from: baseline)
+        )
+        let full = try await finishedIncrementalSnapshot(
+            from: ScanEngine(enumeratedDirectoryContents: ScanEngine.defaultDirectoryContents)
+                .scan(target: target, options: options)
+        )
+
+        #expect(result.executionModes == [.incremental])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
+        #expect(result.snapshot.treeStore.node(id: leafURL.path)?.logicalSize == 8_192)
+        #expect(result.snapshot.treeStore.node(id: otherLeafURL.path)?.logicalSize == 4_096)
+        #expect(result.snapshot.treeStore.node(id: removedURL.path) == nil)
+        #expect(result.snapshot.treeStore.node(id: excludedURL.path) == nil)
+        #expect(visits.count(for: changedURL) == 2)
+        #expect(visits.count(for: untouchedURL) == 0)
+        #expect(visits.count(for: rootURL) == 0)
+        try assertEquivalent(result.snapshot, full)
+    }
+
+    @Test
+    func testIncompleteBulkListingRecoversLocallyWithPartialCoverage() async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let changedURL = rootURL.appending(path: "Changed", directoryHint: .isDirectory)
+        let untouchedURL = rootURL.appending(path: "Untouched", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: changedURL, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: untouchedURL, withIntermediateDirectories: false)
+        let leafURLs = (0..<3).map { changedURL.appending(path: "payload-\($0).dat") }
+        for url in leafURLs {
+            try Data([0x1]).write(to: url)
+        }
+        let untouchedLeafURL = untouchedURL.appending(path: "payload.dat")
+        try Data([0x2]).write(to: untouchedLeafURL)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: IncrementalScanService(
+                eventHistoryProvider: IncrementalHistoryStub(checkpoints: [checkpoint(10)], events: [])
+            ).scan(target: target, options: options)
+        )
+        try Data(repeating: 0x3, count: 8_192).write(to: leafURLs[0])
+        try Data(repeating: 0x4, count: 4_096).write(to: untouchedLeafURL)
+        let service = IncrementalScanService(
+            engine: ScanEngine(forcedBulkFailure: .init(batchCount: 1, errorCode: EIO)),
+            eventHistoryProvider: IncrementalHistoryStub(
+                checkpoints: [checkpoint(20), checkpoint(30)],
+                events: [
+                    FileSystemEventRecord(
+                        path: leafURLs[0].path,
+                        eventID: 15,
+                        flags: [.itemModified, .itemIsFile]
+                    )
+                ]
+            )
+        )
+
+        let result = try await incrementalScanResult(
+            from: service.rescan(target: target, options: options, from: baseline)
+        )
+        let changed = try #require(result.snapshot.treeStore.node(id: changedURL.path))
+
+        #expect(result.executionModes == [.incremental])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
+        #expect(changed.descendantFileCount == 3)
+        #expect(!changed.isSelfAccessible)
+        #expect(result.snapshot.treeStore.node(id: leafURLs[0].path)?.logicalSize == 8_192)
+        for url in leafURLs {
+            #expect(result.snapshot.treeStore.node(id: url.path) != nil)
+        }
+        #expect(Set(result.snapshot.scanWarnings.map(\.path)) == [changedURL.path])
+        #expect(
+            result.snapshot.treeStore.node(id: untouchedLeafURL.path)
+                == baseline.treeStore.node(id: untouchedLeafURL.path)
+        )
+    }
+
+    @Test(arguments: [1, 2])
+    func testCancellationDuringIncompleteRelistDoesNotFallBack(cancelOnVisit: Int) async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let changedURL = rootURL.appending(path: "Changed", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: changedURL, withIntermediateDirectories: false)
+        let leafURL = changedURL.appending(path: "payload.dat")
+        try Data([0x1]).write(to: leafURL)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: IncrementalScanService(
+                eventHistoryProvider: IncrementalHistoryStub(checkpoints: [checkpoint(10)], events: [])
+            ).scan(target: target, options: options)
+        )
+        let visits = IncrementalDirectoryVisits()
+        let engine = ScanEngine(enumeratedDirectoryContents: { url, keys, options, checkCancellation in
+            try checkCancellation()
+            if url == changedURL {
+                let visit = visits.record(url)
+                if visit == cancelOnVisit { throw CancellationError() }
+                if visit == 1 {
+                    return ScanEngine.DirectoryEnumerationResult(
+                        urls: [],
+                        localizedFailures: [
+                            ScanEngine.DirectoryEnumerationFailure(
+                                url: leafURL,
+                                error: NSError(domain: NSPOSIXErrorDomain, code: Int(EIO)),
+                                isDirectoryHint: false
+                            )
+                        ]
+                    )
+                }
+            }
+            return try ScanEngine.defaultDirectoryContents(
+                url: url,
+                keys: keys,
+                options: options,
+                cancellationCheck: checkCancellation
+            )
+        })
+        let service = IncrementalScanService(
+            engine: engine,
+            eventHistoryProvider: IncrementalHistoryStub(
+                checkpoints: [checkpoint(20), checkpoint(30)],
+                events: [
+                    FileSystemEventRecord(
+                        path: leafURL.path,
+                        eventID: 15,
+                        flags: [.itemModified, .itemIsFile]
+                    )
+                ]
+            )
+        )
+        var executionModes: [ScanExecutionMode] = []
+        var finishedCount = 0
+
+        for try await event in service.rescan(target: target, options: options, from: baseline) {
+            if case .executionMode(let mode) = event { executionModes.append(mode) }
+            if case .finished = event { finishedCount += 1 }
+        }
+
+        #expect(executionModes == [.incremental])
+        #expect(finishedCount == 0)
+        #expect(visits.count(for: changedURL) == cancelOnVisit)
+    }
+
+    @Test
+    func testIncompleteRelistRejectsChangedRecoveryRoot() async throws {
+        let rootURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let changedURL = rootURL.appending(path: "Changed", directoryHint: .isDirectory)
+        let retiredURL = rootURL.appending(path: "Retired", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: changedURL, withIntermediateDirectories: false)
+        let oldLeafURL = changedURL.appending(path: "old.dat")
+        let newLeafURL = changedURL.appending(path: "new.dat")
+        try Data([0x1]).write(to: oldLeafURL)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(
+            from: IncrementalScanService(
+                eventHistoryProvider: IncrementalHistoryStub(checkpoints: [checkpoint(10)], events: [])
+            ).scan(target: target, options: options)
+        )
+        let visits = IncrementalDirectoryVisits()
+        let engine = ScanEngine(enumeratedDirectoryContents: { url, keys, options, checkCancellation in
+            try checkCancellation()
+            if url == changedURL, visits.record(url) == 1 {
+                try FileManager.default.moveItem(at: changedURL, to: retiredURL)
+                try FileManager.default.createDirectory(at: changedURL, withIntermediateDirectories: false)
+                try Data([0x2]).write(to: newLeafURL)
+                return ScanEngine.DirectoryEnumerationResult(
+                    urls: [],
+                    localizedFailures: [
+                        ScanEngine.DirectoryEnumerationFailure(
+                            url: oldLeafURL,
+                            error: NSError(domain: NSPOSIXErrorDomain, code: Int(EIO)),
+                            isDirectoryHint: false
+                        )
+                    ]
+                )
+            }
+            return try ScanEngine.defaultDirectoryContents(
+                url: url,
+                keys: keys,
+                options: options,
+                cancellationCheck: checkCancellation
+            )
+        })
+        let service = IncrementalScanService(
+            engine: engine,
+            eventHistoryProvider: IncrementalHistoryStub(
+                checkpoints: [checkpoint(20), checkpoint(30)],
+                events: [
+                    FileSystemEventRecord(
+                        path: oldLeafURL.path,
+                        eventID: 15,
+                        flags: [.itemModified, .itemIsFile]
+                    )
+                ]
+            )
+        )
+
+        let result = try await incrementalScanResult(
+            from: service.rescan(target: target, options: options, from: baseline)
+        )
+
+        #expect(result.executionModes == [.incremental, .fullFallback(.directoryRelistFailed)])
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 30)
+        #expect(result.snapshot.treeStore.node(id: oldLeafURL.path) == nil)
+        #expect(result.snapshot.treeStore.node(id: newLeafURL.path)?.logicalSize == 1)
+        #expect(
+            result.snapshot.treeStore.node(id: changedURL.path)?.fileIdentity
+                != baseline.treeStore.node(id: changedURL.path)?.fileIdentity
+        )
+    }
+
     @Test
     func testShallowRelistPreservesAutoSummaryThresholdSemantics() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
@@ -849,6 +1131,22 @@ struct IncrementalScanServiceTests {
             incremental.scanWarnings.map { "\($0.category.rawValue)|\($0.path)|\($0.message)" }.sorted()
                 == full.scanWarnings.map { "\($0.category.rawValue)|\($0.path)|\($0.message)" }.sorted(),
             sourceLocation: sourceLocation)
+    }
+}
+
+private final class IncrementalDirectoryVisits: @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [String: Int] = [:]
+
+    func record(_ url: URL) -> Int {
+        lock.withLock {
+            counts[url.path, default: 0] += 1
+            return counts[url.path, default: 0]
+        }
+    }
+
+    func count(for url: URL) -> Int {
+        lock.withLock { counts[url.path, default: 0] }
     }
 }
 
