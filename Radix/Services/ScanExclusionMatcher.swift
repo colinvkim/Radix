@@ -10,27 +10,40 @@ nonisolated struct ScanExclusionMatcher: Sendable {
     ]
 
     private let rootPath: String
+    private let isCaseSensitive: Bool
     private let basenamePatterns: [CompiledPattern]
     private let pathPatterns: [CompiledPattern]
     private let hasActiveRule: Bool
 
     init(
         patterns: [String],
-        rootURL: URL
+        rootURL: URL,
+        volumeSupportsCaseSensitiveNames: Bool? = nil
     ) {
         self.init(
             patterns: patterns,
-            rootPath: rootURL.standardizedFileURL.path
+            rootPath: rootURL.standardizedFileURL.path,
+            volumeSupportsCaseSensitiveNames: volumeSupportsCaseSensitiveNames
         )
     }
 
     init(
         patterns: [String],
-        rootPath: String
+        rootPath: String,
+        volumeSupportsCaseSensitiveNames: Bool? = nil
     ) {
         let normalizedRootPath = Self.normalizedRootPath(rootPath)
-        let compiledPatterns = Self.normalizedPatterns(patterns).compactMap(CompiledPattern.init(rawPattern:))
+        let normalizedPatterns = Self.normalizedPatterns(patterns)
+        let isCaseSensitive = normalizedPatterns.isEmpty ? true : volumeSupportsCaseSensitiveNames
+            ?? (try? URL(fileURLWithPath: normalizedRootPath, isDirectory: true)
+                .resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+                .volumeSupportsCaseSensitiveNames)
+            ?? true
+        let compiledPatterns = normalizedPatterns.compactMap {
+            CompiledPattern(rawPattern: $0, isCaseSensitive: isCaseSensitive)
+        }
         self.rootPath = normalizedRootPath
+        self.isCaseSensitive = isCaseSensitive
         self.basenamePatterns = compiledPatterns.filter(\.matchesBasename)
         self.pathPatterns = compiledPatterns.filter { !$0.matchesBasename }
         self.hasActiveRule = !compiledPatterns.isEmpty
@@ -167,25 +180,36 @@ nonisolated struct ScanExclusionMatcher: Sendable {
     }
 
     private func relativePath(forNormalizedPath path: String) -> Substring? {
-        guard path != rootPath else { return "" }
+        if isCaseSensitive {
+            guard path != rootPath else { return "" }
+        } else if path.compare(rootPath, options: .caseInsensitive) == .orderedSame {
+            return ""
+        }
 
         if rootPath == "/" {
             return path.hasPrefix("/") ? path.dropFirst() : path[...]
         }
 
         let rootPrefix = rootPath.hasSuffix("/") ? rootPath : "\(rootPath)/"
-        guard path.hasPrefix(rootPrefix) else { return nil }
-        return path.dropFirst(rootPrefix.count)
+        if isCaseSensitive {
+            guard path.hasPrefix(rootPrefix) else { return nil }
+            return path.dropFirst(rootPrefix.count)
+        }
+        guard let range = path.range(of: rootPrefix, options: [.caseInsensitive, .anchored]) else {
+            return nil
+        }
+        return path[range.upperBound...]
     }
 }
 
 nonisolated private struct CompiledPattern: Sendable {
     let matchesBasename: Bool
     private let directoryOnly: Bool
+    private let isCaseSensitive: Bool
     private let matchers: [PatternMatcher]
     private let directoryPrefixPatterns: [GlobPattern]
 
-    init?(rawPattern: String) {
+    init?(rawPattern: String, isCaseSensitive: Bool) {
         var pattern = rawPattern
         let directoryOnly = pattern.hasSuffix("/")
         if directoryOnly {
@@ -197,16 +221,17 @@ nonisolated private struct CompiledPattern: Sendable {
         let matchesBasename = !pattern.contains("/")
         self.matchesBasename = matchesBasename
         self.directoryOnly = directoryOnly
+        self.isCaseSensitive = isCaseSensitive
 
         if Self.containsGlobSyntax(pattern) {
             self.matchers = Self.globstarSlashVariants(for: pattern).map {
-                PatternMatcher(pattern: $0, matchesPath: !matchesBasename)
+                PatternMatcher(pattern: $0, matchesPath: !matchesBasename, isCaseSensitive: isCaseSensitive)
             }
 
             if !matchesBasename, pattern.hasSuffix("/**") {
                 let prefixPattern = String(pattern.dropLast(3))
                 self.directoryPrefixPatterns = Self.globstarSlashVariants(for: prefixPattern).map {
-                    GlobPattern(pattern: $0, matchesPath: true)
+                    GlobPattern(pattern: $0, matchesPath: true, isCaseSensitive: isCaseSensitive)
                 }
             } else {
                 self.directoryPrefixPatterns = []
@@ -220,7 +245,7 @@ nonisolated private struct CompiledPattern: Sendable {
     func matches<Value: StringProtocol>(value: Value, isDirectory: Bool) -> Bool {
         guard !directoryOnly || isDirectory else { return false }
 
-        if matchers.contains(where: { $0.matches(value) }) {
+        if matchers.contains(where: { $0.matches(value, isCaseSensitive: isCaseSensitive) }) {
             return true
         }
 
@@ -273,9 +298,9 @@ nonisolated private enum PatternMatcher: Sendable {
     case contains(String)
     case glob(GlobPattern)
 
-    init(pattern: String, matchesPath: Bool) {
+    init(pattern: String, matchesPath: Bool, isCaseSensitive: Bool) {
         guard !matchesPath, !pattern.contains("?") else {
-            self = .glob(GlobPattern(pattern: pattern, matchesPath: matchesPath))
+            self = .glob(GlobPattern(pattern: pattern, matchesPath: matchesPath, isCaseSensitive: isCaseSensitive))
             return
         }
 
@@ -292,20 +317,26 @@ nonisolated private enum PatternMatcher: Sendable {
         } else if starCount == 2, pattern.first == "*", pattern.last == "*" {
             self = .contains(String(pattern.dropFirst().dropLast()))
         } else {
-            self = .glob(GlobPattern(pattern: pattern, matchesPath: matchesPath))
+            self = .glob(GlobPattern(pattern: pattern, matchesPath: matchesPath, isCaseSensitive: isCaseSensitive))
         }
     }
 
-    func matches<Value: StringProtocol>(_ value: Value) -> Bool {
+    func matches<Value: StringProtocol>(_ value: Value, isCaseSensitive: Bool) -> Bool {
         switch self {
         case .exact(let pattern):
-            return value.elementsEqual(pattern)
+            return isCaseSensitive
+                ? value.elementsEqual(pattern)
+                : value.compare(pattern, options: .caseInsensitive) == .orderedSame
         case .prefix(let prefix):
-            return value.hasPrefix(prefix)
+            return isCaseSensitive
+                ? value.hasPrefix(prefix)
+                : value.range(of: prefix, options: [.caseInsensitive, .anchored]) != nil
         case .suffix(let suffix):
-            return value.hasSuffix(suffix)
+            return isCaseSensitive
+                ? value.hasSuffix(suffix)
+                : value.range(of: suffix, options: [.caseInsensitive, .anchored, .backwards]) != nil
         case .contains(let substring):
-            return value.range(of: substring) != nil
+            return value.range(of: substring, options: isCaseSensitive ? [] : .caseInsensitive) != nil
         case .glob(let pattern):
             return pattern.matches(value)
         }
@@ -315,13 +346,15 @@ nonisolated private enum PatternMatcher: Sendable {
 nonisolated private struct GlobPattern: Sendable {
     private enum Token: Sendable {
         case literal(Character)
+        case literalRun(String)
         case anySingle(allowsSlash: Bool)
         case anyRun(allowsSlash: Bool)
     }
 
     private let tokens: [Token]
+    private let isCaseSensitive: Bool
 
-    init(pattern: String, matchesPath: Bool) {
+    init(pattern: String, matchesPath: Bool, isCaseSensitive: Bool) {
         let characters = Array(pattern)
         var tokens: [Token] = []
         var index = 0
@@ -342,17 +375,27 @@ nonisolated private struct GlobPattern: Sendable {
             } else if character == "?" {
                 tokens.append(.anySingle(allowsSlash: !matchesPath))
                 index += 1
-            } else {
+            } else if isCaseSensitive {
                 tokens.append(.literal(character))
                 index += 1
+            } else {
+                // Literal case folds can expand while wildcards still consume original characters.
+                let start = index
+                while index < characters.count, characters[index] != "*", characters[index] != "?" {
+                    index += 1
+                }
+                tokens.append(.literalRun(String(characters[start..<index])))
             }
         }
 
         self.tokens = tokens
+        self.isCaseSensitive = isCaseSensitive
     }
 
     func matches<Value: StringProtocol>(_ value: Value) -> Bool {
         let characters = Array(value)
+        let boundaries = isCaseSensitive ? [] : Array(value.indices) + [value.endIndex]
+        let boundaryOffsets = Dictionary(uniqueKeysWithValues: boundaries.enumerated().map { ($0.element, $0.offset) })
         var previous = Array(repeating: false, count: characters.count + 1)
         var current = previous
         previous[0] = true
@@ -365,6 +408,17 @@ nonisolated private struct GlobPattern: Sendable {
             case .literal(let literal):
                 for valueIndex in characters.indices where previous[valueIndex] {
                     current[valueIndex + 1] = characters[valueIndex] == literal
+                }
+            case .literalRun(let literal):
+                for valueIndex in characters.indices where previous[valueIndex] {
+                    guard let range = value.range(
+                        of: literal,
+                        options: [.caseInsensitive, .anchored],
+                        range: boundaries[valueIndex]..<value.endIndex
+                    ), let endOffset = boundaryOffsets[range.upperBound] else {
+                        continue
+                    }
+                    current[endOffset] = true
                 }
             case .anySingle(let allowsSlash):
                 for valueIndex in characters.indices where previous[valueIndex] {
