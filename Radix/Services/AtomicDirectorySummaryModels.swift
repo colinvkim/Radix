@@ -176,6 +176,8 @@ nonisolated struct AtomicDirectoryProbeOutcome: @unchecked Sendable {
 }
 
 nonisolated struct AtomicDirectoryProbeListing: Sendable {
+    static let retainedEntryLimit = 65_536
+
     let entries: [DirectoryEntry]
     let enumeratedItemCount: Int
 }

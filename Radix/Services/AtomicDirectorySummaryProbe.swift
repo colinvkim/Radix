@@ -8,7 +8,27 @@ nonisolated private struct BulkAtomicProbeFrame: @unchecked Sendable {
     var workItem: AtomicSummaryWorkItem
     var reusableEntries: [DirectoryEntry] = []
     var enumeratedItemCount = 0
-    let retainsReusableListing: Bool
+    var retainsReusableListing: Bool
+
+    mutating func appendReusableEntries(
+        _ entries: [DirectoryEntry],
+        enumeratedItemCount: Int,
+        retainedEntryCost: inout Int,
+        entryLimit: Int
+    ) {
+        guard retainsReusableListing else { return }
+        let previousCost = max(1, reusableEntries.count)
+        let nextCost = max(1, reusableEntries.count + entries.count)
+        guard retainedEntryCost + nextCost - previousCost <= entryLimit else {
+            retainedEntryCost -= previousCost
+            reusableEntries = []
+            retainsReusableListing = false
+            return
+        }
+        retainedEntryCost += nextCost - previousCost
+        reusableEntries.append(contentsOf: entries)
+        self.enumeratedItemCount += enumeratedItemCount
+    }
 }
 
 extension AtomicDirectorySummarizer {
@@ -88,7 +108,9 @@ extension AtomicDirectorySummarizer {
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
-        emissionState: inout ScanEmissionState
+        emissionState: inout ScanEmissionState,
+        replayEntryLimit: Int = AtomicDirectoryProbeListing.retainedEntryLimit,
+        forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure? = nil
     ) throws -> AtomicDirectoryProbeOutcome {
         try cancellationCheck()
         #if DEBUG
@@ -126,7 +148,9 @@ extension AtomicDirectorySummarizer {
             cancellationCheck: cancellationCheck,
             metrics: &metrics,
             continuation: continuation,
-            emissionState: &emissionState
+            emissionState: &emissionState,
+            replayEntryLimit: max(0, replayEntryLimit),
+            forcedBulkFailure: forcedBulkFailure
         ) {
             visitedItems = bulkResult.outcome.visitedItemCount
             profile = bulkResult.outcome.profile
@@ -291,13 +315,16 @@ extension AtomicDirectorySummarizer {
         cancellationCheck: CancellationCheck,
         metrics: inout ScanMetrics,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation,
-        emissionState: inout ScanEmissionState
+        emissionState: inout ScanEmissionState,
+        replayEntryLimit: Int,
+        forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?
     ) throws -> (outcome: AtomicDirectoryProbeOutcome, visitedItems: Int)? {
         var profile = AtomicDirectoryProbeProfile(observedNodeDependencyLayout: isNodeDependencyLayout)
         var visitedItems = 0
         var partial = AtomicDirectorySummaryPartial()
         partial.updateAccessibility(rootMetadata.isReadable)
         var reusableDirectoryListings: [String: AtomicDirectoryProbeListing] = [:]
+        var retainedEntryCost = 0
         var fullyEnumerated = true
         let hasActiveExclusions = !exclusionMatcher.isEmpty
         // The caller already enumerated and classified the root directory.
@@ -326,6 +353,7 @@ extension AtomicDirectorySummarizer {
                         if activeCursorCount >= 64 {
                             guard let childResult = try BulkDirectoryEnumerator.directoryEntries(
                                 at: frames[frameIndex].workItem.url,
+                                expectedIdentity: frames[frameIndex].workItem.expectedIdentity,
                                 includeHiddenFiles: includeHiddenFiles,
                                 loadsPackageMetadata: !frames[frameIndex].workItem.treatPackagesAsDirectories,
                                 metadataLoader: metadataLoader,
@@ -335,21 +363,25 @@ extension AtomicDirectorySummarizer {
                                     } catch {
                                         throw AtomicProbeCancellation(underlyingError: error)
                                     }
-                                }
+                                },
+                                forcedFailure: forcedBulkFailure
                             ) else {
                                 return nil
                             }
                             frames[frameIndex].workItem.bufferedEntries = childResult.entries
                             frames[frameIndex].workItem.nextEntryIndex = 0
                             frames[frameIndex].workItem.needsCursor = false
-                            if frames[frameIndex].retainsReusableListing {
-                                frames[frameIndex].reusableEntries = childResult.entries
-                                frames[frameIndex].enumeratedItemCount = childResult.enumeratedItemCount
-                            }
+                            frames[frameIndex].appendReusableEntries(
+                                childResult.entries,
+                                enumeratedItemCount: childResult.enumeratedItemCount,
+                                retainedEntryCost: &retainedEntryCost,
+                                entryLimit: replayEntryLimit
+                            )
                             continue
                         }
                         frames[frameIndex].workItem.cursor = try BulkDirectoryEnumerator.makeCursor(
                             at: frames[frameIndex].workItem.url,
+                            expectedIdentity: frames[frameIndex].workItem.expectedIdentity,
                             includeHiddenFiles: includeHiddenFiles,
                             loadsPackageMetadata: !frames[frameIndex].workItem.treatPackagesAsDirectories,
                             metadataLoader: metadataLoader,
@@ -359,7 +391,8 @@ extension AtomicDirectorySummarizer {
                                 } catch {
                                     throw AtomicProbeCancellation(underlyingError: error)
                                 }
-                            }
+                            },
+                            forcedFailure: forcedBulkFailure
                         )
                         activeCursorCount += 1
                         frames[frameIndex].workItem.needsCursor = false
@@ -368,6 +401,9 @@ extension AtomicDirectorySummarizer {
                     } catch {
                         partial.recordWarning(for: frames[frameIndex].workItem.url, error: error)
                         fullyEnumerated = false
+                        if frames[frameIndex].retainsReusableListing {
+                            retainedEntryCost -= max(1, frames[frameIndex].reusableEntries.count)
+                        }
                         frames.removeLast()
                         continue
                     }
@@ -384,10 +420,12 @@ extension AtomicDirectorySummarizer {
                         }) {
                             frames[frameIndex].workItem.bufferedEntries = batch.entries
                             frames[frameIndex].workItem.nextEntryIndex = 0
-                            if frames[frameIndex].retainsReusableListing {
-                                frames[frameIndex].reusableEntries.append(contentsOf: batch.entries)
-                                frames[frameIndex].enumeratedItemCount += batch.enumeratedItemCount
-                            }
+                            frames[frameIndex].appendReusableEntries(
+                                batch.entries,
+                                enumeratedItemCount: batch.enumeratedItemCount,
+                                retainedEntryCost: &retainedEntryCost,
+                                entryLimit: replayEntryLimit
+                            )
                             continue
                         }
                     } catch let cancellation as AtomicProbeCancellation {
@@ -427,11 +465,14 @@ extension AtomicDirectorySummarizer {
             }
             guard visitedItems <= maxVisitedItems else {
                 return (
-                    AtomicDirectoryProbeOutcome(
+                    try rejectedProbeOutcome(
                         profile: profile,
-                        resumeState: nil,
                         visitedItemCount: visitedItems,
-                        reusableDirectoryListings: reusableDirectoryListings
+                        frames: &frames,
+                        reusableDirectoryListings: reusableDirectoryListings,
+                        retainedEntryCost: &retainedEntryCost,
+                        entryLimit: replayEntryLimit,
+                        cancellationCheck: cancellationCheck
                     ),
                     visitedItems
                 )
@@ -439,11 +480,14 @@ extension AtomicDirectorySummarizer {
 
             guard let metadata = entry.metadata else {
                 return (
-                    AtomicDirectoryProbeOutcome(
+                    try rejectedProbeOutcome(
                         profile: profile,
-                        resumeState: nil,
                         visitedItemCount: visitedItems,
-                        reusableDirectoryListings: reusableDirectoryListings
+                        frames: &frames,
+                        reusableDirectoryListings: reusableDirectoryListings,
+                        retainedEntryCost: &retainedEntryCost,
+                        entryLimit: replayEntryLimit,
+                        cancellationCheck: cancellationCheck
                     ),
                     visitedItems
                 )
@@ -478,11 +522,14 @@ extension AtomicDirectorySummarizer {
                    profile.observedFileCount == 0,
                    profile.observedDirectoryCount >= Self.directoryOnlyProbeLimit(minFileCount: minFileCount) {
                     return (
-                        AtomicDirectoryProbeOutcome(
+                        try rejectedProbeOutcome(
                             profile: profile,
-                            resumeState: nil,
                             visitedItemCount: visitedItems,
-                            reusableDirectoryListings: reusableDirectoryListings
+                            frames: &frames,
+                            reusableDirectoryListings: reusableDirectoryListings,
+                            retainedEntryCost: &retainedEntryCost,
+                            entryLimit: replayEntryLimit,
+                            cancellationCheck: cancellationCheck
                         ),
                         visitedItems
                     )
@@ -495,16 +542,23 @@ extension AtomicDirectorySummarizer {
                     let treatsPackagesAsDirectories = metadata.isPackage
                         ? true
                         : frames[frameIndex].workItem.treatPackagesAsDirectories
+                    let retainsReusableListing = !treatsPackagesAsDirectories
+                        && retainedEntryCost < replayEntryLimit
+                    if retainsReusableListing {
+                        retainedEntryCost += 1
+                    }
                     frames.append(
                         BulkAtomicProbeFrame(
                             workItem: AtomicSummaryWorkItem(
                                 url: entry.url,
                                 treatPackagesAsDirectories: treatsPackagesAsDirectories,
                                 ownerNodeID: frames[frameIndex].workItem.ownerNodeID,
+                                expectedIdentity: ScanEngine.verifiesDirectoryIdentity(at: entry.url)
+                                    ? metadata.fileIdentity : nil,
                                 volumeBoundaryPolicy: frames[frameIndex].workItem
                                     .volumeBoundaryPolicy
                             ),
-                            retainsReusableListing: !treatsPackagesAsDirectories
+                            retainsReusableListing: retainsReusableListing
                         )
                     )
                 }
@@ -544,11 +598,14 @@ extension AtomicDirectorySummarizer {
             }
             if profile.observedFileCount >= minFileCount {
                 return (
-                    AtomicDirectoryProbeOutcome(
+                    try rejectedProbeOutcome(
                         profile: profile,
-                        resumeState: nil,
                         visitedItemCount: visitedItems,
-                        reusableDirectoryListings: reusableDirectoryListings
+                        frames: &frames,
+                        reusableDirectoryListings: reusableDirectoryListings,
+                        retainedEntryCost: &retainedEntryCost,
+                        entryLimit: replayEntryLimit,
+                        cancellationCheck: cancellationCheck
                     ),
                     visitedItems
                 )
@@ -564,6 +621,64 @@ extension AtomicDirectorySummarizer {
                 fullyExhausted: fullyEnumerated
             ),
             visitedItems
+        )
+    }
+
+    private nonisolated func rejectedProbeOutcome(
+        profile: AtomicDirectoryProbeProfile,
+        visitedItemCount: Int,
+        frames: inout [BulkAtomicProbeFrame],
+        reusableDirectoryListings: [String: AtomicDirectoryProbeListing],
+        retainedEntryCost: inout Int,
+        entryLimit: Int,
+        cancellationCheck: CancellationCheck
+    ) throws -> AtomicDirectoryProbeOutcome {
+        var listings = reusableDirectoryListings
+        defer {
+            for frame in frames {
+                frame.workItem.cursor?.invalidate()
+            }
+        }
+        for index in frames.indices.reversed() {
+            try cancellationCheck()
+            guard frames[index].retainsReusableListing,
+                  !frames[index].workItem.needsCursor else { continue }
+            if let cursor = frames[index].workItem.cursor {
+                do {
+                    while let batch = try cursor.nextBatch(cancellationCheck: {
+                        do {
+                            try cancellationCheck()
+                        } catch {
+                            throw AtomicProbeCancellation(underlyingError: error)
+                        }
+                    }) {
+                        frames[index].appendReusableEntries(
+                            batch.entries,
+                            enumeratedItemCount: batch.enumeratedItemCount,
+                            retainedEntryCost: &retainedEntryCost,
+                            entryLimit: entryLimit
+                        )
+                        if !frames[index].retainsReusableListing { break }
+                    }
+                } catch let cancellation as AtomicProbeCancellation {
+                    throw cancellation.underlyingError
+                } catch {
+                    retainedEntryCost -= max(1, frames[index].reusableEntries.count)
+                    frames[index].reusableEntries = []
+                    frames[index].retainsReusableListing = false
+                }
+            }
+            guard frames[index].retainsReusableListing else { continue }
+            listings[frames[index].workItem.url.path] = AtomicDirectoryProbeListing(
+                entries: frames[index].reusableEntries,
+                enumeratedItemCount: frames[index].enumeratedItemCount
+            )
+        }
+        return AtomicDirectoryProbeOutcome(
+            profile: profile,
+            resumeState: nil,
+            visitedItemCount: visitedItemCount,
+            reusableDirectoryListings: listings
         )
     }
 
