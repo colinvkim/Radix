@@ -21,6 +21,49 @@ struct FullDiskScanScalingBenchmarkTests {
     }
 
     @Test
+    func testRepresentationIgnoresEphemeralDirectoriesOnlyUnderTarget() {
+        #expect(Self.representationExcludedPath(forTarget: "/") == "/private/var/folders")
+        #expect(Self.representationExcludedPath(forTarget: "/private") == "/private/var/folders")
+        #expect(Self.representationExcludedPath(forTarget: "/Applications") == nil)
+        #expect(Self.representationExcludedPath(forTarget: "/private/var/folders/ab/cd/T") == nil)
+
+        func makeStore(temporaryChild: FileNodeRecord, applicationsChild: FileNodeRecord) -> FileTreeStore {
+            let temporary = makeTestDirectoryNode(
+                id: "/private/var/folders/ab/cd/T", name: "T", children: [temporaryChild])
+            let applications = makeTestDirectoryNode(
+                id: "/Applications", name: "Applications", children: [applicationsChild])
+            let root = makeTestDirectoryNode(id: "/", name: "/", children: [applications, temporary])
+            return FileTreeStore(root: root, childrenByID: [
+                root.id: [applications, temporary],
+                applications.id: [applicationsChild],
+                temporary.id: [temporaryChild],
+            ])
+        }
+        let app = makeTestDirectoryNode(id: "/Applications/Kept.app", name: "Kept.app", children: [], isPackage: true)
+        let otherApp = makeTestDirectoryNode(id: "/Applications/Other.app", name: "Other.app", children: [], isPackage: true)
+        let summarized = makeTestSummarizedDirectoryNode(
+            id: "/private/var/folders/ab/cd/T/swift-generated-sources", name: "swift-generated-sources", size: 1)
+        let temporaryPackage = makeTestDirectoryNode(
+            id: "/private/var/folders/ab/cd/T/Build.app", name: "Build.app", children: [], isPackage: true)
+
+        let excluded = "/private/var/folders"
+        let first = Self.representationStats(
+            makeStore(temporaryChild: summarized, applicationsChild: app), excludingDescendantsOf: excluded)
+        let second = Self.representationStats(
+            makeStore(temporaryChild: temporaryPackage, applicationsChild: app), excludingDescendantsOf: excluded)
+        let changedOutside = Self.representationStats(
+            makeStore(temporaryChild: summarized, applicationsChild: otherApp), excludingDescendantsOf: excluded)
+        let unfiltered = Self.representationStats(
+            makeStore(temporaryChild: temporaryPackage, applicationsChild: app), excludingDescendantsOf: nil)
+
+        #expect(first.packageNodes == 1)
+        #expect(first.autoSummarizedNodes == 0)
+        #expect(first.fingerprint == second.fingerprint)
+        #expect(first.fingerprint != changedOutside.fingerprint)
+        #expect(unfiltered.packageNodes == 2)
+    }
+
+    @Test
     func testRootScanRequiresExplicitAuthorization() throws {
         let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
         let rootSymlinkURL = FileManager.default.temporaryDirectory.appending(
@@ -146,9 +189,11 @@ struct FullDiskScanScalingBenchmarkTests {
                 ? completion.peakRSSBytes - completion.startRSSBytes
                 : 0,
             retainedNodes: completion.retainedNodes,
+            representationExcludedPath: completion.representationExcludedPath,
             packageNodes: completion.packageNodes,
             autoSummarizedNodes: completion.autoSummarizedNodes,
             summarizedDescendantFiles: completion.summarizedDescendantFiles,
+            representationFingerprint: completion.representationFingerprint,
             enumeratedItems: completion.enumeratedItems,
             ordinaryDiscoveredItems: completion.ordinaryDiscoveredItems,
             ordinaryCompletedItems: completion.ordinaryCompletedItems,
@@ -228,7 +273,11 @@ struct FullDiskScanScalingBenchmarkTests {
         sampler.sample()
         let currentRSS = BenchmarkMemorySampler.currentResidentMemoryBytes()
         let snapshot = try #require(finalSnapshot)
-        let representation = representationStats(snapshot.treeStore)
+        let representationExcludedPath = representationExcludedPath(forTarget: targetURL.path)
+        let representation = representationStats(
+            snapshot.treeStore,
+            excludingDescendantsOf: representationExcludedPath
+        )
         let ordinaryDiscoveredItems = max(finalMetrics.discoveredItems, 0)
         let summaryAdditionalVisitedItems = max(
             finalMetrics.completedSummaryAdditionalVisitedItemCount,
@@ -251,9 +300,11 @@ struct FullDiskScanScalingBenchmarkTests {
             currentRSSBytes: currentRSS,
             peakRSSBytes: max(sampler.peak(), currentRSS),
             retainedNodes: snapshot.treeStore.nodeCount,
+            representationExcludedPath: representationExcludedPath,
             packageNodes: representation.packageNodes,
             autoSummarizedNodes: representation.autoSummarizedNodes,
             summarizedDescendantFiles: representation.summarizedDescendantFiles,
+            representationFingerprint: representation.fingerprint,
             enumeratedItems: enumeratedItems,
             ordinaryDiscoveredItems: ordinaryDiscoveredItems,
             ordinaryCompletedItems: max(finalMetrics.completedItems, 0),
@@ -365,29 +416,54 @@ struct FullDiskScanScalingBenchmarkTests {
         return fingerprint.description
     }
 
-    private static func representationStats(_ store: FileTreeStore) -> RepresentationStats {
+    /// Per-user temporary and cache directories. Build and test processes,
+    /// including the ones running this benchmark, write there during a run, so
+    /// auto-summary picks a different folder inside it from run to run.
+    private static let ephemeralRootPath = "/private/var/folders"
+
+    private static func representationExcludedPath(forTarget targetPath: String) -> String? {
+        let targetPrefix = targetPath.hasSuffix("/") ? targetPath : targetPath + "/"
+        return ephemeralRootPath.hasPrefix(targetPrefix) ? ephemeralRootPath : nil
+    }
+
+    /// Counts and fingerprints packages and auto-summarized folders outside
+    /// `excludedPath`, so runs over the same disk compare equal.
+    private static func representationStats(
+        _ store: FileTreeStore,
+        excludingDescendantsOf excludedPath: String?
+    ) -> RepresentationStats {
+        let excludedPrefix = excludedPath.map { $0 + "/" }
         var packageNodes = 0
         var autoSummarizedNodes = 0
         var summarizedDescendantFiles = 0
+        var representedPaths: [String] = []
         for nodeIndex in store.indexedNodeIndices() {
-            guard let node = store.node(at: nodeIndex) else { continue }
+            guard let node = store.node(at: nodeIndex),
+                  node.isPackage || node.isAutoSummarized else { continue }
+            if let excludedPrefix, node.id.hasPrefix(excludedPrefix) {
+                continue
+            }
             if node.isPackage {
                 packageNodes += 1
             }
             if node.isAutoSummarized {
                 autoSummarizedNodes += 1
             }
-            if node.isPackage || node.isAutoSummarized {
-                summarizedDescendantFiles = ScanIntegerMath.addingClamped(
-                    summarizedDescendantFiles,
-                    max(node.descendantFileCount, 0)
-                )
-            }
+            summarizedDescendantFiles = ScanIntegerMath.addingClamped(
+                summarizedDescendantFiles,
+                max(node.descendantFileCount, 0)
+            )
+            representedPaths.append("\(node.isPackage ? "P" : "-")\(node.isAutoSummarized ? "S" : "-")\(node.id)")
+        }
+        var fingerprint = BenchmarkFingerprint()
+        for path in representedPaths.sorted() {
+            fingerprint.append(path)
         }
         return RepresentationStats(
             packageNodes: packageNodes,
             autoSummarizedNodes: autoSummarizedNodes,
-            summarizedDescendantFiles: summarizedDescendantFiles
+            summarizedDescendantFiles: summarizedDescendantFiles,
+            fingerprint: fingerprint.description
         )
     }
 
@@ -483,9 +559,11 @@ private struct CompletionMeasurement {
     let currentRSSBytes: UInt64
     let peakRSSBytes: UInt64
     let retainedNodes: Int
+    let representationExcludedPath: String?
     let packageNodes: Int
     let autoSummarizedNodes: Int
     let summarizedDescendantFiles: Int
+    let representationFingerprint: String
     let enumeratedItems: Int
     let ordinaryDiscoveredItems: Int
     let ordinaryCompletedItems: Int
@@ -511,6 +589,7 @@ private struct RepresentationStats {
     let packageNodes: Int
     let autoSummarizedNodes: Int
     let summarizedDescendantFiles: Int
+    let fingerprint: String
 }
 
 private struct CancellationMeasurement {
@@ -541,9 +620,11 @@ private struct BenchmarkRecord: Encodable {
     let peakRSSBytes: UInt64
     let peakRSSIncreaseBytes: UInt64
     let retainedNodes: Int
+    let representationExcludedPath: String?
     let packageNodes: Int
     let autoSummarizedNodes: Int
     let summarizedDescendantFiles: Int
+    let representationFingerprint: String
     let enumeratedItems: Int
     let ordinaryDiscoveredItems: Int
     let ordinaryCompletedItems: Int
