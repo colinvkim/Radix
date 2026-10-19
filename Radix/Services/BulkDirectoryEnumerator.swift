@@ -127,6 +127,17 @@ nonisolated enum BulkDirectoryEnumerator {
         case unavailable
     }
 
+    /// Test hook: once a cursor has returned `batchCount` batches, its next
+    /// `getattrlistbulk(2)` call fails with `errorCode`.
+    struct ForcedFailure: Sendable {
+        let batchCount: Int
+        let errorCode: Int32
+
+        static func unavailable(afterBatchCount batchCount: Int) -> ForcedFailure {
+            ForcedFailure(batchCount: batchCount, errorCode: ENOTSUP)
+        }
+    }
+
     /// Single-consumer cursor over the batches returned by `getattrlistbulk(2)`.
     /// Dropping a partially consumed cursor closes its descriptor, which lets
     /// threshold probes stop without reading or retaining the rest of a wide directory.
@@ -142,7 +153,7 @@ nonisolated enum BulkDirectoryEnumerator {
         private var attributes = requestedAttributes
         private var isFinished = false
         private var buffer: UnsafeMutableRawBufferPointer?
-        private let forcedUnavailableAfterBatchCount: Int?
+        private let forcedFailure: ForcedFailure?
         private var successfulBatchCount = 0
         // ASCII decoding is injective and cannot have canonical-equivalence
         // collisions. Retain collision state only for the uncommon Unicode names.
@@ -156,7 +167,7 @@ nonisolated enum BulkDirectoryEnumerator {
             entryInclusion: EntryInclusion?,
             directoryHandle: NativeDirectoryHandle? = nil,
             descriptorLease: ScanDirectoryDescriptorPool.Lease? = nil,
-            forcedUnavailableAfterBatchCount: Int?
+            forcedFailure: ForcedFailure?
         ) {
             self.directoryURL = directoryURL
             self.includeHiddenFiles = includeHiddenFiles
@@ -165,7 +176,7 @@ nonisolated enum BulkDirectoryEnumerator {
             self.entryInclusion = entryInclusion
             self.directoryHandle = directoryHandle
             self.descriptorLease = descriptorLease
-            self.forcedUnavailableAfterBatchCount = forcedUnavailableAfterBatchCount
+            self.forcedFailure = forcedFailure
             buffer = UnsafeMutableRawBufferPointer.allocate(
                 byteCount: bufferCapacity,
                 alignment: 8
@@ -190,13 +201,6 @@ nonisolated enum BulkDirectoryEnumerator {
             defer { lock.unlock() }
             guard !isFinished else { return nil }
             try cancellationCheck()
-            if let forcedUnavailableAfterBatchCount,
-               successfulBatchCount == forcedUnavailableAfterBatchCount {
-                isFinished = true
-                closeDescriptor()
-                releaseBuffer()
-                throw StreamError.unavailable
-            }
 
             guard let buffer,
                   let bufferAddress = buffer.baseAddress else {
@@ -206,6 +210,9 @@ nonisolated enum BulkDirectoryEnumerator {
                 throw StreamError.unavailable
             }
             guard let syscallResult = withDescriptor({ descriptor in
+                if let forcedFailure, successfulBatchCount == forcedFailure.batchCount {
+                    return (count: Int32(-1), errorCode: forcedFailure.errorCode)
+                }
                 let count = getattrlistbulk(
                     descriptor,
                     &attributes,
@@ -309,7 +316,7 @@ nonisolated enum BulkDirectoryEnumerator {
         metadataLoader: ScanMetadataLoader,
         entryInclusion: EntryInclusion? = nil,
         cancellationCheck: CancellationCheck,
-        forcedUnavailableAfterBatchCount: Int? = nil
+        forcedFailure: ForcedFailure? = nil
     ) throws -> Result? {
         var entries: [DirectoryEntry] = []
         var enumeratedItemCount = 0
@@ -320,7 +327,7 @@ nonisolated enum BulkDirectoryEnumerator {
             metadataLoader: metadataLoader,
             entryInclusion: entryInclusion,
             cancellationCheck: cancellationCheck,
-            forcedUnavailableAfterBatchCount: forcedUnavailableAfterBatchCount
+            forcedFailure: forcedFailure
         )
         do {
             while let batch = try cursor.nextBatch(cancellationCheck: cancellationCheck) {
@@ -344,7 +351,7 @@ nonisolated enum BulkDirectoryEnumerator {
         metadataLoader: ScanMetadataLoader,
         entryInclusion: EntryInclusion? = nil,
         cancellationCheck: CancellationCheck,
-        forcedUnavailableAfterBatchCount: Int? = nil
+        forcedFailure: ForcedFailure? = nil
     ) throws -> Cursor {
         try cancellationCheck()
         #if DEBUG
@@ -381,7 +388,7 @@ nonisolated enum BulkDirectoryEnumerator {
             metadataLoader: metadataLoader,
             entryInclusion: entryInclusion,
             directoryHandle: NativeDirectoryHandle(owning: descriptor),
-            forcedUnavailableAfterBatchCount: forcedUnavailableAfterBatchCount
+            forcedFailure: forcedFailure
         )
     }
 
@@ -395,7 +402,7 @@ nonisolated enum BulkDirectoryEnumerator {
         metadataLoader: ScanMetadataLoader,
         entryInclusion: EntryInclusion? = nil,
         cancellationCheck: CancellationCheck,
-        forcedUnavailableAfterBatchCount: Int? = nil
+        forcedFailure: ForcedFailure? = nil
     ) throws -> Cursor {
         do {
             try cancellationCheck()
@@ -412,7 +419,7 @@ nonisolated enum BulkDirectoryEnumerator {
             metadataLoader: metadataLoader,
             entryInclusion: entryInclusion,
             descriptorLease: descriptorLease,
-            forcedUnavailableAfterBatchCount: forcedUnavailableAfterBatchCount
+            forcedFailure: forcedFailure
         )
     }
 
@@ -426,7 +433,7 @@ nonisolated enum BulkDirectoryEnumerator {
         metadataLoader: ScanMetadataLoader,
         entryInclusion: EntryInclusion? = nil,
         cancellationCheck: CancellationCheck,
-        forcedUnavailableAfterBatchCount: Int? = nil
+        forcedFailure: ForcedFailure? = nil
     ) throws -> Cursor {
         do {
             try cancellationCheck()
@@ -444,7 +451,7 @@ nonisolated enum BulkDirectoryEnumerator {
             metadataLoader: metadataLoader,
             entryInclusion: entryInclusion,
             directoryHandle: directoryHandle,
-            forcedUnavailableAfterBatchCount: forcedUnavailableAfterBatchCount
+            forcedFailure: forcedFailure
         )
     }
 

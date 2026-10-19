@@ -242,7 +242,7 @@ struct BulkDirectoryEnumeratorDescriptorTests {
             includeHiddenFiles: true,
             metadataLoader: ScanMetadataLoader(),
             cancellationCheck: {},
-            forcedUnavailableAfterBatchCount: 0
+            forcedFailure: .unavailable(afterBatchCount: 0)
         )
 
         #expect { try cursor.nextBatch(cancellationCheck: {}) } throws: { error in

@@ -236,10 +236,8 @@ extension AtomicDirectorySummarizer {
                 currentURL: item.url,
                 visitedItemCount: visitedItemCount
             )
-            var warningOnly = AtomicDirectorySummaryPartial()
-            warningOnly.visitedItemCount = visitedItemCount
-            warningOnly.recordWarning(for: item.url, error: error)
-            return AtomicSummaryWorkResult(partial: warningOnly, pendingItems: [])
+            partial.recordWarning(for: item.url, error: error)
+            return AtomicSummaryWorkResult(partial: partial, pendingItems: pendingItems)
         }
 
         progressReporter.finish(currentURL: item.url, visitedItemCount: visitedItemCount)

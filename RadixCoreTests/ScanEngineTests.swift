@@ -395,7 +395,7 @@ struct ScanEngineTests {
             includeHiddenFiles: false,
             metadataLoader: metadataLoader,
             cancellationCheck: {},
-            forcedUnavailableAfterBatchCount: 0
+            forcedFailure: .unavailable(afterBatchCount: 0)
         )
         let restarted = try await pool.summarize(
             AtomicSummaryPoolRequest(
@@ -448,6 +448,90 @@ struct ScanEngineTests {
     }
 
     @Test
+    func testBulkListingFailureKeepsEntriesAlreadyRead() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
+        for index in 0..<3 {
+            try Data(repeating: 0x5A, count: 1_000).write(to: childURL.appending(path: "payload-\(index).bin"))
+        }
+
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions(),
+            engine: ScanEngine(forcedBulkFailure: .init(batchCount: 1, errorCode: EIO))
+        )
+
+        let childNode = try #require(snapshot.treeStore.node(id: childURL.path))
+        #expect(childNode.descendantFileCount == 3)
+        #expect(!(childNode.isSelfAccessible))
+        #expect(!(childNode.isAccessible))
+        for index in 0..<3 {
+            #expect(snapshot.treeStore.node(id: childURL.appending(path: "payload-\(index).bin").path) != nil)
+        }
+        #expect(Set(snapshot.scanWarnings.map(\.path)) == [rootURL.path, childURL.path])
+    }
+
+    @Test
+    func testShallowListingRejectsIncompleteBulkListing() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try Data([0x1]).write(to: rootURL.appending(path: "payload.bin"))
+
+        let engine = ScanEngine(forcedBulkFailure: .init(batchCount: 1, errorCode: EIO))
+        await #expect(throws: (any Error).self) {
+            _ = try await engine.shallowDirectoryListing(
+                at: rootURL,
+                scanTarget: ScanTarget(url: rootURL),
+                options: ScanOptions()
+            )
+        }
+    }
+
+    @Test
+    func testPooledAtomicWorkItemKeepsEntriesReadBeforeBulkFailure() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let subdirectoryURL = rootURL.appending(path: "Sub", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: subdirectoryURL, withIntermediateDirectories: true)
+        for index in 0..<3 {
+            try Data([UInt8(index)]).write(to: rootURL.appending(path: "payload-\(index).bin"))
+        }
+
+        let metadataLoader = ScanMetadataLoader()
+        let cursor = try BulkDirectoryEnumerator.makeCursor(
+            at: rootURL,
+            includeHiddenFiles: true,
+            metadataLoader: metadataLoader,
+            cancellationCheck: {},
+            forcedFailure: .init(batchCount: 1, errorCode: EIO)
+        )
+        let (progressReporter, continuation) = makeAtomicSummaryProgressReporter()
+        defer { continuation.finish() }
+        let result = try AtomicDirectorySummarizer.processPooledWorkItem(
+            AtomicSummaryWorkItem(
+                url: rootURL,
+                treatPackagesAsDirectories: true,
+                ownerNodeID: rootURL.path,
+                cursor: cursor,
+                needsCursor: false
+            ),
+            includeHiddenFiles: true,
+            exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+            metadataLoader: metadataLoader,
+            cancellationCheck: {},
+            progressReporter: progressReporter,
+            forcesFoundationTraversal: false
+        )
+
+        #expect(result.partial.descendantFileCount == 3)
+        #expect(result.pendingItems.map(\.url.path) == [subdirectoryURL.path])
+        #expect(!(result.partial.isAccessible))
+        #expect(result.partial.warnings.map(\.path) == [rootURL.path])
+    }
+
+    @Test
     func testLateNativeFallbackPreservesOriginalRootIdentity() async throws {
         let parentURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: parentURL) }
@@ -464,7 +548,7 @@ struct ScanEngineTests {
             includeHiddenFiles: true,
             metadataLoader: metadataLoader,
             cancellationCheck: {},
-            forcedUnavailableAfterBatchCount: 1
+            forcedFailure: .unavailable(afterBatchCount: 1)
         )
         try FileManager.default.moveItem(at: rootURL, to: movedURL)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -833,7 +917,7 @@ struct ScanEngineTests {
             includeHiddenFiles: true,
             metadataLoader: metadataLoader,
             cancellationCheck: {},
-            forcedUnavailableAfterBatchCount: 0
+            forcedFailure: .unavailable(afterBatchCount: 0)
         )
         let resumeState = AtomicDirectoryProbeResumeState(
             partial: AtomicDirectorySummaryPartial(),
@@ -1317,7 +1401,7 @@ struct ScanEngineTests {
             includeHiddenFiles: true,
             metadataLoader: metadataLoader,
             cancellationCheck: {},
-            forcedUnavailableAfterBatchCount: 1
+            forcedFailure: .unavailable(afterBatchCount: 1)
         )
         #expect(unavailableResult == nil, "Late native fallback must discard earlier uncommitted batches.")
 
