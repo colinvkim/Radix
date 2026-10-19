@@ -68,7 +68,7 @@ struct ScanLeafOverlapBenchmarkTests {
             includeHiddenFiles: true,
             metadataLoader: ScanMetadataLoader(),
             cancellationCheck: Task.checkCancellation,
-            forcedUnavailableAfterBatchCount: unavailableAfter
+            forcedFailure: unavailableAfter.map { .unavailable(afterBatchCount: $0) }
         )
         defer { cursor.invalidate() }
         let engine = ScanEngine()

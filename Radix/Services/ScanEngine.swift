@@ -483,6 +483,7 @@ nonisolated final class ScanEngine: Sendable {
     private let directoryContents: DirectoryContentsProvider
     private let usesBulkDirectoryEnumeration: Bool
     private let usesDeferredBulkEntryFiltering: Bool
+    private let forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?
     private let directoryNamespaceResolver: DirectoryNamespaceResolver
     private let linkCountCapabilityCache: LinkCountCapabilityCache
     private let atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver?
@@ -504,7 +505,8 @@ nonisolated final class ScanEngine: Sendable {
         },
         usesDeferredBulkEntryFiltering: Bool = true,
         usesWorkerSideLeafPreparation: Bool = true,
-        workerSideLeafPreparationBatchLimit: Int? = nil
+        workerSideLeafPreparationBatchLimit: Int? = nil,
+        forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure? = nil
     ) {
         self.init(
             enumeratedDirectoryContents: ScanEngine.defaultDirectoryContents,
@@ -514,6 +516,7 @@ nonisolated final class ScanEngine: Sendable {
             atomicSummaryProgressEmissionInterval: atomicSummaryProgressEmissionInterval,
             directoryDescriptorPoolFactory: directoryDescriptorPoolFactory,
             usesDeferredBulkEntryFiltering: usesDeferredBulkEntryFiltering,
+            forcedBulkFailure: forcedBulkFailure,
             usesWorkerSideLeafPreparation: usesWorkerSideLeafPreparation,
             workerSideLeafPreparationBatchLimit: workerSideLeafPreparationBatchLimit
         )
@@ -535,6 +538,7 @@ nonisolated final class ScanEngine: Sendable {
         self.directoryContents = ScanEngine.defaultDirectoryContents
         self.usesBulkDirectoryEnumeration = true
         self.usesDeferredBulkEntryFiltering = usesDeferredBulkEntryFiltering
+        self.forcedBulkFailure = nil
         self.directoryNamespaceResolver = DirectoryNamespaceResolver()
         self.linkCountCapabilityCache = LinkCountCapabilityCache()
         self.atomicSummaryWorkerObserver = atomicSummaryWorkerObserver
@@ -568,6 +572,7 @@ nonisolated final class ScanEngine: Sendable {
             atomicSummaryProgressEmissionInterval: atomicSummaryProgressEmissionInterval,
             directoryDescriptorPoolFactory: { ScanDirectoryDescriptorPool() },
             usesDeferredBulkEntryFiltering: false,
+            forcedBulkFailure: nil,
             usesWorkerSideLeafPreparation: true,
             workerSideLeafPreparationBatchLimit: nil
         )
@@ -581,12 +586,14 @@ nonisolated final class ScanEngine: Sendable {
         atomicSummaryProgressEmissionInterval: TimeInterval,
         directoryDescriptorPoolFactory: @escaping DirectoryDescriptorPoolFactory,
         usesDeferredBulkEntryFiltering: Bool,
+        forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?,
         usesWorkerSideLeafPreparation: Bool,
         workerSideLeafPreparationBatchLimit: Int?
     ) {
         self.directoryContents = enumeratedDirectoryContents
         self.usesBulkDirectoryEnumeration = usesBulkDirectoryEnumeration
         self.usesDeferredBulkEntryFiltering = usesDeferredBulkEntryFiltering
+        self.forcedBulkFailure = forcedBulkFailure
         self.directoryNamespaceResolver = DirectoryNamespaceResolver()
         self.linkCountCapabilityCache = LinkCountCapabilityCache()
         self.atomicSummaryWorkerObserver = atomicSummaryWorkerObserver
@@ -953,6 +960,7 @@ nonisolated final class ScanEngine: Sendable {
             directoryContents: directoryContents,
             usesBulkDirectoryEnumeration: usesBulkDirectoryEnumeration,
             usesDeferredBulkEntryFiltering: usesDeferredBulkEntryFiltering,
+            forcedBulkFailure: forcedBulkFailure,
             directoryNamespaceResolver: directoryNamespaceResolver,
             directoryDescriptorPool: usesBulkDirectoryEnumeration
                 ? directoryDescriptorPoolFactory()
@@ -1219,6 +1227,7 @@ nonisolated final class ScanEngine: Sendable {
         let directoryContentsProvider = directoryContents
         let usesBulkDirectoryEnumeration = usesBulkDirectoryEnumeration
         let usesDeferredBulkEntryFiltering = usesDeferredBulkEntryFiltering
+        let forcedBulkFailure = forcedBulkFailure
         let directoryNamespaceResolver = directoryNamespaceResolver
         let directoryDescriptorPool = usesBulkDirectoryEnumeration
             ? directoryDescriptorPoolFactory()
@@ -1447,6 +1456,7 @@ nonisolated final class ScanEngine: Sendable {
                                     directoryContents: directoryContentsProvider,
                                     usesBulkDirectoryEnumeration: usesBulkDirectoryEnumeration,
                                     usesDeferredBulkEntryFiltering: usesDeferredBulkEntryFiltering,
+                                    forcedBulkFailure: forcedBulkFailure,
                                     directoryNamespaceResolver: directoryNamespaceResolver,
                                     directoryDescriptorPool: directoryDescriptorPool,
                                     parentDirectoryLease: taskItem.parentDirectoryLease,
@@ -2578,6 +2588,7 @@ nonisolated final class ScanEngine: Sendable {
         directoryContents: DirectoryContentsProvider,
         usesBulkDirectoryEnumeration: Bool,
         usesDeferredBulkEntryFiltering: Bool,
+        forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?,
         directoryNamespaceResolver: DirectoryNamespaceResolver,
         directoryDescriptorPool: ScanDirectoryDescriptorPool?,
         parentDirectoryLease: ScanDirectoryDescriptorPool.Lease?,
@@ -2679,7 +2690,8 @@ nonisolated final class ScanEngine: Sendable {
                     includeHiddenFiles: includeHiddenFiles,
                     metadataLoader: metadataLoader,
                     entryInclusion: entryInclusion,
-                    cancellationCheck: cancellationCheck
+                    cancellationCheck: cancellationCheck,
+                    forcedFailure: forcedBulkFailure
                 )
             } else {
                 cursor = try BulkDirectoryEnumerator.makeCursor(
@@ -2687,7 +2699,8 @@ nonisolated final class ScanEngine: Sendable {
                     includeHiddenFiles: includeHiddenFiles,
                     metadataLoader: metadataLoader,
                     entryInclusion: entryInclusion,
-                    cancellationCheck: cancellationCheck
+                    cancellationCheck: cancellationCheck,
+                    forcedFailure: forcedBulkFailure
                 )
             }
             var entries: [DirectoryEntry] = []
