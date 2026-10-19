@@ -1066,6 +1066,81 @@ struct ScanEngineTests {
     }
 
     @Test
+    func testDescriptorPoolFallbackRejectsReplacedDirectory() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
+        let originalURL = childURL.appending(path: "original.bin")
+        let intruderURL = childURL.appending(path: "intruder.bin")
+        try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
+        try Data([0x1]).write(to: originalURL)
+
+        let live = ScanDirectoryDescriptorPool.SystemCalls.live
+        let descriptorPool = ScanDirectoryDescriptorPool(
+            maxOpenDescriptorCount: 8,
+            systemCalls: ScanDirectoryDescriptorPool.SystemCalls(
+                openRoot: live.openRoot,
+                openChild: { _, _ in
+                    // Replace the discovered directory, then force the path-based fallback open.
+                    if FileManager.default.fileExists(atPath: originalURL.path) {
+                        do {
+                            try FileManager.default.removeItem(at: childURL)
+                            try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
+                            try Data([0x2]).write(to: intruderURL)
+                        } catch {
+                            Issue.record(error)
+                        }
+                    }
+                    return (-1, EMFILE)
+                },
+                fileIdentity: live.fileIdentity,
+                close: live.close
+            )
+        )
+        let snapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL),
+            options: ScanOptions(),
+            engine: ScanEngine(directoryDescriptorPoolFactory: { descriptorPool })
+        )
+
+        #expect(descriptorPool.debugCounters.fallbackCount > 0)
+        let childNode = try #require(snapshot.treeStore.node(id: childURL.path))
+        #expect(!(childNode.isAccessible))
+        #expect(snapshot.treeStore.node(id: intruderURL.path) == nil)
+        #expect(!(snapshot.scanWarnings.isEmpty))
+    }
+
+    @Test
+    func testPooledAtomicWorkItemRejectsReplacedDirectory() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try Data(repeating: 0x11, count: 11).write(to: rootURL.appending(path: "intruder.bin"))
+
+        let metadataLoader = ScanMetadataLoader()
+        let device = try #require(try metadataLoader.fileSystemIdentity(at: rootURL).fileSystemDeviceID)
+        let (progressReporter, continuation) = makeAtomicSummaryProgressReporter()
+        defer { continuation.finish() }
+        let result = try AtomicDirectorySummarizer.processPooledWorkItem(
+            AtomicSummaryWorkItem(
+                url: rootURL,
+                treatPackagesAsDirectories: true,
+                ownerNodeID: rootURL.path,
+                expectedIdentity: FileIdentity(device: device, inode: .max)
+            ),
+            includeHiddenFiles: true,
+            exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+            metadataLoader: metadataLoader,
+            cancellationCheck: {},
+            progressReporter: progressReporter,
+            forcesFoundationTraversal: false
+        )
+
+        #expect(result.partial.descendantFileCount == 0)
+        #expect(result.pendingItems.isEmpty)
+        #expect(result.partial.warnings.map(\.path) == [rootURL.path])
+    }
+
+    @Test
     func testCancellingDescriptorRelativeScanClosesInFlightAndRetainedLeases() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3541,26 +3616,7 @@ struct ScanEngineTests {
 
     @Test
     func testFolderScanTraversesStartupVolumeFirmlinkChildren() async throws {
-        let firmlinksURL = URL(filePath: "/usr/share/firmlinks")
-        let listsCups = (try? String(contentsOf: firmlinksURL, encoding: .utf8))?
-            .split(whereSeparator: \.isNewline)
-            .contains { line in
-                line.split(whereSeparator: { $0 == " " || $0 == "\t" }).first == "/usr/libexec/cups"
-            } == true
-        guard listsCups else {
-            throw TestFixtureError(
-                "This integration test requires /usr/share/firmlinks to list /usr/libexec/cups.")
-        }
-
-        let cupsURL = URL(filePath: "/usr/libexec/cups", directoryHint: .isDirectory)
-        let cupsChildren = try? FileManager.default.contentsOfDirectory(
-            at: cupsURL,
-            includingPropertiesForKeys: nil
-        )
-        guard let cupsChildren, !cupsChildren.isEmpty else {
-            throw TestFixtureError(
-                "This integration test requires /usr/libexec/cups to be a readable directory with at least one child.")
-        }
+        try requireCupsFirmlinkFixture()
 
         let engine = ScanEngine()
         var warnings: [ScanWarning] = []
@@ -3593,6 +3649,67 @@ struct ScanEngineTests {
         #expect(
             !(warnings.contains { $0.path == "/usr/libexec/cups" }),
             "A folder scan must not warn that /usr/libexec/cups is inaccessible.")
+    }
+
+    @Test
+    func testAtomicSummaryTraversesStartupVolumeFirmlinkChildren() throws {
+        try requireCupsFirmlinkFixture()
+
+        let libexecURL = URL(filePath: "/usr/libexec", directoryHint: .isDirectory)
+        let metadataLoader = ScanMetadataLoader()
+        let (progressReporter, continuation) = makeAtomicSummaryProgressReporter()
+        defer { continuation.finish() }
+        func process(_ item: AtomicSummaryWorkItem, usingFoundation: Bool) throws -> AtomicSummaryWorkResult {
+            try AtomicDirectorySummarizer.processPooledWorkItem(
+                item,
+                includeHiddenFiles: true,
+                exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: libexecURL),
+                metadataLoader: metadataLoader,
+                cancellationCheck: {},
+                progressReporter: progressReporter,
+                forcesFoundationTraversal: usingFoundation
+            )
+        }
+
+        let libexecResult = try process(
+            AtomicSummaryWorkItem(
+                url: libexecURL,
+                treatPackagesAsDirectories: true,
+                ownerNodeID: libexecURL.path
+            ),
+            usingFoundation: false
+        )
+        let cupsItem = try #require(libexecResult.pendingItems.first { $0.url.path == "/usr/libexec/cups" })
+        for usingFoundation in [false, true] {
+            let cupsResult = try process(cupsItem, usingFoundation: usingFoundation)
+            #expect(
+                !(cupsResult.partial.warnings.contains { $0.path == "/usr/libexec/cups" }),
+                "Summarizing /usr/libexec/cups must not report it as replaced (Foundation: \(usingFoundation)).")
+            #expect(cupsResult.partial.visitedItemCount > 0)
+        }
+    }
+
+    private func requireCupsFirmlinkFixture() throws {
+        let firmlinksURL = URL(filePath: "/usr/share/firmlinks")
+        let listsCups = (try? String(contentsOf: firmlinksURL, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline)
+            .contains { line in
+                line.split(whereSeparator: { $0 == " " || $0 == "\t" }).first == "/usr/libexec/cups"
+            } == true
+        guard listsCups else {
+            throw TestFixtureError(
+                "This integration test requires /usr/share/firmlinks to list /usr/libexec/cups.")
+        }
+
+        let cupsURL = URL(filePath: "/usr/libexec/cups", directoryHint: .isDirectory)
+        let cupsChildren = try? FileManager.default.contentsOfDirectory(
+            at: cupsURL,
+            includingPropertiesForKeys: nil
+        )
+        guard let cupsChildren, !cupsChildren.isEmpty else {
+            throw TestFixtureError(
+                "This integration test requires /usr/libexec/cups to be a readable directory with at least one child.")
+        }
     }
 
     @Test
