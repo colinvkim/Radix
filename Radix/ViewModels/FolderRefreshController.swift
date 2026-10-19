@@ -301,10 +301,11 @@ final class FolderRefreshController {
     private func latestChange(
         in scope: String
     ) -> (receivedAt: ContinuousClock.Instant, firstReceivedAt: ContinuousClock.Instant)? {
-        let blockedVersion = blockedScopes[scope] ?? 0
+        var blockedVersion: UInt64 = 0
         var acknowledgedVersion: UInt64 = 0
         var ancestor = scope
         while true {
+            blockedVersion = max(blockedVersion, blockedScopes[ancestor] ?? 0)
             acknowledgedVersion = max(acknowledgedVersion, acknowledgedScopes[ancestor] ?? 0)
             guard ancestor != "/" else { break }
             ancestor = URL(filePath: ancestor).deletingLastPathComponent().path

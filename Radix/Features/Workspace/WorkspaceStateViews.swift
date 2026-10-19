@@ -293,7 +293,7 @@ struct BackgroundRefreshPausedBanner: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Rescan Entire Scan", action: rescan)
+            Button("Rescan Folder", action: rescan)
                 .buttonStyle(.borderless)
         }
         .topBannerSurface()

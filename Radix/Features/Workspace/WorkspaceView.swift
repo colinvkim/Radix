@@ -9,7 +9,6 @@ struct WorkspaceActions {
     let startScan: (ScanTarget) -> Void
     let stopScan: () -> Void
     let rescan: () -> Void
-    let rescanEntireScan: () -> Void
     let rescanFolder: (FileNodeRecord.ID) -> Void
     let canRescanCurrentFolder: () -> Bool
     let compareScans: () -> Void
@@ -133,7 +132,7 @@ struct WorkspaceView: View {
             } else if let focusedNodeID = navigation.focusedNodeID,
                       scanState.backgroundRefreshManualRescanNodeIDs.contains(focusedNodeID),
                       !scanState.isScanOperationInProgress {
-                BackgroundRefreshPausedBanner(rescan: actions.rescanEntireScan)
+                BackgroundRefreshPausedBanner(rescan: actions.rescan)
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .topBannerTransition()

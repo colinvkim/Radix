@@ -337,9 +337,13 @@ struct FolderRefreshControllerTests {
         try await waitUntil { harness.requests == [downloads, downloads] }
     }
 
-    @Test(arguments: [false, true])
-    func failureWaitsForANewRelevantEventRatherThanRetryingOnNavigation(nestedChange: Bool) async throws {
-        let harness = FolderRefreshHarness()
+    @Test(arguments: [false, true], [false, true])
+    func failureWaitsForANewRelevantEventRatherThanRetryingOnNavigation(
+        nestedChange: Bool,
+        missingFocusedDirectory: Bool
+    ) async throws {
+        let harness = FolderRefreshHarness(directoryExists: { !missingFocusedDirectory || $0 != self.downloads })
+        let refreshedNodeID = missingFocusedDirectory ? home : downloads
         let snapshot = makeFolderRefreshSnapshot()
         let changedDirectory = downloads + (nestedChange ? "/nested" : "")
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
@@ -347,18 +351,22 @@ struct FolderRefreshControllerTests {
         try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/a.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
-        try await waitUntil { harness.requests.count == 1 }
-        harness.controller.refreshFinished(nodeID: downloads, result: .failed)
+        try await waitUntil { harness.requests == [refreshedNodeID] }
+        harness.controller.refreshFinished(nodeID: refreshedNodeID, result: .failed)
+        try await harness.watcher.emitAndWaitUntilProcessed([])
         harness.clock.advance(by: .seconds(10))
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        try #require(harness.requests == [refreshedNodeID])
         harness.controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         try await harness.watcher.emitAndWaitUntilProcessed([])
         #expect(harness.requests.count == 1)
         #expect(harness.clock.pendingSleeps == 0)
+        harness.directoryExists = { _ in true }
         try await harness.watcher.emitAndWaitUntilProcessed([changedFile(changedDirectory + "/b.zip")])
         try await waitUntil { harness.clock.pendingSleeps == 1 }
         harness.clock.advance(by: .seconds(1))
-        try await waitUntil { harness.requests.count == 2 }
+        try await waitUntil { harness.requests == [refreshedNodeID, downloads] }
     }
 
     @Test

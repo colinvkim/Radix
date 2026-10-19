@@ -747,7 +747,6 @@ private extension ContentView {
             startScan: { appModel.startScan($0) },
             stopScan: { appModel.stopScan() },
             rescan: { appModel.rescan() },
-            rescanEntireScan: { appModel.rescanEntireScan() },
             rescanFolder: { appModel.rescanFolder(id: $0) },
             canRescanCurrentFolder: { appModel.canRescanCurrentFolder },
             compareScans: { appModel.compareScanSnapshots() },
