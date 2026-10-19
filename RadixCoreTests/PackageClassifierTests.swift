@@ -304,6 +304,33 @@ struct PackageClassifierTests {
     }
 
     @Test
+    func testPackageDecisionsDoNotDependOnClassificationOrder() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundleURL = rootURL.appending(path: "Bundle.component", directoryHint: .isDirectory)
+        let folderURL = rootURL.appending(path: "Folder.component", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appending(path: "Contents", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try Data("BNDL????".utf8).write(to: bundleURL.appending(path: "Contents/PkgInfo"))
+
+        #expect(try bundleURL.resourceValues(forKeys: [.isPackageKey]).isPackage == true)
+        #expect(try folderURL.resourceValues(forKeys: [.isPackageKey]).isPackage == false)
+
+        for order in [[bundleURL, folderURL], [folderURL, bundleURL]] {
+            let classifier = PackageClassifier()
+            let isPackageByName = Dictionary(
+                uniqueKeysWithValues: order.map {
+                    ($0.lastPathComponent, classifier.classification(for: $0, hasFinderPackageFlag: false).isPackage)
+                })
+            #expect(isPackageByName == ["Bundle.component": true, "Folder.component": false])
+        }
+    }
+
+    @Test
     func testRegisteredPackageExtensionsMatchFoundation() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
