@@ -79,6 +79,38 @@ struct IncrementalScanServiceTests {
         )
     }
 
+    @Test(arguments: ["/tmp", "/private/tmp", "/System/Volumes/Data/private/tmp", "symlink"])
+    func testDarwinHistoryProviderPreservesRenameEndpointsInTemporaryAlias(parentPath: String) async throws {
+        let fixture = URL(filePath: "/tmp/radix-history-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let rootURL: URL
+        if parentPath == "symlink" {
+            let physical = fixture.appending(path: "physical", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: physical, withIntermediateDirectories: false)
+            rootURL = fixture.appending(path: "alias", directoryHint: .isDirectory)
+            try FileManager.default.createSymbolicLink(at: rootURL, withDestinationURL: physical)
+        } else {
+            rootURL = URL(filePath: parentPath, directoryHint: .isDirectory).appending(path: fixture.lastPathComponent)
+        }
+        let source = rootURL.appending(path: "before.dat")
+        let destination = rootURL.appending(path: "after.dat")
+        try Data([1]).write(to: source)
+        let provider = DarwinFileSystemEventHistoryProvider()
+        try await Task.sleep(for: .seconds(1))
+        let since = try provider.currentCheckpoint(for: rootURL)
+        try FileManager.default.moveItem(at: source, to: destination)
+        let history = try await incrementalHistoryContaining(
+            [source.path, destination.path],
+            provider: provider,
+            rootURL: rootURL,
+            since: since
+        )
+
+        #expect(history.events.contains { $0.path == source.path && $0.flags.contains(.itemRenamed) })
+        #expect(history.events.contains { $0.path == destination.path && $0.flags.contains(.itemRenamed) })
+    }
+
     @Test
     func testShallowRelistClassificationBudgetAccountsForConcurrentRelists() {
         var options = ScanOptions()
@@ -961,3 +993,35 @@ private func incrementalScanResult(
     Issue.record("Expected a finished incremental scan snapshot")
     throw CancellationError()
 }
+
+private func incrementalHistoryContaining(
+    _ paths: Set<String>,
+    provider: DarwinFileSystemEventHistoryProvider,
+    rootURL: URL,
+    since: ScanIncrementalCheckpoint
+) async throws -> FileSystemEventHistory {
+    try await withThrowingTaskGroup(of: FileSystemEventHistory.self) { group in
+        group.addTask {
+            while true {
+                try Task.checkCancellation()
+                let through = try provider.currentCheckpoint(for: rootURL)
+                if through.eventID > since.eventID {
+                    let history = try await provider.history(for: rootURL, since: since, through: through)
+                    if paths.isSubset(of: Set(history.events.map(\.path))) {
+                        return history
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+        }
+        group.addTask {
+            try await Task.sleep(for: .seconds(15))
+            throw IncrementalHistoryTimeout()
+        }
+        defer { group.cancelAll() }
+        guard let history = try await group.next() else { throw CancellationError() }
+        return history
+    }
+}
+
+private struct IncrementalHistoryTimeout: Error {}
