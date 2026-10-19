@@ -78,7 +78,7 @@ nonisolated final class AtomicSummaryProgressReporter: @unchecked Sendable {
     private let visitHandler: VisitHandler?
     private var lastEmission = Date.distantPast
     private var hasEmitted = false
-    private var lastReportedVisitedItemCount = 0
+    private var maximumReportedVisitedItemCount = 0
 
     init(
         metrics: ScanMetrics,
@@ -93,10 +93,8 @@ nonisolated final class AtomicSummaryProgressReporter: @unchecked Sendable {
     func emit(currentURL: URL, visitedItemCount: Int? = nil) {
         lock.lock()
         if let visitedItemCount, let visitHandler {
-            let delta = visitedItemCount >= lastReportedVisitedItemCount
-                ? visitedItemCount - lastReportedVisitedItemCount
-                : visitedItemCount
-            lastReportedVisitedItemCount = visitedItemCount
+            let delta = max(visitedItemCount - maximumReportedVisitedItemCount, 0)
+            maximumReportedVisitedItemCount = max(maximumReportedVisitedItemCount, visitedItemCount)
             if delta > 0 {
                 visitHandler(delta, currentURL)
             }
@@ -120,12 +118,6 @@ nonisolated final class AtomicSummaryProgressReporter: @unchecked Sendable {
 
     func finish(currentURL: URL, visitedItemCount: Int) {
         emit(currentURL: currentURL, visitedItemCount: visitedItemCount)
-    }
-
-    func beginPhase() {
-        lock.lock()
-        lastReportedVisitedItemCount = 0
-        lock.unlock()
     }
 }
 
@@ -221,7 +213,6 @@ extension AtomicDirectorySummarizer {
             if item.requiresRootRestartOnFallback {
                 throw AtomicSummaryRootFallbackRequired()
             }
-            progressReporter.beginPhase()
             return try processPooledWorkItemUsingFoundation(
                 item,
                 includeHiddenFiles: includeHiddenFiles,
