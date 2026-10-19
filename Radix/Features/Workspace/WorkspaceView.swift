@@ -120,7 +120,7 @@ struct WorkspaceView: View {
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) {
-            if let folderRescanState = scanState.folderRescanState {
+            if let folderRescanState = scanState.folderRescanState, !folderRescanState.isBackground {
                 FolderRescanProgressBanner(
                     state: folderRescanState,
                     progress: scanState.progress,
@@ -129,6 +129,13 @@ struct WorkspaceView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
                 .topBannerTransition()
+            } else if let focusedNodeID = navigation.focusedNodeID,
+                      scanState.backgroundRefreshManualRescanNodeIDs.contains(focusedNodeID),
+                      !scanState.isScanOperationInProgress {
+                BackgroundRefreshPausedBanner(rescan: actions.rescan)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .topBannerTransition()
             } else if let notice = scanState.scanCompletionNotice {
                 ScanCompletionNoticeBanner(
                     notice: notice,
@@ -156,7 +163,7 @@ struct WorkspaceView: View {
                 } label: {
                     Label("Choose Folder", systemImage: "folder.badge.plus")
                 }
-                .disabled(scanState.isScanOperationInProgress)
+                .disabled(scanState.isForegroundScanOperationInProgress)
                 .help("Choose Folder")
 
                 if scanState.canStopScan {

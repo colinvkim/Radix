@@ -357,6 +357,15 @@ private final class TransferControlledScanService: ScanEventStreaming, @unchecke
         stream(Request(target: target, baseline: nil, options: options, forcedPaths: []))
     }
 
+    func scanSubtree(
+        target: ScanTarget,
+        preservingBehaviorOf scanTarget: ScanTarget,
+        options: ScanOptions,
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        scan(target: target, options: options)
+    }
+
     func rescan(
         target: ScanTarget, options: ScanOptions, from baseline: ScanSnapshot
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {

@@ -893,7 +893,8 @@ nonisolated final class ScanEngine: Sendable {
     func scan(
         target: ScanTarget,
         options: ScanOptions,
-        preservingBehaviorOf scanTarget: ScanTarget
+        preservingBehaviorOf scanTarget: ScanTarget,
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore? = nil
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task(priority: .userInitiated) {
@@ -902,6 +903,7 @@ nonisolated final class ScanEngine: Sendable {
                         target: target,
                         scanTarget: scanTarget,
                         options: options,
+                        preservingMaterializedDirectoriesIn: treeStore,
                         continuation: continuation
                     )
                     continuation.yield(.finished(snapshot))
@@ -1051,6 +1053,7 @@ nonisolated final class ScanEngine: Sendable {
         target: ScanTarget,
         scanTarget: ScanTarget,
         options: ScanOptions,
+        preservingMaterializedDirectoriesIn materializedTree: FileTreeStore?,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) async throws -> ScanSnapshot {
         let startedAt = Date()
@@ -1076,6 +1079,7 @@ nonisolated final class ScanEngine: Sendable {
             target: target,
             includeVolumeDetails: true,
             options: options,
+            preservingMaterializedDirectoriesIn: materializedTree,
             behavior: behavior,
             exclusionMatcher: exclusionMatcher,
             metrics: &metrics,
@@ -1152,6 +1156,7 @@ nonisolated final class ScanEngine: Sendable {
         target: ScanTarget,
         includeVolumeDetails: Bool,
         options: ScanOptions,
+        preservingMaterializedDirectoriesIn materializedTree: FileTreeStore?,
         behavior: ScanBehavior,
         exclusionMatcher: ScanExclusionMatcher,
         metrics: inout ScanMetrics,
@@ -1482,7 +1487,12 @@ nonisolated final class ScanEngine: Sendable {
                                     isNodeDependencyLayout: isNodeDependencyLayout
                                 )
                                 let isAtomicSummaryCandidate: Bool
-                                if options.autoSummarizeDirectories, canProbeForAutoSummary {
+                                // Keep browsable contents expanded during refresh; collapsed
+                                // and newly discovered directories still use normal summaries.
+                                let preservesMaterializedDirectory = materializedTree?.node(id: taskItem.url.path)
+                                    .map { $0.isDirectory && !$0.isAutoSummarized } == true
+                                if options.autoSummarizeDirectories, canProbeForAutoSummary,
+                                   !preservesMaterializedDirectory {
                                     isAtomicSummaryCandidate = try scanAtomicDirectorySummarizer.isAtomicSummaryCandidate(
                                         url: taskItem.url,
                                         childEntries: contents.entries,

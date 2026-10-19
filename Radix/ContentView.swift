@@ -305,6 +305,7 @@ struct ContentView: View {
             Text(cloudFileConfirmationMessage)
         }
         .onAppear {
+            appModel.resumeMainWindowActivity()
             if scenePhase == .active { appModel.handleApplicationBecameActive() }
         }
         .onDisappear {
@@ -318,6 +319,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
+                appModel.resumeMainWindowActivity()
                 appModel.handleApplicationBecameActive()
             case .background:
                 discardPileDragDidEnd()
@@ -588,6 +590,7 @@ private extension ContentView {
         discardPileDragMonitorTask?.cancel()
         discardPileDragMonitorTask = nil
         discardPileDragIsActive = false
+        appModel.setWorkspaceDragActive(false)
     }
 
     private func setDiscardPileDragIsActive(_ isActive: Bool) {
@@ -597,6 +600,7 @@ private extension ContentView {
         }
 
         discardPileDragIsActive = true
+        appModel.setWorkspaceDragActive(true)
         discardPileDragMonitorTask?.cancel()
         discardPileDragMonitorTask = Task { @MainActor in
             await monitorDiscardPileDragUntilMouseUp()

@@ -56,6 +56,11 @@ private struct ScanningSettingsPane: View {
                     detail: "Group folders with thousands of tiny files.",
                     isOn: $appModel.autoSummarizeDirectories
                 )
+                SettingsToggle(
+                    "Keep the current folder updated",
+                    detail: "Refresh the folder you’re browsing when files change. Whole-disk views and saved scans aren’t refreshed automatically.",
+                    isOn: $appModel.automaticallyRefreshFocusedFolder
+                )
             }
 
             Section("Exclusions") {

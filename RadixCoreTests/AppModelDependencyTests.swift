@@ -3932,6 +3932,15 @@ private final class NeverFinishingScanService: ScanEventStreaming, @unchecked Se
         }
     }
 
+    func scanSubtree(
+        target: ScanTarget,
+        preservingBehaviorOf scanTarget: ScanTarget,
+        options: ScanOptions,
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        scan(target: target, options: options)
+    }
+
     func rescan(
         target: ScanTarget,
         options: ScanOptions,
@@ -3969,6 +3978,15 @@ private final class ControlledAppModelScanService: ScanEventStreaming, @unchecke
             storedOptions.append(options)
             lock.unlock()
         }
+    }
+
+    func scanSubtree(
+        target: ScanTarget,
+        preservingBehaviorOf scanTarget: ScanTarget,
+        options: ScanOptions,
+        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        scan(target: target, options: options)
     }
 
     func rescan(

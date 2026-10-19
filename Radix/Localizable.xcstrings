@@ -1,6 +1,190 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Keep the current folder updated" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep the current folder updated"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktuellen Ordner aktuell halten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantener actualizada la carpeta actual"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintenir le dossier actuel à jour"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantieni aggiornata la cartella attuale"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновлять текущую папку"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保持当前文件夹更新"
+          }
+        }
+      }
+    },
+    "Refresh the folder you’re browsing when files change. Whole-disk views and saved scans aren’t refreshed automatically." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh the folder you’re browsing when files change. Whole-disk views and saved scans aren’t refreshed automatically."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktualisiert den geöffneten Ordner, wenn sich Dateien ändern. Ansichten ganzer Festplatten und gespeicherte Scans werden nicht automatisch aktualisiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualiza la carpeta que estás viendo cuando cambian los archivos. Las vistas de discos completos y los análisis guardados no se actualizan automáticamente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualise le dossier que vous consultez lorsque les fichiers changent. Les vues de disques entiers et les analyses enregistrées ne sont pas actualisées automatiquement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiorna la cartella che stai visualizzando quando i file cambiano. Le viste dell’intero disco e le scansioni salvate non vengono aggiornate automaticamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновляет открытую папку при изменении файлов. Просмотр всего диска и сохранённые результаты сканирования не обновляются автоматически."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件发生变化时，刷新你正在浏览的文件夹。整个磁盘视图和已保存的扫描不会自动刷新。"
+          }
+        }
+      }
+    },
+    "Refresh this folder manually" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh this folder manually"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Ordner manuell aktualisieren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualizar esta carpeta manualmente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualiser ce dossier manuellement"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiorna questa cartella manualmente"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновите эту папку вручную"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手动刷新此文件夹"
+          }
+        }
+      }
+    },
+    "Automatic refresh could not safely update this folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic refresh could not safely update this folder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Ordner konnte nicht sicher automatisch aktualisiert werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La actualización automática no pudo actualizar esta carpeta de forma segura."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’actualisation automatique n’a pas pu mettre à jour ce dossier en toute sécurité."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’aggiornamento automatico non ha potuto aggiornare questa cartella in modo sicuro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось безопасно обновить эту папку автоматически."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动刷新无法安全更新此文件夹。"
+          }
+        }
+      }
+    },
     "-" : {
       "localizations" : {
         "de" : {
