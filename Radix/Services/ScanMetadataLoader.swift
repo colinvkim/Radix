@@ -405,8 +405,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
             diagnostics?.record(operation: "metadata.package.fast_negative", url: url, startedAt: start)
         case .finderInfo:
             diagnostics?.record(operation: "metadata.package.finder_info", url: url, startedAt: start)
-        case .extensionCache:
-            diagnostics?.record(operation: "metadata.package.extension_cache", url: url, startedAt: start)
         }
         #endif
         return classification.isPackage
