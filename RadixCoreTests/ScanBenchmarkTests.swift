@@ -1032,12 +1032,11 @@ struct ScanBenchmarkTests {
 
         #expect(coldValues == legacyValues)
         #expect(warmValues == legacyValues)
-        let extensionlessCount = directoryURLs.count { $0.pathExtension.isEmpty }
         let foundationExtensionCount = Set(
             directoryURLs.lazy.map(\.pathExtension).filter { !$0.isEmpty && $0 != "txt" }
         ).count
-        #expect(coldLookups == extensionlessCount + foundationExtensionCount)
-        #expect(warmLookups == extensionlessCount)
+        #expect(coldLookups == foundationExtensionCount)
+        #expect(warmLookups == 0)
         #expect(coldLookups < directoryCount)
         let reduction = 100 * (1 - Double(coldLookups) / Double(directoryCount))
         print(

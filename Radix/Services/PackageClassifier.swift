@@ -1,9 +1,10 @@
 import Foundation
 
 /// Avoids repeated Foundation package-property lookups by combining the native
-/// Finder bundle bit with scan-scoped filename-extension decisions. Extensionless
-/// names retain their per-directory Foundation fallback; every new nonempty
-/// extension retains one conservative Foundation compatibility lookup.
+/// Finder bundle bit with scan-scoped filename-extension decisions. Without the
+/// bundle bit, only a filename extension can make a directory a package, so
+/// extensionless names never need Foundation; every new nonempty extension
+/// retains one conservative Foundation compatibility lookup.
 nonisolated final class PackageClassifier: @unchecked Sendable {
     enum ExtensionDisposition: Sendable {
         case knownNonPackage
@@ -74,7 +75,7 @@ nonisolated final class PackageClassifier: @unchecked Sendable {
 
         let pathExtension = url.pathExtension.lowercased()
         guard !pathExtension.isEmpty else {
-            return foundationClassification(for: url)
+            return Classification(isPackage: false, source: .fastNegative)
         }
 
         let disposition: ExtensionDisposition

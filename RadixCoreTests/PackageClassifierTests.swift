@@ -37,14 +37,19 @@ struct PackageClassifierTests {
         #expect(counters.foundationCount == 2)
 
         let extensionlessURL = URL(filePath: "/tmp/Extensionless", directoryHint: .isDirectory)
-        #expect(!(classifier.classification(for: extensionlessURL, hasFinderPackageFlag: false).isPackage))
-        #expect(counters.foundationCount == 3)
+        let extensionlessClassification = classifier.classification(
+            for: extensionlessURL,
+            hasFinderPackageFlag: false
+        )
+        #expect(!(extensionlessClassification.isPackage))
+        #expect(extensionlessClassification.source == .fastNegative)
+        #expect(counters.foundationCount == 2)
 
         #expect(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: true).isPackage)
-        #expect(counters.foundationCount == 3)
+        #expect(counters.foundationCount == 2)
 
         #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: nil).isPackage))
-        #expect(counters.foundationCount == 4)
+        #expect(counters.foundationCount == 3)
     }
 
     @Test
@@ -87,8 +92,8 @@ struct PackageClassifierTests {
         #expect(packageValueByName["Ordinary.txt"] == false)
         #expect(packageValueByName["Sample.app"] == true)
         #expect(packageValueByName["Custom.weird"] == true)
-        #expect(packageValueByName["Extensionless"] == true)
-        #expect(counters.foundationCount == 3)
+        #expect(packageValueByName["Extensionless"] == false)
+        #expect(counters.foundationCount == 2)
 
         let noPackageResultValue = try
             (BulkDirectoryEnumerator.directoryEntries(
@@ -100,7 +105,7 @@ struct PackageClassifierTests {
             ))
         let noPackageResult = try #require(noPackageResultValue)
         #expect(noPackageResult.entries.allSatisfy { $0.metadata?.isPackage == false })
-        #expect(counters.foundationCount == 3)
+        #expect(counters.foundationCount == 2)
     }
 
     @Test
@@ -263,6 +268,39 @@ struct PackageClassifierTests {
             ))
         let result = try #require(resultValue)
         #expect(result.entries.allSatisfy { $0.metadata?.isPackage == true })
+    }
+
+    @Test
+    func testBundleShapedExtensionlessDirectoryMatchesFoundation() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundleURL = rootURL.appending(path: "BundleShaped", directoryHint: .isDirectory)
+        let contentsURL = bundleURL.appending(path: "Contents", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+        let infoPlist = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleIdentifier": "com.example.radix.bundle-shaped",
+                "CFBundlePackageType": "APPL",
+            ],
+            format: .xml,
+            options: 0
+        )
+        try infoPlist.write(to: contentsURL.appending(path: "Info.plist"))
+        try Data("APPL????".utf8).write(to: contentsURL.appending(path: "PkgInfo"))
+
+        #expect(try bundleURL.resourceValues(forKeys: [.isPackageKey]).isPackage == false)
+
+        let resultValue = try
+            (BulkDirectoryEnumerator.directoryEntries(
+                at: rootURL,
+                includeHiddenFiles: true,
+                metadataLoader: ScanMetadataLoader(),
+                cancellationCheck: {}
+            ))
+        let result = try #require(resultValue)
+        #expect(result.entries.map(\.url.lastPathComponent) == ["BundleShaped"])
+        #expect(result.entries.allSatisfy { $0.metadata?.isPackage == false })
     }
 
     @Test
