@@ -180,6 +180,7 @@ extension AtomicDirectorySummarizer {
                 )
                 cursor = try BulkDirectoryEnumerator.makeCursor(
                     at: item.url,
+                    expectedIdentity: item.expectedIdentity,
                     includeHiddenFiles: includeHiddenFiles,
                     loadsPackageMetadata: !item.treatPackagesAsDirectories,
                     metadataLoader: metadataLoader,
@@ -579,6 +580,7 @@ extension AtomicDirectorySummarizer {
                     treatPackagesAsDirectories: childMetadata.isPackage ? true : item.treatPackagesAsDirectories,
                     ownerNodeID: item.ownerNodeID,
                     expectedIdentity: childMetadata.fileIdentity?.isFileSystemIdentity == true
+                        && ScanEngine.verifiesDirectoryIdentity(at: childURL)
                         ? childMetadata.fileIdentity
                         : nil,
                     volumeBoundaryPolicy: item.volumeBoundaryPolicy
