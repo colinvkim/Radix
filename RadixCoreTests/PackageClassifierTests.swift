@@ -100,23 +100,28 @@ struct PackageClassifierTests {
             return false
         })
 
-        for name in ["Ordinary.txt", "English.lproj"] {
+        for name in [
+            "Ordinary.txt", "English.lproj", "Python.framework", "3.11", "Version.2026",
+            "radix-1.0.dist-info", "Radix.swiftmodule",
+        ] {
             let classification = classifier.classification(
                 for: URL(filePath: "/tmp/\(name)", directoryHint: .isDirectory),
                 hasFinderPackageFlag: false
             )
-            #expect(!(classification.isPackage))
-            #expect(classification.source == .fastNegative)
+            #expect(!(classification.isPackage), "\(name)")
+            #expect(classification.source == .fastNegative, "\(name)")
         }
         #expect(counters.foundationCount == 0)
 
-        let unknownClassification = classifier.classification(
-            for: URL(filePath: "/tmp/Unknown.radixunknown", directoryHint: .isDirectory),
-            hasFinderPackageFlag: false
-        )
-        #expect(!(unknownClassification.isPackage))
-        #expect(unknownClassification.source == .foundation)
-        #expect(counters.foundationCount == 1)
+        for name in ["Unknown.radixunknown", "Release.1a"] {
+            let classification = classifier.classification(
+                for: URL(filePath: "/tmp/\(name)", directoryHint: .isDirectory),
+                hasFinderPackageFlag: false
+            )
+            #expect(!(classification.isPackage), "\(name)")
+            #expect(classification.source == .foundation, "\(name)")
+        }
+        #expect(counters.foundationCount == 2)
     }
 
     @Test
@@ -213,7 +218,7 @@ struct PackageClassifierTests {
         let plainURL = rootURL.appending(path: "Plain.lproj", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: plainURL, withIntermediateDirectories: true)
         var bundleURLs: [URL] = []
-        for name in ["Bundle.lproj", "Bundle.txt"] {
+        for name in ["Bundle.lproj", "Bundle.txt", "Bundle.framework", "Bundle.42"] {
             let url = rootURL.appending(path: name, directoryHint: .isDirectory)
             try FileManager.default.createDirectory(
                 at: url.appending(path: "Contents", directoryHint: .isDirectory),

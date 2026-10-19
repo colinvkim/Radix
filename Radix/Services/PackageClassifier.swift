@@ -20,14 +20,16 @@ nonisolated struct PackageClassifier: Sendable {
 
     typealias FoundationPackageProvider = @Sendable (URL) -> Bool?
 
-    /// Stable content-file extensions that cannot imply a package on their own.
-    /// A native Finder bundle bit always takes precedence, and unknown extensions
-    /// go to Foundation so dynamically registered package types stay compatible.
-    /// `Contents/PkgInfo` makes a directory with any extension a generic bundle.
+    /// Stable extensions that cannot imply a package on their own, along with
+    /// all-digit extensions such as `Versions/3.11`. A native Finder bundle bit
+    /// always takes precedence, and unknown extensions go to Foundation so
+    /// dynamically registered package types stay compatible. `Contents/PkgInfo`
+    /// makes a directory with any extension a generic bundle.
     private static let knownNonPackageExtensions: Set<String> = [
-        "c", "cc", "cpp", "css", "csv", "h", "hpp", "htm", "html", "js",
-        "json", "log", "lproj", "m", "md", "mm", "plist", "py", "sh", "strings",
-        "swift", "text", "ts", "txt", "xml", "yaml", "yml"
+        "asset", "c", "cat", "cc", "cpp", "css", "csv", "dist-info", "framework",
+        "h", "hpp", "htm", "html", "js", "json", "log", "lproj", "m", "md", "mm",
+        "plist", "py", "sh", "strings", "swift", "swiftmodule", "text", "ts", "txt",
+        "xml", "yaml", "yml"
     ]
 
     private let foundationPackageProvider: FoundationPackageProvider
@@ -48,7 +50,7 @@ nonisolated struct PackageClassifier: Sendable {
         if hasFinderPackageFlag == false {
             let pathExtension = url.pathExtension.lowercased()
             if pathExtension.isEmpty ||
-                (Self.knownNonPackageExtensions.contains(pathExtension) && !Self.hasPackageInfo(url)) {
+                (Self.isKnownNonPackageExtension(pathExtension) && !Self.hasPackageInfo(url)) {
                 return Classification(isPackage: false, source: .fastNegative)
             }
         }
@@ -56,6 +58,11 @@ nonisolated struct PackageClassifier: Sendable {
             isPackage: foundationPackageProvider(url) ?? false,
             source: .foundation
         )
+    }
+
+    private static func isKnownNonPackageExtension(_ pathExtension: String) -> Bool {
+        knownNonPackageExtensions.contains(pathExtension)
+            || pathExtension.utf8.allSatisfy { $0 >= UInt8(ascii: "0") && $0 <= UInt8(ascii: "9") }
     }
 
     private static func hasPackageInfo(_ url: URL) -> Bool {
