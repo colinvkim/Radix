@@ -3525,28 +3525,17 @@ struct ScanEngineTests {
 
     @Test
     func testStartupVolumeFirmlinksSkipDescriptorIdentityVerification() {
-        let startupBehavior = ScanEngine.ScanBehavior(excludesStartupVolumeInternals: true)
-        let standardBehavior = ScanEngine.ScanBehavior.standard
-
         #expect(
             !(ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/Applications", directoryHint: .isDirectory),
-                behavior: startupBehavior
+                at: URL(filePath: "/Applications", directoryHint: .isDirectory)
             )))
         #expect(
             !(ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/usr/local", directoryHint: .isDirectory),
-                behavior: startupBehavior
+                at: URL(filePath: "/usr/local", directoryHint: .isDirectory)
             )))
         #expect(
             ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/System", directoryHint: .isDirectory),
-                behavior: startupBehavior
-            ))
-        #expect(
-            ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/Applications", directoryHint: .isDirectory),
-                behavior: standardBehavior
+                at: URL(filePath: "/System", directoryHint: .isDirectory)
             ))
     }
 

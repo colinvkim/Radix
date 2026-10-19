@@ -1452,8 +1452,7 @@ nonisolated final class ScanEngine: Sendable {
                                     parentDirectoryLease: taskItem.parentDirectoryLease,
                                     nativeName: taskItem.nativeName,
                                     expectedIdentity: Self.verifiesDirectoryIdentity(
-                                        at: taskItem.url,
-                                        behavior: behavior
+                                        at: taskItem.url
                                     ) ? taskMetadata.fileIdentity : nil,
                                     classificationWorkerLimit: effectiveDirectoryClassificationWorkerLimit,
                                     preloadedListing: preloadedListing,
@@ -1635,8 +1634,7 @@ nonisolated final class ScanEngine: Sendable {
                             childEntries: candidate.contents.entries,
                             metadata: candidate.metadata,
                             expectedRootIdentity: Self.verifiesDirectoryIdentity(
-                                at: candidate.item.url,
-                                behavior: behavior
+                                at: candidate.item.url
                             ) ? candidate.metadata.fileIdentity : nil,
                             includeHiddenFiles: options.includeHiddenFiles,
                             treatPackagesAsDirectories: options.treatPackagesAsDirectories,
@@ -2964,16 +2962,11 @@ nonisolated final class ScanEngine: Sendable {
         behavior.excludesStartupVolumeInternals && (parentURL.path == "/" || parentURL.path == "/System")
     }
 
-    /// Startup-volume firmlinks deliberately resolve from the sealed System
-    /// volume into the Data volume. Their enumerated and opened identities are
-    /// therefore expected to differ; all other directory opens retain strict
-    /// replacement detection.
-    static func verifiesDirectoryIdentity(
-        at url: URL,
-        behavior: ScanBehavior
-    ) -> Bool {
-        !behavior.excludesStartupVolumeInternals
-            || !TrashSafetyPolicy.isStartupVolumeFirmlinkRoot(url)
+    /// Startup-volume firmlinks resolve from the sealed System volume into the
+    /// Data volume, so the identity that bulk enumeration reports for them never
+    /// matches the opened descriptor.
+    static func verifiesDirectoryIdentity(at url: URL) -> Bool {
+        !TrashSafetyPolicy.isStartupVolumeFirmlinkRoot(url)
     }
 
     func makeFileNode(
@@ -3031,8 +3024,7 @@ nonisolated final class ScanEngine: Sendable {
                representedItemCount: 0,
                ownerNodeID: url.path,
                expectedRootIdentity: Self.verifiesDirectoryIdentity(
-                   at: url,
-                   behavior: behavior
+                   at: url
                ) ? metadata.fileIdentity : nil,
                exclusionMatcher: exclusionMatcher,
                cancellationCheck: cancellationCheck,
