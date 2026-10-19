@@ -64,6 +64,29 @@ struct FullDiskScanScalingBenchmarkTests {
     }
 
     @Test
+    func testRepresentationExcludesSummarizedEphemeralRoot() {
+        let app = makeTestDirectoryNode(id: "/Applications/Kept.app", name: "Kept.app", children: [], isPackage: true)
+        let summarized = makeTestSummarizedDirectoryNode(
+            id: "/private/var/folders", name: "folders", size: 1, descendantFileCount: 3)
+        let root = makeTestDirectoryNode(id: "/", name: "/", children: [app, summarized])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [app, summarized]])
+        let filtered = Self.representationStats(store, excludingDescendantsOf: summarized.id)
+        let unfiltered = Self.representationStats(store, excludingDescendantsOf: nil)
+        let referenceRoot = makeTestDirectoryNode(id: "/", name: "/", children: [app])
+        let reference = Self.representationStats(
+            FileTreeStore(root: referenceRoot, childrenByID: [referenceRoot.id: [app]]),
+            excludingDescendantsOf: nil
+        )
+
+        #expect(filtered.packageNodes == 1)
+        #expect(filtered.autoSummarizedNodes == 0)
+        #expect(filtered.summarizedDescendantFiles == 0)
+        #expect(filtered.fingerprint == reference.fingerprint)
+        #expect(unfiltered.autoSummarizedNodes == 1)
+        #expect(unfiltered.summarizedDescendantFiles == 3)
+    }
+
+    @Test
     func testRootScanRequiresExplicitAuthorization() throws {
         let rootURL = URL(filePath: "/", directoryHint: .isDirectory)
         let rootSymlinkURL = FileManager.default.temporaryDirectory.appending(
