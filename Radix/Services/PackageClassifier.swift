@@ -23,6 +23,7 @@ nonisolated struct PackageClassifier: Sendable {
     /// Stable content-file extensions that cannot imply a package on their own.
     /// A native Finder bundle bit always takes precedence, and unknown extensions
     /// go to Foundation so dynamically registered package types stay compatible.
+    /// `Contents/PkgInfo` makes a directory with any extension a generic bundle.
     private static let knownNonPackageExtensions: Set<String> = [
         "c", "cc", "cpp", "css", "csv", "h", "hpp", "htm", "html", "js",
         "json", "log", "lproj", "m", "md", "mm", "plist", "py", "sh", "strings",
@@ -46,7 +47,8 @@ nonisolated struct PackageClassifier: Sendable {
         }
         if hasFinderPackageFlag == false {
             let pathExtension = url.pathExtension.lowercased()
-            if pathExtension.isEmpty || Self.knownNonPackageExtensions.contains(pathExtension) {
+            if pathExtension.isEmpty ||
+                (Self.knownNonPackageExtensions.contains(pathExtension) && !Self.hasPackageInfo(url)) {
                 return Classification(isPackage: false, source: .fastNegative)
             }
         }
@@ -54,6 +56,14 @@ nonisolated struct PackageClassifier: Sendable {
             isPackage: foundationPackageProvider(url) ?? false,
             source: .foundation
         )
+    }
+
+    private static func hasPackageInfo(_ url: URL) -> Bool {
+        var status = stat()
+        return url.appending(path: "Contents/PkgInfo").withUnsafeFileSystemRepresentation { path in
+            guard let path else { return true }
+            return lstat(path, &status) == 0
+        }
     }
 
     private static func defaultFoundationPackageValue(for url: URL) -> Bool? {
