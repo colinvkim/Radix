@@ -463,7 +463,7 @@ struct FullDiskScanScalingBenchmarkTests {
         for nodeIndex in store.indexedNodeIndices() {
             guard let node = store.node(at: nodeIndex),
                   node.isPackage || node.isAutoSummarized else { continue }
-            if let excludedPrefix, node.id.hasPrefix(excludedPrefix) {
+            if let excludedPrefix, node.id == excludedPath || node.id.hasPrefix(excludedPrefix) {
                 continue
             }
             if node.isPackage {
