@@ -1016,31 +1016,21 @@ struct ScanBenchmarkTests {
             counter.recordLookup()
             return try? url.resourceValues(forKeys: [.isPackageKey]).isPackage
         })
-        let coldStart = ContinuousClock.now
-        let coldValues = directoryURLs.map {
+        let classifiedStart = ContinuousClock.now
+        let classifiedValues = directoryURLs.map {
             classifier.classification(for: $0, hasFinderPackageFlag: false).isPackage
         }
-        let coldElapsed = Self.elapsedSeconds(since: coldStart)
-        let coldLookups = counter.lookupCount
+        let classifiedElapsed = Self.elapsedSeconds(since: classifiedStart)
+        let lookups = counter.lookupCount
 
-        let warmStart = ContinuousClock.now
-        let warmValues = directoryURLs.map {
-            classifier.classification(for: $0, hasFinderPackageFlag: false).isPackage
+        #expect(classifiedValues == legacyValues)
+        let foundationDirectoryCount = directoryURLs.count {
+            !$0.pathExtension.isEmpty && $0.pathExtension != "txt"
         }
-        let warmElapsed = Self.elapsedSeconds(since: warmStart)
-        let warmLookups = counter.lookupCount - coldLookups
-
-        #expect(coldValues == legacyValues)
-        #expect(warmValues == legacyValues)
-        let foundationExtensionCount = Set(
-            directoryURLs.lazy.map(\.pathExtension).filter { !$0.isEmpty && $0 != "txt" }
-        ).count
-        #expect(coldLookups == foundationExtensionCount)
-        #expect(warmLookups == 0)
-        #expect(coldLookups < directoryCount)
-        let reduction = 100 * (1 - Double(coldLookups) / Double(directoryCount))
+        #expect(lookups == foundationDirectoryCount)
+        let reduction = 100 * (1 - Double(lookups) / Double(directoryCount))
         print(
-            "RADIX_BENCH_PACKAGE_CLASSIFIER dirs=\(directoryCount) legacy_elapsed=\(String(format: "%.3f", legacyElapsed))s cold_elapsed=\(String(format: "%.3f", coldElapsed))s warm_elapsed=\(String(format: "%.3f", warmElapsed))s cold_foundation_lookups=\(coldLookups) warm_foundation_lookups=\(warmLookups) lookup_reduction=\(String(format: "%.1f", reduction))%"
+            "RADIX_BENCH_PACKAGE_CLASSIFIER dirs=\(directoryCount) legacy_elapsed=\(String(format: "%.3f", legacyElapsed))s classified_elapsed=\(String(format: "%.3f", classifiedElapsed))s foundation_lookups=\(lookups) lookup_reduction=\(String(format: "%.1f", reduction))%"
         )
     }
 

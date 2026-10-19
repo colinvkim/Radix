@@ -6,35 +6,25 @@ import Testing
 
 struct PackageClassifierTests {
     @Test
-    func testClassifierRoutesAndCachesConservativeExtensionDecisions() {
+    func testClassifierRoutesEachDirectoryToTheCheapestSource() {
         let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(
-            extensionDispositionProvider: { pathExtension in
-                counters.recordExtension(pathExtension)
-                return pathExtension == "txt" ? .knownNonPackage : .ambiguous
-            },
-            foundationPackageProvider: { url in
-                counters.recordFoundation(url)
-                return ["Sample.app", "Custom.weird"].contains(url.lastPathComponent)
-            }
-        )
+        let classifier = PackageClassifier(foundationPackageProvider: { url in
+            counters.recordFoundation(url)
+            return ["Sample.app", "Custom.weird"].contains(url.lastPathComponent)
+        })
 
         let ordinaryURL = URL(filePath: "/tmp/Ordinary.TXT", directoryHint: .isDirectory)
-        #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).isPackage))
-        #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).isPackage))
-        #expect(counters.extensionCount(for: "txt") == 1)
+        #expect(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).source == .fastNegative)
         #expect(counters.foundationCount == 0)
 
         let appURL = URL(filePath: "/tmp/Sample.app", directoryHint: .isDirectory)
         #expect(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
         #expect(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
-        #expect(counters.foundationCount == 1)
+        #expect(counters.foundationCount == 2)
 
         let customURL = URL(filePath: "/tmp/Custom.weird", directoryHint: .isDirectory)
         #expect(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
-        #expect(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
-        #expect(counters.extensionCount(for: "weird") == 1)
-        #expect(counters.foundationCount == 2)
+        #expect(counters.foundationCount == 3)
 
         let extensionlessURL = URL(filePath: "/tmp/Extensionless", directoryHint: .isDirectory)
         let extensionlessClassification = classifier.classification(
@@ -43,13 +33,13 @@ struct PackageClassifierTests {
         )
         #expect(!(extensionlessClassification.isPackage))
         #expect(extensionlessClassification.source == .fastNegative)
-        #expect(counters.foundationCount == 2)
+        #expect(counters.foundationCount == 3)
 
         #expect(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: true).isPackage)
-        #expect(counters.foundationCount == 2)
+        #expect(counters.foundationCount == 3)
 
         #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: nil).isPackage))
-        #expect(counters.foundationCount == 3)
+        #expect(counters.foundationCount == 4)
     }
 
     @Test
@@ -65,16 +55,10 @@ struct PackageClassifierTests {
         }
 
         let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(
-            extensionDispositionProvider: { pathExtension in
-                counters.recordExtension(pathExtension)
-                return pathExtension == "txt" ? .knownNonPackage : .ambiguous
-            },
-            foundationPackageProvider: { url in
-                counters.recordFoundation(url)
-                return ["Sample.app", "Custom.weird", "Extensionless"].contains(url.lastPathComponent)
-            }
-        )
+        let classifier = PackageClassifier(foundationPackageProvider: { url in
+            counters.recordFoundation(url)
+            return ["Sample.app", "Custom.weird", "Extensionless"].contains(url.lastPathComponent)
+        })
         let metadataLoader = ScanMetadataLoader(packageClassifier: classifier)
         let resultValue = try
             (BulkDirectoryEnumerator.directoryEntries(
@@ -109,27 +93,6 @@ struct PackageClassifierTests {
     }
 
     @Test
-    func testAmbiguousExtensionUsesOneFoundationDecisionPerScan() {
-        let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(foundationPackageProvider: { url in
-            counters.recordFoundation(url)
-            return false
-        })
-
-        #expect(
-            !(classifier.classification(
-                for: URL(filePath: "/tmp/First.cache", directoryHint: .isDirectory),
-                hasFinderPackageFlag: false
-            ).isPackage))
-        #expect(
-            !(classifier.classification(
-                for: URL(filePath: "/tmp/Second.CACHE", directoryHint: .isDirectory),
-                hasFinderPackageFlag: false
-            ).isPackage))
-        #expect(counters.foundationCount == 1)
-    }
-
-    @Test
     func testDefaultPolicyFastNegativesOnlyKnownContentExtensions() {
         let counters = PackageClassifierCounters()
         let classifier = PackageClassifier(foundationPackageProvider: { url in
@@ -137,12 +100,14 @@ struct PackageClassifierTests {
             return false
         })
 
-        let textClassification = classifier.classification(
-            for: URL(filePath: "/tmp/Ordinary.txt", directoryHint: .isDirectory),
-            hasFinderPackageFlag: false
-        )
-        #expect(!(textClassification.isPackage))
-        #expect(textClassification.source == .fastNegative)
+        for name in ["Ordinary.txt", "English.lproj"] {
+            let classification = classifier.classification(
+                for: URL(filePath: "/tmp/\(name)", directoryHint: .isDirectory),
+                hasFinderPackageFlag: false
+            )
+            #expect(!(classification.isPackage))
+            #expect(classification.source == .fastNegative)
+        }
         #expect(counters.foundationCount == 0)
 
         let unknownClassification = classifier.classification(
@@ -151,96 +116,6 @@ struct PackageClassifierTests {
         )
         #expect(!(unknownClassification.isPackage))
         #expect(unknownClassification.source == .foundation)
-        #expect(counters.foundationCount == 1)
-    }
-
-    @Test
-    func testKnownPackageCandidateExtensionsRemainConservative() {
-        let candidateExtensions = [
-            "app", "appex", "artifactbundle", "bundle", "component", "doccarchive",
-            "dsym", "framework", "kext", "mlmodelc", "momd", "mpkg", "pkg",
-            "systemextension", "vst", "vst3", "xcarchive", "xcdatamodeld",
-            "xcframework", "xcodeproj", "xcresult", "xctest", "xcworkspace", "xpc",
-        ]
-        let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(
-            extensionDispositionProvider: { _ in .knownNonPackage },
-            foundationPackageProvider: { url in
-                counters.recordFoundation(url)
-                return false
-            }
-        )
-
-        for pathExtension in candidateExtensions {
-            let url = URL(
-                filePath: "/tmp/Candidate.\(pathExtension)",
-                directoryHint: .isDirectory
-            )
-            let classification = classifier.classification(
-                for: url,
-                hasFinderPackageFlag: false
-            )
-            #expect(!(classification.isPackage))
-            #expect(classification.source == .foundation)
-        }
-        #expect(counters.foundationCount == candidateExtensions.count)
-    }
-
-    @Test
-    func testNativeAndFoundationHintsOverrideCachedExtensionValues() {
-        let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(foundationPackageProvider: { url in
-            counters.recordFoundation(url)
-            return url.lastPathComponent == "Direct.cache"
-        })
-
-        let cachedURL = URL(filePath: "/tmp/Cached.cache", directoryHint: .isDirectory)
-        #expect(
-            !(classifier.classification(
-                for: cachedURL,
-                hasFinderPackageFlag: false
-            ).isPackage))
-        #expect(counters.foundationCount == 1)
-
-        #expect(
-            classifier.classification(
-                for: cachedURL,
-                hasFinderPackageFlag: true
-            ).isPackage)
-        #expect(counters.foundationCount == 1)
-
-        #expect(
-            classifier.classification(
-                for: URL(filePath: "/tmp/Direct.cache", directoryHint: .isDirectory),
-                hasFinderPackageFlag: nil
-            ).isPackage)
-        #expect(counters.foundationCount == 2)
-    }
-
-    @Test
-    func testFailedFoundationDecisionDoesNotPoisonExtensionCache() {
-        let provider = FlakyPackageProvider()
-        let classifier = PackageClassifier(foundationPackageProvider: provider.value)
-        let url = URL(filePath: "/tmp/Retry.custom", directoryHint: .isDirectory)
-
-        #expect(!(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage))
-        #expect(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
-        #expect(provider.callCount == 2)
-    }
-
-    @Test
-    func testConcurrentAmbiguousExtensionResolutionIsSingleFlight() {
-        let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(foundationPackageProvider: { url in
-            counters.recordFoundation(url)
-            usleep(20_000)
-            return false
-        })
-
-        DispatchQueue.concurrentPerform(iterations: 32) { index in
-            let url = URL(filePath: "/tmp/Concurrent-\(index).cache", directoryHint: .isDirectory)
-            #expect(!(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage))
-        }
         #expect(counters.foundationCount == 1)
     }
 
@@ -304,6 +179,61 @@ struct PackageClassifierTests {
     }
 
     @Test
+    func testPackageDecisionsDoNotDependOnClassificationOrder() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let bundleURL = rootURL.appending(path: "Bundle.component", directoryHint: .isDirectory)
+        let folderURL = rootURL.appending(path: "Folder.component", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appending(path: "Contents", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try Data("BNDL????".utf8).write(to: bundleURL.appending(path: "Contents/PkgInfo"))
+
+        #expect(try bundleURL.resourceValues(forKeys: [.isPackageKey]).isPackage == true)
+        #expect(try folderURL.resourceValues(forKeys: [.isPackageKey]).isPackage == false)
+
+        for order in [[bundleURL, folderURL], [folderURL, bundleURL]] {
+            let classifier = PackageClassifier()
+            let isPackageByName = Dictionary(
+                uniqueKeysWithValues: order.map {
+                    ($0.lastPathComponent, classifier.classification(for: $0, hasFinderPackageFlag: false).isPackage)
+                })
+            #expect(isPackageByName == ["Bundle.component": true, "Folder.component": false])
+        }
+    }
+
+    @Test
+    func testKnownContentExtensionsWithPackageInfoMatchFoundation() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let plainURL = rootURL.appending(path: "Plain.lproj", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: plainURL, withIntermediateDirectories: true)
+        var bundleURLs: [URL] = []
+        for name in ["Bundle.lproj", "Bundle.txt"] {
+            let url = rootURL.appending(path: name, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "Contents", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+            try Data("BNDL????".utf8).write(to: url.appending(path: "Contents/PkgInfo"))
+            bundleURLs.append(url)
+        }
+
+        let classifier = PackageClassifier()
+        for url in bundleURLs {
+            #expect(try url.resourceValues(forKeys: [.isPackageKey]).isPackage == true)
+            #expect(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
+        }
+        let plainClassification = classifier.classification(for: plainURL, hasFinderPackageFlag: false)
+        #expect(!(plainClassification.isPackage))
+        #expect(plainClassification.source == .fastNegative)
+    }
+
+    @Test
     func testRegisteredPackageExtensionsMatchFoundation() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -362,7 +292,6 @@ struct PackageClassifierTests {
 
 private final class PackageClassifierCounters: @unchecked Sendable {
     private let lock = NSLock()
-    private var extensionCounts: [String: Int] = [:]
     private var foundationURLs: [URL] = []
 
     var foundationCount: Int {
@@ -371,41 +300,9 @@ private final class PackageClassifierCounters: @unchecked Sendable {
         return foundationURLs.count
     }
 
-    func extensionCount(for pathExtension: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return extensionCounts[pathExtension, default: 0]
-    }
-
-    func recordExtension(_ pathExtension: String) {
-        lock.lock()
-        extensionCounts[pathExtension, default: 0] += 1
-        lock.unlock()
-    }
-
     func recordFoundation(_ url: URL) {
         lock.lock()
         foundationURLs.append(url)
         lock.unlock()
-    }
-}
-
-private final class FlakyPackageProvider: @unchecked Sendable {
-    private let lock = NSLock()
-    private var calls = 0
-
-    var callCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return calls
-    }
-
-    func value(for url: URL) -> Bool? {
-        _ = url
-        lock.lock()
-        calls += 1
-        let result: Bool? = calls == 1 ? nil : true
-        lock.unlock()
-        return result
     }
 }
