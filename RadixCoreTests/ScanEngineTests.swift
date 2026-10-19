@@ -3525,29 +3525,74 @@ struct ScanEngineTests {
 
     @Test
     func testStartupVolumeFirmlinksSkipDescriptorIdentityVerification() {
-        let startupBehavior = ScanEngine.ScanBehavior(excludesStartupVolumeInternals: true)
-        let standardBehavior = ScanEngine.ScanBehavior.standard
+        #expect(
+            !(ScanEngine.verifiesDirectoryIdentity(
+                at: URL(filePath: "/Applications", directoryHint: .isDirectory)
+            )))
+        #expect(
+            !(ScanEngine.verifiesDirectoryIdentity(
+                at: URL(filePath: "/usr/local", directoryHint: .isDirectory)
+            )))
+        #expect(
+            ScanEngine.verifiesDirectoryIdentity(
+                at: URL(filePath: "/System", directoryHint: .isDirectory)
+            ))
+    }
 
+    @Test
+    func testFolderScanTraversesStartupVolumeFirmlinkChildren() async throws {
+        let firmlinksURL = URL(filePath: "/usr/share/firmlinks")
+        let listsCups = (try? String(contentsOf: firmlinksURL, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline)
+            .contains { line in
+                line.split(whereSeparator: { $0 == " " || $0 == "\t" }).first == "/usr/libexec/cups"
+            } == true
+        guard listsCups else {
+            throw TestFixtureError(
+                "This integration test requires /usr/share/firmlinks to list /usr/libexec/cups.")
+        }
+
+        let cupsURL = URL(filePath: "/usr/libexec/cups", directoryHint: .isDirectory)
+        let cupsChildren = try? FileManager.default.contentsOfDirectory(
+            at: cupsURL,
+            includingPropertiesForKeys: nil
+        )
+        guard let cupsChildren, !cupsChildren.isEmpty else {
+            throw TestFixtureError(
+                "This integration test requires /usr/libexec/cups to be a readable directory with at least one child.")
+        }
+
+        let engine = ScanEngine()
+        var warnings: [ScanWarning] = []
+        var finished: ScanSnapshot?
+        for try await event in engine.scan(
+            target: ScanTarget(
+                url: URL(filePath: "/usr/libexec", directoryHint: .isDirectory),
+                kind: .folder
+            ),
+            options: ScanOptions()
+        ) {
+            switch event {
+            case .warning(let warning):
+                warnings.append(warning)
+            case .finished(let snapshot):
+                finished = snapshot
+            case .executionMode, .progress:
+                break
+            }
+        }
+
+        let snapshot = try #require(finished)
+        let cups = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cups" }))
         #expect(
-            !(ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/Applications", directoryHint: .isDirectory),
-                behavior: startupBehavior
-            )))
+            cups.isSelfAccessible == true,
+            "A folder scan must open the firmlink directory /usr/libexec/cups.")
         #expect(
-            !(ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/usr/local", directoryHint: .isDirectory),
-                behavior: startupBehavior
-            )))
+            containsChildren(cups, in: snapshot),
+            "A folder scan must list the children of /usr/libexec/cups.")
         #expect(
-            ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/System", directoryHint: .isDirectory),
-                behavior: startupBehavior
-            ))
-        #expect(
-            ScanEngine.verifiesDirectoryIdentity(
-                at: URL(filePath: "/Applications", directoryHint: .isDirectory),
-                behavior: standardBehavior
-            ))
+            !(warnings.contains { $0.path == "/usr/libexec/cups" }),
+            "A folder scan must not warn that /usr/libexec/cups is inaccessible.")
     }
 
     @Test
