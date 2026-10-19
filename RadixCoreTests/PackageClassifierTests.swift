@@ -206,6 +206,34 @@ struct PackageClassifierTests {
     }
 
     @Test
+    func testKnownContentExtensionsWithPackageInfoMatchFoundation() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let plainURL = rootURL.appending(path: "Plain.lproj", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: plainURL, withIntermediateDirectories: true)
+        var bundleURLs: [URL] = []
+        for name in ["Bundle.lproj", "Bundle.txt"] {
+            let url = rootURL.appending(path: name, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "Contents", directoryHint: .isDirectory),
+                withIntermediateDirectories: true
+            )
+            try Data("BNDL????".utf8).write(to: url.appending(path: "Contents/PkgInfo"))
+            bundleURLs.append(url)
+        }
+
+        let classifier = PackageClassifier()
+        for url in bundleURLs {
+            #expect(try url.resourceValues(forKeys: [.isPackageKey]).isPackage == true)
+            #expect(classifier.classification(for: url, hasFinderPackageFlag: false).isPackage)
+        }
+        let plainClassification = classifier.classification(for: plainURL, hasFinderPackageFlag: false)
+        #expect(!(plainClassification.isPackage))
+        #expect(plainClassification.source == .fastNegative)
+    }
+
+    @Test
     func testRegisteredPackageExtensionsMatchFoundation() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
