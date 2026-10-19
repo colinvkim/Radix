@@ -2684,6 +2684,7 @@ nonisolated final class ScanEngine: Sendable {
             } else {
                 cursor = try BulkDirectoryEnumerator.makeCursor(
                     at: url,
+                    expectedIdentity: expectedIdentity,
                     includeHiddenFiles: includeHiddenFiles,
                     metadataLoader: metadataLoader,
                     entryInclusion: entryInclusion,

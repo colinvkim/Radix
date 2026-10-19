@@ -338,6 +338,7 @@ nonisolated enum BulkDirectoryEnumerator {
 
     static func makeCursor(
         at directoryURL: URL,
+        expectedIdentity: FileIdentity? = nil,
         includeHiddenFiles: Bool,
         loadsPackageMetadata: Bool = true,
         metadataLoader: ScanMetadataLoader,
@@ -355,6 +356,16 @@ nonisolated enum BulkDirectoryEnumerator {
         }
         guard descriptor >= 0 else {
             throw posixError(errno, url: directoryURL)
+        }
+        if let expectedIdentity, expectedIdentity.isFileSystemIdentity {
+            var status = stat()
+            let errorCode = fstat(descriptor, &status) == 0
+                ? (FileIdentity(fileSystemStatus: status) == expectedIdentity ? 0 : ESTALE)
+                : errno
+            guard errorCode == 0 else {
+                Darwin.close(descriptor)
+                throw posixError(errorCode, url: directoryURL)
+            }
         }
         #if DEBUG
         metadataLoader.diagnostics?.record(
