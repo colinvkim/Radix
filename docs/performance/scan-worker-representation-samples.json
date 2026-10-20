@@ -1,0 +1,74 @@
+[
+  {
+    "round": 1,
+    "workers": 5,
+    "path": "/",
+    "scenario": "collapsed-auto-none",
+    "representationExcludedPath": "/private/var/folders",
+    "retainedNodes": 3070401,
+    "representationFingerprint": "9662a1d72f04ef0b",
+    "warningFingerprint": "01f28c515d62b2e9",
+    "warningEvents": 956,
+    "filesVisited": 3325403
+  },
+  {
+    "round": 1,
+    "workers": 12,
+    "path": "/",
+    "scenario": "collapsed-auto-none",
+    "representationExcludedPath": "/private/var/folders",
+    "retainedNodes": 3076426,
+    "representationFingerprint": "9662a1d72f04ef0b",
+    "warningFingerprint": "01f28c515d62b2e9",
+    "warningEvents": 956,
+    "filesVisited": 3330198
+  },
+  {
+    "round": 1,
+    "workers": 16,
+    "path": "/",
+    "scenario": "collapsed-auto-none",
+    "representationExcludedPath": "/private/var/folders",
+    "retainedNodes": 3082693,
+    "representationFingerprint": "9662a1d72f04ef0b",
+    "warningFingerprint": "01f28c515d62b2e9",
+    "warningEvents": 956,
+    "filesVisited": 3335191
+  },
+  {
+    "round": 2,
+    "workers": 5,
+    "path": "/",
+    "scenario": "collapsed-auto-none",
+    "representationExcludedPath": "/private/var/folders",
+    "retainedNodes": 3082791,
+    "representationFingerprint": "9662a1d72f04ef0b",
+    "warningFingerprint": "01f28c515d62b2e9",
+    "warningEvents": 956,
+    "filesVisited": 3335283
+  },
+  {
+    "round": 2,
+    "workers": 12,
+    "path": "/",
+    "scenario": "collapsed-auto-none",
+    "representationExcludedPath": "/private/var/folders",
+    "retainedNodes": 3013114,
+    "representationFingerprint": "9662a1d72f04ef0b",
+    "warningFingerprint": "01f28c515d62b2e9",
+    "warningEvents": 956,
+    "filesVisited": 3335459
+  },
+  {
+    "round": 2,
+    "workers": 16,
+    "path": "/",
+    "scenario": "collapsed-auto-none",
+    "representationExcludedPath": "/private/var/folders",
+    "retainedNodes": 3082998,
+    "representationFingerprint": "9662a1d72f04ef0b",
+    "warningFingerprint": "01f28c515d62b2e9",
+    "warningEvents": 956,
+    "filesVisited": 3335478
+  }
+]
