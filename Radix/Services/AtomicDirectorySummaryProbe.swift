@@ -73,26 +73,23 @@ extension AtomicDirectorySummarizer {
         cancellationCheck: CancellationCheck
     ) throws -> Bool {
         try cancellationCheck()
-        let sampleSize = min(100, childEntries.count)
-        let step = max(1, childEntries.count / sampleSize)
-        var sampleTotalSize: Int64 = 0
-        var sampleFileCount = 0
+        var totalSize: Int64 = 0
+        var fileCount = 0
 
-        for index in stride(from: 0, to: childEntries.count, by: step).prefix(sampleSize) {
+        for childEntry in childEntries {
             try cancellationCheck()
-            let childEntry = childEntries[index]
             guard let childMetadata = childEntry.metadata else {
                 return false
             }
 
             if !childMetadata.isDirectory {
-                sampleTotalSize += childMetadata.logicalSize
-                sampleFileCount += 1
+                totalSize = ScanIntegerMath.addingClamped(totalSize, childMetadata.logicalSize)
+                fileCount += 1
             }
         }
 
-        guard sampleFileCount > 0 else { return false }
-        return (sampleTotalSize / Int64(sampleFileCount)) <= maxAverageFileSize
+        guard fileCount > 0 else { return false }
+        return (totalSize / Int64(fileCount)) <= maxAverageFileSize
     }
 
     nonisolated func descendantAtomicProbeProfile(
