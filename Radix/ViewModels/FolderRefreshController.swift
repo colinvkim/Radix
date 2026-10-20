@@ -229,7 +229,7 @@ final class FolderRefreshController {
         options: ScanOptions,
         matcher: ScanExclusionMatcher
     ) {
-        guard !Task.isCancelled, watchIdentity == identity, snapshot != nil else { return }
+        guard watchIdentity == identity, snapshot != nil else { return }
         let uncertainFlags: FileSystemEventFlags = [
             .userDropped, .kernelDropped, .eventIDsWrapped, .rootChanged,
             .volumeMounted, .volumeUnmounted
