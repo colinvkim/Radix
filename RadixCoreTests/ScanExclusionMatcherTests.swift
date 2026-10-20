@@ -5,6 +5,27 @@ import Testing
 
 struct ScanExclusionMatcherTests {
     @Test(arguments: [true, false])
+    func testWildcardOnlyPatternsMatchOriginalNames(isCaseSensitive: Bool) {
+        for pattern in ["*", "**", "*/", "**/"] {
+            let matcher = ScanExclusionMatcher(
+                patterns: [pattern], rootPath: "/RadixProject",
+                volumeSupportsCaseSensitiveNames: isCaseSensitive
+            )
+            for parentPath in ["/RadixProject", "/RadixProject/Nested"] {
+                for isDirectory in [false, true] {
+                    let expected = isDirectory || !pattern.hasSuffix("/")
+                    #expect(matcher.excludesKnownNormalizedPath(
+                        parentPath + "/Äß.txt", isDirectory: isDirectory
+                    ) == expected, Comment(rawValue: "\(pattern), directory=\(isDirectory)"))
+                    #expect(matcher.excludesKnownNormalizedChild(
+                        named: "Äß.txt", under: parentPath, isDirectory: isDirectory
+                    ) == expected, Comment(rawValue: "\(pattern), child directory=\(isDirectory)"))
+                }
+            }
+        }
+    }
+
+    @Test(arguments: [true, false])
     func testEveryMatcherStrategyUsesVolumeCasePolicy(isCaseSensitive: Bool) {
         let rootPath = "/RadixProject"
         let cases: [(String, String, Bool, Bool)] = [

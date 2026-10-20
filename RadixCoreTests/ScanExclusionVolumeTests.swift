@@ -5,6 +5,43 @@ import Testing
 
 struct ScanExclusionVolumeTests {
     @Test(arguments: [false, true])
+    func testWildcardOnlyPatternsExcludeScannedEntries(forceFoundation: Bool) async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "RadixWildcardExclusions-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .standardizedFileURL
+        let directoryURL = rootURL.appending(path: "Folder", directoryHint: .isDirectory)
+        let fileURL = rootURL.appending(path: "payload.bin")
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try Data([0x42]).write(to: fileURL)
+        try Data([0x43]).write(to: directoryURL.appending(path: "nested.bin"))
+        let engine = forceFoundation
+            ? ScanEngine(directoryContents: { url, keys, enumerationOptions, cancellationCheck in
+                try cancellationCheck()
+                return try FileManager.default.contentsOfDirectory(
+                    at: url, includingPropertiesForKeys: keys, options: enumerationOptions
+                )
+            })
+            : ScanEngine()
+        for pattern in ["*", "**", "*/", "**/"] {
+            var options = ScanOptions()
+            options.includeHiddenFiles = true
+            options.autoSummarizeDirectories = false
+            options.exclusionPatterns = [pattern]
+            var snapshot: ScanSnapshot?
+            for try await event in engine.scan(target: ScanTarget(url: rootURL), options: options) {
+                if case .finished(let finished) = event { snapshot = finished }
+            }
+            let finished = try #require(snapshot)
+            let expectedPaths = pattern.hasSuffix("/")
+                ? Set([rootURL.path, fileURL.path]) : Set([rootURL.path])
+            #expect(Set(finished.treeStore.indexedNodeIDs()) == expectedPaths,
+                    Comment(rawValue: pattern))
+            #expect(finished.scanWarnings.isEmpty)
+        }
+    }
+
+    @Test(arguments: [false, true])
     func testScansMatchVolumeCasePolicyAndPreserveOriginalPaths(forceFoundation: Bool) async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: "RadixCaseExclusions-\(UUID().uuidString)", directoryHint: .isDirectory)
