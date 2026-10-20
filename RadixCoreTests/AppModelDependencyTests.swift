@@ -1003,20 +1003,6 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testAppModelActionsUseNarrowStateOwners() {
-        let model = AppModel(dependencies: makeDependencies())
-        let file = installSelection(on: model, selectNode: false)
-        let target = makeTestTarget("/aligned")
-
-        model.scanState.selectedTarget = target
-        model.select(nodeID: file.id)
-
-        #expect(model.scanState.selectedTarget == target)
-        #expect(model.navigation.selectedNodeID == file.id)
-        #expect(model.navigation.selectedNode?.id == file.id)
-    }
-
-    @Test
     func testAppModelDoesNotRebroadcastNarrowStateOwnerChanges() {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model, selectNode: false)
@@ -1328,81 +1314,39 @@ struct AppModelDependencyTests {
         #expect(usageStats.savedStats.last?.foldersDeleted == 1)
     }
 
-    @Test
-    func testConfirmPendingTrashAllowsMatchingIdentity() async throws {
-        let recorder = AppModelActionRecorder()
-        let identity = FileIdentity(device: 12, inode: 34)
+    @Test(arguments: [
+        (
+            TrashIdentityVerificationResult.mismatch,
+            "The item at /selection/file.txt changed since this scan. Rescan before moving it to Trash."
+        ),
+        (
+            .missingScannedIdentity,
+            "Radix could not verify the scanned identity for /selection/file.txt. Rescan before moving it to Trash."
+        ),
+    ])
+    func testConfirmPendingTrashPreservesNodeAfterIdentityRejection(
+        result: TrashIdentityVerificationResult,
+        expectedMessage: String
+    ) async throws {
         let file = makeTestFileNode(
             id: "/selection/file.txt",
             name: "file.txt",
-            fileIdentity: identity
+            fileIdentity: result == .missingScannedIdentity ? nil : FileIdentity(device: 1, inode: 2)
         )
-        var verifiedNodeIDs: [String] = []
         var actions = AppSystemActions.inert
-        actions.moveToTrash = { node in
-            verifiedNodeIDs.append(node.id)
-            recorder.movedToTrashURLs.append(node.url)
-            return .matches
-        }
+        actions.moveToTrash = { _ in result }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         installSelection(on: model, file: file)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
-        try await waitUntil("confirmed trash action completed") {
-            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
-        }
+        try await waitUntil("rejected trash action completed") { model.lastErrorMessage != nil }
 
-        #expect(verifiedNodeIDs == [file.id])
-        #expect(recorder.movedToTrashURLs == [file.url])
-        #expect(model.lastErrorMessage == nil)
-    }
-
-    @Test
-    func testConfirmPendingTrashBlocksMismatchedIdentity() async throws {
-        let recorder = AppModelActionRecorder()
-        let file = makeTestFileNode(
-            id: "/selection/replaced.txt",
-            name: "replaced.txt",
-            fileIdentity: FileIdentity(device: 1, inode: 2)
-        )
-        var actions = AppSystemActions.inert
-        actions.moveToTrash = { _ in .mismatch }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        installSelection(on: model, file: file)
-
-        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
-        model.confirmMovePendingSelectionToTrash()
-        try await waitUntil("confirmed trash action completed") {
-            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
-        }
-
-        #expect(recorder.movedToTrashURLs.isEmpty)
-        #expect(
-            model.lastErrorMessage
-                == "The item at \(file.url.path) changed since this scan. Rescan before moving it to Trash.")
-    }
-
-    @Test
-    func testConfirmPendingTrashBlocksMissingScannedIdentity() async throws {
-        let recorder = AppModelActionRecorder()
-        let file = makeTestFileNode(id: "/selection/unverified.txt", name: "unverified.txt")
-        var actions = AppSystemActions.inert
-        actions.moveToTrash = { _ in .missingScannedIdentity }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        installSelection(on: model, file: file)
-
-        model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
-        model.confirmMovePendingSelectionToTrash()
-        try await waitUntil("confirmed trash action completed") {
-            model.usageStats.bytesMovedToTrash > 0 || model.lastErrorMessage != nil
-        }
-
-        #expect(recorder.movedToTrashURLs.isEmpty)
-        #expect(
-            model.lastErrorMessage
-                == "Radix could not verify the scanned identity for \(file.url.path). Rescan before moving it to Trash."
-        )
+        #expect(model.lastErrorMessage == expectedMessage)
+        #expect(model.scanState.snapshot?.treeStore.node(id: file.id) == file)
+        #expect(!model.workspaceHiddenNodeIDs.contains(file.id))
+        #expect(model.usageStats.bytesMovedToTrash == 0)
+        #expect(model.pendingTrashSelection == nil)
     }
 
     @Test
@@ -2018,31 +1962,6 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileAddsLargeSiblingBatch() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let files = (0..<1_000).map { index in
-            makeTestFileNode(
-                id: "/selection/file-\(index).bin",
-                name: "file-\(index).bin",
-                size: Int64(index + 1)
-            )
-        }
-        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: files)
-        let store = FileTreeStore(root: root, childrenByID: [root.id: files])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-
-        let didAdd = model.addNodeIDsToDiscardPile(files.map(\.id), snapshotID: snapshot.id)
-
-        #expect(didAdd)
-        #expect(model.discardPile.nodeIDs.count == files.count)
-        #expect(Set(model.discardPile.nodeIDs) == Set(files.map(\.id)))
-    }
-
-    @Test
     func testDiscardPileRejectsUnresolvedDroppedNodeIDBatch() throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -2130,39 +2049,6 @@ struct AppModelDependencyTests {
         model.addNodesToDiscardPile([parentFirst ? child : folder])
 
         #expect(model.discardPile.nodeIDs == [folder.id])
-    }
-
-    @Test
-    func testWorkspaceHiddenNodeIDsTrackCurrentSnapshot() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
-
-        model.addNodesToDiscardPile([file])
-
-        #expect(model.workspaceHiddenNodeIDs == [file.id])
-
-        let nextFile = makeTestFileNode(id: "/next/file.txt", name: "file.txt")
-        let nextRoot = makeTestDirectoryNode(id: "/next", name: "next", children: [nextFile])
-        let nextStore = FileTreeStore(root: nextRoot, childrenByID: [nextRoot.id: [nextFile]])
-        model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: nextRoot, store: nextStore))
-
-        #expect(model.workspaceHiddenNodeIDs.isEmpty)
-    }
-
-    @Test
-    func testDiscardPileAddPreservesSelectionForInspection() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
-        #expect(model.navigation.selectedNodeID == file.id)
-
-        model.addNodesToDiscardPile([file])
-
-        #expect(model.navigation.selectedNodeID == file.id)
-        #expect(model.navigation.selectedNodeIDs == [file.id])
     }
 
     @Test
@@ -2387,6 +2273,7 @@ struct AppModelDependencyTests {
         model.scanState.replaceCurrentSnapshot(firstSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(firstSnapshot)
         model.addNodesToDiscardPile([firstFile])
+        #expect(model.workspaceHiddenNodeIDs == [firstFile.id])
 
         let secondFile = makeTestFileNode(id: "/second/file.txt", name: "file.txt")
         let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [secondFile])
@@ -2395,6 +2282,7 @@ struct AppModelDependencyTests {
         model.scanState.replaceCurrentSnapshot(secondSnapshot)
 
         #expect(model.discardPile.isEmpty)
+        #expect(model.workspaceHiddenNodeIDs.isEmpty)
     }
 
     @Test

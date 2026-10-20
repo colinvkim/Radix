@@ -155,23 +155,6 @@ final class TreemapChartModel: ObservableObject {
         }
     }
 
-    @discardableResult
-    func loadLayout(
-        treeStore: FileTreeStore,
-        rootID: String,
-        depthLimit: Int,
-        size: CGSize,
-        layoutID: String
-    ) async -> Bool {
-        await loadLayout(
-            treeStore: DiskMapTreeStore(treeStore),
-            rootID: rootID,
-            depthLimit: depthLimit,
-            size: size,
-            layoutID: layoutID
-        )
-    }
-
     private func apply(_ layout: TreemapChartLayout) {
         BackgroundReleaseQueue.shared.discard(renderState.layout)
         renderState = TreemapChartRenderState(

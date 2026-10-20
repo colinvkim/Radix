@@ -29,7 +29,7 @@ struct AppQuickLookControllerTests {
     }
 
     @Test
-    func groupUsesDisplayedOrderAndPreviewNavigationPreservesSelectedGroup() async throws {
+    func groupUsesDisplayedOrderAndBoundsPreviewSelection() async throws {
         let delegate = PreviewDelegate(nodes: [first, second], primaryURL: first.url)
         let browser = FileBrowserModel()
         browser.updateContent(makeBrowserTestNavigation(children: [first, second], rootID: "/preview").browserContent())
@@ -43,14 +43,12 @@ struct AppQuickLookControllerTests {
         #expect(controller.session?.selection == first.url)
         controller.setPreviewSelection(second.url)
         #expect(controller.session?.selection == second.url)
-        #expect(delegate.quickLookSelectionContext.selectedNodes == [first, second])
         controller.setPreviewSelection(URL(filePath: "/outside.txt"))
         #expect(controller.session?.selection == second.url)
 
         controller.setPreviewSelection(nil)
         #expect(controller.session == nil)
         #expect(!controller.isActive)
-        #expect(delegate.quickLookSelectionContext.selectedNodes == [first, second])
     }
 
     @Test

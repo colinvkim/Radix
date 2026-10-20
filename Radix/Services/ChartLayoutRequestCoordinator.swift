@@ -35,10 +35,6 @@ struct ChartLayoutReadiness: Equatable, Sendable {
     mutating func cancel() {
         isPending = false
     }
-
-    func isRenderingPending(layoutID: String) -> Bool {
-        isPending || (renderedLayoutID != layoutID && failedLayoutID != layoutID)
-    }
 }
 
 struct ChartLayoutPresentationState: Equatable, Sendable {

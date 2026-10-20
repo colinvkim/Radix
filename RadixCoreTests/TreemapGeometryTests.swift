@@ -388,7 +388,7 @@ struct TreemapGeometryTests {
         let store = FileTreeStore(root: root, childrenByID: [root.id: children])
         var checks = 0
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: CancellationError.self) {
             try TreemapLayout.segments(
                 in: store,
                 rootID: root.id,

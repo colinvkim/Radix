@@ -156,7 +156,6 @@ struct SunburstChartModelTests {
         await service.waitForIssuedRequestCount(1)
 
         #expect(model.layoutReadiness.isPending)
-        #expect(model.layoutReadiness.isRenderingPending(layoutID: "layout"))
         #expect(model.layoutReadiness.renderedLayoutID == nil)
         #expect(publishCount >= 1)
 
@@ -169,7 +168,6 @@ struct SunburstChartModelTests {
         #expect(!(model.layoutReadiness.isPending))
         #expect(model.renderedSegments.map(\.id) == [segment.id])
         #expect(model.layoutReadiness.renderedLayoutID == "layout")
-        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "layout")))
         #expect(publishCount >= 2)
         withExtendedLifetime(cancellable) {}
     }
@@ -339,7 +337,6 @@ struct SunburstChartModelTests {
         #expect(!(model.layoutReadiness.isPending))
         #expect(model.layoutReadiness.renderedLayoutID == "initial")
         #expect(model.layoutReadiness.failedLayoutID == "failing")
-        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "failing")))
     }
 
     @Test
@@ -702,7 +699,7 @@ private enum TestChartLayoutError: LocalizedError {
     }
 }
 
-private func makeStore() -> FileTreeStore {
+private func makeStore() -> DiskMapTreeStore {
     let root = FileNodeRecord(
         id: "/root",
         url: URL(filePath: "/root", directoryHint: .isDirectory),
@@ -719,7 +716,7 @@ private func makeStore() -> FileTreeStore {
         isSynthetic: false,
         isAutoSummarized: false
     )
-    return FileTreeStore(root: root)
+    return DiskMapTreeStore(FileTreeStore(root: root))
 }
 
 private func makeSegment(

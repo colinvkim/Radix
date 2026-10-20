@@ -147,7 +147,9 @@ struct PackageClassifierTests {
                 cancellationCheck: {}
             ))
         let result = try #require(resultValue)
-        #expect(result.entries.allSatisfy { $0.metadata?.isPackage == true })
+        #expect(
+            Dictionary(uniqueKeysWithValues: result.entries.map { ($0.url.lastPathComponent, $0.metadata?.isPackage) })
+                == ["MarkedPackage": true, "MarkedPackage.txt": true])
     }
 
     @Test

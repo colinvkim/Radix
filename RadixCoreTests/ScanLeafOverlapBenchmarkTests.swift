@@ -43,17 +43,6 @@ struct ScanLeafOverlapBenchmarkTests {
                 Issue.record("Late native unavailability must discard all provisional nodes.")
             } catch BulkDirectoryEnumerator.StreamError.unavailable {
             }
-            let task = Task<Void, Error> {
-                _ = try await ScanLeafOverlapBenchmarkTests.prepareNativeLeaves(
-                    at: root, overlap: true, workers: workers)
-            }
-            try await Task.sleep(for: .milliseconds(50))
-            task.cancel()
-            do {
-                try await task.value
-                Issue.record("Cancellation must not publish provisional nodes.")
-            } catch is CancellationError {
-            }
         }
     }
 

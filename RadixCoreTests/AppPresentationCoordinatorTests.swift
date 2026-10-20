@@ -6,22 +6,6 @@ import Testing
 @MainActor
 struct AppPresentationCoordinatorTests {
     @Test
-    func testArchiveOpenWaitsForOnboardingToDismiss() {
-        let archiveURL = URL(filePath: "/tmp/queued.radixscan")
-        let coordinator = AppPresentationCoordinator(
-            initialDestination: .sheet(.onboarding)
-        )
-
-        #expect(coordinator.requestArchiveImport(archiveURL) == .queued)
-        #expect(coordinator.activeSheet == .onboarding)
-
-        let resumedURL = coordinator.cancel(kind: .onboarding)
-
-        #expect(resumedURL == archiveURL)
-        #expect(coordinator.activeDestination == nil)
-    }
-
-    @Test
     func testPresentationsAdvanceInRequestOrder() {
         let coordinator = AppPresentationCoordinator(
             initialDestination: .sheet(.onboarding)
@@ -79,7 +63,9 @@ struct AppPresentationCoordinatorTests {
 
         #expect(coordinator.requestArchiveImport(firstURL) == .queued)
         #expect(coordinator.requestArchiveImport(secondURL) == .queued)
+        #expect(coordinator.activeSheet == .onboarding)
         #expect(coordinator.cancel(kind: .onboarding) == firstURL)
+        #expect(coordinator.activeDestination == nil)
 
         coordinator.present(.sheet(.importPreview(firstURL)))
         #expect(coordinator.cancel(kind: .importPreview) == secondURL)

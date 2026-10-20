@@ -983,10 +983,6 @@ private actor PausingCacheScopeTransform: ScanSnapshotTransforming {
         try await service.replacingNode(in: snapshot, id: targetID, with: replacement, additionalWarnings: additionalWarnings)
     }
 
-    func replacingSubtrees(in snapshot: ScanSnapshot, replacements: [String: FileTreeStore], additionalWarnings: [ScanWarning]) async throws -> ScanSnapshot? {
-        try await service.replacingSubtrees(in: snapshot, replacements: replacements, additionalWarnings: additionalWarnings)
-    }
-
     func replacingNodeForSubtreeRescan(in snapshot: ScanSnapshot, id targetID: String, with replacement: FileTreeStore, additionalWarnings: [ScanWarning], volumeCapacity: VolumeCapacitySnapshot?, reconcilesVolumeCapacity: Bool) async throws -> ScanSnapshot? {
         try await service.replacingNodeForSubtreeRescan(in: snapshot, id: targetID, with: replacement, additionalWarnings: additionalWarnings, volumeCapacity: volumeCapacity, reconcilesVolumeCapacity: reconcilesVolumeCapacity)
     }

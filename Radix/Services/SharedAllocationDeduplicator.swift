@@ -32,26 +32,6 @@ nonisolated struct SharedAllocationDeduplicator {
         childIDsByID inputChildIDsByID: [String: [String]],
         parentIDByID: [String: String],
         aggregateStats: ScanAggregateStats,
-        sharedAllocationClaims: [SharedAllocationClaim],
-        minimumAllocatedSizeByNodeID: [String: Int64]
-    ) -> FileTreeStore {
-        deduplicatedStore(
-            rootID: rootID,
-            nodesByID: inputNodesByID,
-            childIDsByID: inputChildIDsByID,
-            parentIDByID: parentIDByID,
-            aggregateStats: aggregateStats,
-            sharedAllocationAccumulator: SharedAllocationOwnerAccumulator(sharedAllocationClaims),
-            minimumAllocatedSizeByNodeID: minimumAllocatedSizeByNodeID
-        )
-    }
-
-    nonisolated static func deduplicatedStore(
-        rootID: String,
-        nodesByID inputNodesByID: [String: FileNodeRecord],
-        childIDsByID inputChildIDsByID: [String: [String]],
-        parentIDByID: [String: String],
-        aggregateStats: ScanAggregateStats,
         sharedAllocationAccumulator: SharedAllocationOwnerAccumulator,
         minimumAllocatedSizeByNodeID: [String: Int64]
     ) -> FileTreeStore {

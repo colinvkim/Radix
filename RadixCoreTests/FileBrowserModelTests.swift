@@ -77,41 +77,6 @@ struct FileBrowserModelTests {
         #expect(result.map(\.id) == [largeMatch.id, smallMatch.id])
     }
 
-    @Test
-    func testCurrentContentsSearchNormalizesCaseAccentsAndPathQueries() {
-        let resume = makeTestFileNode(id: "/root/docs/resume.pdf", name: "Résumé.pdf", size: 10)
-        let report = makeTestFileNode(id: "/root/reports/quarterly.pdf", name: "REPORT.PDF", size: 20)
-        let cache = makeTestFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 30)
-        let ignored = makeTestFileNode(id: "/root/other.bin", name: "other.bin", size: 40)
-        let nodes = [resume, report, cache, ignored]
-        let sortOrder = [FileNodeTableComparator(field: .allocatedSize, order: .reverse)]
-
-        #expect(
-            FileBrowserResults.filteredAndSortedCurrentContents(
-                nodes,
-                query: FileBrowserQuery(text: "resume"),
-                sortOrder: sortOrder
-            ).map(\.id) == [resume.id])
-        #expect(
-            FileBrowserResults.filteredAndSortedCurrentContents(
-                nodes,
-                query: FileBrowserQuery(text: "report"),
-                sortOrder: sortOrder
-            ).map(\.id) == [report.id])
-        #expect(
-            FileBrowserResults.filteredAndSortedCurrentContents(
-                nodes,
-                query: FileBrowserQuery(text: "/library/caches"),
-                sortOrder: sortOrder
-            ).map(\.id) == [cache.id])
-        #expect(
-            FileBrowserResults.filteredAndSortedCurrentContents(
-                nodes,
-                query: FileBrowserQuery(text: "Library"),
-                sortOrder: sortOrder
-            ).isEmpty)
-    }
-
     @Test(arguments: [
         ("resume", ["/root/docs/resume.pdf"]),
         ("report", ["/root/reports/quarterly.pdf"]),
@@ -682,38 +647,6 @@ struct FileBrowserModelTests {
         #expect(probe.checkCount == 3)
     }
 
-    @Test
-    func testCancellableSortThrowsBeforeSort() throws {
-        let probe = CancellationProbe(throwOnCheck: 1)
-        let node = makeTestFileNode(id: "/root/file.txt", name: "file.txt")
-
-        #expect(throws: CancellationError.self) {
-            try FileBrowserResults.sorted(
-                [node],
-                sortOrder: [FileNodeTableComparator(field: .name)],
-                cancellationCheck: probe.check
-            )
-        }
-        #expect(probe.checkCount == 1)
-    }
-
-    @Test
-    func testCancellableSortThrowsDuringPreparation() throws {
-        let probe = CancellationProbe(throwOnCheck: 3)
-        let nodes = (0..<600).map { index in
-            makeTestFileNode(id: "/root/file-\(index).txt", name: "file-\(index).txt")
-        }
-
-        #expect(throws: CancellationError.self) {
-            try FileBrowserResults.sorted(
-                nodes,
-                sortOrder: [FileNodeTableComparator(field: .name)],
-                cancellationCheck: probe.check
-            )
-        }
-        #expect(probe.checkCount == 3)
-    }
-
     @Test(arguments: [600, 20_000])
     func testNodeSortingHonorsCancellationAtEarlyMiddleAndFinalPolls(count: Int) throws {
         let nodes = (0..<count).map { index in
@@ -735,34 +668,6 @@ struct FileBrowserModelTests {
             #expect(cancelled.checkCount == poll)
         }
         #expect(nodes.map(\.allocatedSize) == (0..<count).map { Int64($0) })
-    }
-
-    @Test
-    func testCancellableSortChecksBeforeEmptyProjectionAndAfterFinalChunk() throws {
-        let emptyProbe = CancellationProbe(throwOnCheck: 3)
-        #expect(throws: CancellationError.self) {
-            try FileBrowserResults.sorted(
-                [],
-                sortOrder: [FileNodeTableComparator(field: .name)],
-                cancellationCheck: emptyProbe.check
-            )
-        }
-        #expect(emptyProbe.checkCount == 3)
-
-        let node = makeTestFileNode(
-            id: "/root/file.txt",
-            name: "file.txt",
-            size: 1
-        )
-        let finalChunkProbe = CancellationProbe(throwOnCheck: 5)
-        #expect(throws: CancellationError.self) {
-            try FileBrowserResults.sorted(
-                [node],
-                sortOrder: [FileNodeTableComparator(field: .name)],
-                cancellationCheck: finalChunkProbe.check
-            )
-        }
-        #expect(finalChunkProbe.checkCount == 5)
     }
 
     @Test
@@ -1223,6 +1128,7 @@ struct FileBrowserModelTests {
         }
 
         let baseline = try await resultIDs()
+        #expect(baseline == [match.id])
         let repeated = try await resultIDs()
         #expect(repeated == baseline)
 

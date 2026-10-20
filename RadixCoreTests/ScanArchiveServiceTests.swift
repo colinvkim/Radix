@@ -446,13 +446,19 @@ struct ScanArchiveServiceTests {
                 data[data.count / 2] ^= 0xFF
             }
             try data.write(to: topologyURL, options: [.atomic])
+            try rewriteManifestByteCount(Int64(data.count), key: "topology", in: archiveURL)
 
             do {
                 _ = try await service.importSnapshot(from: archiveURL)
                 Issue.record("Import should reject a damaged v5 topology stream.")
             } catch ScanArchiveError.topology(let detail) {
-                #expect(!(detail.isEmpty))
+                if shouldTruncate {
+                    #expect(detail.contains("truncated"))
+                } else {
+                    #expect(!detail.isEmpty)
+                }
             } catch ScanArchiveError.integrity(let detail) {
+                #expect(!shouldTruncate, "Expected a compressed topology stream error, got \(detail).")
                 #expect(detail.contains("topology"))
             }
         }
@@ -471,12 +477,14 @@ struct ScanArchiveServiceTests {
         try rewriteJSONObject(at: statsURL) { object in
             object["totalAllocatedSize"] = 1
         }
+        try rewriteManifestByteCount(Int64(try Data(contentsOf: statsURL).count), key: "stats", in: archiveURL)
 
         do {
             _ = try await service.previewSnapshot(from: archiveURL)
             Issue.record("Preview should verify the v5 stats checksum.")
         } catch ScanArchiveError.integrity(let detail) {
             #expect(detail.contains("stats"))
+            #expect(detail.contains("checksum"))
         }
 
         do {
@@ -484,6 +492,7 @@ struct ScanArchiveServiceTests {
             Issue.record("Import should verify the v5 stats checksum.")
         } catch ScanArchiveError.integrity(let detail) {
             #expect(detail.contains("stats"))
+            #expect(detail.contains("checksum"))
         }
     }
 
@@ -680,7 +689,12 @@ struct ScanArchiveServiceTests {
 
         let imported = try await service.importSnapshot(from: archiveURL)
 
+        #expect(imported.snapshot.treeStore.nodeCount == snapshot.treeStore.nodeCount)
         #expect(imported.snapshot.treeStore.indexedNodeIDs() == snapshot.treeStore.indexedNodeIDs())
+        #expect(
+            imported.snapshot.treeStore.children(of: snapshot.root.id).map(\.id)
+                == snapshot.treeStore.children(of: snapshot.root.id).map(\.id))
+        #expect(imported.snapshot.aggregateStats.fileCount == 40_000)
     }
 
     @Test
@@ -1403,10 +1417,9 @@ struct ScanArchiveServiceTests {
     func testImportRejectsMalformedTopology() async throws {
         let service = ScanArchiveService()
         let snapshot = makeArchiveSnapshot()
-        let validTopology = try ScanArchiveTopology(snapshot.treeStore)
-        let rootKey = String(validTopology.rootOrdinal)
-        let rootChildren = try #require(validTopology.childOrdinalsByOrdinal[rootKey])
-        let firstChildOrdinal = try #require(rootChildren.first)
+        let rootOrdinal = 0
+        let rootKey = String(rootOrdinal)
+        let firstChildOrdinal = 1
         let nodeCount = snapshot.treeStore.nodeCount
         let cases: [(name: String, topology: ScanArchiveTopology, expectedDetail: String)] = [
             (
@@ -1417,7 +1430,7 @@ struct ScanArchiveServiceTests {
             (
                 "out-of-range child",
                 ScanArchiveTopology(
-                    rootOrdinal: validTopology.rootOrdinal,
+                    rootOrdinal: rootOrdinal,
                     childOrdinalsByOrdinal: [rootKey: [nodeCount]]
                 ),
                 "child ordinal"
@@ -1425,7 +1438,7 @@ struct ScanArchiveServiceTests {
             (
                 "duplicate child",
                 ScanArchiveTopology(
-                    rootOrdinal: validTopology.rootOrdinal,
+                    rootOrdinal: rootOrdinal,
                     childOrdinalsByOrdinal: [rootKey: [firstChildOrdinal, firstChildOrdinal]]
                 ),
                 "duplicate"
@@ -1433,15 +1446,15 @@ struct ScanArchiveServiceTests {
             (
                 "self cycle",
                 ScanArchiveTopology(
-                    rootOrdinal: validTopology.rootOrdinal,
-                    childOrdinalsByOrdinal: [rootKey: [validTopology.rootOrdinal]]
+                    rootOrdinal: rootOrdinal,
+                    childOrdinalsByOrdinal: [rootKey: [rootOrdinal]]
                 ),
                 "references itself"
             ),
             (
                 "unreachable",
                 ScanArchiveTopology(
-                    rootOrdinal: validTopology.rootOrdinal,
+                    rootOrdinal: rootOrdinal,
                     childOrdinalsByOrdinal: [:]
                 ),
                 "not reachable"
@@ -1719,22 +1732,6 @@ struct ScanArchiveServiceTests {
         #expect(importedFolder.allocatedSize == expectedFolder.allocatedSize)
         #expect(importedFolder.logicalSize == expectedFolder.logicalSize)
         #expect(importedFolder.descendantFileCount == expectedFolder.descendantFileCount)
-    }
-
-    @Test
-    func testLargeTopologyRoundTripsDeterministicOrder() async throws {
-        let service = ScanArchiveService()
-        let snapshot = makeLargeArchiveSnapshot(childCount: 1_500)
-        let archiveURL = try makeTemporaryArchiveURL()
-
-        _ = try await service.export(snapshot: snapshot, to: archiveURL, options: ScanArchiveExportOptions())
-        let importedSnapshot = try await service.importSnapshot(from: archiveURL).snapshot
-
-        #expect(importedSnapshot.treeStore.nodeCount == snapshot.treeStore.nodeCount)
-        #expect(
-            importedSnapshot.treeStore.children(of: snapshot.root.id).map(\.id)
-                == snapshot.treeStore.children(of: snapshot.root.id).map(\.id))
-        #expect(importedSnapshot.aggregateStats.fileCount == 1_500)
     }
 
     @Test

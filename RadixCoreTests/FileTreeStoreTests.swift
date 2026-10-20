@@ -645,29 +645,6 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testIndexedNodeIDsPreserveTraversalOrderAndCanExcludeRoot() {
-        let first = makeFileNode(id: "/root/a.txt", name: "a.txt", size: 12)
-        let nested = makeFileNode(id: "/root/folder/b.txt", name: "b.txt", size: 12)
-        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
-        let root = makeDirectoryNode(id: "/root", name: "root", children: [first, folder])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [first, folder],
-                folder.id: [nested],
-            ])
-
-        #expect(store.indexedNodeIDs() == ["/root", "/root/a.txt", "/root/folder", "/root/folder/b.txt"])
-        #expect(store.indexedNodeIDs(excludingRoot: true) == ["/root/a.txt", "/root/folder", "/root/folder/b.txt"])
-
-        var iteratedIDs: [String] = []
-        store.forEachIndexedNodeID(excludingRoot: true) { id in
-            iteratedIDs.append(id)
-        }
-        #expect(iteratedIDs == ["/root/a.txt", "/root/folder", "/root/folder/b.txt"])
-    }
-
-    @Test
     func testCompactIndexInitializerPreservesTopologyAndCompatibilityViews() throws {
         let nested = makeFileNode(id: "/root/folder/nested.txt", name: "nested.txt", size: 4)
         let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [nested])

@@ -259,6 +259,7 @@ struct ScanModelTests {
         let syntheticNode = makeNode(
             id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)
 
+        #expect(readableNode.itemKind == "File")
         #expect(readableNode.secondaryStatusText == nil)
 
         #expect(limitedNode.secondaryStatusText == "Limited access")
@@ -267,43 +268,7 @@ struct ScanModelTests {
     }
 
     @Test
-    func testDirectoryBuilderAppliesCoreTreeInvariants() {
-        let small = makeNode(
-            id: "/root/a.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 10)
-        let largeInaccessible = makeNode(
-            id: "/root/z.txt", isDirectory: false, isSynthetic: false, isAccessible: false, allocatedSize: 20)
-        let symlink = makeNode(
-            id: "/root/link",
-            isDirectory: false,
-            isSymbolicLink: true,
-            isSynthetic: false,
-            isAccessible: true,
-            allocatedSize: 5
-        )
-
-        let children = [small, largeInaccessible, symlink]
-        let directory = FileNodeRecord.directory(
-            id: "/root",
-            url: URL(filePath: "/root", directoryHint: .isDirectory),
-            name: "root",
-            children: children,
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true
-        )
-
-        #expect(FileTreeStore.sortedChildren(children).map(\.name) == ["z.txt", "a.txt", "link"])
-        #expect(directory.allocatedSize == 35)
-        #expect(directory.logicalSize == 35)
-        #expect(directory.descendantFileCount == 2)
-        #expect(!(directory.isAccessible))
-        #expect(!(directory.isAutoSummarized))
-    }
-
-    @Test
     func testSnapshotReplacingNodeRebuildsAncestorsAndReplacesStaleWarnings() throws {
-        let staleLeaf = makeNode(
-            id: "/root/folder/stale.txt", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 5)
         let summarizedFolder = makeNode(
             id: "/root/folder",
             isDirectory: true,
@@ -375,7 +340,6 @@ struct ScanModelTests {
         #expect(updatedSnapshot.aggregateStats.fileCount == 3)
         #expect(!(updatedSnapshot.root.isAccessible))
         #expect(updatedSnapshot.scanWarnings.map(\.path) == [expansionWarning.path])
-        #expect(staleLeaf.id != updatedChildren.first?.id)
     }
 
     @Test
@@ -785,37 +749,6 @@ struct ScanModelTests {
         #expect(updated.root.allocatedSize == 27)
         #expect(updated.scanWarnings.map(\.path) == [retained.path, newWarning.path])
         #expect(updated.scanWarnings.map(\.message) == [retained.message, newWarning.message])
-    }
-
-    @Test
-    func testSnapshotTransformServiceReplacesSubtrees() async throws {
-        let oldA = makeNode(id: "/root/A", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 5)
-        let oldB = makeNode(id: "/root/B", isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 7)
-        let root = FileNodeRecord.directory(
-            id: "/root",
-            url: URL(filePath: "/root", directoryHint: .isDirectory),
-            name: "root",
-            children: [oldA, oldB],
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true
-        )
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [oldA, oldB]])
-        let snapshot = makeSnapshot(root: root, treeStore: store)
-        let newA = makeNode(id: oldA.id, isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 10)
-        let newB = makeNode(id: oldB.id, isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 20)
-
-        let transformed = try await ScanSnapshotTransformService().replacingSubtrees(
-            in: snapshot,
-            replacements: [
-                oldA.id: FileTreeStore(root: newA),
-                oldB.id: FileTreeStore(root: newB),
-            ]
-        )
-        let updated = try #require(transformed)
-
-        #expect(updated.root.allocatedSize == 30)
-        #expect(Set(updated.treeStore.children(of: root.id).map(\.id)) == Set([oldA.id, oldB.id]))
     }
 
     @Test

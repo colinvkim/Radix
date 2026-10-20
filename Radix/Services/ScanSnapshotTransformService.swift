@@ -12,12 +12,6 @@ nonisolated protocol ScanSnapshotTransforming: Sendable {
         additionalWarnings: [ScanWarning]
     ) async throws -> ScanSnapshot?
 
-    func replacingSubtrees(
-        in snapshot: ScanSnapshot,
-        replacements: [String: FileTreeStore],
-        additionalWarnings: [ScanWarning]
-    ) async throws -> ScanSnapshot?
-
     func replacingNodeForSubtreeRescan(
         in snapshot: ScanSnapshot,
         id targetID: String,
@@ -48,20 +42,6 @@ actor ScanSnapshotTransformService {
         return try snapshot.replacingNode(
             id: targetID,
             with: replacement,
-            additionalWarnings: additionalWarnings,
-            cancellationCheck: {
-                try Task.checkCancellation()
-            }
-        )
-    }
-
-    func replacingSubtrees(
-        in snapshot: ScanSnapshot,
-        replacements: [String: FileTreeStore],
-        additionalWarnings: [ScanWarning] = []
-    ) async throws -> ScanSnapshot? {
-        try snapshot.replacingSubtrees(
-            replacements,
             additionalWarnings: additionalWarnings,
             cancellationCheck: {
                 try Task.checkCancellation()

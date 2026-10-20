@@ -307,16 +307,7 @@ struct DiscardPileVisualizationOverlayTests {
             movingToTrashRootNodeIDs: [fixture.folder.id]
         )
 
-        var lastRequestedLayoutID: String?
-        var layoutRequestCount = 0
-        for presentation in presentations {
-            if presentation.layoutID != lastRequestedLayoutID {
-                lastRequestedLayoutID = presentation.layoutID
-                layoutRequestCount += 1
-            }
-        }
-
-        #expect(layoutRequestCount == 1)
+        #expect(Set(presentations.map(\.layoutID)).count == 1)
         #expect(presentations.map(\.discardPileRootNodeIDs) == queuedNodeIDSets)
         #expect(
             presentations.allSatisfy {

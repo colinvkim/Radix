@@ -116,12 +116,12 @@ struct SharedAllocationDeduplicatorTests {
                 accessibleItemCount: nodesByID.count,
                 inaccessibleItemCount: 0
             ),
-            sharedAllocationClaims: [
+            sharedAllocationAccumulator: SharedAllocationOwnerAccumulator([
                 SharedAllocationClaim(
                     identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
                 SharedAllocationClaim(
                     identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100),
-            ],
+            ]),
             minimumAllocatedSizeByNodeID: [:]
         )
 
@@ -176,12 +176,12 @@ struct SharedAllocationDeduplicatorTests {
                 accessibleItemCount: 6,
                 inaccessibleItemCount: 0
             ),
-            sharedAllocationClaims: [
+            sharedAllocationAccumulator: SharedAllocationOwnerAccumulator([
                 SharedAllocationClaim(
                     identity: identity, ownerNodeID: firstLinkID, path: firstLinkID, allocatedSize: 100),
                 SharedAllocationClaim(
                     identity: identity, ownerNodeID: duplicateLinkID, path: duplicateLinkID, allocatedSize: 100),
-            ],
+            ]),
             minimumAllocatedSizeByNodeID: [:]
         )
 

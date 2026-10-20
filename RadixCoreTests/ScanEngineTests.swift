@@ -3866,8 +3866,11 @@ struct ScanEngineTests {
         parallelOptions.directoryTraversalWorkerLimit = 1
         parallelOptions.directoryClassificationWorkerLimit = 4
 
-        let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
-        let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
+        let engine = ScanEngine(forcedBulkFailure: .unavailable(afterBatchCount: 0))
+        let serialSnapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL), options: serialOptions, engine: engine)
+        let parallelSnapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL), options: parallelOptions, engine: engine)
 
         #expect(rootChildren(in: parallelSnapshot).map(\.name) == rootChildren(in: serialSnapshot).map(\.name))
         #expect(!(rootChildren(in: parallelSnapshot).contains(where: { $0.name == "excluded.log" })))
@@ -3915,8 +3918,11 @@ struct ScanEngineTests {
         parallelOptions.directoryTraversalWorkerLimit = 4
         parallelOptions.directoryClassificationWorkerLimit = 4
 
-        let serialSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: serialOptions)
-        let parallelSnapshot = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: parallelOptions)
+        let engine = ScanEngine(forcedBulkFailure: .unavailable(afterBatchCount: 0))
+        let serialSnapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL), options: serialOptions, engine: engine)
+        let parallelSnapshot = try await finishedSnapshot(
+            target: ScanTarget(url: rootURL), options: parallelOptions, engine: engine)
 
         #expect(rootChildren(in: parallelSnapshot).map(\.name) == rootChildren(in: serialSnapshot).map(\.name))
         #expect(parallelSnapshot.root.descendantFileCount == serialSnapshot.root.descendantFileCount)
@@ -4376,76 +4382,6 @@ struct ScanEngineTests {
     }
 
     @Test
-    func testDirectoryBelowThresholdNotAutoSummarized() async throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let cacheURL = rootURL.appending(path: "cache", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
-
-        for i in 0..<100 {
-            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
-            try Data(repeating: UInt8(i % 256), count: 64).write(to: fileURL)  // 64 bytes each
-        }
-
-        let snapshot = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: ScanOptions()
-        )
-
-        let cacheNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
-        #expect(!(cacheNode.isAutoSummarized), "Directory with only 100 files should not be auto-summarized")
-        #expect(cacheNode.isDirectory)
-        #expect(containsChildren(cacheNode, in: snapshot))
-    }
-
-    @Test
-    func testAutoSummarizedDirectoryShowsFileCount() async throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let fileURL = rootURL.appending(path: "document.txt")
-        try Data("Hello, World!".utf8).write(to: fileURL)
-
-        let snapshot = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: ScanOptions()
-        )
-
-        let fileNode = try #require(rootChildren(in: snapshot).first)
-        #expect(!(fileNode.isAutoSummarized))
-        #expect(fileNode.itemKind == "File")
-        #expect(fileNode.secondaryStatusText == nil)
-    }
-
-    @Test
-    func testAutoSummarizeCanBeDisabledViaOptions() async throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let cacheURL = rootURL.appending(path: "cache", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
-
-        for i in 0..<100 {
-            let fileURL = cacheURL.appending(path: "file_\(i).tmp")
-            try Data(repeating: UInt8(i % 256), count: 64).write(to: fileURL)
-        }
-
-        var options = ScanOptions()
-        options.autoSummarizeDirectories = false
-
-        let snapshot = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: options
-        )
-
-        let cacheNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "cache" }))
-        #expect(!(cacheNode.isAutoSummarized))
-        #expect(containsChildren(cacheNode, in: snapshot))
-        #expect(children(of: cacheNode, in: snapshot).count == 100)
-    }
-
-    @Test
     func testCoreSimulatorUsesOrdinaryAutoSummaryCriteria() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -4485,8 +4421,16 @@ struct ScanEngineTests {
         #expect(coreSimulatorNode.descendantFileCount == 12)
     }
 
-    @Test
-    func testDirectoryIsAutoSummarizedWithLowThresholds() async throws {
+    @Test(arguments: [
+        (true, 10, true),
+        (false, 10, false),
+        (true, 21, false),
+    ])
+    func testAutoSummaryRespectsEnabledFlagAndFileCountThreshold(
+        isEnabled: Bool,
+        minimumFileCount: Int,
+        expectsSummary: Bool
+    ) async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
@@ -4501,7 +4445,8 @@ struct ScanEngineTests {
         }
 
         var options = ScanOptions()
-        options.autoSummarizeMinFileCount = 10
+        options.autoSummarizeDirectories = isEnabled
+        options.autoSummarizeMinFileCount = minimumFileCount
         options.autoSummarizeMaxAverageFileSize = 256
         options.autoSummarizeMinDepthForSummarization = 2
 
@@ -4512,11 +4457,11 @@ struct ScanEngineTests {
 
         let projectsNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "projects" }))
         let cacheNode = try #require(children(of: projectsNode, in: snapshot).first(where: { $0.name == "cache" }))
-        #expect(cacheNode.isAutoSummarized, "Directory should be auto-summarized with low thresholds")
-        #expect(!(containsChildren(cacheNode, in: snapshot)), "Auto-summarized directory should have no children")
-        #expect(cacheNode.descendantFileCount == 20, "Should report correct file count")
-        #expect(cacheNode.itemKind == "Summarized")
-        #expect(cacheNode.secondaryStatusText == "Summarized (20 files)")
+        #expect(cacheNode.isAutoSummarized == expectsSummary)
+        #expect(children(of: cacheNode, in: snapshot).count == (expectsSummary ? 0 : 20))
+        #expect(cacheNode.descendantFileCount == 20)
+        #expect(cacheNode.itemKind == (expectsSummary ? "Summarized" : "Folder"))
+        #expect(cacheNode.secondaryStatusText == (expectsSummary ? "Summarized (20 files)" : nil))
     }
 
     @Test

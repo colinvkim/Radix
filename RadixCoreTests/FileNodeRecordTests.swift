@@ -28,6 +28,7 @@ struct FileNodeRecordTests {
             #expect(root.descendantFileCount == 6)
             #expect(!(root.isAccessible))
             #expect(root.isSelfAccessible)
+            #expect(!root.isAutoSummarized)
         }
     }
 

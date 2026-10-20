@@ -5,49 +5,6 @@ import Testing
 
 struct IncrementalRescanPlannerTests {
     @Test
-    func testInjectedHistoryProviderFeedsPlannerWithinExplicitCutoff() async throws {
-        let fixture = makeFixture()
-        let since = ScanIncrementalCheckpoint(volumeUUID: "volume", eventID: 10)
-        let through = ScanIncrementalCheckpoint(volumeUUID: "volume", eventID: 30)
-        let provider = FakeFileSystemEventHistoryProvider(
-            checkpoint: through,
-            history: FileSystemEventHistory(
-                since: since,
-                through: through,
-                events: [
-                    FileSystemEventRecord(
-                        path: "/scan/folder/new.txt",
-                        eventID: 20,
-                        flags: [.itemCreated, .itemIsFile]
-                    )
-                ]
-            )
-        )
-
-        let cutoff = try provider.currentCheckpoint(
-            for: URL(filePath: "/scan", directoryHint: .isDirectory)
-        )
-        let eventHistory = try await provider.history(
-            for: URL(filePath: "/scan", directoryHint: .isDirectory),
-            since: since,
-            through: cutoff
-        )
-        let plan = IncrementalRescanPlanner().plan(
-            history: eventHistory,
-            target: ScanTarget(url: URL(filePath: "/scan", directoryHint: .isDirectory)),
-            treeStore: fixture.store
-        )
-
-        #expect(cutoff == through)
-        #expect(
-            plan
-                == .update(
-                    relistDirectoryIDs: [fixture.folder.id],
-                    rescanSubtreeIDs: []
-                ))
-    }
-
-    @Test
     func testFileEventRelistsContainingDirectory() {
         let fixture = makeFixture()
         let plan = IncrementalRescanPlanner().plan(
@@ -639,31 +596,5 @@ struct IncrementalRescanPlannerTests {
             isSynthetic: false,
             isAutoSummarized: false
         )
-    }
-}
-
-private nonisolated struct FakeFileSystemEventHistoryProvider: FileSystemEventHistoryProviding {
-    let checkpoint: ScanIncrementalCheckpoint
-    let storedHistory: FileSystemEventHistory
-
-    init(checkpoint: ScanIncrementalCheckpoint, history: FileSystemEventHistory) {
-        self.checkpoint = checkpoint
-        self.storedHistory = history
-    }
-
-    func currentCheckpoint(for targetURL: URL) throws -> ScanIncrementalCheckpoint {
-        _ = targetURL
-        return checkpoint
-    }
-
-    func history(
-        for targetURL: URL,
-        since: ScanIncrementalCheckpoint,
-        through: ScanIncrementalCheckpoint
-    ) async throws -> FileSystemEventHistory {
-        _ = targetURL
-        #expect(since == storedHistory.since)
-        #expect(through == storedHistory.through)
-        return storedHistory
     }
 }

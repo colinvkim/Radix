@@ -6,20 +6,12 @@ import Testing
 struct SunburstGeometryTests {
     @Test
     func testTopLevelSegmentsCoverFullCircle() {
-        let root = makeDirectoryNode(
-            id: "/root",
-            name: "root",
-            children: [
-                makeFileNode(id: "/root/a", name: "a", size: 3),
-                makeFileNode(id: "/root/b", name: "b", size: 1),
-            ]
-        )
-        let store = makeStore(
-            root: root,
-            children: [
-                makeFileNode(id: "/root/a", name: "a", size: 3),
-                makeFileNode(id: "/root/b", name: "b", size: 1),
-            ])
+        let children = [
+            makeTestFileNode(id: "/root/a", name: "a", size: 3),
+            makeTestFileNode(id: "/root/b", name: "b", size: 1),
+        ]
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
 
         let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
         let totalRadians = segments.reduce(0.0) { partialResult, segment in
@@ -33,11 +25,11 @@ struct SunburstGeometryTests {
     @Test
     func testMixedZeroByteChildrenDoNotOverflowParentArc() throws {
         let children = [
-            makeFileNode(id: "/root/large", name: "large", size: 10),
-            makeFileNode(id: "/root/empty-1", name: "empty-1", size: 0),
-            makeFileNode(id: "/root/empty-2", name: "empty-2", size: 0),
+            makeTestFileNode(id: "/root/large", name: "large", size: 10),
+            makeTestFileNode(id: "/root/empty-1", name: "empty-1", size: 0),
+            makeTestFileNode(id: "/root/empty-2", name: "empty-2", size: 0),
         ]
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
         let store = makeStore(root: root, children: children)
 
         let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
@@ -54,8 +46,8 @@ struct SunburstGeometryTests {
     @Test
     func testSaturatedChildrenStayWithinParentArc() throws {
         let children = [
-            makeFileNode(id: "/root/a", name: "a", size: .max),
-            makeFileNode(id: "/root/b", name: "b", size: .max),
+            makeTestFileNode(id: "/root/a", name: "a", size: .max),
+            makeTestFileNode(id: "/root/b", name: "b", size: .max),
         ]
         let root = FileNodeRecord(
             id: "/root",
@@ -93,12 +85,12 @@ struct SunburstGeometryTests {
     @Test
     func testSmallItemsCollapseIntoAggregateSegment() throws {
         let children = [
-            makeFileNode(id: "/root/large", name: "large", size: 100),
-            makeFileNode(id: "/root/tiny-1", name: "tiny-1", size: 1),
-            makeFileNode(id: "/root/tiny-2", name: "tiny-2", size: 1),
-            makeFileNode(id: "/root/tiny-3", name: "tiny-3", size: 1),
+            makeTestFileNode(id: "/root/large", name: "large", size: 100),
+            makeTestFileNode(id: "/root/tiny-1", name: "tiny-1", size: 1),
+            makeTestFileNode(id: "/root/tiny-2", name: "tiny-2", size: 1),
+            makeTestFileNode(id: "/root/tiny-3", name: "tiny-3", size: 1),
         ]
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
         let store = makeStore(root: root, children: children)
 
         let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1, minimumAngle: .pi / 2)
@@ -112,9 +104,9 @@ struct SunburstGeometryTests {
 
     @Test
     func testSingleSmallItemRemainsAnIndividualSegment() {
-        let large = makeFileNode(id: "/root/large", name: "large", size: 99)
-        let small = makeFileNode(id: "/root/small", name: "small", size: 1)
-        let root = makeDirectoryNode(
+        let large = makeTestFileNode(id: "/root/large", name: "large", size: 99)
+        let small = makeTestFileNode(id: "/root/small", name: "small", size: 1)
+        let root = makeTestDirectoryNode(
             id: "/root",
             name: "root",
             children: [large, small]
@@ -129,28 +121,19 @@ struct SunburstGeometryTests {
         )
 
         #expect(segments.count == 2)
-        let condition1 = (!(segments.contains(where: \.isAggregate)))
-        #expect(condition1)
+        #expect(!segments.contains { $0.isAggregate })
         #expect(segments.last?.nodeID == small.id)
         #expect(segments.last?.totalSize == small.allocatedSize)
     }
 
     @Test
     func testHitTesterReturnsExpectedSegment() throws {
-        let root = makeDirectoryNode(
-            id: "/root",
-            name: "root",
-            children: [
-                makeFileNode(id: "/root/a", name: "a", size: 1),
-                makeFileNode(id: "/root/b", name: "b", size: 1),
-            ]
-        )
-        let store = makeStore(
-            root: root,
-            children: [
-                makeFileNode(id: "/root/a", name: "a", size: 1),
-                makeFileNode(id: "/root/b", name: "b", size: 1),
-            ])
+        let children = [
+            makeTestFileNode(id: "/root/a", name: "a", size: 1),
+            makeTestFileNode(id: "/root/b", name: "b", size: 1),
+        ]
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
 
         let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
         let firstSegment = try #require(segments.first)
@@ -162,18 +145,9 @@ struct SunburstGeometryTests {
 
     @Test
     func testCenterHitTesterMatchesLayoutHole() throws {
-        let root = makeDirectoryNode(
-            id: "/root",
-            name: "root",
-            children: [
-                makeFileNode(id: "/root/a", name: "a", size: 1)
-            ]
-        )
-        let store = makeStore(
-            root: root,
-            children: [
-                makeFileNode(id: "/root/a", name: "a", size: 1)
-            ])
+        let children = [makeTestFileNode(id: "/root/a", name: "a", size: 1)]
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
+        let store = makeStore(root: root, children: children)
         let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
         let firstSegment = try #require(segments.first)
         let size = CGSize(width: 300, height: 300)
@@ -211,11 +185,11 @@ struct SunburstGeometryTests {
     @Test
     func testTopLevelSiblingColorTokensUseDistinctBranches() {
         let children = [
-            makeFileNode(id: "/root/a", name: "a", size: 3),
-            makeFileNode(id: "/root/b", name: "b", size: 2),
-            makeFileNode(id: "/root/c", name: "c", size: 1),
+            makeTestFileNode(id: "/root/a", name: "a", size: 3),
+            makeTestFileNode(id: "/root/b", name: "b", size: 2),
+            makeTestFileNode(id: "/root/c", name: "c", size: 1),
         ]
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
         let store = makeStore(root: root, children: children)
 
         let segments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
@@ -230,16 +204,16 @@ struct SunburstGeometryTests {
     @Test
     func testBranchColorStaysStableWhenSiblingSortOrderChanges() throws {
         let firstStoreChildren = [
-            makeFileNode(id: "/root/a", name: "a", size: 3),
-            makeFileNode(id: "/root/b", name: "b", size: 2),
+            makeTestFileNode(id: "/root/a", name: "a", size: 3),
+            makeTestFileNode(id: "/root/b", name: "b", size: 2),
         ]
-        let firstRoot = makeDirectoryNode(id: "/root", name: "root", children: firstStoreChildren)
+        let firstRoot = makeTestDirectoryNode(id: "/root", name: "root", children: firstStoreChildren)
         let firstStore = makeStore(root: firstRoot, children: firstStoreChildren)
         let secondStoreChildren = [
-            makeFileNode(id: "/root/a", name: "a", size: 1),
-            makeFileNode(id: "/root/b", name: "b", size: 4),
+            makeTestFileNode(id: "/root/a", name: "a", size: 1),
+            makeTestFileNode(id: "/root/b", name: "b", size: 4),
         ]
-        let secondRoot = makeDirectoryNode(id: "/root", name: "root", children: secondStoreChildren)
+        let secondRoot = makeTestDirectoryNode(id: "/root", name: "root", children: secondStoreChildren)
         let secondStore = makeStore(root: secondRoot, children: secondStoreChildren)
 
         let firstSegment = try #require(
@@ -258,12 +232,12 @@ struct SunburstGeometryTests {
     @Test
     func testChildColorTokensKeepBranchFamilyButVaryBySibling() {
         let children = [
-            makeFileNode(id: "/root/a/one", name: "one", size: 3),
-            makeFileNode(id: "/root/a/two", name: "two", size: 2),
-            makeFileNode(id: "/root/a/three", name: "three", size: 1),
+            makeTestFileNode(id: "/root/a/one", name: "one", size: 3),
+            makeTestFileNode(id: "/root/a/two", name: "two", size: 2),
+            makeTestFileNode(id: "/root/a/three", name: "three", size: 1),
         ]
-        let branch = makeDirectoryNode(id: "/root/a", name: "a", children: children)
-        let root = makeDirectoryNode(id: "/root", name: "root", children: [branch])
+        let branch = makeTestDirectoryNode(id: "/root/a", name: "a", children: children)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [branch])
         let store = FileTreeStore(
             root: root,
             childrenByID: [
@@ -286,12 +260,12 @@ struct SunburstGeometryTests {
     @Test
     func testFocusedSubtreeKeepsScanRootBranchFamily() throws {
         let nestedChildren = [
-            makeFileNode(id: "/root/a/child-1", name: "child-1", size: 2),
-            makeFileNode(id: "/root/a/child-2", name: "child-2", size: 1),
+            makeTestFileNode(id: "/root/a/child-1", name: "child-1", size: 2),
+            makeTestFileNode(id: "/root/a/child-2", name: "child-2", size: 1),
         ]
-        let branchA = makeDirectoryNode(id: "/root/a", name: "a", children: nestedChildren)
-        let branchB = makeFileNode(id: "/root/b", name: "b", size: 1)
-        let root = makeDirectoryNode(id: "/root", name: "root", children: [branchA, branchB])
+        let branchA = makeTestDirectoryNode(id: "/root/a", name: "a", children: nestedChildren)
+        let branchB = makeTestFileNode(id: "/root/b", name: "b", size: 1)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [branchA, branchB])
         let store = FileTreeStore(
             root: root,
             childrenByID: [
@@ -311,9 +285,9 @@ struct SunburstGeometryTests {
     @Test
     func testLayoutStopsWhenCancellationCheckThrows() throws {
         let children = (0..<100).map { index in
-            makeFileNode(id: "/root/file-\(index)", name: "file-\(index)", size: 1)
+            makeTestFileNode(id: "/root/file-\(index)", name: "file-\(index)", size: 1)
         }
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
         let store = makeStore(root: root, children: children)
         var cancellationChecks = 0
 
@@ -336,11 +310,11 @@ struct SunburstGeometryTests {
     @Test
     func testGroupedRootReusesChildrenAndPreservesGlobalColorPositions() throws {
         let children = [
-            makeFileNode(id: "/root/visible", name: "visible", size: 999),
-            makeFileNode(id: "/root/small-a", name: "small-a", size: 1),
-            makeFileNode(id: "/root/small-b", name: "small-b", size: 1),
+            makeTestFileNode(id: "/root/visible", name: "visible", size: 999),
+            makeTestFileNode(id: "/root/small-a", name: "small-a", size: 1),
+            makeTestFileNode(id: "/root/small-b", name: "small-b", size: 1),
         ]
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
+        let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
         let tree = ChartReadProbe(makeStore(root: root, children: children))
 
         let segments = try SunburstLayout.segments(
@@ -400,42 +374,4 @@ private func makeSegment(
 
 private func makeStore(root: FileNodeRecord, children: [FileNodeRecord]) -> FileTreeStore {
     FileTreeStore(root: root, childrenByID: [root.id: children])
-}
-
-private func makeFileNode(id: String, name: String, size: Int64) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id),
-        name: name,
-        isDirectory: false,
-        isSymbolicLink: false,
-        allocatedSize: size,
-        logicalSize: size,
-        descendantFileCount: 1,
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true,
-        isSelfAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
-}
-
-private func makeDirectoryNode(id: String, name: String, children: [FileNodeRecord]) -> FileNodeRecord {
-    FileNodeRecord(
-        id: id,
-        url: URL(filePath: id, directoryHint: .isDirectory),
-        name: name,
-        isDirectory: true,
-        isSymbolicLink: false,
-        allocatedSize: children.reduce(0) { $0 + $1.allocatedSize },
-        logicalSize: children.reduce(0) { $0 + $1.logicalSize },
-        descendantFileCount: children.reduce(0) { $0 + ($1.isDirectory ? $1.descendantFileCount : 1) },
-        lastModified: nil,
-        isPackage: false,
-        isAccessible: true,
-        isSelfAccessible: true,
-        isSynthetic: false,
-        isAutoSummarized: false
-    )
 }

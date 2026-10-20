@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import Testing
 
@@ -330,25 +329,6 @@ struct FileBrowserBenchmarkTests {
             peakRSS: BenchmarkSupport.peakResidentBytes()
         )
 
-        let publicationMeasurement = await Self.measurePublication(displayProjection)
-        Self.report(
-            phase: "main_actor_publication",
-            seconds: publicationMeasurement,
-            count: displayProjection.nodes.count,
-            peakRSS: BenchmarkSupport.peakResidentBytes()
-        )
-
-        let replacementMeasurement = await Self.measurePublication(
-            displayProjection,
-            replacingExistingState: true
-        )
-        Self.report(
-            phase: "main_actor_replacement",
-            seconds: replacementMeasurement,
-            count: displayProjection.nodes.count,
-            peakRSS: BenchmarkSupport.peakResidentBytes()
-        )
-
         let coldCancellation = try await Self.measureColdSearchCancellation(
             store: fixture.store,
             query: noMatchQuery
@@ -454,34 +434,6 @@ struct FileBrowserBenchmarkTests {
                 ))
         }
         return samples
-    }
-
-    @MainActor
-    private static func measurePublication(
-        _ projection: FileBrowserDisplayProjection,
-        replacingExistingState: Bool = false
-    ) -> Double {
-        let publisher = FileBrowserPublicationProbe()
-        if replacingExistingState {
-            publisher.seed(with: projection.nodes)
-        }
-        var publicationCount = 0
-        let cancellable = publisher.objectWillChange.sink {
-            publicationCount += 1
-        }
-
-        let startedAt = ContinuousClock.now
-        publisher.publish(projection)
-        let seconds = BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
-
-        #expect(publicationCount == 1)
-        #expect(publisher.nodeCount == projection.nodes.count)
-        #expect(publisher.node(id: projection.nodes[0].id)?.id == projection.nodes[0].id)
-        #expect(
-            publisher.node(id: projection.nodes[projection.nodes.count - 1].id)?.id
-                == projection.nodes[projection.nodes.count - 1].id)
-        withExtendedLifetime(cancellable) {}
-        return seconds
     }
 
     @MainActor
@@ -1041,29 +993,6 @@ struct FileBrowserBenchmarkTests {
             peakRSS: peakRSS,
             extra: extra
         )
-    }
-}
-
-@MainActor
-private final class FileBrowserPublicationProbe: ObservableObject {
-    @Published private var displayState = FileBrowserDisplayState()
-
-    var nodeCount: Int {
-        displayState.nodes.count
-    }
-
-    func node(id: FileNodeRecord.ID) -> FileNodeRecord? {
-        displayState.node(id: id)
-    }
-
-    func publish(_ projection: FileBrowserDisplayProjection) {
-        displayState = FileBrowserDisplayState(projection: projection, context: .empty)
-    }
-
-    func seed(with nodes: [FileNodeRecord]) {
-        var independentNodes = nodes
-        independentNodes.reverse()
-        displayState = FileBrowserDisplayState(nodes: independentNodes, context: .empty)
     }
 }
 

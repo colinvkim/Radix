@@ -335,7 +335,6 @@ struct TreemapChartModelTests {
         #expect(didApply)
         #expect(selectedSegment?.id == selected.id)
         #expect(model.layoutReadiness.renderedLayoutID == "layout")
-        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "layout")))
         #expect(model.selectedSegment(nodeID: "missing") == nil)
         #expect(model.selectedSegment(nodeID: nil) == nil)
     }
@@ -468,7 +467,6 @@ struct TreemapChartModelTests {
         #expect(!(model.layoutReadiness.isPending))
         #expect(model.layoutReadiness.renderedLayoutID == "initial")
         #expect(model.layoutReadiness.failedLayoutID == "failing")
-        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "failing")))
     }
 
     @Test
@@ -597,8 +595,6 @@ struct TreemapChartModelTests {
         #expect(model.renderedSegments.map(\.id) == [initialSegment.id])
         #expect(model.layoutReadiness.failure == nil)
         #expect(!(model.layoutReadiness.isPending))
-        #expect(!(model.layoutReadiness.isRenderingPending(layoutID: "initial")))
-        #expect(model.layoutReadiness.isRenderingPending(layoutID: "different"))
     }
 }
 
@@ -733,9 +729,9 @@ private enum TestTreemapLayoutError: LocalizedError {
     }
 }
 
-private func makeTreemapStore() -> FileTreeStore {
+private func makeTreemapStore() -> DiskMapTreeStore {
     let root = makeTestDirectoryNode(id: "/root", name: "root", children: [])
-    return FileTreeStore(root: root)
+    return DiskMapTreeStore(FileTreeStore(root: root))
 }
 
 private func makeTreemapSegment(

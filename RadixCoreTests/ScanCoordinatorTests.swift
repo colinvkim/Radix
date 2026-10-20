@@ -289,19 +289,6 @@ struct ScanCoordinatorTests {
     }
 
     @Test
-    func testStartScanBaselineUsesExplicitFullScanFallback() {
-        let service = ControlledScanService()
-        let coordinator = ScanCoordinator(scanService: service)
-        let target = makeCoordinatorTarget("/scan/fallback")
-        let baseline = makeCoordinatorSnapshot(target: target)
-
-        coordinator.startScan(target, options: ScanOptions(), baseline: baseline)
-
-        #expect(service.requests.map(\.target) == [target])
-        coordinator.stopScan()
-    }
-
-    @Test
     func testRestoreCompletedSnapshotDisplaysWithoutScanRequest() {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -1381,45 +1368,6 @@ struct ScanCoordinatorTests {
         #expect(
             coordinator.completedScanSnapshot?.treeStore.children(of: summarizedNode.id).map(\.id) == [expandedFile.id])
         #expect(coordinator.expandingNodeID == nil)
-    }
-
-    @Test
-    func testRemovingLargeSubtreeFromCurrentSnapshotUsesTransformService() async {
-        let service = ControlledScanService()
-        let transformService = RecordingSnapshotTransformService()
-        let coordinator = ScanCoordinator(
-            scanService: service,
-            snapshotTransformService: transformService,
-            progressThrottleDuration: .milliseconds(40)
-        )
-        let target = makeCoordinatorTarget("/root")
-        let removedFiles = (0..<600).map { index in
-            makeTestFileNode(
-                id: "/root/cache/file-\(index).dat",
-                name: "file-\(index).dat",
-                size: 1
-            )
-        }
-        let removedDirectory = makeTestDirectoryNode(id: "/root/cache", name: "cache", children: removedFiles)
-        let sibling = makeTestFileNode(id: "/root/readme.txt", name: "readme.txt", size: 25)
-        let root = makeTestDirectoryNode(id: "/root", name: "root", children: [removedDirectory, sibling])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [removedDirectory, sibling],
-                removedDirectory.id: removedFiles,
-            ])
-        let snapshot = makeCoordinatorSnapshot(target: target, root: root, store: store)
-        coordinator.replaceCurrentSnapshot(snapshot)
-
-        let didRemove = await coordinator.removeNodesFromCurrentSnapshot(ids: [removedDirectory.id])
-        let recordedRemovingNodeIDs = await transformService.recordedRemovingNodeIDs()
-
-        #expect(didRemove)
-        #expect(recordedRemovingNodeIDs == [removedDirectory.id])
-        #expect(coordinator.snapshot?.treeStore.node(id: removedDirectory.id) == nil)
-        #expect(coordinator.snapshot?.aggregateStats.fileCount == 1)
-        #expect(coordinator.fileTreeStore?.children(of: root.id).map(\.id) == [sibling.id])
     }
 
     @Test
@@ -2932,10 +2880,6 @@ private actor RecordingSnapshotTransformService: ScanSnapshotTransforming {
     private let service = ScanSnapshotTransformService()
     private var removingNodeIDBatches: [[String]] = []
 
-    func recordedRemovingNodeIDs() -> [String] {
-        removingNodeIDBatches.flatMap { $0 }
-    }
-
     func recordedRemovingNodeIDBatches() -> [[String]] {
         removingNodeIDBatches
     }
@@ -2950,18 +2894,6 @@ private actor RecordingSnapshotTransformService: ScanSnapshotTransforming {
             in: snapshot,
             id: targetID,
             with: replacement,
-            additionalWarnings: additionalWarnings
-        )
-    }
-
-    func replacingSubtrees(
-        in snapshot: ScanSnapshot,
-        replacements: [String: FileTreeStore],
-        additionalWarnings: [ScanWarning]
-    ) async throws -> ScanSnapshot? {
-        try await service.replacingSubtrees(
-            in: snapshot,
-            replacements: replacements,
             additionalWarnings: additionalWarnings
         )
     }
@@ -3052,18 +2984,6 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
             in: snapshot,
             id: targetID,
             with: replacement,
-            additionalWarnings: additionalWarnings
-        )
-    }
-
-    func replacingSubtrees(
-        in snapshot: ScanSnapshot,
-        replacements: [String: FileTreeStore],
-        additionalWarnings: [ScanWarning]
-    ) async throws -> ScanSnapshot? {
-        try await service.replacingSubtrees(
-            in: snapshot,
-            replacements: replacements,
             additionalWarnings: additionalWarnings
         )
     }

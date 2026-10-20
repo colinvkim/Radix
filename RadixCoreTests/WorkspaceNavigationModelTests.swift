@@ -333,25 +333,6 @@ struct WorkspaceNavigationModelTests {
     }
 
     @Test
-    func testFocusOutsideSelectedSubtreeClearsSelection() {
-        let fixture = makeNavigationFixture()
-        let model = makeConfiguredNavigationModel(fixture: fixture)
-
-        model.focus(nodeID: fixture.docs.id)
-        model.select(nodeID: fixture.docFile.id)
-
-        model.focus(nodeID: fixture.cache.id)
-
-        #expect(model.focusedNodeID == fixture.cache.id)
-        #expect(model.selectedNodeID == nil)
-        #expect(model.selectedAncestorIDs.isEmpty)
-        #expect(model.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.cache.id])
-        #expect(model.tableNodes.map(\.id) == [fixture.cacheFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
-        #expect(!(model.canClearSelection))
-    }
-
-    @Test
     func testFocusPublishesSingleCoherentState() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
@@ -373,6 +354,8 @@ struct WorkspaceNavigationModelTests {
         #expect(state.focusedNodeID == fixture.cache.id)
         #expect(state.selectedNodeID == nil)
         #expect(state.selectedAncestorIDs.isEmpty)
+        #expect(model.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.cache.id])
+        #expect(!model.canClearSelection)
         #expect(state.tableNodes.map(\.id) == [fixture.cacheFile.id])
         #expect(state.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
         #expect(state.focusBackStack == [fixture.root.id, fixture.docs.id])
@@ -584,29 +567,6 @@ struct WorkspaceNavigationModelTests {
     }
 
     @Test
-    func testReconcilingSnapshotReplacementClearsInvalidNavigationState() {
-        let fixture = makeNavigationFixture()
-        let replacement = makeNavigationFixture(rootID: "/replacement")
-        let model = makeConfiguredNavigationModel(fixture: fixture)
-
-        model.focus(nodeID: fixture.docs.id)
-        model.select(nodeID: fixture.docFile.id)
-        #expect(model.canNavigateBack)
-
-        model.reconcileAfterSnapshotApplied(replacement.snapshot)
-
-        #expect(model.focusedNodeID == replacement.root.id)
-        #expect(model.currentFocusNode?.id == replacement.root.id)
-        #expect(model.selectedNodeID == nil)
-        #expect(model.selectedAncestorIDs.isEmpty)
-        #expect(model.tableNodes.map(\.id) == [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
-        #expect(model.tableContentID == "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
-        #expect(!(model.canNavigateBack))
-        #expect(!(model.canNavigateForward))
-        #expect(model.tableContentID.hasPrefix(replacement.snapshot.id.uuidString))
-    }
-
-    @Test
     func testSnapshotReconciliationPublishesSingleCoherentState() throws {
         let fixture = makeNavigationFixture()
         let replacement = makeNavigationFixture(rootID: "/replacement")
@@ -616,6 +576,7 @@ struct WorkspaceNavigationModelTests {
 
         model.focus(nodeID: fixture.docs.id)
         model.select(nodeID: fixture.docFile.id)
+        #expect(model.canNavigateBack)
 
         model.$state
             .dropFirst()
@@ -634,6 +595,9 @@ struct WorkspaceNavigationModelTests {
         #expect(state.tableContentID == "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
         #expect(state.focusBackStack.isEmpty)
         #expect(state.focusForwardStack.isEmpty)
+        #expect(model.currentFocusNode?.id == replacement.root.id)
+        #expect(!model.canNavigateBack)
+        #expect(!model.canNavigateForward)
     }
 
     @Test

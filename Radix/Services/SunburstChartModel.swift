@@ -173,21 +173,6 @@ final class SunburstChartModel: ObservableObject {
         }
     }
 
-    @discardableResult
-    func loadLayout(
-        treeStore: FileTreeStore,
-        rootID: String,
-        depthLimit: Int,
-        layoutID: String
-    ) async -> Bool {
-        await loadLayout(
-            treeStore: DiskMapTreeStore(treeStore),
-            rootID: rootID,
-            depthLimit: depthLimit,
-            layoutID: layoutID
-        )
-    }
-
     private func apply(_ segments: [SunburstSegment]) {
         let segmentIndex = SunburstSegmentIndex(segments: segments)
         let nextSelectionIndex = SunburstSelectionIndex(

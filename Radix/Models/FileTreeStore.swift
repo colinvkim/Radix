@@ -1759,20 +1759,6 @@ nonisolated struct FileTreeStore: Sendable {
         activeOrderedNodeIndices
     }
 
-    nonisolated func forEachIndexedNodeID(
-        excludingRoot: Bool = false,
-        _ body: (String) throws -> Void
-    ) rethrows {
-        for nodeIndex in activeOrderedNodeIndices {
-            if excludingRoot && nodeIndex == activeRootIndex {
-                continue
-            }
-            if let nodeID = node(at: nodeIndex)?.id {
-                try body(nodeID)
-            }
-        }
-    }
-
     nonisolated func path(to id: String?) -> [FileNodeRecord] {
         guard let index = nodeIndex(id: id), let record = node(at: index) else {
             return [root]

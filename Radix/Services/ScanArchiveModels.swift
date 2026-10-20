@@ -555,46 +555,6 @@ nonisolated struct ScanArchiveTopology: Codable, Sendable {
         self.childOrdinalsByOrdinal = childOrdinalsByOrdinal
     }
 
-    init(_ treeStore: FileTreeStore) throws {
-        let orderedNodeIDs = treeStore.indexedNodeIDs()
-        var ordinalByID: [String: Int] = [:]
-        ordinalByID.reserveCapacity(orderedNodeIDs.count)
-
-        for (ordinal, nodeID) in orderedNodeIDs.enumerated() {
-            ordinalByID[nodeID] = ordinal
-        }
-
-        guard let rootOrdinal = ordinalByID[treeStore.rootID] else {
-            throw ScanArchiveError.topology(localized: "root node is missing from node order")
-        }
-
-        var childOrdinalsByOrdinal: [String: [Int]] = [:]
-        childOrdinalsByOrdinal.reserveCapacity(orderedNodeIDs.count)
-
-        for parentID in orderedNodeIDs {
-            let childIDs = treeStore.childIDs(of: parentID)
-            guard !childIDs.isEmpty else {
-                continue
-            }
-            guard let parentOrdinal = ordinalByID[parentID] else {
-                throw ScanArchiveError.topology(localized: "parent \(parentID) is missing from node order")
-            }
-
-            var childOrdinals: [Int] = []
-            childOrdinals.reserveCapacity(childIDs.count)
-            for childID in childIDs {
-                guard let childOrdinal = ordinalByID[childID] else {
-                    throw ScanArchiveError.topology(localized: "child \(childID) is missing from node order")
-                }
-                childOrdinals.append(childOrdinal)
-            }
-            childOrdinalsByOrdinal[String(parentOrdinal)] = childOrdinals
-        }
-
-        self.rootOrdinal = rootOrdinal
-        self.childOrdinalsByOrdinal = childOrdinalsByOrdinal
-    }
-
     func resolvedTopology(orderedNodeIDs: [String]) throws -> ScanArchiveResolvedTopology {
         guard orderedNodeIDs.indices.contains(rootOrdinal) else {
             throw ScanArchiveError.topology(localized: "root ordinal \(rootOrdinal) is out of range")
