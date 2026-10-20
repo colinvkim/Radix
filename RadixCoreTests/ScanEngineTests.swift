@@ -480,7 +480,7 @@ struct ScanEngineTests {
         try Data([0x1]).write(to: rootURL.appending(path: "payload.bin"))
 
         let engine = ScanEngine(forcedBulkFailure: .init(batchCount: 1, errorCode: EIO))
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: ScanEngine.ShallowDirectoryListingError.self) {
             _ = try await engine.shallowDirectoryListing(
                 at: rootURL,
                 scanTarget: ScanTarget(url: rootURL),

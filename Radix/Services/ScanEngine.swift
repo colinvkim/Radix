@@ -319,6 +319,10 @@ nonisolated final class ScanEngine: Sendable {
         }
     }
 
+    enum ShallowDirectoryListingError: Error {
+        case incomplete
+    }
+
     struct ShallowDirectoryListing: Sendable {
         let directoryMetadata: NodeMetadata
         let entries: [DirectoryEntry]
@@ -976,8 +980,8 @@ nonisolated final class ScanEngine: Sendable {
             cancellationCheck: cancellationCheck
         )
         contents.directoryLease?.close()
-        if let incompleteListingError = contents.incompleteListingError {
-            throw incompleteListingError
+        if contents.incompleteListingError != nil {
+            throw ShallowDirectoryListingError.incomplete
         }
         return ShallowDirectoryListing(
             directoryMetadata: directoryMetadata,

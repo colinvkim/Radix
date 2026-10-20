@@ -1,9 +1,6 @@
 import Foundation
 import OSLog
 
-/// Adds conservative FSEvents-based rescans around the ordinary scan engine.
-/// Any uncertainty delegates to a full scan; partial subtree results are never
-/// published before the complete batch splice succeeds.
 nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked Sendable {
     private static let logger = Logger(
         subsystem: "com.colinkim.Radix",
@@ -342,8 +339,9 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             )
             do {
                 for try await event in engine.scan(
-                    target: ScanTarget(url: node.url),
-                    options: adjustedSubtreeOptions
+                    target: ScanTarget(url: node.url, kind: .folder),
+                    options: adjustedSubtreeOptions,
+                    preservingBehaviorOf: target
                 ) {
                     switch event {
                     case .executionMode:
@@ -477,23 +475,27 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             scanTarget: target,
             options: options
         ) {
-            let replacement = try await scannedReplacement(
-                at: originalRoot.url,
-                scanTarget: target,
+            return try await scannedShallowReplacement(
+                originalRoot: originalRoot,
+                target: target,
                 options: options
             )
-            return ShallowReplacement(
-                directoryID: directoryID,
-                treeStore: replacement.treeStore,
-                warnings: replacement.scanWarnings
+        }
+        let listing: ScanEngine.ShallowDirectoryListing
+        do {
+            listing = try await engine.shallowDirectoryListing(
+                at: originalRoot.url,
+                scanTarget: target,
+                options: options,
+                classificationWorkerLimit: classificationWorkerLimit
+            )
+        } catch ScanEngine.ShallowDirectoryListingError.incomplete {
+            return try await scannedShallowReplacement(
+                originalRoot: originalRoot,
+                target: target,
+                options: options
             )
         }
-        let listing = try await engine.shallowDirectoryListing(
-            at: originalRoot.url,
-            scanTarget: target,
-            options: options,
-            classificationWorkerLimit: classificationWorkerLimit
-        )
         guard listing.directoryMetadata.fileIdentity != nil,
               listing.directoryMetadata.fileIdentity == originalRoot.fileIdentity else {
             throw ShallowRelistError.identityChanged
@@ -510,7 +512,11 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             try Task.checkCancellation()
             guard entry.localizedEnumerationError == nil,
                   let metadata = entry.metadata else {
-                throw ShallowRelistError.incompleteMetadata
+                return try await scannedShallowReplacement(
+                    originalRoot: originalRoot,
+                    target: target,
+                    options: options
+                )
             }
             let childID = entry.url.path
             guard currentChildIDs.insert(childID).inserted else {
@@ -590,6 +596,34 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
         )
     }
 
+    private nonisolated func scannedShallowReplacement(
+        originalRoot: FileNodeRecord,
+        target: ScanTarget,
+        options: ScanOptions
+    ) async throws -> ShallowReplacement {
+        let replacement = try await scannedReplacement(
+            at: originalRoot.url,
+            scanTarget: target,
+            options: options
+        )
+        let root = replacement.root
+        guard replacement.treeStore.rootID == originalRoot.id,
+              root.url.path == originalRoot.url.path,
+              root.isDirectory,
+              !root.isSymbolicLink else {
+            throw ShallowRelistError.invalidDirectory
+        }
+        guard root.fileIdentity != nil,
+              root.fileIdentity == originalRoot.fileIdentity else {
+            throw ShallowRelistError.identityChanged
+        }
+        return ShallowReplacement(
+            directoryID: originalRoot.id,
+            treeStore: replacement.treeStore,
+            warnings: replacement.scanWarnings
+        )
+    }
+
     private nonisolated func scannedReplacement(
         at url: URL,
         scanTarget: ScanTarget,
@@ -602,8 +636,9 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             scanTarget: scanTarget
         )
         for try await event in engine.scan(
-            target: ScanTarget(url: url),
-            options: adjustedOptions
+            target: ScanTarget(url: url, kind: .folder),
+            options: adjustedOptions,
+            preservingBehaviorOf: scanTarget
         ) {
             switch event {
             case .finished(let finished):
@@ -612,7 +647,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
                 break
             }
         }
-        guard let snapshot else { throw ShallowRelistError.invalidDirectory }
+        try Task.checkCancellation()
+        guard let snapshot else { throw CancellationError() }
         return snapshot
     }
 
