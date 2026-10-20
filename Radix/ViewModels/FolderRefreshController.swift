@@ -41,6 +41,7 @@ final class FolderRefreshController {
     private let maximumPendingPaths: Int
     private let now: @MainActor () -> ContinuousClock.Instant
     private let sleep: @MainActor (Duration) async throws -> Void
+    private let makeExclusionMatcher: @Sendable ([String], String) -> ScanExclusionMatcher
     private let directoryExists: @MainActor (String) -> Bool
     private let requestRefresh: @MainActor (String) -> Bool
     private var watchIdentity: WatchIdentity?
@@ -71,6 +72,9 @@ final class FolderRefreshController {
         sleep: @escaping @MainActor (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
         },
+        makeExclusionMatcher: @escaping @Sendable ([String], String) -> ScanExclusionMatcher = {
+            ScanExclusionMatcher(patterns: $0, rootPath: $1)
+        },
         directoryExists: @escaping @MainActor (String) -> Bool,
         requestRefresh: @escaping @MainActor (String) -> Bool
     ) {
@@ -81,6 +85,7 @@ final class FolderRefreshController {
         self.maximumPendingPaths = max(maximumPendingPaths, 1)
         self.now = now
         self.sleep = sleep
+        self.makeExclusionMatcher = makeExclusionMatcher
         self.directoryExists = directoryExists
         self.requestRefresh = requestRefresh
     }
@@ -193,9 +198,8 @@ final class FolderRefreshController {
     private func receive(_ events: [FileSystemEventRecord], identity: WatchIdentity) {
         guard watchIdentity == identity, let snapshot else { return }
         let options = snapshot.scanOptions ?? ScanOptions()
-        let matcher = ScanExclusionMatcher(
-            patterns: options.exclusionPatterns,
-            rootPath: options.exclusionRootPath ?? identity.targetPath
+        let matcher = makeExclusionMatcher(
+            options.exclusionPatterns, options.exclusionRootPath ?? identity.targetPath
         )
         let uncertainFlags: FileSystemEventFlags = [
             .userDropped, .kernelDropped, .eventIDsWrapped, .rootChanged,
