@@ -45,10 +45,8 @@ xcodebuild -project Radix.xcodeproj -scheme Radix \
 
 ## Review follow-ups
 
-GitHub review found issues after the first independent reviews passed. The
-original audit below is a historical checkpoint. The subsequent fixes and their
-[functional and comment review](scan-engine-review-followups.md) supersede its
-code-readiness conclusion for #85 and #86.
+GitHub review found issues after the first independent reviews passed.
+Subsequent fixes, functional reviews, and evidence checks are recorded here.
 
 The [#85 comment](https://github.com/colinvkim/Radix/pull/85#discussion_r4318612080)
 described a startup-volume route that already takes `fullFallback(volumeTarget)`
@@ -90,8 +88,13 @@ passes. Coverage includes matcher reuse during navigation and same-ID tree
 replacement, buffered initial events, cancellation during preparation,
 equal-identity resets, and controller release. All 1,122 core tests, the shared
 Xcode test plan, and the complete Debug build passed on the revised branch.
-The [CI correction review](scan-engine-ci-review.md) records an independent
-functional and comment review of the exact source hash. It found no issue.
+Independent functional and comment review passed for controller blob `467dcb9`
+at `0611a2c`. It checked Sendable preparation inputs, weak controller lifetime,
+and stream ownership in source. The evidence audit inspected saved receipts.
+It did not rerun tests, builds, benchmarks, or the app. Native watcher shutdown
+and cancellation while setup waits in the dispatch queue were not forced in
+runtime tests. The post-await guard covers queued cancellation by source
+reasoning.
 
 Combined integration `42a03c6` passed 1,149 tests in 78 suites and the complete
 Debug build. Computer Use then drove its exact Debug bundle with one running
@@ -107,8 +110,9 @@ execution boundary separately.
 
 All three original review threads were replied to with the fix commits and
 resolved. Raw follow-up logs live under `/tmp/radix-scan-review/`. No PR was
-merged during the follow-up. The [follow-up evidence audit](scan-engine-review-evidence-audit.md)
-preserves the earlier pending-CI checkpoint and the subsequent correction.
+merged during the follow-up. The decision trail preserves the initially passing
+reviews, later failures, and subsequent correction. Detailed historical review
+notes remain in [Git history at `f7d0b06`](https://github.com/colinvkim/Radix/tree/f7d0b063221b23295eed06c48e80408e3eeb9f2a/docs/performance).
 
 ## Worker representation
 
@@ -233,10 +237,9 @@ produced rerunnable probes and comparison scripts. Prove It Works required
 actual scan results, full-tree fixture equality, and the exact Debug app.
 
 Independent review used the inherited model with separate functional, comment,
-and evidence lenses. It does not claim model diversity. The [initial evidence audit](scan-engine-followups-audit.md)
-checks the first delivery. The later review follow-ups above record the issues
-that escaped those checks and the subsequent verification. It does not rerun every
-measurement. Optional performance work, full-disk timing, ordinary-node
+and evidence lenses. It does not claim model diversity. The review follow-ups
+above record the escaped issues and subsequent verification. Optional
+performance work, full-disk timing, ordinary-node
 completeness, external-disk live history, arbitrary symlink-retarget race
 safety, and a production HistoryDone timeout remain outside the verified
 claims.
