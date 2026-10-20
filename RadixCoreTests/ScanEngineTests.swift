@@ -5058,6 +5058,56 @@ struct ScanEngineTests {
     }
 
     @Test
+    func testImmediateAutoSummaryUsesAllFileSizesRegardlessOfListingOrder() async throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let cacheURL = rootURL.appending(path: "projects/cache", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cacheURL, withIntermediateDirectories: true)
+        var tinyFirst: [URL] = []
+        var largeFirst: [URL] = []
+        for index in 0..<100 {
+            let tinyURL = cacheURL.appending(path: "tiny-\(index).bin")
+            let largeURL = cacheURL.appending(path: "large-\(index).bin")
+            try Data(repeating: 0x31, count: 32).write(to: tinyURL)
+            try Data(repeating: 0x72, count: 8_192).write(to: largeURL)
+            tinyFirst.append(contentsOf: [tinyURL, largeURL])
+            largeFirst.append(contentsOf: [largeURL, tinyURL])
+        }
+
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 100
+        options.autoSummarizeMaxAverageFileSize = 4_096
+        options.autoSummarizeMinDepthForSummarization = 2
+
+        for listing in [tinyFirst, largeFirst] {
+            let engine = ScanEngine(directoryContents: { url, keys, options, cancellationCheck in
+                try cancellationCheck()
+                if url.path == cacheURL.path {
+                    return listing
+                }
+                return try ScanEngine.defaultDirectoryContents(
+                    url: url, keys: keys, options: options, cancellationCheck: cancellationCheck
+                ).urls
+            })
+            let snapshot = try await finishedSnapshot(
+                target: ScanTarget(url: rootURL), options: options, engine: engine
+            )
+            let cacheNode = try #require(snapshot.treeStore.node(id: cacheURL.path))
+            let cacheChildren = children(of: cacheNode, in: snapshot)
+            #expect(cacheNode.isAutoSummarized == false)
+            #expect(cacheChildren.count == 200)
+            #expect(Set(cacheChildren.map(\.id)) == Set(listing.map(\.path)))
+            #expect(cacheNode.descendantFileCount == 200)
+            #expect(cacheNode.logicalSize == 822_400)
+            #expect(snapshot.aggregateStats.fileCount == 200)
+            #expect(snapshot.aggregateStats.totalLogicalSize == 822_400)
+            #expect(snapshot.scanWarnings.isEmpty)
+            #expect(snapshot.isComplete)
+        }
+    }
+
+    @Test
     func testDirectoryNotAutoSummarizedWhenFilesAreLarge() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
