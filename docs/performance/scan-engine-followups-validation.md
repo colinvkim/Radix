@@ -18,7 +18,10 @@ The combined branch cherry-picked the independent changes for integration.
 | #88 rejected-probe reuse | 1,122 | Built |
 | Combined #85 through #88 | 1,136 | Built |
 | #89 journal alias fix | 1,115 | Built |
-| Combined #85 through #89 | 1,141 | Built |
+| Combined #85 through #89, initial | 1,141 | Built |
+| #85 after review follow-up | 1,116 | Built |
+| #86 after review follow-up | 1,122 | Built |
+| Combined after review follow-ups | 1,149 | Built |
 
 The original dirty checkout's suite failed on an existing stale localization
 catalog entry. Its catalog was preserved. The clean baseline passed. Debug
@@ -39,6 +42,64 @@ xcodebuild -project Radix.xcodeproj -scheme Radix \
   -configuration Debug -destination 'platform=macOS' \
   -derivedDataPath .build/xcode-derived-data build
 ```
+
+## Review follow-ups
+
+GitHub review found issues after the first independent reviews passed. The
+original audit below is a historical checkpoint. The subsequent fixes and their
+[functional and comment review](scan-engine-review-followups.md) supersede its
+code-readiness conclusion for #85 and #86.
+
+The [#85 comment](https://github.com/colinvkim/Radix/pull/85#discussion_r4318612080)
+described a startup-volume route that already takes `fullFallback(volumeTarget)`
+before event history. A bounded executable probe then exposed a related valid
+API case. An explicit folder target at `/` could recover as an inferred volume
+and lose `/System/Volumes`. Commit `a10025c` gives both replacement scans folder
+scope and preserves the original scan behavior. Its regression failed with the
+literal lost path before the fix and passed afterward. Startup-volume fallback
+coverage also passes with and without forced `/System` relisting.
+
+The [wildcard finding](https://github.com/colinvkim/Radix/pull/86#discussion_r4318615886)
+was confirmed. The actual matcher printed `pattern=* file=false directory=false`
+before the fix and `pattern=* file=true directory=true` afterward. Commit
+`1fa7061` routes wildcard-only patterns through the existing glob implementation.
+This also fixes the preexisting empty-contains case for `**` and `**/` through the
+same invariant. Tests check both case policies, both matcher entry points, and
+literal retained paths using native and Foundation scans.
+
+The [refresh finding](https://github.com/colinvkim/Radix/pull/86#discussion_r4318615897)
+was also confirmed. The baseline factory ran on MainActor once per batch and
+blocked the test's UI pulse until its failure watchdog expired. Commit `d0ac3cf`
+uses the existing watch task as one detached owner. It opens the stream first,
+builds one immutable matcher, then awaits ordered MainActor batch delivery.
+Initial nil-checkpoint events buffer during setup. No mutable matcher cache or
+second task handle was added. Cancellation is checked again on the actor after
+the hop, including when a reset restores an equal watch identity.
+
+The final focused run passed 53 tests. The gate has a bounded 15-second failure
+watchdog, not a performance threshold. Tests cover reuse during navigation and
+same-ID tree replacement, buffered initial events, cancelled preparation,
+equal-identity resets, and controller release. They do not force the narrower
+queued actor-hop cancellation interleaving. That check is verified in source.
+Native synchronous metadata calls remain cooperatively cancellable. A blocked
+call can retain its stream until it returns while MainActor stays available.
+
+Combined integration `02c5634` passed 1,149 tests in 78 suites and the complete
+Debug build. Computer Use then drove its exact Debug bundle with one running
+instance. Process-only arguments enabled exclusions `*.log` and `build/` plus
+automatic refresh. The fixture initially showed 12 KB, two files, three folders,
+and zero warnings. After the visible payload grew to 16 KB and excluded content
+grew to 32 KB, automatic refresh showed 20 KB. `Changed` showed 16 KB and
+`Untouched` stayed at 4 KB. `Build` and `TRACE.LOG` stayed absent. No Rescan button
+was clicked. The test app was stopped and saved exclusion/refresh preferences
+were compared before and after; they were unchanged. This live check does not
+simulate an unresponsive mounted volume. The blocking factory checks that
+execution boundary separately.
+
+All three original review threads were replied to with the fix commits and
+resolved. Raw follow-up logs live under `/tmp/radix-scan-review/`. No PR was
+merged during the follow-up. The [follow-up evidence audit](scan-engine-review-evidence-audit.md)
+checks the recorded outcomes and keeps the CI checkpoint explicit.
 
 ## Worker representation
 
@@ -98,7 +159,7 @@ The combined Debug app reproduced the impact. A `/tmp` fixture initially showed
 12 KB. After its `Changed/payload.bin` grew from 8 KB to 16 KB, two rescans
 reported no changes and kept 12 KB. This triggered [the separate namespace fix](https://github.com/colinvkim/Radix/pull/89).
 
-The final combined Debug bundle at integration commit `b981ab0` repeated the
+The first combined Debug bundle at integration commit `b981ab0` repeated the
 operation on a fresh `/tmp` fixture. Exactly one running Radix process matched
 that checkout's absolute Debug bundle path. The initial scan showed 12 KB, two
 files, three folders, and zero warnings. After file growth, Rescan Entire Scan
@@ -163,8 +224,9 @@ produced rerunnable probes and comparison scripts. Prove It Works required
 actual scan results, full-tree fixture equality, and the exact Debug app.
 
 Independent review used the inherited model with separate functional, comment,
-and evidence lenses. It does not claim model diversity. The [final evidence audit](scan-engine-followups-audit.md)
-checks saved receipts and the draft delivery. It does not rerun every
+and evidence lenses. It does not claim model diversity. The [initial evidence audit](scan-engine-followups-audit.md)
+checks the first delivery. The later review follow-ups above record the issues
+that escaped those checks and the subsequent verification. It does not rerun every
 measurement. Optional performance work, full-disk timing, ordinary-node
 completeness, external-disk live history, arbitrary symlink-retarget race
 safety, and a production HistoryDone timeout remain outside the verified

@@ -8,15 +8,16 @@ Historical review line numbers refer to `b69254d`.
 
 | Work | Proposed PR | Result |
 | --- | --- | --- |
-| Bug 5. Incomplete incremental child listings | [#85](https://github.com/colinvkim/Radix/pull/85) | Recover the affected directory with the existing subtree scanner. Validate its identity before splicing. Other unsafe conditions still cause a full scan. |
-| Bug 4. Exclusion case on insensitive volumes | [#86](https://github.com/colinvkim/Radix/pull/86) | Resolve volume case behavior once. Preserve original paths and wildcard character boundaries, including Unicode expansions. |
+| Bug 5. Incomplete incremental child listings | [#85](https://github.com/colinvkim/Radix/pull/85) | Recover the affected directory with the existing subtree scanner. Validate its identity before splicing. Replacement scopes preserve folder kind and the original scan behavior. Other unsafe conditions still cause a full scan. |
+| Bug 4. Exclusion case on insensitive volumes | [#86](https://github.com/colinvkim/Radix/pull/86) | Resolve volume case behavior once. Preserve original paths and wildcard character boundaries, including Unicode expansions. Wildcard-only rules use the general glob matcher. Watch sessions prepare one matcher off MainActor. |
 | Bugs 6 and 7. Skipped-entry cadence and retry progress | [#87](https://github.com/colinvkim/Radix/pull/87) | Publish progress from completed work. Keep summary retry counts at their high-water mark. |
 | Performance item 6. Rejected probe double walks | [#88](https://github.com/colinvkim/Radix/pull/88) | Finish eligible active listings within a 65,536-entry per-probe retention budget. Rejected results keep no descriptor. |
 | Journal aliases found during manual testing | [#89](https://github.com/colinvkim/Radix/pull/89) | Subscribe in the device namespace and project events back into the existing scan namespace. `/tmp` previously returned empty history after real changes. |
 
-The combined candidate passed 1,141 core tests and the complete Debug app build.
-Manual testing confirmed the `/tmp` rescan updates from 12 KB to 20 KB after
-file growth and keeps 20 KB on an unchanged rescan.
+The latest combined candidate passed 1,149 core tests and the complete Debug
+app build. After the review fixes, the exact app automatically refreshed from
+12 KB to 20 KB while `Build` and `TRACE.LOG` stayed excluded. The earlier
+manual `/tmp` rescan check also passed before these follow-ups.
 
 The rejected-probe change reduced complete-scan median time by 10.0% on a
 controlled 6,000-file fixture. Full trees, totals, and warnings matched the
@@ -27,7 +28,7 @@ See [measurement and limits](https://github.com/colinvkim/Radix/blob/54656cc/doc
 baseline and individual checks, worker comparisons, and journal observations.
 The [decision trail](performance/scan-engine-followups-decisions.tsv) preserves
 the order of decisions. Raw local logs referenced there live under
-`/tmp/radix-scan-work/` and are not committed.
+`/tmp/radix-scan-work/` or `/tmp/radix-scan-review/` and are not committed.
 
 ## Housekeeping completed
 
