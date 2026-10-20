@@ -32,8 +32,8 @@ jobs:
           -destination 'platform=macOS'
           -derivedDataPath .build/xcode-derived-data
           -resultBundlePath .build/Tests.xcresult
-      - name: Preserve test results and coverage
-        if: always()
+      - name: Preserve failed test results and coverage
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: test-results
