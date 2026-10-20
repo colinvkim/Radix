@@ -9,7 +9,7 @@ import Foundation
 /// Dirty paths survive navigation and subtree replacements of the same scan.
 @MainActor
 final class FolderRefreshController {
-    private nonisolated struct WatchIdentity: Equatable, Sendable {
+    private struct WatchIdentity: Equatable {
         let snapshotID: UUID
         let targetPath: String
         let options: ScanOptions?
@@ -183,22 +183,42 @@ final class FolderRefreshController {
         let checkpoint = snapshot.incrementalCheckpoint
         let options = snapshot.scanOptions ?? ScanOptions()
         let makeExclusionMatcher = makeExclusionMatcher
-        watchTask = Task.detached(priority: .utility) { [weak self] in
+        watchTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            let changes = watcher.changes(for: targetURL, since: checkpoint)
-            guard !Task.isCancelled else { return }
-            let matcher = makeExclusionMatcher(
-                options.exclusionPatterns, options.exclusionRootPath ?? identity.targetPath
+            let (changes, matcher) = await Self.prepareWatch(
+                watcher: watcher,
+                targetURL: targetURL,
+                checkpoint: checkpoint,
+                patterns: options.exclusionPatterns,
+                rootPath: options.exclusionRootPath ?? identity.targetPath,
+                makeExclusionMatcher: makeExclusionMatcher
             )
             guard !Task.isCancelled else { return }
             do {
                 for try await events in changes {
                     guard !Task.isCancelled else { return }
-                    await self?.receive(events, identity: identity, options: options, matcher: matcher)
+                    self?.receive(events, identity: identity, options: options, matcher: matcher)
                 }
             } catch {
                 // Unsupported/non-local locations and startup failures retain
                 // manual refresh. A failed watcher is not a filesystem change.
+            }
+        }
+    }
+
+    private nonisolated static func prepareWatch(
+        watcher: any FileSystemChangeWatching,
+        targetURL: URL,
+        checkpoint: ScanIncrementalCheckpoint?,
+        patterns: [String],
+        rootPath: String,
+        makeExclusionMatcher: @escaping @Sendable ([String], String) -> ScanExclusionMatcher
+    ) async -> (AsyncThrowingStream<[FileSystemEventRecord], Error>, ScanExclusionMatcher) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let changes = watcher.changes(for: targetURL, since: checkpoint)
+                let matcher = makeExclusionMatcher(patterns, rootPath)
+                continuation.resume(returning: (changes, matcher))
             }
         }
     }
