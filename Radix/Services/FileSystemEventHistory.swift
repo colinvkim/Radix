@@ -19,9 +19,11 @@ nonisolated protocol FileSystemEventHistoryProviding: Sendable {
 
 nonisolated struct DarwinFileSystemEventHistoryProvider: FileSystemEventHistoryProviding {
     private let latency: CFTimeInterval
+    private let historyTimeout: TimeInterval
 
-    init(latency: CFTimeInterval = 0.05) {
+    init(latency: CFTimeInterval = 0.05, historyTimeout: TimeInterval = 10) {
         self.latency = max(latency, 0)
+        self.historyTimeout = max(historyTimeout, 0)
     }
 
     func currentCheckpoint(for targetURL: URL) throws -> ScanIncrementalCheckpoint {
@@ -99,7 +101,7 @@ nonisolated struct DarwinFileSystemEventHistoryProvider: FileSystemEventHistoryP
 
         return try await withTaskCancellationHandler {
             defer { lifetime.stop() }
-            return try await collector.value()
+            return try await collector.value(timeout: historyTimeout)
         } onCancel: {
             collector.cancel()
             lifetime.stop()
@@ -218,6 +220,8 @@ private nonisolated let radixFSEventHistoryCallback: FSEventStreamCallback = {
 }
 
 nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
+    struct TimeoutError: Error {}
+
     private let lock = NSLock()
     private let since: ScanIncrementalCheckpoint
     private let through: ScanIncrementalCheckpoint
@@ -236,8 +240,16 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
         self.volume = volume
     }
 
-    func value() async throws -> FileSystemEventHistory {
-        try await withCheckedThrowingContinuation { continuation in
+    func value(timeout: TimeInterval) async throws -> FileSystemEventHistory {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.setEventHandler { [self] in
+            finish(.failure(TimeoutError()))
+        }
+        timer.schedule(deadline: .now() + timeout)
+        timer.resume()
+        defer { timer.cancel() }
+
+        return try await withCheckedThrowingContinuation { continuation in
             lock.lock()
             if let completion {
                 lock.unlock()

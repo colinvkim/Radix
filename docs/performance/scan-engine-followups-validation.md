@@ -205,7 +205,9 @@ swiftc -parse-as-library Radix/Services/ScanIncrementalModels.swift \
 /tmp/radix-fsevents-probe /tmp
 ```
 
-The diagnostic probe has a deadline. Production history still has no timeout.
+Those trials preceded the production history deadline. History waits now have a
+ten-second deadline, covered by the collector regression and native fault checks
+in the [remaining work note](../scan-engine-remaining.md#history-wait-deadline).
 These trial results do not establish universal rename-pair completeness or
 HistoryDone availability. Baseline identity checks remain separate from
 namespace projection. No claim is made that descriptor capture closes the
@@ -241,5 +243,5 @@ and evidence lenses. It does not claim model diversity. The review follow-ups
 above record the escaped issues and subsequent verification. Optional
 performance work, full-disk timing, ordinary-node
 completeness, external-disk live history, arbitrary symlink-retarget race
-safety, and a production HistoryDone timeout remain outside the verified
-claims.
+safety, and a production HistoryDone timeout were outside the verified claims
+at that checkpoint. The later deadline validation is recorded above.

@@ -1,12 +1,12 @@
 # Scan engine remaining work
 
 Updated 2026-10-19 after the follow-up to the 2026-10-18 review. PRs #78 through
-#84 are merged. The follow-up PRs below are proposed changes and remain unmerged.
+#90 are merged. The table below records the delivered fixes.
 Historical review line numbers refer to `b69254d`.
 
 ## Follow-up delivery
 
-| Work | Proposed PR | Result |
+| Work | Merged PR | Result |
 | --- | --- | --- |
 | Bug 5. Incomplete incremental child listings | [#85](https://github.com/colinvkim/Radix/pull/85) | Recover the affected directory with the existing subtree scanner. Validate its identity before splicing. Replacement scopes preserve folder kind and the original scan behavior. Other unsafe conditions still cause a full scan. |
 | Bug 4. Exclusion case on insensitive volumes | [#86](https://github.com/colinvkim/Radix/pull/86) | Resolve volume case behavior once. Preserve original paths and wildcard character boundaries, including Unicode expansions. Wildcard-only rules use the general glob matcher. Watch sessions prepare one matcher on a utility dispatch queue. |
@@ -14,7 +14,7 @@ Historical review line numbers refer to `b69254d`.
 | Performance item 6. Rejected probe double walks | [#88](https://github.com/colinvkim/Radix/pull/88) | Finish eligible active listings within a 65,536-entry per-probe retention budget. Rejected results keep no descriptor. |
 | Journal aliases found during manual testing | [#89](https://github.com/colinvkim/Radix/pull/89) | Subscribe in the device namespace and project events back into the existing scan namespace. `/tmp` previously returned empty history after real changes. |
 
-The latest combined candidate passed 1,149 core tests and the complete Debug
+The earlier combined candidate passed 1,149 core tests and the complete Debug
 app build after the CI correction. The revised #86 branch also passed the shared
 Xcode test plan and the unchanged strict thread-pool regressions. The exact app
 refreshed from 12 KB to 20 KB while `Build` and `TRACE.LOG` stayed excluded. The earlier
@@ -31,6 +31,15 @@ The [decision trail](performance/scan-engine-followups-decisions.tsv) preserves
 the order of decisions. Raw local logs referenced there live under
 `/tmp/radix-scan-work/` or `/tmp/radix-scan-review/` and are not committed.
 
+## History wait deadline
+
+Production history waits now have a ten-second deadline. Missing completion
+causes the existing full-scan fallback. User cancellation remains cancellation.
+Collector regressions and a temporary native HistoryDone fault verified both
+paths, including a fallback tree equal to a fresh scan. The deadline does not
+interrupt synchronous filesystem setup or bound the fallback scan. This follow-up
+passed 1,152 core tests and the complete Debug app build.
+
 ## Housekeeping completed
 
 - Clean merged baseline `1814e31` passed 1,110 core tests and the complete Debug
@@ -38,7 +47,9 @@ the order of decisions. Raw local logs referenced there live under
 - The listed obsolete branches and worktrees are absent. The remaining
   throwaway `probe-package-lookup` worktree was removed after saving its dirty
   instrumentation patch locally. Its instrumentation was not committed.
-- New PR worktrees remain available for review. No PR was merged by this run.
+- The five follow-up worktrees and seven task branches were removed after the
+  PRs merged. The main checkout was updated and the unrelated catalog edits
+  were preserved.
 
 ## Optional performance work
 
@@ -127,8 +138,8 @@ Any addition must keep the `Contents/PkgInfo` guard and pass a full-disk disagre
   Keep physical device subscriptions separate from scan IDs. Twelve post-fix rename trials passed across `/tmp`, `/var/tmp`, `/Users`, and
   an explicit Data spelling. This does not establish every mounted-volume
   namespace. The probe deadline is documented with the validation.
-- **HistoryDone availability.** Observed requests completed. Production
-  `history()` still has no timeout. The probe's deadline does not change that.
+- **HistoryDone availability.** Universal completion remains unverified. The
+  history deadline now recovers from a missing completion signal.
 - **Borderline auto-summary order.** Listing order may still move directories
   near thresholds between summarized and expanded representations.
 - **Worker saturation elsewhere.** Other disks and machines remain unmeasured.

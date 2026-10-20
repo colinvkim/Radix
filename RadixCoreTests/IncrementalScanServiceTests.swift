@@ -121,18 +121,8 @@ struct IncrementalScanServiceTests {
 
     @Test
     func testHistoryCollectorPreservesUncertaintyAndUnmatchedPaths() async throws {
-        let collector = FSEventHistoryCollector(
-            since: checkpoint(10),
-            through: checkpoint(20),
-            volume: DarwinFileSystemEventHistoryProvider.VolumeContext(
-                deviceID: 1,
-                uuid: "test-volume",
-                rootPath: "/System/Volumes/Data",
-                relativeTargetPath: "private/tmp/example",
-                scanTargetPath: "/tmp/example"
-            )
-        )
-        let rawEvents: [(String, Int, UInt64)] = [
+        let collector = makeHistoryCollector()
+        try receiveHistoryEvents([
             ("private/tmp/example/before", kFSEventStreamEventFlagItemModified, 10),
             ("private/tmp/example/removed", kFSEventStreamEventFlagItemRenamed, 11),
             ("private/tmp/example/later", kFSEventStreamEventFlagItemCreated, 21),
@@ -140,25 +130,8 @@ struct IncrementalScanServiceTests {
             ("private/tmp", kFSEventStreamEventFlagUserDropped, 12),
             ("private/tmp/example-other/file", kFSEventStreamEventFlagItemModified, 13),
             ("", kFSEventStreamEventFlagHistoryDone, 20),
-        ]
-        let ownedPaths = try rawEvents.map { try #require(strdup($0.0)) }
-        defer { ownedPaths.forEach { free($0) } }
-        let paths = ownedPaths.map { UnsafePointer($0) }
-        let flags = rawEvents.map { UInt32($0.1) }
-        let ids = rawEvents.map(\.2)
-        paths.withUnsafeBufferPointer { paths in
-            flags.withUnsafeBufferPointer { flags in
-                ids.withUnsafeBufferPointer { ids in
-                    collector.receive(
-                        eventCount: rawEvents.count,
-                        relativePaths: paths.baseAddress!,
-                        rawFlags: flags.baseAddress!,
-                        eventIDs: ids.baseAddress!
-                    )
-                }
-            }
-        }
-        let history = try await collector.value()
+        ], on: collector)
+        let history = try await collector.value(timeout: 0)
 
         #expect(history.events == [
             FileSystemEventRecord(path: "/tmp/example/removed", eventID: 11, flags: .itemRenamed),
@@ -189,6 +162,55 @@ struct IncrementalScanServiceTests {
             let isolatedHistory = FileSystemEventHistory(since: history.since, through: history.through, events: [event])
             let plan = IncrementalRescanPlanner().plan(history: isolatedHistory, target: target, treeStore: tree)
             #expect(plan == .fullScan(reason: reason))
+        }
+    }
+
+    @Test
+    func testHistoryCollectorTimesOutWithoutReturningPartialEventsOrReviving() async throws {
+        let collector = makeHistoryCollector()
+        try receiveHistoryEvents([
+            ("private/tmp/example/created.dat", kFSEventStreamEventFlagItemCreated, 11),
+        ], on: collector)
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(3))
+            collector.cancel()
+        }
+        defer { watchdog.cancel() }
+
+        await #expect(throws: FSEventHistoryCollector.TimeoutError.self) {
+            try await collector.value(timeout: 0.01)
+        }
+        try receiveHistoryEvents([
+            ("", kFSEventStreamEventFlagHistoryDone, 20),
+        ], on: collector)
+        collector.cancel()
+
+        await #expect(throws: FSEventHistoryCollector.TimeoutError.self) {
+            try await collector.value(timeout: 0)
+        }
+    }
+
+    @Test
+    func testHistoryCollectorPreservesCancellationBeforeZeroDeadline() async {
+        let collector = makeHistoryCollector()
+        collector.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await collector.value(timeout: 0)
+        }
+    }
+
+    @Test
+    func testHistoryCollectorCancellationRemainsDistinctFromLongDeadline() async {
+        let collector = makeHistoryCollector()
+        let cancellation = Task {
+            await Task.yield()
+            collector.cancel()
+        }
+        defer { cancellation.cancel() }
+
+        await #expect(throws: CancellationError.self) {
+            try await collector.value(timeout: 60)
         }
     }
 
@@ -1372,6 +1394,43 @@ struct IncrementalScanServiceTests {
 
     private func checkpoint(_ eventID: UInt64) -> ScanIncrementalCheckpoint {
         ScanIncrementalCheckpoint(volumeUUID: "test-volume", eventID: eventID)
+    }
+
+    private func makeHistoryCollector() -> FSEventHistoryCollector {
+        FSEventHistoryCollector(
+            since: checkpoint(10),
+            through: checkpoint(20),
+            volume: DarwinFileSystemEventHistoryProvider.VolumeContext(
+                deviceID: 1,
+                uuid: "test-volume",
+                rootPath: "/System/Volumes/Data",
+                relativeTargetPath: "private/tmp/example",
+                scanTargetPath: "/tmp/example"
+            )
+        )
+    }
+
+    private func receiveHistoryEvents(
+        _ rawEvents: [(String, Int, UInt64)],
+        on collector: FSEventHistoryCollector
+    ) throws {
+        let ownedPaths = try rawEvents.map { try #require(strdup($0.0)) }
+        defer { ownedPaths.forEach { free($0) } }
+        let paths = ownedPaths.map { UnsafePointer($0) }
+        let flags = rawEvents.map { UInt32($0.1) }
+        let ids = rawEvents.map(\.2)
+        paths.withUnsafeBufferPointer { paths in
+            flags.withUnsafeBufferPointer { flags in
+                ids.withUnsafeBufferPointer { ids in
+                    collector.receive(
+                        eventCount: rawEvents.count,
+                        relativePaths: paths.baseAddress!,
+                        rawFlags: flags.baseAddress!,
+                        eventIDs: ids.baseAddress!
+                    )
+                }
+            }
+        }
     }
 
     private func assertEquivalent(
