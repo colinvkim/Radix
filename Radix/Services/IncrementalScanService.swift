@@ -339,8 +339,9 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             )
             do {
                 for try await event in engine.scan(
-                    target: ScanTarget(url: node.url),
-                    options: adjustedSubtreeOptions
+                    target: ScanTarget(url: node.url, kind: .folder),
+                    options: adjustedSubtreeOptions,
+                    preservingBehaviorOf: target
                 ) {
                     switch event {
                     case .executionMode:
@@ -635,8 +636,9 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked S
             scanTarget: scanTarget
         )
         for try await event in engine.scan(
-            target: ScanTarget(url: url),
-            options: adjustedOptions
+            target: ScanTarget(url: url, kind: .folder),
+            options: adjustedOptions,
+            preservingBehaviorOf: scanTarget
         ) {
             switch event {
             case .finished(let finished):
