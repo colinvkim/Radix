@@ -1,7 +1,7 @@
 # Scan engine remaining work
 
 Updated 2026-10-19 after the follow-up to the 2026-10-18 review. PRs #78 through
-#90 are merged. The table below records the delivered fixes.
+#92 are merged. The table below records the delivered fixes.
 Historical review line numbers refer to `b69254d`.
 
 ## Follow-up delivery
@@ -13,6 +13,8 @@ Historical review line numbers refer to `b69254d`.
 | Bugs 6 and 7. Skipped-entry cadence and retry progress | [#87](https://github.com/colinvkim/Radix/pull/87) | Publish progress from completed work. Keep summary retry counts at their high-water mark. |
 | Performance item 6. Rejected probe double walks | [#88](https://github.com/colinvkim/Radix/pull/88) | Finish eligible active listings within a 65,536-entry per-probe retention budget. Rejected results keep no descriptor. |
 | Journal aliases found during manual testing | [#89](https://github.com/colinvkim/Radix/pull/89) | Subscribe in the device namespace and project events back into the existing scan namespace. `/tmp` previously returned empty history after real changes. |
+| Missing history completion | [#91](https://github.com/colinvkim/Radix/pull/91) | Bound asynchronous history waits and fall back to a full scan on timeout. |
+| Immediate-summary listing order | [#92](https://github.com/colinvkim/Radix/pull/92) | Average all immediate-file metadata and reject overflowed totals. |
 
 The earlier combined candidate passed 1,149 core tests and the complete Debug
 app build after the CI correction. The revised #86 branch also passed the shared
@@ -50,6 +52,10 @@ passed 1,152 core tests and the complete Debug app build.
 - The five follow-up worktrees and seven task branches were removed after the
   PRs merged. The main checkout was updated and the unrelated catalog edits
   were preserved.
+- After #91 and #92 merged, their two local task branches and stale remote
+  references were removed. The clean checkout and its build cache were reused
+  for worker validation. The unrelated performance research branch and catalog
+  edits were preserved.
 
 ## Optional performance work
 
@@ -128,15 +134,30 @@ Any addition must keep the `Contents/PkgInfo` guard and pass a full-disk disagre
 
 `#83` saved more CPU than the removed lookups took. That is either noise or Foundation contention slowing other workers. A profile would tell whether more trims are worth it.
 
+## Immutable worker validation
+
+The [focused native test](../RadixCoreTests/ScanEngineWorkerCompletenessTests.swift)
+checks ordinary-node completeness against a construction manifest. Its unchanged
+fixture has 2,236 files and 74 directories. It covers 24 sibling branches, a
+directory with 2,113 files, nested and empty directories, hidden paths, Unicode,
+and percent encoding.
+A serial reference and two passes at 5, 12, and 16 traversal workers check every
+record, byte-exact paths and names, topology, all six aggregate fields, and zero
+warnings. Classification and atomic workers stay fixed at one. Payload and native
+metadata checks before and after the series detect fixture mutations.
+
+All checks passed in three Release invocations on local APFS. Each invocation
+created its own fixture and kept it unchanged across the seven scans. The full
+core suite passed all 1,155 tests with this regression included. No scanner
+discrepancy was found.
+
+Run `swift test -c release --filter ScanEngineWorkerCompletenessTests` to repeat
+the check. This controlled ordinary tree isolates the comparison from temporary
+directory churn. It does not establish whole-disk completeness, behavior during
+mutation, special-file policies, or results on other devices.
+
 ## Verification still open
 
-- **Ordinary-node completeness at 12/16 workers.** Two fresh Release scans at
-  each of 5, 12, and 16 workers share package/auto-summary representation and
-  warning fingerprints. The representation hash excludes `/private/var/folders`
-  and does not hash ordinary nodes. Raw retained counts still vary with live
-  churn. These runs establish the recorded representation consistency, not the
-  absence of ordinary-node loss. An immutable full-tree comparison would close
-  the broader question.
 - **Full-disk rejected-probe timing.** The controlled complete-scan win does not
   establish a full-disk gain. Large over-budget listings can still incur
   read-ahead and a second walk. The entry budget is not a global byte or I/O cap.
@@ -153,12 +174,10 @@ Any addition must keep the `Contents/PkgInfo` guard and pass a full-disk disagre
   namespace. The probe deadline is documented with the validation.
 - **HistoryDone availability.** Universal completion remains unverified. The
   history deadline now recovers from a missing completion signal.
-- **Borderline auto-summary order.** Listing order may still move directories
-  near thresholds between summarized and expanded representations.
+- **Borderline descendant-summary order.** The bounded descendant probe may
+  still move directories near thresholds between summarized and expanded
+  representations. Immediate-file classification now uses all loaded metadata.
 - **Worker saturation elsewhere.** Other disks and machines remain unmeasured.
-- **Bug 9. Temporary-tree churn.** `$TMPDIR` can change retained counts and scan
-  time. #84 excludes it from the representation comparison only. A dedicated
-  immutable fixture is needed for general tree equality.
 
 ## Immediate auto-summary classification
 
@@ -173,7 +192,10 @@ median was 18.3 ms
 (range 14.3 to 26.1 ms), and the candidate median was 19.4 ms (13.3 to 31.6 ms).
 The complete-scan limiter was not profiled. Reading all metadata adds linear CPU
 work but no filesystem reads. These measurements do not establish full-disk cost.
-The summary follow-up passed 1,150 core tests and the complete Debug app build.
+The final summary follow-up passed 1,151 core tests and the complete Debug app
+build. Its small overflow guard rejects an unrepresentable immediate-file total.
+A native fixture of 5,000 sparse 2 PiB files remained expanded with all paths
+present, matching the overflow regression.
 
 ## Already merged
 
@@ -189,7 +211,6 @@ The summary follow-up passed 1,150 core tests and the complete Debug app build.
 
 ## Looked at and dropped
 
-The earlier review retained root-stat failure as an abort, the Int64 byte sum
-whose overflow requires more than 8 EB, APFS canonical-name behavior, and
-symlink directory-pattern differences that affect no scanned bytes.
+The earlier review retained root-stat failure as an abort, APFS canonical-name
+behavior, and symlink directory-pattern differences that affect no scanned bytes.
 Case-sensitive planner scope checks remain conservative full-scan fallbacks.
