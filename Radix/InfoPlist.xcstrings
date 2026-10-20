@@ -13,7 +13,7 @@
         },
         "en": {
           "stringUnit": {
-            "state": "new",
+            "state": "translated",
             "value": "Radix"
           }
         },
@@ -61,7 +61,7 @@
         },
         "en": {
           "stringUnit": {
-            "state": "new",
+            "state": "translated",
             "value": "Radix"
           }
         },
@@ -109,7 +109,7 @@
         },
         "en": {
           "stringUnit": {
-            "state": "new",
+            "state": "translated",
             "value": "Copyright © 2026 Colin Kim."
           }
         },
@@ -156,7 +156,7 @@
         },
         "en": {
           "stringUnit": {
-            "state": "new",
+            "state": "translated",
             "value": "Radix Discard Pile Drag Payload"
           }
         },
@@ -203,7 +203,7 @@
         },
         "en": {
           "stringUnit": {
-            "state": "new",
+            "state": "translated",
             "value": "Radix Scan Snapshot"
           }
         },
