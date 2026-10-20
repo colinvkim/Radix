@@ -5108,6 +5108,38 @@ struct ScanEngineTests {
     }
 
     @Test
+    func testImmediateAutoSummaryRejectsOverflowingFileSizes() throws {
+        let metadata = NodeMetadata(
+            isDirectory: false,
+            isPackage: false,
+            isSymbolicLink: false,
+            logicalSize: Int64.max,
+            allocatedSize: 0,
+            lastModified: nil,
+            isReadable: true,
+            volumeCapacity: nil,
+            fileIdentity: nil,
+            linkCount: 1
+        )
+        let summarizer = AtomicDirectorySummarizer(
+            metadataLoader: ScanMetadataLoader(),
+            summaryPool: AtomicDirectorySummaryPool(workerLimit: 1, progressEmissionInterval: 0)
+        )
+        let entries = [
+            DirectoryEntry(url: URL(filePath: "/first.bin"), metadata: metadata),
+            DirectoryEntry(url: URL(filePath: "/second.bin"), metadata: metadata),
+        ]
+
+        let isCandidate = try summarizer.immediateChildrenSuggestAtomicDirectory(
+            entries,
+            maxAverageFileSize: Int64.max / 2,
+            cancellationCheck: {}
+        )
+
+        #expect(isCandidate == false)
+    }
+
+    @Test
     func testDirectoryNotAutoSummarizedWhenFilesAreLarge() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
