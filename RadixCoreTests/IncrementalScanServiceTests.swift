@@ -95,6 +95,99 @@ struct IncrementalScanServiceTests {
     }
 
     @Test
+    func testIncompleteRootRelistPreservesExplicitFolderBehavior() async throws {
+        let target = ScanTarget(url: URL(filePath: "/", directoryHint: .isDirectory), kind: .folder)
+        let systemURL = URL(filePath: "/System", directoryHint: .isDirectory)
+        let volumesURL = URL(filePath: "/System/Volumes", directoryHint: .isDirectory)
+        let missingURL = URL(filePath: "/radix-missing-\(UUID().uuidString)")
+        let visits = IncrementalDirectoryVisits()
+        let engine = ScanEngine(directoryContents: { url, _, _, cancellationCheck in
+            try cancellationCheck()
+            let visit = visits.record(url)
+            switch url.path {
+            case "/":
+                return visit == 2 ? [systemURL, missingURL] : [systemURL]
+            case "/System":
+                return [volumesURL]
+            default:
+                return []
+            }
+        })
+        let service = IncrementalScanService(
+            engine: engine,
+            eventHistoryProvider: IncrementalHistoryStub(
+                checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
+                events: []
+            )
+        )
+        let options = ScanOptions(includeHiddenFiles: true, autoSummarizeDirectories: false)
+        let baseline = try await finishedIncrementalSnapshot(
+            from: service.scan(target: target, options: options)
+        )
+        #expect(baseline.treeStore.node(id: volumesURL.path) != nil)
+        #expect(baseline.volumeCapacity == nil)
+
+        let result = try await incrementalScanResult(
+            from: service.rescan(
+                target: target,
+                options: options,
+                from: baseline,
+                relistingDirectoryPaths: [target.url.path]
+            )
+        )
+
+        #expect(result.executionModes == [.incremental])
+        #expect(visits.count(for: target.url) == 3)
+        #expect(result.snapshot.target == target)
+        #expect(result.snapshot.volumeCapacity == nil)
+        #expect(result.snapshot.treeStore.node(id: volumesURL.path) != nil)
+        #expect(result.snapshot.treeStore.indexedNodeIDs() == ["/", "/System", "/System/Volumes"])
+        #expect(result.snapshot.root.allocatedSize == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func testStartupVolumeRescanBypassesIncrementalRecovery(forcedRelist: Bool) async throws {
+        let target = ScanTarget(url: URL(filePath: "/", directoryHint: .isDirectory))
+        let systemURL = URL(filePath: "/System", directoryHint: .isDirectory)
+        let volumesURL = URL(filePath: "/System/Volumes", directoryHint: .isDirectory)
+        let provider = IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20)],
+            events: []
+        )
+        let service = IncrementalScanService(
+            engine: ScanEngine(directoryContents: { url, _, _, cancellationCheck in
+                try cancellationCheck()
+                switch url.path {
+                case "/": return [systemURL]
+                case "/System": return [volumesURL]
+                default: return []
+                }
+            }),
+            eventHistoryProvider: provider
+        )
+        let options = ScanOptions(includeHiddenFiles: true, autoSummarizeDirectories: false)
+        let baseline = try await finishedIncrementalSnapshot(
+            from: service.scan(target: target, options: options)
+        )
+
+        let result = try await incrementalScanResult(
+            from: service.rescan(
+                target: target,
+                options: options,
+                from: baseline,
+                relistingDirectoryPaths: forcedRelist ? [systemURL.path] : []
+            )
+        )
+
+        #expect(target.kind == .volume)
+        #expect(result.executionModes == [.fullFallback(.volumeTarget)])
+        #expect(provider.historyRequestCount == 0)
+        #expect(result.snapshot.treeStore.node(id: systemURL.path) != nil)
+        #expect(result.snapshot.treeStore.node(id: volumesURL.path) == nil)
+        #expect(result.snapshot.aggregateStats.fileCount == 0)
+    }
+
+    @Test
     func testFullScanReportsFullExecutionMode() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
