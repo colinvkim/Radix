@@ -83,7 +83,9 @@ extension AtomicDirectorySummarizer {
             }
 
             if !childMetadata.isDirectory {
-                totalSize = ScanIntegerMath.addingClamped(totalSize, childMetadata.logicalSize)
+                let (sum, overflow) = totalSize.addingReportingOverflow(childMetadata.logicalSize)
+                guard !overflow else { return false }
+                totalSize = sum
                 fileCount += 1
             }
         }

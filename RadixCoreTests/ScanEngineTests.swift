@@ -5123,7 +5123,7 @@ struct ScanEngineTests {
         )
         let summarizer = AtomicDirectorySummarizer(
             metadataLoader: ScanMetadataLoader(),
-            summaryPool: AtomicDirectorySummaryPool(workerLimit: 1, progressEmissionInterval: 0)
+            summaryPool: AtomicDirectorySummaryPool(workerLimit: 1)
         )
         let entries = [
             DirectoryEntry(url: URL(filePath: "/first.bin"), metadata: metadata),
