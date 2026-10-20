@@ -349,8 +349,8 @@ struct ScanArchiveServiceTests {
         }
     }
 
-    @Test
-    func testVersionFiveRejectsCorruptedTruncatedAndTrailingNodeStreams() async throws {
+    @Test(arguments: [1_000, 40_000])
+    func testVersionFiveRejectsCorruptedTruncatedAndTrailingNodeStreams(childCount: Int) async throws {
         enum Mutation {
             case corrupt
             case truncate
@@ -361,7 +361,7 @@ struct ScanArchiveServiceTests {
         for mutation in [Mutation.corrupt, .truncate, .append] {
             let archiveURL = try makeTemporaryArchiveURL()
             _ = try await service.export(
-                snapshot: makeLargeArchiveSnapshot(childCount: 1_000),
+                snapshot: makeLargeArchiveSnapshot(childCount: childCount),
                 to: archiveURL,
                 options: ScanArchiveExportOptions()
             )
@@ -377,14 +377,23 @@ struct ScanArchiveServiceTests {
                 data.append(0)
             }
             try data.write(to: nodesURL, options: [.atomic])
+            try rewriteManifestByteCount(Int64(data.count), key: "nodes", in: archiveURL)
 
             do {
                 _ = try await service.importSnapshot(from: archiveURL)
                 Issue.record("Import should reject a \(mutation) v5 node stream.")
             } catch ScanArchiveError.nodes(let detail) {
-                #expect(!(detail.isEmpty))
+                switch mutation {
+                case .corrupt: #expect(!detail.isEmpty)
+                case .truncate: #expect(detail.contains("truncated"))
+                case .append: #expect(detail.contains("trailing"))
+                }
             } catch ScanArchiveError.integrity(let detail) {
-                #expect(detail.contains("nodes"))
+                if case .corrupt = mutation {
+                    #expect(detail.contains("nodes"))
+                } else {
+                    Issue.record("Expected a compressed node stream error, got \(detail).")
+                }
             }
         }
     }

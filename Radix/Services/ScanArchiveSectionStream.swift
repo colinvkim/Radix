@@ -321,6 +321,7 @@ private nonisolated final class ScanArchiveLZFSEDecoder {
             requestedByteCount,
             ScanArchiveSectionStreamConstants.codecOutputByteCount
         )
+        var mayConsumeRetainedByte = false
 
         while true {
             try Task.checkCancellation()
@@ -333,6 +334,10 @@ private nonisolated final class ScanArchiveLZFSEDecoder {
             }
 
             let availableSourceByteCount = encodedBuffer.count - encodedOffset
+            // The system decoder reads ahead, so drain buffered output before offering the retained byte.
+            let offeredSourceByteCount = availableSourceByteCount > 1
+                ? availableSourceByteCount - 1
+                : (mayConsumeRetainedByte ? availableSourceByteCount : 0)
             var consumedByteCount = 0
             var producedByteCount = 0
             var status = COMPRESSION_STATUS_OK
@@ -344,7 +349,7 @@ private nonisolated final class ScanArchiveLZFSEDecoder {
                 } else {
                     stream.src_ptr = UnsafePointer(outputBuffer)
                 }
-                stream.src_size = availableSourceByteCount
+                stream.src_size = offeredSourceByteCount
                 stream.dst_ptr = outputBuffer
                 stream.dst_size = outputByteCount
 
@@ -352,7 +357,7 @@ private nonisolated final class ScanArchiveLZFSEDecoder {
                     ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue)
                     : 0
                 status = compression_stream_process(&stream, flags)
-                consumedByteCount = availableSourceByteCount - stream.src_size
+                consumedByteCount = offeredSourceByteCount - stream.src_size
                 producedByteCount = outputByteCount - stream.dst_size
             }
             encodedOffset += consumedByteCount
@@ -374,10 +379,15 @@ private nonisolated final class ScanArchiveLZFSEDecoder {
                 return Data(bytes: outputBuffer, count: producedByteCount)
             }
             if consumedByteCount > 0 {
+                mayConsumeRetainedByte = false
                 continue
             }
             if reachedSourceEOF {
                 throw ScanArchiveSectionStreamError.truncated
+            }
+            if availableSourceByteCount == 1, !mayConsumeRetainedByte {
+                mayConsumeRetainedByte = true
+                continue
             }
             if availableSourceByteCount == 0 {
                 continue
