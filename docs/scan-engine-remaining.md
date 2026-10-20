@@ -85,9 +85,22 @@ Foundation metadata, lstat fallbacks, and probes that cannot resume (`ScanMetada
 
 ### Item 8. each rescan splice copies the whole tree
 
-Optional; matters on large trees.
+Optional; measured on warm local APFS.
 
-`FileTreeStore.replacingSubtrees` / `combining` / `rebalancedStore`. Measure: `testIncrementalRescanBenchmark`.
+A 1% rescan of a 100,001-file baseline took a median 40.1 ms (39.5 to 41.4 ms),
+versus 392.0 ms (389.9 to 409.1 ms) for a full scan. An isolated replacement of
+the same subtree took 32.2 ms (31.3 to 32.4 ms). A synthetic million-file tree
+splice took 251.4 ms (248.9 to 253.7 ms). Each series discarded one warmup and
+retained five measured samples. Real-file results matched fresh full-scan records
+and topology. Their baseline fingerprints stayed unchanged and still lacked the
+new path. Synthetic results and baselines matched complete independent expectations.
+
+These backend measurements use injected history and exclude app coordination,
+UI work, and cold metadata. The separate splice timer does not exactly decompose
+the complete rescan. No storage rewrite is proposed from these absolute costs.
+`FileTreeStore.replacingSubtrees` / `combining` remain future targets if user wait
+or larger-tree measurements justify them. `testIncrementalRescanBenchmark`
+provides the existing benchmark entry point.
 
 ### Item 9. non-membership directory events deep-scan the subtree
 
@@ -146,6 +159,21 @@ Any addition must keep the `Contents/PkgInfo` guard and pass a full-disk disagre
 - **Bug 9. Temporary-tree churn.** `$TMPDIR` can change retained counts and scan
   time. #84 excludes it from the representation comparison only. A dedicated
   immutable fixture is needed for general tree equality.
+
+## Immediate auto-summary classification
+
+The immediate-file decision now averages all already-loaded child metadata.
+Controlled listing permutations keep the same expanded representation, exact
+paths, totals, and warnings on unchanged 200-file and 5,000-file fixtures. The
+bounded descendant probe remains order-sensitive.
+
+Five alternating Release pairs on a homogeneous 5,000-file cache produced matching
+tree fingerprints and totals. Complete-scan timing was inconclusive. The baseline
+median was 18.3 ms
+(range 14.3 to 26.1 ms), and the candidate median was 19.4 ms (13.3 to 31.6 ms).
+The complete-scan limiter was not profiled. Reading all metadata adds linear CPU
+work but no filesystem reads. These measurements do not establish full-disk cost.
+The summary follow-up passed 1,150 core tests and the complete Debug app build.
 
 ## Already merged
 
