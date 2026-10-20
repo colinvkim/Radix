@@ -299,7 +299,7 @@ nonisolated private enum PatternMatcher: Sendable {
     case glob(GlobPattern)
 
     init(pattern: String, matchesPath: Bool, isCaseSensitive: Bool) {
-        guard !matchesPath, !pattern.contains("?") else {
+        guard !matchesPath, !pattern.contains("?"), pattern.contains(where: { $0 != "*" }) else {
             self = .glob(GlobPattern(pattern: pattern, matchesPath: matchesPath, isCaseSensitive: isCaseSensitive))
             return
         }
