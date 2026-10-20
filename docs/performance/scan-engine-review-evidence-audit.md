@@ -45,3 +45,61 @@ Reviewed by the inherited parent model with an independent evidence lens.
 - PR 86 tests were still running in the latest saved CI snapshot. Do not report CI complete without a later receipt.
 - The first reviews missed the recovered-folder edge, wildcard-only rules, and MainActor matcher preparation. The new drafts acknowledge those escapes. Passing review and test receipts remain scoped evidence, not a guarantee that all cases are covered.
 - Native synchronous lookup interruption and the queued actor-hop cancellation interleaving remain bounded by the source/test limits documented above.
+
+## CI correction checkpoint, 2026-10-19
+
+PASS for the local correction evidence at PR 86 source `0611a2c` and combined
+integration `42a03c6`. This dated checkpoint supersedes the detached-task
+execution description above. The earlier audit remains a historical record of
+the locally passing implementation that later failed CI.
+
+The shared Xcode CI failure is saved in `pr86-ci-failure.log`. The local strict
+cooperative-pool reproduction failed with 36 issues across 28 controller tests.
+Those tests demonstrated a blocking dependency on future Swift task progress.
+They do not establish that an actual native metadata lookup deadlocked.
+
+The correction changes only `FolderRefreshController.swift`. Tests, assertions,
+and their 15-second watchdog remain unchanged. The existing MainActor watch
+task now awaits synchronous watcher and matcher preparation dispatched to the
+utility queue, then consumes and delivers batches synchronously on MainActor.
+Stream creation still precedes matcher construction. The actor delivery hop is
+removed. Queued or blocked readonly setup can finish after cancellation, and
+the post-await guard discards that result before any delivery.
+
+Saved receipts under `/tmp/radix-scan-review/` show 28 unchanged strict-pool
+controller tests passing, 1,122 core tests passing, and the full shared Xcode
+plan passing 1,122 tests with `TEST SUCCEEDED`. The revised branch's complete
+Debug build also passed. Combined integration `42a03c6` passed 1,149 tests and
+its complete Debug build. The independent frozen-source review records PASS
+for source blob `467dcb9`. This evidence audit inspected those saved results
+and the one-file commit. It did not rerun tests or builds.
+
+The repeated Computer Use receipt identifies one exact integration Debug
+process, PID 25133. The UI automatically updated from 12 KB to 20 KB after file
+growth, with Changed at 16 KB, Untouched at 4 KB, and zero warnings. Build and
+TRACE.LOG remained excluded. No Rescan button was clicked. Selected saved
+preference keys compared equal before and after, and the test app was stopped.
+The manual receipt summarizes actual accessibility output rather than an
+exported screenshot or a reviewer rerun. It does not simulate an unresponsive
+mounted volume.
+
+The minor PR 90 bookkeeping correction is valid. The earlier publication
+instruction is now marked as a historical delivery checkpoint and points to
+the already published documentation PR. The original review history remains.
+
+The latest saved remote status, observed at `2026-10-20T02:32:42.217Z`, identifies
+head `0611a2c` with no unresolved threads. Tests were IN_PROGRESS and CodeRabbit
+was PENDING. Local shared-plan success does not establish remote CI clean.
+Later status checks remain with the root owner.
+
+### Attention at this checkpoint
+
+Reviewed by the inherited parent model with an independent evidence lens.
+
+- No actionable factual or scope finding in the correction draft. Remote tests
+  and CodeRabbit remained pending at the saved checkpoint.
+- Native synchronous setup can outlive cancellation until it returns. The
+  post-await guard covers queued cancellation by source reasoning. The live UI
+  check does not prove behavior on an unresponsive mounted volume.
+- Earlier passing reviews missed real cases and a scheduler constraint. They
+  remain scoped historical evidence, not a guarantee of complete coverage.

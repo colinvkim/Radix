@@ -26,9 +26,9 @@ The selected worker records and rerunnable tool retain the narrow representation
 
 The draft now preserves the separate journal boundaries explicitly. Descriptor capture does not close the preexisting baseline-eligibility gap. Arbitrary symlink-retarget safety, writable external-disk live history, universal rename-pair delivery, and a production HistoryDone timeout are not claimed. Optional optimization and measurement work remain listed rather than silently presented as completed.
 
-## Remaining delivery step
+## Historical delivery checkpoint
 
-Publish the reviewed status documents, trail snapshot, selected worker records, and worker tool in the final documentation PR. Mark the already completed journal, integration, and manual checklist items complete. Append the final audit and publication outcomes to the canonical trail and keep the published snapshot current. Those are delivery bookkeeping steps after this evidence audit, not unresolved production verification failures.
+The status documents, trail snapshot, selected worker records, and worker tool were awaiting publication when this audit ran. They are now included in [PR #90](https://github.com/colinvkim/Radix/pull/90). The completed journal, integration, manual, audit, and publication outcomes are recorded in the published decision trail.
 
 ## Attention for the operator
 

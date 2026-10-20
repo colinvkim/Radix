@@ -69,22 +69,31 @@ literal retained paths using native and Foundation scans.
 
 The [refresh finding](https://github.com/colinvkim/Radix/pull/86#discussion_r4318615897)
 was also confirmed. The baseline factory ran on MainActor once per batch and
-blocked the test's UI pulse until its failure watchdog expired. Commit `d0ac3cf`
-uses the existing watch task as one detached owner. It opens the stream first,
-builds one immutable matcher, then awaits ordered MainActor batch delivery.
-Initial nil-checkpoint events buffer during setup. No mutable matcher cache or
-second task handle was added. Cancellation is checked again on the actor after
-the hop, including when a reset restores an equal watch identity.
+blocked the test's UI pulse until its failure watchdog expired. The first fix
+at `d0ac3cf` passed local checks but failed the shared Xcode CI plan. The same
+controller suite failed locally under `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`
+with 36 issues in 28 tests. Its blocking factory gates depended on later Swift
+task progress. This demonstrates cooperative-pool starvation in that test; it
+does not prove a real filesystem lookup deadlocked.
 
-The final focused run passed 53 tests. The gate has a bounded 15-second failure
-watchdog, not a performance threshold. Tests cover reuse during navigation and
-same-ID tree replacement, buffered initial events, cancelled preparation,
-equal-identity resets, and controller release. They do not force the narrower
-queued actor-hop cancellation interleaving. That check is verified in source.
-Native synchronous metadata calls remain cooperatively cancellable. A blocked
-call can retain its stream until it returns while MainActor stays available.
+Commit `0611a2c` moves synchronous watcher and matcher preparation onto a utility
+dispatch queue. The existing MainActor watch task awaits the immutable stream
+and matcher, then consumes batches in order. Opening the stream before matcher
+construction preserves initial nil-checkpoint events. No mutable cache or
+second task handle was added. Already queued or blocked readonly setup may
+finish after cancellation. The post-await guard discards that result before
+delivery. MainActor batch delivery is synchronous, removing the actor hop.
 
-Combined integration `02c5634` passed 1,149 tests in 78 suites and the complete
+The existing tests and their 15-second failure watchdog are unchanged. All 28
+controller tests now pass under the strict pool, and the focused 53-test run
+passes. Coverage includes matcher reuse during navigation and same-ID tree
+replacement, buffered initial events, cancellation during preparation,
+equal-identity resets, and controller release. All 1,122 core tests, the shared
+Xcode test plan, and the complete Debug build passed on the revised branch.
+The [CI correction review](scan-engine-ci-review.md) records an independent
+functional and comment review of the exact source hash. It found no issue.
+
+Combined integration `42a03c6` passed 1,149 tests in 78 suites and the complete
 Debug build. Computer Use then drove its exact Debug bundle with one running
 instance. Process-only arguments enabled exclusions `*.log` and `build/` plus
 automatic refresh. The fixture initially showed 12 KB, two files, three folders,
@@ -99,7 +108,7 @@ execution boundary separately.
 All three original review threads were replied to with the fix commits and
 resolved. Raw follow-up logs live under `/tmp/radix-scan-review/`. No PR was
 merged during the follow-up. The [follow-up evidence audit](scan-engine-review-evidence-audit.md)
-checks the recorded outcomes and keeps the CI checkpoint explicit.
+preserves the earlier pending-CI checkpoint and the subsequent correction.
 
 ## Worker representation
 

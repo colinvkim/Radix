@@ -9,14 +9,15 @@ Historical review line numbers refer to `b69254d`.
 | Work | Proposed PR | Result |
 | --- | --- | --- |
 | Bug 5. Incomplete incremental child listings | [#85](https://github.com/colinvkim/Radix/pull/85) | Recover the affected directory with the existing subtree scanner. Validate its identity before splicing. Replacement scopes preserve folder kind and the original scan behavior. Other unsafe conditions still cause a full scan. |
-| Bug 4. Exclusion case on insensitive volumes | [#86](https://github.com/colinvkim/Radix/pull/86) | Resolve volume case behavior once. Preserve original paths and wildcard character boundaries, including Unicode expansions. Wildcard-only rules use the general glob matcher. Watch sessions prepare one matcher off MainActor. |
+| Bug 4. Exclusion case on insensitive volumes | [#86](https://github.com/colinvkim/Radix/pull/86) | Resolve volume case behavior once. Preserve original paths and wildcard character boundaries, including Unicode expansions. Wildcard-only rules use the general glob matcher. Watch sessions prepare one matcher on a utility dispatch queue. |
 | Bugs 6 and 7. Skipped-entry cadence and retry progress | [#87](https://github.com/colinvkim/Radix/pull/87) | Publish progress from completed work. Keep summary retry counts at their high-water mark. |
 | Performance item 6. Rejected probe double walks | [#88](https://github.com/colinvkim/Radix/pull/88) | Finish eligible active listings within a 65,536-entry per-probe retention budget. Rejected results keep no descriptor. |
 | Journal aliases found during manual testing | [#89](https://github.com/colinvkim/Radix/pull/89) | Subscribe in the device namespace and project events back into the existing scan namespace. `/tmp` previously returned empty history after real changes. |
 
 The latest combined candidate passed 1,149 core tests and the complete Debug
-app build. After the review fixes, the exact app automatically refreshed from
-12 KB to 20 KB while `Build` and `TRACE.LOG` stayed excluded. The earlier
+app build after the CI correction. The revised #86 branch also passed the shared
+Xcode test plan and the unchanged strict thread-pool regressions. The exact app
+refreshed from 12 KB to 20 KB while `Build` and `TRACE.LOG` stayed excluded. The earlier
 manual `/tmp` rescan check also passed before these follow-ups.
 
 The rejected-probe change reduced complete-scan median time by 10.0% on a
