@@ -790,7 +790,7 @@ nonisolated final class ScanEngine: Sendable {
         static let ordinaryLeafPreparationBatchLimit = 2_048
 
         /// Bounds metadata retained between a rejected auto-summary probe and normal traversal.
-        static let autoSummaryProbeReuseEntryLimit = 65_536
+        static let autoSummaryProbeReuseEntryLimit = AtomicDirectoryProbeListing.retainedEntryLimit
         // Shared budget for concurrent child metadata reads across traversal and classification workers.
         static let directoryMetadataWorkerBudgetMaximum = 16
 

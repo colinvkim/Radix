@@ -311,6 +311,7 @@ nonisolated enum BulkDirectoryEnumerator {
 
     static func directoryEntries(
         at directoryURL: URL,
+        expectedIdentity: FileIdentity? = nil,
         includeHiddenFiles: Bool,
         loadsPackageMetadata: Bool = true,
         metadataLoader: ScanMetadataLoader,
@@ -322,6 +323,7 @@ nonisolated enum BulkDirectoryEnumerator {
         var enumeratedItemCount = 0
         let cursor = try makeCursor(
             at: directoryURL,
+            expectedIdentity: expectedIdentity,
             includeHiddenFiles: includeHiddenFiles,
             loadsPackageMetadata: loadsPackageMetadata,
             metadataLoader: metadataLoader,
