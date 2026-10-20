@@ -171,12 +171,6 @@ struct IncrementalScanServiceTests {
         try receiveHistoryEvents([
             ("private/tmp/example/created.dat", kFSEventStreamEventFlagItemCreated, 11),
         ], on: collector)
-        let watchdog = Task {
-            try await Task.sleep(for: .seconds(3))
-            collector.cancel()
-        }
-        defer { watchdog.cancel() }
-
         await #expect(throws: FSEventHistoryCollector.TimeoutError.self) {
             try await collector.value(timeout: 0.01)
         }

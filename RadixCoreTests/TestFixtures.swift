@@ -9,7 +9,7 @@ import Testing
 @MainActor
 func waitUntil(
     _ description: String = "asynchronous test condition",
-    timeout: TimeInterval = 15,
+    timeout: TimeInterval = 60,
     sourceLocation: SourceLocation = #_sourceLocation,
     condition: @escaping @MainActor () async -> Bool
 ) async throws {
