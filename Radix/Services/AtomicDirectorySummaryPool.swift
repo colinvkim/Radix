@@ -229,6 +229,7 @@ nonisolated private final class AtomicSummaryProgressCoordinator: @unchecked Sen
             return
         }
         job.generation = generation
+        job.visitedItems = 0
         job.completedVisitedItems = 0
         job.completedWorkItems = 0
         job.pendingWorkItems = max(pendingWorkItems, 0)
