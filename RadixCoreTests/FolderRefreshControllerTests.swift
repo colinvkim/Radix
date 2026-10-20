@@ -6,6 +6,137 @@ import Testing
 @MainActor
 struct FolderRefreshControllerTests {
     @Test
+    func matcherPreparationKeepsMainActorResponsiveAndBuffersInitialEvents() async throws {
+        let watcher = BufferedRefreshWatcher(initialEvents: [changedFile(downloads + "/new.zip")])
+        let factory = RefreshMatcherFactory(blockFirstBuild: true)
+        let clock = ManualTestClock()
+        var requests: [String] = []
+        let controller = FolderRefreshController(
+            watcher: watcher,
+            now: { clock.now },
+            sleep: { try await clock.sleep(for: $0) },
+            makeExclusionMatcher: { patterns, rootPath in
+                factory.make(patterns: patterns, rootPath: rootPath, streamStarted: watcher.requestCount > 0)
+            },
+            directoryExists: { _ in true },
+            requestRefresh: { requests.append($0); return true }
+        )
+        defer {
+            factory.release()
+            controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
+        }
+        let snapshot = makeFolderRefreshSnapshot(checkpoint: nil)
+        controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { factory.receipts.count == 1 }
+        #expect(factory.isBlocked)
+        #expect(!factory.timedOut)
+        #expect(factory.receipts.first?.wasMainThread == false)
+        #expect(factory.receipts.first?.streamStarted == true)
+        #expect(watcher.startedOnMainThread == [false])
+        #expect(watcher.checkpoints == [nil])
+        var mainActorPulse = false
+        Task { @MainActor in mainActorPulse = true }
+        try await waitUntil { mainActorPulse }
+        #expect(factory.isBlocked)
+        controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        factory.release()
+        try await waitUntil { clock.pendingSleeps == 1 }
+        clock.advance(by: .seconds(1))
+        try await waitUntil { requests == [downloads] }
+        #expect(factory.receipts.count == 1)
+    }
+
+    @Test
+    func reusesSessionMatcherAcrossBatchesNavigationAndTreeReplacement() async throws {
+        let factory = RefreshMatcherFactory()
+        let harness = FolderRefreshHarness(makeExclusionMatcher: { patterns, rootPath in
+            factory.make(patterns: patterns, rootPath: rootPath)
+        })
+        let options = ScanOptions(exclusionPatterns: ["build/", "*.log"], exclusionRootPath: home)
+        let snapshot = makeFolderRefreshSnapshot(options: options)
+        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { harness.watcher.requests.count == 1 }
+        try await harness.watcher.emitAndWaitUntilProcessed([
+            changedFile(downloads + "/BUILD/item"), changedFile(downloads + "/TRACE.LOG")
+        ])
+        #expect(harness.requests.isEmpty)
+        #expect(harness.clock.pendingSleeps == 0)
+        harness.controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
+        harness.controller.update(
+            snapshot: makeFolderRefreshSnapshot(id: snapshot.id, options: options, hasNewDownload: true),
+            focusedNodeID: downloads, canRefresh: true
+        )
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/visible.zip")])
+        try await waitUntil { harness.clock.pendingSleeps == 1 }
+        harness.clock.advance(by: .seconds(1))
+        try await waitUntil { harness.requests == [downloads] }
+        #expect(harness.watcher.requests.count == 1)
+        #expect(factory.receipts.count == 1)
+        #expect(factory.receipts.first?.patterns == ["build/", "*.log"])
+        #expect(factory.receipts.first?.rootPath == home)
+        #expect(factory.receipts.first?.wasMainThread == false)
+    }
+
+    @Test(arguments: [false, true])
+    func cancelledPreparationCannotDeliverIntoReplacementOrSameIdentitySession(sameIdentity: Bool) async throws {
+        let watcher = BufferedRefreshWatcher(initialEvents: [changedFile(downloads + "/old.zip")])
+        let factory = RefreshMatcherFactory(blockFirstBuild: true)
+        let clock = ManualTestClock()
+        var requests: [String] = []
+        let controller = FolderRefreshController(
+            watcher: watcher,
+            now: { clock.now },
+            sleep: { try await clock.sleep(for: $0) },
+            makeExclusionMatcher: { patterns, rootPath in factory.make(patterns: patterns, rootPath: rootPath) },
+            directoryExists: { _ in true },
+            requestRefresh: { requests.append($0); return true }
+        )
+        defer {
+            factory.release()
+            controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
+        }
+        let snapshot = makeFolderRefreshSnapshot()
+        controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { factory.receipts.count == 1 }
+        #expect(factory.isBlocked)
+        controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
+        let replacement = sameIdentity ? snapshot : makeFolderRefreshSnapshot(
+            options: ScanOptions(exclusionPatterns: ["*.log"])
+        )
+        controller.update(snapshot: replacement, focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { factory.receipts.count == 2 && watcher.requestCount == 2 }
+        factory.release()
+        try await waitUntil { factory.finishedBuilds == 2 && watcher.cancelledSessions == [0] }
+        watcher.emit([], to: 1)
+        clock.advance(by: .seconds(10))
+        #expect(requests.isEmpty)
+        #expect(clock.pendingSleeps == 0)
+        watcher.emit([changedFile(downloads + "/current.zip")], to: 1)
+        try await waitUntil { clock.pendingSleeps == 1 }
+        clock.advance(by: .seconds(1))
+        try await waitUntil { requests == [downloads] }
+        #expect(factory.receipts.count == 2)
+    }
+
+    @Test
+    func idleWatchSessionDoesNotRetainController() async throws {
+        let watcher = BufferedRefreshWatcher(initialEvents: [])
+        let factory = RefreshMatcherFactory()
+        var controller: FolderRefreshController? = FolderRefreshController(
+            watcher: watcher,
+            makeExclusionMatcher: { patterns, rootPath in factory.make(patterns: patterns, rootPath: rootPath) },
+            directoryExists: { _ in true },
+            requestRefresh: { _ in Issue.record("An idle session must not request refresh."); return false }
+        )
+        weak var releasedController = controller
+        controller?.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { factory.finishedBuilds == 1 }
+        controller = nil
+        try await waitUntil { releasedController == nil && watcher.cancelledSessions == [0] }
+    }
+
+    @Test
     func missingFocusedDirectoryRefreshesItsNearestExistingAncestor() async throws {
         let harness = FolderRefreshHarness(directoryExists: { $0 != self.downloads })
         let snapshot = makeFolderRefreshSnapshot()
@@ -421,7 +552,10 @@ struct FolderRefreshControllerTests {
 
     @Test(arguments: [false, true])
     func savedAndIncompleteScansNeverWatch(isImported: Bool) async throws {
-        let harness = FolderRefreshHarness()
+        let factory = RefreshMatcherFactory()
+        let harness = FolderRefreshHarness(makeExclusionMatcher: { patterns, rootPath in
+            factory.make(patterns: patterns, rootPath: rootPath)
+        })
         let snapshot = isImported
             ? makeFolderRefreshSnapshot(source: .imported(ImportedSnapshotContext(
                 sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute, liveActionCapability: .pathValidation
@@ -432,6 +566,9 @@ struct FolderRefreshControllerTests {
         // each eligibility guard is exercised without replacing its context.
         try await Task.sleep(for: .milliseconds(20))
         #expect(harness.watcher.requests.isEmpty)
+        #expect(factory.receipts.isEmpty)
+        harness.controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
+        #expect(factory.receipts.isEmpty)
     }
 
     @Test
@@ -516,7 +653,8 @@ struct FolderRefreshControllerTests {
         isComplete: Bool = true,
         source: ScanSnapshotSource = .live,
         options: ScanOptions = ScanOptions(),
-        hasNewDownload: Bool = false
+        hasNewDownload: Bool = false,
+        checkpoint: ScanIncrementalCheckpoint? = ScanIncrementalCheckpoint(volumeUUID: "test-volume", eventID: 42)
     ) -> ScanSnapshot {
         let file = makeTestFileNode(id: downloads + "/new.zip", name: "new.zip", size: 100)
         let downloadChildren = hasNewDownload ? [file] : []
@@ -533,7 +671,7 @@ struct FolderRefreshControllerTests {
             isComplete: isComplete,
             scanOptions: options,
             source: source,
-            incrementalCheckpoint: ScanIncrementalCheckpoint(volumeUUID: "test-volume", eventID: 42)
+            incrementalCheckpoint: checkpoint
         )
     }
 }
@@ -547,6 +685,7 @@ private final class FolderRefreshHarness {
     var allowsRequests = true
     var sleepRequests = 0
     private let maximumPendingPaths: Int
+    private let makeExclusionMatcher: @Sendable ([String], String) -> ScanExclusionMatcher
     var directoryExists: @MainActor (String) -> Bool
     lazy var controller = FolderRefreshController(
         watcher: watcher,
@@ -556,6 +695,7 @@ private final class FolderRefreshHarness {
             self?.sleepRequests += 1
             try await clock.sleep(for: $0)
         },
+        makeExclusionMatcher: makeExclusionMatcher,
         directoryExists: { [weak self] in self?.directoryExists($0) == true },
         requestRefresh: { [weak self] nodeID in
             guard let self else { return false }
@@ -567,9 +707,111 @@ private final class FolderRefreshHarness {
 
     init(
         maximumPendingPaths: Int = 4_096,
+        makeExclusionMatcher: @escaping @Sendable ([String], String) -> ScanExclusionMatcher = {
+            ScanExclusionMatcher(patterns: $0, rootPath: $1)
+        },
         directoryExists: @escaping @MainActor (String) -> Bool = { _ in true }
     ) {
         self.maximumPendingPaths = maximumPendingPaths
+        self.makeExclusionMatcher = makeExclusionMatcher
         self.directoryExists = directoryExists
+    }
+}
+
+nonisolated private final class RefreshMatcherFactory: @unchecked Sendable {
+    struct Receipt: Sendable {
+        let patterns: [String]
+        let rootPath: String
+        let wasMainThread: Bool
+        let streamStarted: Bool
+    }
+
+    private let condition = NSCondition()
+    private let blockFirstBuild: Bool
+    private var storedReceipts: [Receipt] = []
+    private var released = false
+    private var blocked = false
+    private var didTimeOut = false
+    private var completed = 0
+
+    init(blockFirstBuild: Bool = false) {
+        self.blockFirstBuild = blockFirstBuild
+    }
+
+    var receipts: [Receipt] { condition.withLock { storedReceipts } }
+    var isBlocked: Bool { condition.withLock { blocked } }
+    var timedOut: Bool { condition.withLock { didTimeOut } }
+    var finishedBuilds: Int { condition.withLock { completed } }
+
+    func release() {
+        condition.withLock {
+            released = true
+            condition.broadcast()
+        }
+    }
+
+    func make(patterns: [String], rootPath: String, streamStarted: Bool = true) -> ScanExclusionMatcher {
+        condition.lock()
+        storedReceipts.append(Receipt(
+            patterns: patterns, rootPath: rootPath,
+            wasMainThread: Thread.isMainThread, streamStarted: streamStarted
+        ))
+        if blockFirstBuild, storedReceipts.count == 1 {
+            blocked = true
+            let deadline = Date().addingTimeInterval(15)
+            while !released {
+                if !condition.wait(until: deadline) {
+                    didTimeOut = true
+                    break
+                }
+            }
+            blocked = false
+        }
+        completed += 1
+        condition.unlock()
+        return ScanExclusionMatcher(
+            patterns: patterns, rootPath: rootPath, volumeSupportsCaseSensitiveNames: false
+        )
+    }
+}
+
+nonisolated private final class BufferedRefreshWatcher: FileSystemChangeWatching, @unchecked Sendable {
+    private let lock = NSLock()
+    private let initialEvents: [FileSystemEventRecord]
+    private var continuations: [AsyncThrowingStream<[FileSystemEventRecord], Error>.Continuation] = []
+    private var storedCheckpoints: [ScanIncrementalCheckpoint?] = []
+    private var mainThreadReceipts: [Bool] = []
+    private var cancelled: [Int] = []
+
+    init(initialEvents: [FileSystemEventRecord]) {
+        self.initialEvents = initialEvents
+    }
+
+    var requestCount: Int { lock.withLock { continuations.count } }
+    var startedOnMainThread: [Bool] { lock.withLock { mainThreadReceipts } }
+    var checkpoints: [ScanIncrementalCheckpoint?] { lock.withLock { storedCheckpoints } }
+    var cancelledSessions: [Int] { lock.withLock { cancelled } }
+
+    func changes(for targetURL: URL, since checkpoint: ScanIncrementalCheckpoint?)
+        -> AsyncThrowingStream<[FileSystemEventRecord], Error> {
+        let pair = AsyncThrowingStream<[FileSystemEventRecord], Error>.makeStream()
+        let index = lock.withLock {
+            let index = continuations.count
+            continuations.append(pair.continuation)
+            storedCheckpoints.append(checkpoint)
+            mainThreadReceipts.append(Thread.isMainThread)
+            return index
+        }
+        pair.continuation.onTermination = { [weak self] termination in
+            guard case .cancelled = termination, let self else { return }
+            self.lock.withLock { self.cancelled.append(index) }
+        }
+        if index == 0 { pair.continuation.yield(initialEvents) }
+        return pair.stream
+    }
+
+    func emit(_ events: [FileSystemEventRecord], to index: Int) {
+        let continuation = lock.withLock { continuations[index] }
+        continuation.yield(events)
     }
 }

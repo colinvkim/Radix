@@ -41,6 +41,7 @@ final class FolderRefreshController {
     private let maximumPendingPaths: Int
     private let now: @MainActor () -> ContinuousClock.Instant
     private let sleep: @MainActor (Duration) async throws -> Void
+    private let makeExclusionMatcher: @Sendable ([String], String) -> ScanExclusionMatcher
     private let directoryExists: @MainActor (String) -> Bool
     private let requestRefresh: @MainActor (String) -> Bool
     private var watchIdentity: WatchIdentity?
@@ -71,6 +72,9 @@ final class FolderRefreshController {
         sleep: @escaping @MainActor (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
         },
+        makeExclusionMatcher: @escaping @Sendable ([String], String) -> ScanExclusionMatcher = {
+            ScanExclusionMatcher(patterns: $0, rootPath: $1)
+        },
         directoryExists: @escaping @MainActor (String) -> Bool,
         requestRefresh: @escaping @MainActor (String) -> Bool
     ) {
@@ -81,6 +85,7 @@ final class FolderRefreshController {
         self.maximumPendingPaths = max(maximumPendingPaths, 1)
         self.now = now
         self.sleep = sleep
+        self.makeExclusionMatcher = makeExclusionMatcher
         self.directoryExists = directoryExists
         self.requestRefresh = requestRefresh
     }
@@ -176,12 +181,23 @@ final class FolderRefreshController {
         let watcher = watcher
         let targetURL = snapshot.target.url
         let checkpoint = snapshot.incrementalCheckpoint
+        let options = snapshot.scanOptions ?? ScanOptions()
+        let makeExclusionMatcher = makeExclusionMatcher
         watchTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
+            let (changes, matcher) = await Self.prepareWatch(
+                watcher: watcher,
+                targetURL: targetURL,
+                checkpoint: checkpoint,
+                patterns: options.exclusionPatterns,
+                rootPath: options.exclusionRootPath ?? identity.targetPath,
+                makeExclusionMatcher: makeExclusionMatcher
+            )
+            guard !Task.isCancelled else { return }
             do {
-                for try await events in watcher.changes(for: targetURL, since: checkpoint) {
+                for try await events in changes {
                     guard !Task.isCancelled else { return }
-                    self?.receive(events, identity: identity)
+                    self?.receive(events, identity: identity, options: options, matcher: matcher)
                 }
             } catch {
                 // Unsupported/non-local locations and startup failures retain
@@ -190,13 +206,30 @@ final class FolderRefreshController {
         }
     }
 
-    private func receive(_ events: [FileSystemEventRecord], identity: WatchIdentity) {
-        guard watchIdentity == identity, let snapshot else { return }
-        let options = snapshot.scanOptions ?? ScanOptions()
-        let matcher = ScanExclusionMatcher(
-            patterns: options.exclusionPatterns,
-            rootPath: options.exclusionRootPath ?? identity.targetPath
-        )
+    private nonisolated static func prepareWatch(
+        watcher: any FileSystemChangeWatching,
+        targetURL: URL,
+        checkpoint: ScanIncrementalCheckpoint?,
+        patterns: [String],
+        rootPath: String,
+        makeExclusionMatcher: @escaping @Sendable ([String], String) -> ScanExclusionMatcher
+    ) async -> (AsyncThrowingStream<[FileSystemEventRecord], Error>, ScanExclusionMatcher) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let changes = watcher.changes(for: targetURL, since: checkpoint)
+                let matcher = makeExclusionMatcher(patterns, rootPath)
+                continuation.resume(returning: (changes, matcher))
+            }
+        }
+    }
+
+    private func receive(
+        _ events: [FileSystemEventRecord],
+        identity: WatchIdentity,
+        options: ScanOptions,
+        matcher: ScanExclusionMatcher
+    ) {
+        guard watchIdentity == identity, snapshot != nil else { return }
         let uncertainFlags: FileSystemEventFlags = [
             .userDropped, .kernelDropped, .eventIDsWrapped, .rootChanged,
             .volumeMounted, .volumeUnmounted
