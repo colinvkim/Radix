@@ -78,8 +78,8 @@ struct FolderRefreshControllerTests {
         #expect(factory.receipts.first?.wasMainThread == false)
     }
 
-    @Test
-    func cancelledPreparationCannotDeliverIntoReplacementOrSameIdentitySession() async throws {
+    @Test(arguments: [false, true])
+    func cancelledPreparationCannotDeliverIntoReplacementOrSameIdentitySession(sameIdentity: Bool) async throws {
         let watcher = BufferedRefreshWatcher(initialEvents: [changedFile(downloads + "/old.zip")])
         let factory = RefreshMatcherFactory(blockFirstBuild: true)
         let clock = ManualTestClock()
@@ -101,10 +101,13 @@ struct FolderRefreshControllerTests {
         try await waitUntil { factory.receipts.count == 1 }
         #expect(factory.isBlocked)
         controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
-        controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
+        let replacement = sameIdentity ? snapshot : makeFolderRefreshSnapshot(
+            options: ScanOptions(exclusionPatterns: ["*.log"])
+        )
+        controller.update(snapshot: replacement, focusedNodeID: downloads, canRefresh: true)
         try await waitUntil { factory.receipts.count == 2 && watcher.requestCount == 2 }
         factory.release()
-        try await waitUntil { factory.finishedBuilds == 2 }
+        try await waitUntil { factory.finishedBuilds == 2 && watcher.cancelledSessions == [0] }
         watcher.emit([], to: 1)
         clock.advance(by: .seconds(10))
         #expect(requests.isEmpty)
@@ -114,6 +117,23 @@ struct FolderRefreshControllerTests {
         clock.advance(by: .seconds(1))
         try await waitUntil { requests == [downloads] }
         #expect(factory.receipts.count == 2)
+    }
+
+    @Test
+    func idleWatchSessionDoesNotRetainController() async throws {
+        let watcher = BufferedRefreshWatcher(initialEvents: [])
+        let factory = RefreshMatcherFactory()
+        var controller: FolderRefreshController? = FolderRefreshController(
+            watcher: watcher,
+            makeExclusionMatcher: { patterns, rootPath in factory.make(patterns: patterns, rootPath: rootPath) },
+            directoryExists: { _ in true },
+            requestRefresh: { _ in Issue.record("An idle session must not request refresh."); return false }
+        )
+        weak var releasedController = controller
+        controller?.update(snapshot: makeFolderRefreshSnapshot(), focusedNodeID: downloads, canRefresh: true)
+        try await waitUntil { factory.finishedBuilds == 1 }
+        controller = nil
+        try await waitUntil { releasedController == nil && watcher.cancelledSessions == [0] }
     }
 
     @Test
@@ -532,7 +552,10 @@ struct FolderRefreshControllerTests {
 
     @Test(arguments: [false, true])
     func savedAndIncompleteScansNeverWatch(isImported: Bool) async throws {
-        let harness = FolderRefreshHarness()
+        let factory = RefreshMatcherFactory()
+        let harness = FolderRefreshHarness(makeExclusionMatcher: { patterns, rootPath in
+            factory.make(patterns: patterns, rootPath: rootPath)
+        })
         let snapshot = isImported
             ? makeFolderRefreshSnapshot(source: .imported(ImportedSnapshotContext(
                 sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute, liveActionCapability: .pathValidation
@@ -543,6 +566,9 @@ struct FolderRefreshControllerTests {
         // each eligibility guard is exercised without replacing its context.
         try await Task.sleep(for: .milliseconds(20))
         #expect(harness.watcher.requests.isEmpty)
+        #expect(factory.receipts.isEmpty)
+        harness.controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
+        #expect(factory.receipts.isEmpty)
     }
 
     @Test
@@ -732,7 +758,7 @@ nonisolated private final class RefreshMatcherFactory: @unchecked Sendable {
         ))
         if blockFirstBuild, storedReceipts.count == 1 {
             blocked = true
-            let deadline = Date().addingTimeInterval(3)
+            let deadline = Date().addingTimeInterval(15)
             while !released {
                 if !condition.wait(until: deadline) {
                     didTimeOut = true
@@ -755,6 +781,7 @@ nonisolated private final class BufferedRefreshWatcher: FileSystemChangeWatching
     private var continuations: [AsyncThrowingStream<[FileSystemEventRecord], Error>.Continuation] = []
     private var storedCheckpoints: [ScanIncrementalCheckpoint?] = []
     private var mainThreadReceipts: [Bool] = []
+    private var cancelled: [Int] = []
 
     init(initialEvents: [FileSystemEventRecord]) {
         self.initialEvents = initialEvents
@@ -763,17 +790,23 @@ nonisolated private final class BufferedRefreshWatcher: FileSystemChangeWatching
     var requestCount: Int { lock.withLock { continuations.count } }
     var startedOnMainThread: [Bool] { lock.withLock { mainThreadReceipts } }
     var checkpoints: [ScanIncrementalCheckpoint?] { lock.withLock { storedCheckpoints } }
+    var cancelledSessions: [Int] { lock.withLock { cancelled } }
 
     func changes(for targetURL: URL, since checkpoint: ScanIncrementalCheckpoint?)
         -> AsyncThrowingStream<[FileSystemEventRecord], Error> {
         let pair = AsyncThrowingStream<[FileSystemEventRecord], Error>.makeStream()
-        let isFirst = lock.withLock {
+        let index = lock.withLock {
+            let index = continuations.count
             continuations.append(pair.continuation)
             storedCheckpoints.append(checkpoint)
             mainThreadReceipts.append(Thread.isMainThread)
-            return continuations.count == 1
+            return index
         }
-        if isFirst { pair.continuation.yield(initialEvents) }
+        pair.continuation.onTermination = { [weak self] termination in
+            guard case .cancelled = termination, let self else { return }
+            self.lock.withLock { self.cancelled.append(index) }
+        }
+        if index == 0 { pair.continuation.yield(initialEvents) }
         return pair.stream
     }
 

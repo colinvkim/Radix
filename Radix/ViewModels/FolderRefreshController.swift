@@ -9,7 +9,7 @@ import Foundation
 /// Dirty paths survive navigation and subtree replacements of the same scan.
 @MainActor
 final class FolderRefreshController {
-    private struct WatchIdentity: Equatable {
+    private nonisolated struct WatchIdentity: Equatable, Sendable {
         let snapshotID: UUID
         let targetPath: String
         let options: ScanOptions?
@@ -181,12 +181,20 @@ final class FolderRefreshController {
         let watcher = watcher
         let targetURL = snapshot.target.url
         let checkpoint = snapshot.incrementalCheckpoint
-        watchTask = Task { [weak self] in
+        let options = snapshot.scanOptions ?? ScanOptions()
+        let makeExclusionMatcher = makeExclusionMatcher
+        watchTask = Task.detached(priority: .utility) { [weak self] in
+            guard !Task.isCancelled else { return }
+            let changes = watcher.changes(for: targetURL, since: checkpoint)
+            guard !Task.isCancelled else { return }
+            let matcher = makeExclusionMatcher(
+                options.exclusionPatterns, options.exclusionRootPath ?? identity.targetPath
+            )
             guard !Task.isCancelled else { return }
             do {
-                for try await events in watcher.changes(for: targetURL, since: checkpoint) {
+                for try await events in changes {
                     guard !Task.isCancelled else { return }
-                    self?.receive(events, identity: identity)
+                    await self?.receive(events, identity: identity, options: options, matcher: matcher)
                 }
             } catch {
                 // Unsupported/non-local locations and startup failures retain
@@ -195,12 +203,13 @@ final class FolderRefreshController {
         }
     }
 
-    private func receive(_ events: [FileSystemEventRecord], identity: WatchIdentity) {
-        guard watchIdentity == identity, let snapshot else { return }
-        let options = snapshot.scanOptions ?? ScanOptions()
-        let matcher = makeExclusionMatcher(
-            options.exclusionPatterns, options.exclusionRootPath ?? identity.targetPath
-        )
+    private func receive(
+        _ events: [FileSystemEventRecord],
+        identity: WatchIdentity,
+        options: ScanOptions,
+        matcher: ScanExclusionMatcher
+    ) {
+        guard !Task.isCancelled, watchIdentity == identity, snapshot != nil else { return }
         let uncertainFlags: FileSystemEventFlags = [
             .userDropped, .kernelDropped, .eventIDsWrapped, .rootChanged,
             .volumeMounted, .volumeUnmounted
