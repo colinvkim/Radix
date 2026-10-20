@@ -241,7 +241,15 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
     }
 
     func value(timeout: TimeInterval) async throws -> FileSystemEventHistory {
-        try await withCheckedThrowingContinuation { continuation in
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.setEventHandler { [self] in
+            finish(.failure(TimeoutError()))
+        }
+        timer.schedule(deadline: .now() + timeout)
+        timer.resume()
+        defer { timer.cancel() }
+
+        return try await withCheckedThrowingContinuation { continuation in
             lock.lock()
             if let completion {
                 lock.unlock()
