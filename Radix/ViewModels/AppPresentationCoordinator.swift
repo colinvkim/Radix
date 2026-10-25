@@ -96,6 +96,8 @@ final class AppPresentationCoordinator: ObservableObject {
     }
 
     func present(_ destination: Destination) {
+        guard activeDestination != destination else { return }
+
         if activeDestination?.kind == destination.kind {
             activeDestination = destination
             return
