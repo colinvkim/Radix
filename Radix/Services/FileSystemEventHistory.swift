@@ -228,6 +228,9 @@ private nonisolated let radixFSEventHistoryCallback: FSEventStreamCallback = {
 
 nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
     struct TimeoutError: Error {}
+    struct OverflowError: Error {}
+
+    private static let maximumEventCount = 65_536
 
     private let lock = NSLock()
     private let since: ScanIncrementalCheckpoint
@@ -250,7 +253,7 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
     func value(timeout: TimeInterval) async throws -> FileSystemEventHistory {
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.setEventHandler { [self] in
-            finish(.failure(TimeoutError()))
+            updatePendingState { .failure(TimeoutError()) }
         }
         timer.schedule(deadline: .now() + timeout)
         timer.resume()
@@ -269,7 +272,7 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
     }
 
     func cancel() {
-        finish(.failure(CancellationError()))
+        updatePendingState { .failure(CancellationError()) }
     }
 
     func receive(
@@ -278,9 +281,16 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
         rawFlags: UnsafePointer<FSEventStreamEventFlags>,
         eventIDs: UnsafePointer<FSEventStreamEventId>
     ) {
+        lock.lock()
+        guard completion == nil else {
+            lock.unlock()
+            return
+        }
+        let remainingCapacity = Self.maximumEventCount - events.count
+        lock.unlock()
+
         var sawHistoryDone = false
         var received: [FileSystemEventRecord] = []
-        received.reserveCapacity(eventCount)
 
         for index in 0..<eventCount {
             let rawFlag = rawFlags[index]
@@ -297,6 +307,10 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
                 continue
             }
 
+            guard received.count < remainingCapacity else {
+                updatePendingState { .failure(OverflowError()) }
+                return
+            }
             let relativePath = String(cString: relativePaths[index])
             received.append(FileSystemEventRecord(
                 path: volume.scanPath(for: relativePath),
@@ -305,31 +319,29 @@ nonisolated final class FSEventHistoryCollector: @unchecked Sendable {
             ))
         }
 
-        lock.lock()
-        guard completion == nil else {
-            lock.unlock()
-            return
-        }
-        events.append(contentsOf: received)
-        let history = sawHistoryDone
-            ? FileSystemEventHistory(since: since, through: through, events: events)
-            : nil
-        lock.unlock()
-
-        if let history {
-            finish(.success(history))
+        updatePendingState {
+            guard received.count <= Self.maximumEventCount - events.count else {
+                return .failure(OverflowError())
+            }
+            events.append(contentsOf: received)
+            return sawHistoryDone
+                ? .success(FileSystemEventHistory(since: since, through: through, events: events))
+                : nil
         }
     }
 
-    private func finish(_ result: Result<FileSystemEventHistory, Error>) {
+    private func updatePendingState(
+        _ update: () -> Result<FileSystemEventHistory, Error>?
+    ) {
         lock.lock()
-        guard completion == nil else {
+        guard completion == nil, let result = update() else {
             lock.unlock()
             return
         }
         completion = result
         let continuation = continuation
         self.continuation = nil
+        events.removeAll()
         lock.unlock()
         continuation?.resume(with: result)
     }
