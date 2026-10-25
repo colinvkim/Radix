@@ -26,33 +26,100 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testSettingsResetWaitsUntilReadOnlyModeCanChange() {
+    func testSettingsResetPersistsDefaultsDuringWorkspaceTour() {
         var scanPreferences = AppScanPreferences.defaults
         scanPreferences.showHiddenFiles = false
         scanPreferences.maxRenderedDepth = 10
+        scanPreferences.visualizationMode = .treemap
         let preferences = SpyAppPreferencesStore(preferences: AppPreferences(
             scan: scanPreferences,
             didCompleteOnboarding: true
         ))
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
         defer { model.cleanup() }
-        #expect(!model.isReadOnlyMode)
         #expect(model.canStartWorkspaceTour)
-        model.workspaceTour.start(snapshotID: nil, isReady: false)
+        model.startWorkspaceTour()
+        #expect(model.workspaceTourSessionID != nil)
         #expect(!model.canChangeReadOnlyMode)
 
-        #expect(!model.restoreDefaultPreferences())
+        model.restoreDefaultPreferences()
 
-        #expect(!model.isReadOnlyMode)
-        #expect(!model.showHiddenFiles)
-        #expect(model.maxRenderedDepth == 10)
-
-        model.workspaceTour.stop()
-        #expect(model.restoreDefaultPreferences())
-
+        #expect(model.workspaceTour.isActive)
         #expect(!model.isReadOnlyMode)
         #expect(model.showHiddenFiles)
         #expect(model.maxRenderedDepth == AppScanPreferences.defaults.maxRenderedDepth)
+        #expect(model.scanVisualizationMode == .sunburst)
+        #expect(preferences.preferences.scan == .defaults)
+
+        model.scanVisualizationMode = .treemap
+        model.workspaceTour.stop()
+        #expect(model.scanVisualizationMode == .sunburst)
+        #expect(preferences.preferences.scan == .defaults)
+    }
+
+    @Test
+    func testSettingsResetDuringReadOnlyFileDragPreservesSessionPermissions() throws {
+        var initialPreferences = AppPreferences.defaults
+        initialPreferences.scan.maxRenderedDepth = 10
+        initialPreferences.isReadOnlyMode = true
+        let preferences = SpyAppPreferencesStore(preferences: initialPreferences)
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { _ in .matches }
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences, systemActions: actions))
+        defer { model.cleanup() }
+        let file = installSelection(on: model)
+        let session = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
+        defer { session.end(operation: []) }
+        session.begin()
+        model.setReadOnlyMode(false)
+        #expect(model.isReadOnlyMode)
+        #expect(session.operationMask(for: .outsideApplication) == .copy)
+
+        model.restoreDefaultPreferences()
+
+        #expect(!model.isReadOnlyMode)
+        #expect(!preferences.preferences.isReadOnlyMode)
+        #expect(model.maxRenderedDepth == AppScanPreferences.defaults.maxRenderedDepth)
+        #expect(preferences.preferences.scan == .defaults)
+        #expect(model.fileDragController.isDragging)
+        #expect(session.operationMask(for: .outsideApplication) == .copy)
+        #expect(session.operationMask(for: .withinApplication).isEmpty)
+    }
+
+    @Test
+    func testSettingsResetDuringTrashMoveKeepsMoveRunning() async throws {
+        var initialPreferences = AppPreferences.defaults
+        initialPreferences.scan.showHiddenFiles = false
+        let preferences = SpyAppPreferencesStore(preferences: initialPreferences)
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        let file = installSelection(on: model)
+        var continuation: CheckedContinuation<Void, Never>?
+        var didFinish = false
+        defer {
+            continuation?.resume()
+            model.cleanup()
+        }
+        model.trashFlow.startConfirmedMove([file], moveToTrash: { _ in
+            await withCheckedContinuation { continuation = $0 }
+            return .matches
+        }, beginMove: {}, onFinish: { _, moved, error, wasCancelled in
+            #expect(moved == [file])
+            #expect(error == nil)
+            #expect(!wasCancelled)
+            didFinish = true
+        })
+        try await waitUntil("Trash move starts") { continuation != nil }
+        #expect(!model.canChangeReadOnlyMode)
+
+        model.restoreDefaultPreferences()
+
+        #expect(model.showHiddenFiles)
+        #expect(preferences.preferences.scan == .defaults)
+        #expect(!model.isReadOnlyMode)
+        #expect(model.trashFlow.isMovingFiles)
+        continuation?.resume()
+        continuation = nil
+        try await waitUntil("Trash move finishes") { didFinish }
     }
 
     @Test(arguments: [false, true])
