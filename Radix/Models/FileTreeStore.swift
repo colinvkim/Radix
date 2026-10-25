@@ -1574,9 +1574,11 @@ nonisolated struct FileTreeStore: Sendable {
         for repair in repairs {
             let offset = Int(repair.index.rawValue)
             nodes[offset] = repair.repaired
-            let span = childSpans[offset]
-            let start = Int(span.start)
-            childIndices.replaceSubrange(start..<start + Int(span.count), with: repair.orderedChildren)
+            if repair.didReorderChildren {
+                let span = childSpans[offset]
+                let start = Int(span.start)
+                childIndices.replaceSubrange(start..<start + Int(span.count), with: repair.orderedChildren)
+            }
         }
         return true
     }
