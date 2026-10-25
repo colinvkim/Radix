@@ -123,7 +123,7 @@ nonisolated enum SunburstLayout {
         var cursor = startAngle
         for entry in grouped {
             try cancellationCheck()
-            let proportion = Double(entry.totalSize) / safeDenominator
+            let proportion = Double(entry.layoutWeight) / safeDenominator
             let segmentEnd = cursor + (totalAngle * proportion)
             let siblingIndex = siblingIndexes[entry.id] ?? 0
             let branch = branchContext ?? colorBranchContext.branch(forNodeID: entry.nodeID)
@@ -200,7 +200,8 @@ nonisolated enum SunburstLayout {
                     id: $0.id,
                     nodeID: $0.id,
                     label: $0.displayName,
-                    totalSize: max($0.allocatedSize, 1),
+                    totalSize: max($0.allocatedSize, 0),
+                    layoutWeight: max($0.allocatedSize, 1),
                     isAggregate: false,
                     colorID: $0.id,
                     node: $0
@@ -212,11 +213,13 @@ nonisolated enum SunburstLayout {
         var groupedCount = 0
         var onlyGroupedChild: FileNodeRecord?
         var groupedSize: Int64 = 0
+        var groupedLayoutWeight: Int64 = 0
 
         for child in children {
             try cancellationCheck()
-            let size = max(child.allocatedSize, 1)
-            let angle = totalAngle * (Double(size) / max(denominator, 1))
+            let size = max(child.allocatedSize, 0)
+            let layoutWeight = max(size, 1)
+            let angle = totalAngle * (Double(layoutWeight) / max(denominator, 1))
             if angle < minimumAngle {
                 groupedCount += 1
                 if groupedCount == 1 {
@@ -225,6 +228,7 @@ nonisolated enum SunburstLayout {
                     onlyGroupedChild = nil
                 }
                 groupedSize = ScanIntegerMath.addingClamped(groupedSize, size)
+                groupedLayoutWeight = ScanIntegerMath.addingClamped(groupedLayoutWeight, layoutWeight)
             } else {
                 visible.append(
                     GroupEntry(
@@ -232,6 +236,7 @@ nonisolated enum SunburstLayout {
                         nodeID: child.id,
                         label: child.displayName,
                         totalSize: size,
+                        layoutWeight: layoutWeight,
                         isAggregate: false,
                         colorID: child.id,
                         node: child
@@ -247,6 +252,7 @@ nonisolated enum SunburstLayout {
                     nodeID: nil,
                     label: String(localized: "Smaller Items", comment: "Disk map group for items too small to display individually."),
                     totalSize: groupedSize,
+                    layoutWeight: groupedLayoutWeight,
                     isAggregate: true,
                     colorID: "aggregate-\(children.first?.id ?? UUID().uuidString)",
                     node: nil
@@ -258,7 +264,8 @@ nonisolated enum SunburstLayout {
                     id: onlyGroupedChild.id,
                     nodeID: onlyGroupedChild.id,
                     label: onlyGroupedChild.displayName,
-                    totalSize: max(onlyGroupedChild.allocatedSize, 1),
+                    totalSize: max(onlyGroupedChild.allocatedSize, 0),
+                    layoutWeight: max(onlyGroupedChild.allocatedSize, 1),
                     isAggregate: false,
                     colorID: onlyGroupedChild.id,
                     node: onlyGroupedChild
@@ -299,6 +306,7 @@ nonisolated enum SunburstLayout {
         let nodeID: String?
         let label: String
         let totalSize: Int64
+        let layoutWeight: Int64
         let isAggregate: Bool
         let colorID: String
         let node: FileNodeRecord?
