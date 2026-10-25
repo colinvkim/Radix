@@ -82,13 +82,13 @@ struct SunburstGeometryTests {
             })
     }
 
-    @Test
-    func testSmallItemsCollapseIntoAggregateSegment() throws {
+    @Test(arguments: [Int64(0), 1])
+    func testSmallItemsCollapseIntoAggregateSegment(smallSize: Int64) throws {
         let children = [
             makeTestFileNode(id: "/root/large", name: "large", size: 100),
-            makeTestFileNode(id: "/root/tiny-1", name: "tiny-1", size: 1),
-            makeTestFileNode(id: "/root/tiny-2", name: "tiny-2", size: 1),
-            makeTestFileNode(id: "/root/tiny-3", name: "tiny-3", size: 1),
+            makeTestFileNode(id: "/root/tiny-1", name: "tiny-1", size: smallSize),
+            makeTestFileNode(id: "/root/tiny-2", name: "tiny-2", size: smallSize),
+            makeTestFileNode(id: "/root/tiny-3", name: "tiny-3", size: smallSize),
         ]
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: children)
         let store = makeStore(root: root, children: children)
@@ -98,8 +98,10 @@ struct SunburstGeometryTests {
 
         #expect(aggregate.nodeID == nil)
         #expect(aggregate.label == "Smaller Items")
-        #expect(aggregate.totalSize == 3)
+        #expect(aggregate.totalSize == 3 * smallSize)
         #expect(aggregate.colorToken.role == .aggregate)
+        #expect(segments.count == 2)
+        #expect(abs(aggregate.endAngle.radians - aggregate.startAngle.radians - (.pi * 2 * 3 / 103)) < 0.0001)
     }
 
     @Test
