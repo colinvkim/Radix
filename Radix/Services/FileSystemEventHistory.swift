@@ -67,8 +67,15 @@ nonisolated struct DarwinFileSystemEventHistoryProvider: FileSystemEventHistoryP
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(collector).toOpaque(),
-            retain: nil,
-            release: nil,
+            retain: { info in
+                guard let info else { return nil }
+                _ = Unmanaged<FSEventHistoryCollector>.fromOpaque(info).retain()
+                return info
+            },
+            release: { info in
+                guard let info else { return }
+                Unmanaged<FSEventHistoryCollector>.fromOpaque(info).release()
+            },
             copyDescription: nil
         )
         let paths = [volume.relativeTargetPath] as CFArray
