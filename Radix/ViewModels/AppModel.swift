@@ -279,6 +279,7 @@ final class AppModel: ObservableObject {
             self?.fileTransferReconciliation.fileTransferDidEnd(transfer)
         },
         draggingChanged: { [weak self] in
+            self?.objectWillChange.send()
             self?.updateAutomaticFolderRefresh()
         }
     )
