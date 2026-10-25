@@ -17,7 +17,7 @@ Six independent pull requests target `main`. A status of "PR open" means the fix
 | 1 | Remove unused helpers and use checked Sendable conformance | PR open | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
 | 2 | Avoid redundant presentation updates, items 9 and 25 | PR open | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
 | 3 | Skip unchanged child-buffer writes, item 68 | PR open | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
-| 4 | Gate settings reset, item 16 | PR open; drag-state publication follow-up | Reachable regression red/green; 1132 core tests; app build; tour check passed; drag availability needs follow-up | https://github.com/colinvkim/Radix/pull/99 |
+| 4 | Gate settings reset, item 16 | PR open; drag notifications fixed; manual drag check pending | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
 | 5 | Correct Sunburst aggregate bytes, item 46 | PR open; manual hover check pending | 1131 core tests; app build; review; scan and selection passed; Mac unlock needed | https://github.com/colinvkim/Radix/pull/101 |
 | 6 | Retain FSEvents history callback context, item 31 | PR open | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
 
@@ -25,7 +25,7 @@ Six independent pull requests target `main`. A status of "PR open" means the fix
 
 A single status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101. The document-link comments on PR 96 are addressed by its current pinned GitHub source links. Its reset-status wording now explicitly identifies open PR 99. These observations do not replace local or manual validation.
 
-[New feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identifies missing drag-state publication. The `draggingChanged` callback only updates automatic folder refresh, while `canChangeReadOnlyMode` also depends on `fileDragController.isDragging`. Neither the controller nor that callback publishes the change through `AppModel.objectWillChange`. This is a source-confirmed notification gap. The displayed stale-button scenario has not been reproduced manually. A follow-up can first verify begin/end notifications and eligibility through a model test, then recheck Settings when the Mac is available.
+[Feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identified missing drag-state publication. Its fix publishes through `AppModel.objectWillChange` in the existing `draggingChanged` callback and preserves immediate automatic-refresh handling. The extended drag eligibility test failed on both transition notifications before the fix and passed afterward. The full suite passed 1,132 tests in 79 suites. The Debug app build and independent review passed. The displayed stale-button scenario and corrected Settings redraw have not been verified manually because the Mac is locked.
 
 The following order prioritizes work with deterministic tests that can run while the Mac is locked. Effort is a relative estimate, not a measured duration. None of these new implementation scopes has started.
 
@@ -342,7 +342,7 @@ Changes to production code, app resources, or build configuration require the co
 
 All six PRs target `main` independently. Each production change passed the core suite, the complete Debug app build, and a scoped independent source review. PRs 97 and 99 passed 1,132 core tests. The other four passed 1,131. The changed presentation and aggregate tests failed before their fixes. The settings regression uses a reachable read-only-off tour state and failed with the model guard removed.
 
-The settings Debug app was manually checked before and after the change. The fixed reset control is disabled during a tour and enabled after it stops. A normal confirmation was opened and cancelled, preserving preferences.
+The settings Debug app was manually checked before and after the change. The fixed reset control is disabled during a tour and enabled after it stops. A normal confirmation was opened and cancelled, preserving preferences. PR 99 later gained a one-line drag-state notification fix. Its existing drag test now checks both model notifications as well as eligibility, with failing-before and passing-after evidence. Manual Settings verification for this later drag change remains pending.
 
 The FSEvents native probe retains the context during an entered callback and releases it after that callback completes. This validates the ownership change without inducing a crash.
 
