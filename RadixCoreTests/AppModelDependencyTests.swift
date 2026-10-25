@@ -25,6 +25,35 @@ struct AppModelDependencyTests {
         #expect(!preferences.preferences.isReadOnlyMode)
     }
 
+    @Test
+    func testSettingsResetWaitsUntilReadOnlyModeCanChange() {
+        var scanPreferences = AppScanPreferences.defaults
+        scanPreferences.showHiddenFiles = false
+        scanPreferences.maxRenderedDepth = 10
+        let preferences = SpyAppPreferencesStore(preferences: AppPreferences(
+            scan: scanPreferences,
+            didCompleteOnboarding: true,
+            isReadOnlyMode: true
+        ))
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        defer { model.cleanup() }
+        model.workspaceTour.start(snapshotID: nil, isReady: false)
+        #expect(!model.canChangeReadOnlyMode)
+
+        model.restoreDefaultPreferences()
+
+        #expect(model.isReadOnlyMode)
+        #expect(!model.showHiddenFiles)
+        #expect(model.maxRenderedDepth == 10)
+
+        model.workspaceTour.stop()
+        model.restoreDefaultPreferences()
+
+        #expect(!model.isReadOnlyMode)
+        #expect(model.showHiddenFiles)
+        #expect(model.maxRenderedDepth == AppScanPreferences.defaults.maxRenderedDepth)
+    }
+
     @Test(arguments: [false, true])
     func testReadOnlyModeSuspendsDiscardPileHistoryWithoutDiscardingIt(isRedo: Bool) {
         let model = AppModel(dependencies: makeDependencies())
