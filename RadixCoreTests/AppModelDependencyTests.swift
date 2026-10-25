@@ -153,13 +153,24 @@ struct AppModelDependencyTests {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         defer { model.cleanup() }
         let file = installSelection(on: model)
+        var observedModelChange = false
+        let cancellable = model.objectWillChange.sink { observedModelChange = true }
+        defer { cancellable.cancel() }
         let session = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
+        defer { session.end(operation: []) }
+        #expect(model.canChangeReadOnlyMode)
+
+        observedModelChange = false
         session.begin()
         #expect(!model.canChangeReadOnlyMode)
+        #expect(observedModelChange)
         model.setReadOnlyMode(true)
         #expect(!model.isReadOnlyMode)
+
+        observedModelChange = false
         session.end(operation: [])
         #expect(model.canChangeReadOnlyMode)
+        #expect(observedModelChange)
         model.setReadOnlyMode(true)
         let readOnlySession = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
         #expect(readOnlySession.operationMask(for: .outsideApplication) == .copy)
