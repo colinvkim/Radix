@@ -10,24 +10,54 @@ The initial verification did not include live UI, VoiceOver, runtime locale chan
 
 ## Implementation progress
 
-Six independent pull requests target `main`. A status of "PR open" means the fix is available on its branch and has not yet landed in `main`.
+The first six independent pull requests are merged in `main` at `fd8abe0`. The follow-up work below starts from that commit. Original findings remain anchored to their verification commit.
 
 | PR | Scope | Status | Validation | Link |
 |---|---|---|---|---|
-| 1 | Remove unused helpers and use checked Sendable conformance | PR open | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
-| 2 | Avoid redundant presentation updates, items 9 and 25 | PR open | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
-| 3 | Skip unchanged child-buffer writes, item 68 | PR open | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
-| 4 | Gate settings reset, item 16 | PR open; drag notifications fixed; held-drag UI check pending | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
-| 5 | Correct Sunburst aggregate bytes, item 46 | PR open | 1131 core tests; app build; review; manual readout changed from 500 bytes to Zero bytes | https://github.com/colinvkim/Radix/pull/101 |
-| 6 | Retain FSEvents history callback context, item 31 | PR open | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
+| 1 | Remove unused helpers and use checked Sendable conformance | Merged | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
+| 2 | Avoid redundant presentation updates, items 9 and 25 | Merged | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
+| 3 | Skip unchanged child-buffer writes, item 68 | Merged | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
+| 4 | Gate settings reset, item 16 | Merged; reset reversal open in PR 103 | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
+| 5 | Correct Sunburst aggregate bytes, item 46 | Merged | 1131 core tests; app build; review; manual readout changed from 500 bytes to Zero bytes | https://github.com/colinvkim/Radix/pull/101 |
+| 6 | Retain FSEvents history callback context, item 31 | Merged | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
+| 7 | Bound FSEvents history, item 32 | Draft; policy measurement needed | Overflow regressions red/green; 1136 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/102 |
+| 8 | Remove the rejected reset restriction and restore every default | PR open | Three regressions red/green; 1135 core tests; app build; review; live tour and ordinary reset checks passed | https://github.com/colinvkim/Radix/pull/103 |
+
+## Nature of the delivered changes
+
+A supported source observation is not automatically a demonstrated user-visible bug. The initial delivery combined different kinds of work. This table states what the evidence actually establishes.
+
+| PR | Classification | Evidence and limits |
+|---|---|---|
+| 96 | Maintenance and compile-time hardening | Removed unused routes and enabled checked Sendable conformance. No current runtime failure was established. |
+| 97 | Notification deduplication | Equal destination assignments produced redundant notifications. No user-visible failure or measured performance benefit was established. |
+| 98 | Ownership defect | A native probe reproduced context deallocation while a callback was still entered. Retain/release ownership fixes that lifetime gap. No application crash was induced. |
+| 99 | Rejected reset policy plus notification fix | Blocking the entire settings reset was an unsupported product restriction. The owner requested its removal. The separate missing drag notifications were reproduced through the real model observer interface and remain valid. |
+| 100 | Small optimization | The skipped writes contain provably identical child values. Release timing ranges overlapped, so no speedup was established. |
+| 101 | User-visible accounting defect | Empty-file aggregate summaries displayed nonzero bytes. Actual Debug apps showed 500 bytes before and Zero bytes after the fix. |
+| 102 | Draft resource-limit policy | The event ceiling works as implemented. Its memory and complete-rescan benefit is not established, and excluded events can cause an unnecessary full scan. |
+
+PRs 96, 97 and 100 are optional maintenance rather than fixes for demonstrated user-facing failures. PR 99 contains a broader operation-gating choice as well as a concrete notification fix. PR 102 introduces a new fallback threshold and remains a draft pending evidence for that tradeoff. Tests establish the implemented contracts; they do not by themselves establish product benefit or urgency.
+
+## Settings reset correction
+
+Item 16 is withdrawn as a justification for blocking Reset All Settings. The existing read-only toggle restriction did not establish that the entire reset needed the same restriction. PR 99 added that policy, and the owner requested its reversal. Its independent drag-state notification fix remains valid.
+
+[PR 103](https://github.com/colinvkim/Radix/pull/103) removes the restriction. Reset restores every preference immediately during a tour, native drag, or Trash move. Ordinary read-only toggles keep their existing eligibility rules. A drag keeps the permissions captured when it started.
+
+A real tour suppresses ordinary preference writes and restores its saved chart style on exit. The reversal persists reset defaults immediately and updates the saved chart default. The tour continues, and later chart changes inside it remain isolated.
+
+The pre-change Debug app reproduced the disabled Reset All Settings button during a real guided tour. Three focused regressions failed with 12 expected preference assertions before the fix and passed afterward. They exercise a real tour session, a read-only native drag, and a suspended confirmed Trash operation. All 1,135 core tests passed. The complete Debug app build and independent correctness and comment reviews passed.
+
+The exact Debug app then showed enabled reset initiation and confirmation during a live tour. Confirmed reset restored hidden-file, exclusion, chart, and update preferences. The tour continued. Changing its chart again and ending the tour returned to the original workspace with the reset Sunburst chart. Stored preferences confirmed that chart default. An ordinary reset changed read-only mode from on to off. Original visible preferences were restored and the app was quit. Held-drag reset and a live Trash transfer were not manually exercised; the focused model tests cover those operation contracts.
 
 ## Further implementation work
 
-An initial status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101, before the later documentation and drag-notification follow-ups. The document-link comments on PR 96 are addressed by its current pinned GitHub source links. Its reset-status wording now explicitly identifies open PR 99. These observations do not replace local or manual validation.
+An initial status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101, before the later documentation and drag-notification follow-ups. The document-link comments on PR 96 were addressed with pinned GitHub source links. Its reset-status wording was clarified, and all review threads were resolved before the merge. These observations do not replace local or manual validation.
 
 [Feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identified missing drag-state publication. Its fix publishes through `AppModel.objectWillChange` in the existing `draggingChanged` callback and preserves immediate automatic-refresh handling. The extended drag eligibility test failed on both transition notifications before the fix and passed afterward. The full suite passed 1,132 tests in 79 suites. The Debug app build and independent review passed. After unlock, the exact PR 99 Debug app showed Reset All Settings enabled before and after a browser drag gesture. A held native drag was not captured, so the reported stale-button scenario and the disabled state during a drag remain unverified manually. The control API exposes a complete drag gesture but cannot pause a native drag for a separate Settings inspection.
 
-The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. None of these new implementation scopes has started.
+The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. Item 32 has a draft PR. Its resource and fallback tradeoff needs measurement before shipping. The remaining scopes have not started.
 
 | Order | Finding and scope | Estimated effort | Required proof |
 |---|---|---|---|
@@ -36,7 +66,7 @@ The following order prioritizes work with deterministic tests that do not requir
 | 3 | Item 6. Consolidate browser sorting semantics. | Medium | Every field and direction, secondary descriptors, nil dates, package counts, deterministic ties and cancellation. Preserve prepared expensive keys and the protocol requirement. No speedup is established. |
 | 4 | Item 38. Clean up abandoned archive packages after process exit. | Large | Kill an exporter and prove only its abandoned package is removed. Concurrent exports, completed archives and unrelated matching directories must survive. Establish ownership and liveness before deletion. |
 
-Core changes still require the full core suite and app build. The chart readout check and temporary UI cleanup are complete. The remaining manual gap is Settings availability during a held native drag.
+Core changes still require the full core suite and app build. The chart readout check, settings reset reversal checks, and temporary UI cleanup are complete. Reset during a held native drag and a live Trash transfer remain covered by model tests rather than manual UI.
 
 ## Behavior and correctness findings
 
@@ -67,14 +97,6 @@ A probe of the actual policy blocked `/Applications` but accepted `/applications
 This establishes a protection-policy gap for path aliases. It does not establish that a native trash operation succeeds or that user data was lost. Existing protected-root tests use canonical-case strings and do not deliberately specify alternate-case acceptance.
 
 Any normalization change must respect the filesystem's case sensitivity. Global lowercasing would also merge distinct paths on a case-sensitive volume.
-
-### 16. Settings reset does not follow the active-operation restriction
-
-The read-only setter rejects changes during an active tour, native drag, or trash move at [AppModel.swift:205](https://github.com/colinvkim/Radix/blob/e320bd6a02217a454fa39796387449211ffd4c01/Radix/ViewModels/AppModel.swift#L205). The reset action at [AppModel.swift:881](https://github.com/colinvkim/Radix/blob/e320bd6a02217a454fa39796387449211ffd4c01/Radix/ViewModels/AppModel.swift#L881) continues resetting other preferences after calling that setter. Its button and confirmation do not use the same eligibility rule.
-
-Manual baseline validation confirmed that an active tour disables the read-only toggle while leaving Reset All Settings enabled. Starting a tour itself requires read-only mode to be off at [AppModel.swift:721](https://github.com/colinvkim/Radix/blob/e320bd6a02217a454fa39796387449211ffd4c01/Radix/ViewModels/AppModel.swift#L721). The earlier example of starting a tour with read-only enabled was unreachable and did not establish a failed read-only reset.
-
-PR 99 implements the active-operation restriction and remains open. It rejects the entire reset at the model boundary and disables initiation and confirmation while restricted. This is consistent operation gating. The reachable tour scenario has read-only already off, so it does not demonstrate a partial read-only default mismatch.
 
 ### 1. Asynchronous current-contents refreshes hide retained rows
 
@@ -342,10 +364,16 @@ Changes to production code, app resources, or build configuration require the co
 
 All six PRs target `main` independently. Each production change passed the core suite, the complete Debug app build, and a scoped independent source review. PRs 97 and 99 passed 1,132 core tests. The other four passed 1,131. The changed presentation and aggregate tests failed before their fixes. The settings regression uses a reachable read-only-off tour state and failed with the model guard removed.
 
-The settings Debug app was manually checked before and after the change. The fixed reset control is disabled during a tour and enabled after it stops. A normal confirmation was opened and cancelled, preserving preferences. PR 99 later gained a one-line drag-state notification fix. Its existing drag test now checks both model notifications as well as eligibility, with failing-before and passing-after evidence. After unlock, Reset All Settings was enabled before and after a browser drag gesture. Inspection during a held native drag remains pending; the completed-gesture observation is not proof of that state.
+The original PR 99 settings Debug app was manually checked before and after that change. Its reset control was disabled during a tour and enabled after it stopped. PR 103 supersedes that restriction, as recorded above. A normal confirmation was opened and cancelled, preserving preferences. PR 99 later gained a one-line drag-state notification fix. Its existing drag test now checks both model notifications as well as eligibility, with failing-before and passing-after evidence. After unlock, Reset All Settings was enabled before and after a browser drag gesture. The old disabled-state inspection during a held native drag was never completed. The completed-gesture observation did not prove that state.
 
 The FSEvents native probe retains the context during an entered callback and releases it after that callback completes. This validates the ownership change without inducing a crash.
 
 The child-buffer Release check ran five alternating samples per side with 12 replacements per sample over 50,000 children. All 120 operations returned the expected sizes and ordering. Timing ranges overlapped, so no speedup is claimed. This is a replacement microbenchmark, not an end-to-end scan measurement.
 
 The Sunburst Debug app loaded the empty-file fixture with the same visible aggregate geometry. Selecting the populated segment displayed its correct size. After unlock, the baseline Debug app showed Smaller Items, 500 bytes for the 500 empty files. The fixed PR 101 Debug app showed Smaller Items, Zero bytes in both the visible floating card and chart accessibility details. Both checks used 125% zoom and the same small pan over the aggregate to update its hover summary. Reset Zoom returned to 100%, the original Treemap preference was restored, and only the temporary fixture recent entry was removed. All test app instances were quit. Read-only mode remains at its original off value.
+
+The item 32 follow-up caps retained history and callback-local accepted records at 65,536 events. An overflow fails the interval and follows the existing full-scan fallback. Exact-limit and filtered-event cases pass; single and cumulative overflow cases failed before the fix and pass afterward. A real collector overflow triggers a full scan whose resulting tree matches a fresh scan after file creation and deletion. The final core suite passed 1,136 tests in 79 suites; the complete Debug app build and independent review passed. This ceiling is a policy choice, not a measured optimum or exact RSS budget. Native callback ordering and collector retention remain unchanged.
+
+A one-run native macOS history probe tested whether the item 32 ceiling is attainable. Creating 10,000 temporary empty files produced 10,001 accepted events, including a marker, with no uncertainty flags. A workload with 70,000 verified file creations in the same checkpoint interval triggered the production overflow error. This demonstrates that one bulk file operation can reach the ceiling. It does not establish how frequently ordinary development or sync workflows reach it, or whether the memory and latency tradeoff justifies this exact threshold. The owned fixture was removed and cleanup verified.
+
+A subsequent production-code policy probe exposed a cost of the count ceiling. Given 65,537 file events entirely under an excluded `node_modules/**` subtree, the planner returns `noChanges`. The collector rejects those same events before exclusion matching, causing the service to select a full scan. This is a concrete case where the cap can add unnecessary scanning. The collector tests establish correct implementation of the ceiling, but do not establish that this policy improves overall resource use. PR 102 is held as a draft pending peak-memory and complete-rescan cost measurements, including excluded workloads.
