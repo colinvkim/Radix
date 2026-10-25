@@ -17,17 +17,17 @@ Six independent pull requests target `main`. A status of "PR open" means the fix
 | 1 | Remove unused helpers and use checked Sendable conformance | PR open | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
 | 2 | Avoid redundant presentation updates, items 9 and 25 | PR open | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
 | 3 | Skip unchanged child-buffer writes, item 68 | PR open | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
-| 4 | Gate settings reset, item 16 | PR open; drag notifications fixed; manual drag check pending | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
-| 5 | Correct Sunburst aggregate bytes, item 46 | PR open; manual hover check pending | 1131 core tests; app build; review; scan and selection passed; Mac unlock needed | https://github.com/colinvkim/Radix/pull/101 |
+| 4 | Gate settings reset, item 16 | PR open; drag notifications fixed; held-drag UI check pending | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
+| 5 | Correct Sunburst aggregate bytes, item 46 | PR open | 1131 core tests; app build; review; manual readout changed from 500 bytes to Zero bytes | https://github.com/colinvkim/Radix/pull/101 |
 | 6 | Retain FSEvents history callback context, item 31 | PR open | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
 
-## Follow-up work while manual validation is blocked
+## Further implementation work
 
-A single status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101. The document-link comments on PR 96 are addressed by its current pinned GitHub source links. Its reset-status wording now explicitly identifies open PR 99. These observations do not replace local or manual validation.
+An initial status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101, before the later documentation and drag-notification follow-ups. The document-link comments on PR 96 are addressed by its current pinned GitHub source links. Its reset-status wording now explicitly identifies open PR 99. These observations do not replace local or manual validation.
 
-[Feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identified missing drag-state publication. Its fix publishes through `AppModel.objectWillChange` in the existing `draggingChanged` callback and preserves immediate automatic-refresh handling. The extended drag eligibility test failed on both transition notifications before the fix and passed afterward. The full suite passed 1,132 tests in 79 suites. The Debug app build and independent review passed. The displayed stale-button scenario and corrected Settings redraw have not been verified manually because the Mac is locked.
+[Feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identified missing drag-state publication. Its fix publishes through `AppModel.objectWillChange` in the existing `draggingChanged` callback and preserves immediate automatic-refresh handling. The extended drag eligibility test failed on both transition notifications before the fix and passed afterward. The full suite passed 1,132 tests in 79 suites. The Debug app build and independent review passed. After unlock, the exact PR 99 Debug app showed Reset All Settings enabled before and after a browser drag gesture. A held native drag was not captured, so the reported stale-button scenario and the disabled state during a drag remain unverified manually. The control API exposes a complete drag gesture but cannot pause a native drag for a separate Settings inspection.
 
-The following order prioritizes work with deterministic tests that can run while the Mac is locked. Effort is a relative estimate, not a measured duration. None of these new implementation scopes has started.
+The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. None of these new implementation scopes has started.
 
 | Order | Finding and scope | Estimated effort | Required proof |
 |---|---|---|---|
@@ -36,7 +36,7 @@ The following order prioritizes work with deterministic tests that can run while
 | 3 | Item 6. Consolidate browser sorting semantics. | Medium | Every field and direction, secondary descriptors, nil dates, package counts, deterministic ties and cancellation. Preserve prepared expensive keys and the protocol requirement. No speedup is established. |
 | 4 | Item 38. Clean up abandoned archive packages after process exit. | Large | Kill an exporter and prove only its abandoned package is removed. Concurrent exports, completed archives and unrelated matching directories must survive. Establish ownership and liveness before deletion. |
 
-Core changes still require the full core suite and app build. The pending chart hover check and temporary UI cleanup remain blocked by the locked Mac.
+Core changes still require the full core suite and app build. The chart readout check and temporary UI cleanup are complete. The remaining manual gap is Settings availability during a held native drag.
 
 ## Behavior and correctness findings
 
@@ -342,10 +342,10 @@ Changes to production code, app resources, or build configuration require the co
 
 All six PRs target `main` independently. Each production change passed the core suite, the complete Debug app build, and a scoped independent source review. PRs 97 and 99 passed 1,132 core tests. The other four passed 1,131. The changed presentation and aggregate tests failed before their fixes. The settings regression uses a reachable read-only-off tour state and failed with the model guard removed.
 
-The settings Debug app was manually checked before and after the change. The fixed reset control is disabled during a tour and enabled after it stops. A normal confirmation was opened and cancelled, preserving preferences. PR 99 later gained a one-line drag-state notification fix. Its existing drag test now checks both model notifications as well as eligibility, with failing-before and passing-after evidence. Manual Settings verification for this later drag change remains pending.
+The settings Debug app was manually checked before and after the change. The fixed reset control is disabled during a tour and enabled after it stops. A normal confirmation was opened and cancelled, preserving preferences. PR 99 later gained a one-line drag-state notification fix. Its existing drag test now checks both model notifications as well as eligibility, with failing-before and passing-after evidence. After unlock, Reset All Settings was enabled before and after a browser drag gesture. Inspection during a held native drag remains pending; the completed-gesture observation is not proof of that state.
 
 The FSEvents native probe retains the context during an entered callback and releases it after that callback completes. This validates the ownership change without inducing a crash.
 
 The child-buffer Release check ran five alternating samples per side with 12 replacements per sample over 50,000 children. All 120 operations returned the expected sizes and ordering. Timing ranges overlapped, so no speedup is claimed. This is a replacement microbenchmark, not an end-to-end scan measurement.
 
-The Sunburst Debug app loaded the empty-file fixture with the same visible aggregate geometry. Selecting the populated segment displayed its correct size. The aggregate hover readout was not captured through Computer Use. The Mac then locked, so direct hover verification and restoration of the temporary Sunburst preference and fixture recent-entry cleanup remain pending unlock. Read-only mode was restored to its original off value before this lock.
+The Sunburst Debug app loaded the empty-file fixture with the same visible aggregate geometry. Selecting the populated segment displayed its correct size. After unlock, the baseline Debug app showed Smaller Items, 500 bytes for the 500 empty files. The fixed PR 101 Debug app showed Smaller Items, Zero bytes in both the visible floating card and chart accessibility details. Both checks used 125% zoom and the same small pan over the aggregate to update its hover summary. Reset Zoom returned to 100%, the original Treemap preference was restored, and only the temporary fixture recent entry was removed. All test app instances were quit. Read-only mode remains at its original off value.
