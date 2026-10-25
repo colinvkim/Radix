@@ -10,24 +10,25 @@ The initial verification did not include live UI, VoiceOver, runtime locale chan
 
 ## Implementation progress
 
-Six independent pull requests target `main`. A status of "PR open" means the fix is available on its branch and has not yet landed in `main`.
+The first six independent pull requests are merged in `main` at `fd8abe0`. The follow-up work below starts from that commit. Original findings remain anchored to their verification commit.
 
 | PR | Scope | Status | Validation | Link |
 |---|---|---|---|---|
-| 1 | Remove unused helpers and use checked Sendable conformance | PR open | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
-| 2 | Avoid redundant presentation updates, items 9 and 25 | PR open | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
-| 3 | Skip unchanged child-buffer writes, item 68 | PR open | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
-| 4 | Gate settings reset, item 16 | PR open; drag notifications fixed; held-drag UI check pending | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
-| 5 | Correct Sunburst aggregate bytes, item 46 | PR open | 1131 core tests; app build; review; manual readout changed from 500 bytes to Zero bytes | https://github.com/colinvkim/Radix/pull/101 |
-| 6 | Retain FSEvents history callback context, item 31 | PR open | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
+| 1 | Remove unused helpers and use checked Sendable conformance | Merged | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
+| 2 | Avoid redundant presentation updates, items 9 and 25 | Merged | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
+| 3 | Skip unchanged child-buffer writes, item 68 | Merged | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
+| 4 | Gate settings reset, item 16 | Merged; held-drag UI check remains unverified | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
+| 5 | Correct Sunburst aggregate bytes, item 46 | Merged | 1131 core tests; app build; review; manual readout changed from 500 bytes to Zero bytes | https://github.com/colinvkim/Radix/pull/101 |
+| 6 | Retain FSEvents history callback context, item 31 | Merged | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
+| 7 | Bound FSEvents history, item 32 | PR open | Overflow regressions red/green; 1136 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/102 |
 
 ## Further implementation work
 
-An initial status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101, before the later documentation and drag-notification follow-ups. The document-link comments on PR 96 are addressed by its current pinned GitHub source links. Its reset-status wording now explicitly identifies open PR 99. These observations do not replace local or manual validation.
+An initial status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101, before the later documentation and drag-notification follow-ups. The document-link comments on PR 96 were addressed with pinned GitHub source links. Its reset-status wording was clarified, and all review threads were resolved before the merge. These observations do not replace local or manual validation.
 
 [Feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identified missing drag-state publication. Its fix publishes through `AppModel.objectWillChange` in the existing `draggingChanged` callback and preserves immediate automatic-refresh handling. The extended drag eligibility test failed on both transition notifications before the fix and passed afterward. The full suite passed 1,132 tests in 79 suites. The Debug app build and independent review passed. After unlock, the exact PR 99 Debug app showed Reset All Settings enabled before and after a browser drag gesture. A held native drag was not captured, so the reported stale-button scenario and the disabled state during a drag remain unverified manually. The control API exposes a complete drag gesture but cannot pause a native drag for a separate Settings inspection.
 
-The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. None of these new implementation scopes has started.
+The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. Item 32 has an open PR. The remaining scopes have not started.
 
 | Order | Finding and scope | Estimated effort | Required proof |
 |---|---|---|---|
@@ -349,3 +350,5 @@ The FSEvents native probe retains the context during an entered callback and rel
 The child-buffer Release check ran five alternating samples per side with 12 replacements per sample over 50,000 children. All 120 operations returned the expected sizes and ordering. Timing ranges overlapped, so no speedup is claimed. This is a replacement microbenchmark, not an end-to-end scan measurement.
 
 The Sunburst Debug app loaded the empty-file fixture with the same visible aggregate geometry. Selecting the populated segment displayed its correct size. After unlock, the baseline Debug app showed Smaller Items, 500 bytes for the 500 empty files. The fixed PR 101 Debug app showed Smaller Items, Zero bytes in both the visible floating card and chart accessibility details. Both checks used 125% zoom and the same small pan over the aggregate to update its hover summary. Reset Zoom returned to 100%, the original Treemap preference was restored, and only the temporary fixture recent entry was removed. All test app instances were quit. Read-only mode remains at its original off value.
+
+The item 32 follow-up caps retained history and callback-local accepted records at 65,536 events. An overflow fails the interval and follows the existing full-scan fallback. Exact-limit and filtered-event cases pass; single and cumulative overflow cases failed before the fix and pass afterward. A real collector overflow triggers a full scan whose resulting tree matches a fresh scan after file creation and deletion. The final core suite passed 1,136 tests in 79 suites; the complete Debug app build and independent review passed. This ceiling is a policy choice, not a measured optimum or exact RSS budget. Native callback ordering and collector retention remain unchanged.
