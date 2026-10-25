@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-nonisolated final class IncrementalScanService: ScanEventStreaming, @unchecked Sendable {
+nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
     private static let logger = Logger(
         subsystem: "com.colinkim.Radix",
         category: "IncrementalScan"

@@ -130,7 +130,6 @@ final class AppModel: ObservableObject {
         case selectMultiple(Set<FileNodeRecord.ID>, primary: FileNodeRecord.ID?)
         case focus(FileNodeRecord.ID?)
         case selectAndFocus(FileNodeRecord.ID)
-        case reveal(FileNodeRecord.ID)
         case revealComparison(comparisonID: UUID, snapshotID: UUID, nodeID: FileNodeRecord.ID)
         case navigateBack
         case navigateForward
@@ -1957,10 +1956,6 @@ final class AppModel: ObservableObject {
         scheduleDeferredNavigationAction(.selectAndFocus(nodeID))
     }
 
-    func revealAfterViewUpdate(nodeID: String) {
-        scheduleDeferredNavigationAction(.reveal(nodeID))
-    }
-
     func clearSelection() {
         cancelDeferredNavigationAction()
         performNavigationAction(.clearSelection)
@@ -2034,9 +2029,6 @@ final class AppModel: ObservableObject {
         case .selectAndFocus(let nodeID):
             guard isVisibleNavigationNode(nodeID) else { return }
             navigationModel.selectAndFocus(nodeID: nodeID)
-        case .reveal(let nodeID):
-            guard isVisibleNavigationNode(nodeID) else { return }
-            navigationModel.reveal(nodeID: nodeID)
         case .revealComparison(let comparisonID, let snapshotID, let nodeID):
             guard scanComparison?.id == comparisonID,
                   scanCoordinator.snapshot?.id == snapshotID,
@@ -2309,16 +2301,6 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addSelectedNodesToDiscardPile() -> Bool {
         addNodesToDiscardPile(navigationModel.selectedNodes)
-    }
-
-    @discardableResult
-    func addPrimarySelectionToDiscardPile() -> Bool {
-        guard let node = navigationModel.selectedNode else {
-            presentError(FileActionError.noSelection)
-            return false
-        }
-
-        return addNodesToDiscardPile([node])
     }
 
     func addPrimarySelectionToDiscardPileAfterViewUpdate() {
@@ -3249,10 +3231,6 @@ final class AppModel: ObservableObject {
         updateUsageStats { stats in
             stats.recordCompletedScan(snapshot)
         }
-    }
-
-    private func recordTrashMove(_ nodes: [FileNodeRecord]) {
-        recordTrashMove(nodes, fileTreeStore: scanCoordinator.fileTreeStore)
     }
 
     private func recordTrashMove(_ nodes: [FileNodeRecord], fileTreeStore: FileTreeStore?) {
