@@ -40,14 +40,14 @@ struct AppModelDependencyTests {
         model.workspaceTour.start(snapshotID: nil, isReady: false)
         #expect(!model.canChangeReadOnlyMode)
 
-        model.restoreDefaultPreferences()
+        #expect(!model.restoreDefaultPreferences())
 
         #expect(model.isReadOnlyMode)
         #expect(!model.showHiddenFiles)
         #expect(model.maxRenderedDepth == 10)
 
         model.workspaceTour.stop()
-        model.restoreDefaultPreferences()
+        #expect(model.restoreDefaultPreferences())
 
         #expect(!model.isReadOnlyMode)
         #expect(model.showHiddenFiles)

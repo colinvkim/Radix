@@ -239,12 +239,14 @@ private struct GeneralSettingsPane: View {
                 Button("Reset Stats…", role: .destructive) { confirm(.stats) }
                     .disabled(appModel.usageStats.isEmpty)
                 Button("Reset All Settings…", role: .destructive) { confirm(.settings) }
+                    .disabled(!appModel.canChangeReadOnlyMode)
             }
         }
         .formStyle(.grouped)
         .alert(resetAction.title, isPresented: $confirmsReset) {
             Button("Cancel", role: .cancel) {}
             Button(resetAction.buttonTitle, role: .destructive) { performReset() }
+                .disabled(resetAction == .settings && !appModel.canChangeReadOnlyMode)
         } message: {
             Text(resetAction.message)
         }
@@ -258,7 +260,7 @@ private struct GeneralSettingsPane: View {
     private func performReset() {
         switch resetAction {
         case .settings:
-            appModel.restoreDefaultPreferences()
+            guard appModel.restoreDefaultPreferences() else { return }
             softwareUpdates.restoreDefaultPreferences()
         case .stats:
             appModel.clearUsageStats()
