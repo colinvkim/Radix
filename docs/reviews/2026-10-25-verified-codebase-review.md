@@ -20,7 +20,7 @@ The first six independent pull requests are merged in `main` at `fd8abe0`. The f
 | 4 | Gate settings reset, item 16 | Merged; held-drag UI check remains unverified | Tour and drag notification regressions red/green; 1132 core tests; app build; review; manual tour check passed | https://github.com/colinvkim/Radix/pull/99 |
 | 5 | Correct Sunburst aggregate bytes, item 46 | Merged | 1131 core tests; app build; review; manual readout changed from 500 bytes to Zero bytes | https://github.com/colinvkim/Radix/pull/101 |
 | 6 | Retain FSEvents history callback context, item 31 | Merged | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
-| 7 | Bound FSEvents history, item 32 | PR open | Overflow regressions red/green; 1136 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/102 |
+| 7 | Bound FSEvents history, item 32 | Draft; policy measurement needed | Overflow regressions red/green; 1136 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/102 |
 
 ## Further implementation work
 
@@ -28,7 +28,7 @@ An initial status pass on 2026-10-25 found passing CI and no merge conflicts on 
 
 [Feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identified missing drag-state publication. Its fix publishes through `AppModel.objectWillChange` in the existing `draggingChanged` callback and preserves immediate automatic-refresh handling. The extended drag eligibility test failed on both transition notifications before the fix and passed afterward. The full suite passed 1,132 tests in 79 suites. The Debug app build and independent review passed. After unlock, the exact PR 99 Debug app showed Reset All Settings enabled before and after a browser drag gesture. A held native drag was not captured, so the reported stale-button scenario and the disabled state during a drag remain unverified manually. The control API exposes a complete drag gesture but cannot pause a native drag for a separate Settings inspection.
 
-The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. Item 32 has an open PR. The remaining scopes have not started.
+The following order prioritizes work with deterministic tests that do not require UI automation. Effort is a relative estimate, not a measured duration. Item 32 has a draft PR. Its resource and fallback tradeoff needs measurement before shipping. The remaining scopes have not started.
 
 | Order | Finding and scope | Estimated effort | Required proof |
 |---|---|---|---|
@@ -354,3 +354,5 @@ The Sunburst Debug app loaded the empty-file fixture with the same visible aggre
 The item 32 follow-up caps retained history and callback-local accepted records at 65,536 events. An overflow fails the interval and follows the existing full-scan fallback. Exact-limit and filtered-event cases pass; single and cumulative overflow cases failed before the fix and pass afterward. A real collector overflow triggers a full scan whose resulting tree matches a fresh scan after file creation and deletion. The final core suite passed 1,136 tests in 79 suites; the complete Debug app build and independent review passed. This ceiling is a policy choice, not a measured optimum or exact RSS budget. Native callback ordering and collector retention remain unchanged.
 
 A one-run native macOS history probe tested whether the item 32 ceiling is attainable. Creating 10,000 temporary empty files produced 10,001 accepted events, including a marker, with no uncertainty flags. A workload with 70,000 verified file creations in the same checkpoint interval triggered the production overflow error. This demonstrates that one bulk file operation can reach the ceiling. It does not establish how frequently ordinary development or sync workflows reach it, or whether the memory and latency tradeoff justifies this exact threshold. The owned fixture was removed and cleanup verified.
+
+A subsequent production-code policy probe exposed a cost of the count ceiling. Given 65,537 file events entirely under an excluded `node_modules/**` subtree, the planner returns `noChanges`. The collector rejects those same events before exclusion matching, causing the service to select a full scan. This is a concrete case where the cap can add unnecessary scanning. The collector tests establish correct implementation of the ceiling, but do not establish that this policy improves overall resource use. PR 102 is held as a draft pending peak-memory and complete-rescan cost measurements, including excluded workloads.
