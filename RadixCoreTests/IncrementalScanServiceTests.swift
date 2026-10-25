@@ -166,6 +166,79 @@ struct IncrementalScanServiceTests {
     }
 
     @Test
+    func testHistoryCollectorAcceptsExactLimitAfterFiltering() async throws {
+        let collector = makeHistoryCollector()
+        var events: [(String, Int, UInt64)] = [
+            ("private/tmp/example/before", kFSEventStreamEventFlagItemModified, 10),
+            ("", kFSEventStreamEventFlagHistoryDone, 20),
+            ("private/tmp/example", kFSEventStreamEventFlagRootChanged, 0),
+        ]
+        events.append(contentsOf: Array(
+            repeating: ("private/tmp/example/changed.dat", kFSEventStreamEventFlagItemModified, UInt64(11)),
+            count: 65_535
+        ))
+        events.append(("private/tmp/example/later", kFSEventStreamEventFlagItemModified, 21))
+        try receiveHistoryEvents(events, on: collector)
+
+        let history = try await collector.value(timeout: 0)
+
+        #expect(history.events.count == 65_536)
+        #expect(history.events.first == FileSystemEventRecord(path: "/tmp/example", eventID: 0, flags: .rootChanged))
+        #expect(history.events.last == FileSystemEventRecord(
+            path: "/tmp/example/changed.dat", eventID: 11, flags: .itemModified
+        ))
+    }
+
+    @Test(arguments: [false, true])
+    func testHistoryCollectorRejectsOverflowWithoutReviving(usesEarlierBatch: Bool) async throws {
+        let collector = makeHistoryCollector()
+        if usesEarlierBatch {
+            try receiveHistoryEvents(Array(
+                repeating: ("private/tmp/example/changed.dat", kFSEventStreamEventFlagItemModified, UInt64(11)),
+                count: 32_768
+            ), on: collector)
+        }
+        var events: [(String, Int, UInt64)] = [("", kFSEventStreamEventFlagHistoryDone, 20)]
+        events.append(contentsOf: Array(
+            repeating: ("private/tmp/example/changed.dat", kFSEventStreamEventFlagItemModified, UInt64(11)),
+            count: usesEarlierBatch ? 32_769 : 65_537
+        ))
+        try receiveHistoryEvents(events, on: collector)
+        collector.cancel()
+        try receiveHistoryEvents([("", kFSEventStreamEventFlagHistoryDone, 20)], on: collector)
+
+        for _ in 0..<2 {
+            do {
+                _ = try await collector.value(timeout: 0)
+                Issue.record("An overflowing history must fail instead of returning event history.")
+            } catch {
+                #expect(!(error is FSEventHistoryCollector.TimeoutError))
+                #expect(!(error is CancellationError))
+            }
+        }
+    }
+
+    @Test
+    func testHistoryCollectorKeepsCompletedHistoryAfterLateOverflow() async throws {
+        let collector = makeHistoryCollector()
+        try receiveHistoryEvents([
+            ("private/tmp/example/created.dat", kFSEventStreamEventFlagItemCreated, 11),
+            ("", kFSEventStreamEventFlagHistoryDone, 20),
+        ], on: collector)
+        try receiveHistoryEvents(Array(
+            repeating: ("private/tmp/example/later.dat", kFSEventStreamEventFlagItemModified, UInt64(12)),
+            count: 65_537
+        ), on: collector)
+        collector.cancel()
+
+        let history = try await collector.value(timeout: 0)
+
+        #expect(history.events == [
+            FileSystemEventRecord(path: "/tmp/example/created.dat", eventID: 11, flags: .itemCreated),
+        ])
+    }
+
+    @Test
     func testHistoryCollectorTimesOutWithoutReturningPartialEventsOrReviving() async throws {
         let collector = makeHistoryCollector()
         try receiveHistoryEvents([
@@ -482,17 +555,40 @@ struct IncrementalScanServiceTests {
         #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
     }
 
-    @Test
-    func testUnavailableEventHistoryReportsFullFallbackReason() async throws {
+    @Test(arguments: [false, true])
+    func testUnavailableEventHistoryReportsFullFallbackReason(overflows: Bool) async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
-        try Data([0x1]).write(to: rootURL.appending(path: "stable.dat"))
+        let removedURL = rootURL.appending(path: "removed.dat")
+        try Data([0x1]).write(to: removedURL)
+
+        let historyError: any Error
+        if overflows {
+            let collector = makeHistoryCollector()
+            var events: [(String, Int, UInt64)] = [("", kFSEventStreamEventFlagHistoryDone, 20)]
+            events.append(contentsOf: Array(
+                repeating: ("private/tmp/example/changed.dat", kFSEventStreamEventFlagItemModified, UInt64(11)),
+                count: 65_537
+            ))
+            try receiveHistoryEvents(events, on: collector)
+            do {
+                _ = try await collector.value(timeout: 0)
+                Issue.record("An overflowing collector must fail before the service can perform a full fallback.")
+                return
+            } catch {
+                #expect(!(error is FSEventHistoryCollector.TimeoutError))
+                #expect(!(error is CancellationError))
+                historyError = error
+            }
+        } else {
+            historyError = FileSystemEventHistoryError.streamStartFailed
+        }
 
         let provider = IncrementalHistoryStub(
             checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
             events: [],
             beforeReturningHistory: {
-                throw FileSystemEventHistoryError.streamStartFailed
+                throw historyError
             }
         )
         let service = IncrementalScanService(eventHistoryProvider: provider)
@@ -502,12 +598,17 @@ struct IncrementalScanServiceTests {
             from: service.scan(target: target, options: options)
         )
 
+        try FileManager.default.removeItem(at: removedURL)
+        try Data([0x2, 0x3]).write(to: rootURL.appending(path: "created.dat"))
+
         let result = try await incrementalScanResult(
             from: service.rescan(target: target, options: options, from: baseline)
         )
 
         #expect(result.executionModes == [.fullFallback(.eventHistoryUnavailable)])
         #expect(result.snapshot.incrementalCheckpoint?.eventID == 30)
+        let fresh = try await finishedIncrementalSnapshot(from: ScanEngine().scan(target: target, options: options))
+        try assertEquivalent(result.snapshot, fresh)
     }
 
     @Test
