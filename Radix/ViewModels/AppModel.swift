@@ -878,10 +878,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    @discardableResult
-    func restoreDefaultPreferences() -> Bool {
-        guard canChangeReadOnlyMode else { return false }
-        setReadOnlyMode(AppPreferences.defaults.isReadOnlyMode)
+    func restoreDefaultPreferences() {
+        trashFlow.setReadOnlyMode(AppPreferences.defaults.isReadOnlyMode)
+        dependencies.preferences.saveReadOnlyMode(isReadOnlyMode)
         showHiddenFiles = AppScanPreferences.defaults.showHiddenFiles
         treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
         maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
@@ -891,7 +890,9 @@ final class AppModel: ObservableObject {
         scanVisualizationMode = AppScanPreferences.defaults.visualizationMode
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
         exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
-        return true
+        tourSession.restoreDefaultPreferences()
+        dependencies.preferences.saveScanPreferences(.defaults)
+        lastPersistedScanPreferences = .defaults
     }
 
     func clearRecentTargets() {

@@ -8,7 +8,7 @@ final class WorkspaceTourSessionController: ObservableObject {
         let navigation: WorkspaceNavigationState
         let discardPile: DiscardPileState
         let sidebarTargetID: String?
-        let visualization: ScanVisualizationMode
+        var visualization: ScanVisualizationMode
     }
 
     @Published private(set) var sessionID: UUID?
@@ -56,6 +56,10 @@ final class WorkspaceTourSessionController: ObservableObject {
     }
 
     var savedWorkspace: ReturnState? { returnState }
+
+    func restoreDefaultPreferences() {
+        returnState?.visualization = AppScanPreferences.defaults.visualizationMode
+    }
 
     func makeFileBrowser(snapshotID: UUID?) -> FileBrowserModel {
         let model: FileBrowserModel
