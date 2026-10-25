@@ -22,6 +22,22 @@ The first six independent pull requests are merged in `main` at `fd8abe0`. The f
 | 6 | Retain FSEvents history callback context, item 31 | Merged | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
 | 7 | Bound FSEvents history, item 32 | Draft; policy measurement needed | Overflow regressions red/green; 1136 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/102 |
 
+## Nature of the delivered changes
+
+A supported source observation is not automatically a demonstrated user-visible bug. The initial delivery combined different kinds of work. This table states what the evidence actually establishes.
+
+| PR | Classification | Evidence and limits |
+|---|---|---|
+| 96 | Maintenance and compile-time hardening | Removed unused routes and enabled checked Sendable conformance. No current runtime failure was established. |
+| 97 | Notification deduplication | Equal destination assignments produced redundant notifications. No user-visible failure or measured performance benefit was established. |
+| 98 | Ownership defect | A native probe reproduced context deallocation while a callback was still entered. Retain/release ownership fixes that lifetime gap. No application crash was induced. |
+| 99 | Consistency policy plus notification fix | Blocking the entire settings reset applies existing read-only change eligibility to a broader command. That is a behavior choice. The reachable tour case did not establish a partial read-only reset. The later missing drag notifications were reproduced through the real model observer interface. |
+| 100 | Small optimization | The skipped writes contain provably identical child values. Release timing ranges overlapped, so no speedup was established. |
+| 101 | User-visible accounting defect | Empty-file aggregate summaries displayed nonzero bytes. Actual Debug apps showed 500 bytes before and Zero bytes after the fix. |
+| 102 | Draft resource-limit policy | The event ceiling works as implemented. Its memory and complete-rescan benefit is not established, and excluded events can cause an unnecessary full scan. |
+
+PRs 96, 97 and 100 are optional maintenance rather than fixes for demonstrated user-facing failures. PR 99 contains a broader operation-gating choice as well as a concrete notification fix. PR 102 introduces a new fallback threshold and remains a draft pending evidence for that tradeoff. Tests establish the implemented contracts; they do not by themselves establish product benefit or urgency.
+
 ## Further implementation work
 
 An initial status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101, before the later documentation and drag-notification follow-ups. The document-link comments on PR 96 were addressed with pinned GitHub source links. Its reset-status wording was clarified, and all review threads were resolved before the merge. These observations do not replace local or manual validation.
@@ -75,7 +91,7 @@ The read-only setter rejects changes during an active tour, native drag, or tras
 
 Manual baseline validation confirmed that an active tour disables the read-only toggle while leaving Reset All Settings enabled. Starting a tour itself requires read-only mode to be off at [AppModel.swift:721](https://github.com/colinvkim/Radix/blob/e320bd6a02217a454fa39796387449211ffd4c01/Radix/ViewModels/AppModel.swift#L721). The earlier example of starting a tour with read-only enabled was unreachable and did not establish a failed read-only reset.
 
-PR 99 implements the active-operation restriction and remains open. It rejects the entire reset at the model boundary and disables initiation and confirmation while restricted. This is consistent operation gating. The reachable tour scenario has read-only already off, so it does not demonstrate a partial read-only default mismatch.
+Merged PR 99 implements the active-operation restriction. It rejects the entire reset at the model boundary and disables initiation and confirmation while restricted. This is consistent operation gating. The reachable tour scenario has read-only already off, so it does not demonstrate a partial read-only default mismatch.
 
 ### 1. Asynchronous current-contents refreshes hide retained rows
 
