@@ -32,17 +32,18 @@ struct AppModelDependencyTests {
         scanPreferences.maxRenderedDepth = 10
         let preferences = SpyAppPreferencesStore(preferences: AppPreferences(
             scan: scanPreferences,
-            didCompleteOnboarding: true,
-            isReadOnlyMode: true
+            didCompleteOnboarding: true
         ))
         let model = AppModel(dependencies: makeDependencies(preferences: preferences))
         defer { model.cleanup() }
+        #expect(!model.isReadOnlyMode)
+        #expect(model.canStartWorkspaceTour)
         model.workspaceTour.start(snapshotID: nil, isReady: false)
         #expect(!model.canChangeReadOnlyMode)
 
         #expect(!model.restoreDefaultPreferences())
 
-        #expect(model.isReadOnlyMode)
+        #expect(!model.isReadOnlyMode)
         #expect(!model.showHiddenFiles)
         #expect(model.maxRenderedDepth == 10)
 
