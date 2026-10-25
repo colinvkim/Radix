@@ -102,7 +102,7 @@ nonisolated struct ScanArchiveProgress: Equatable, Sendable {
     }
 }
 
-nonisolated final class ScanArchiveProgressReporter: @unchecked Sendable {
+nonisolated final class ScanArchiveProgressReporter: Sendable {
     let updates: AsyncStream<ScanArchiveProgress>
     private let continuation: AsyncStream<ScanArchiveProgress>.Continuation
 

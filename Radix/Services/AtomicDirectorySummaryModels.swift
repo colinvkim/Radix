@@ -153,7 +153,7 @@ nonisolated struct AtomicDirectoryProbeResumeState: @unchecked Sendable {
     }
 }
 
-nonisolated struct AtomicDirectoryProbeOutcome: @unchecked Sendable {
+nonisolated struct AtomicDirectoryProbeOutcome: Sendable {
     var profile: AtomicDirectoryProbeProfile
     var resumeState: AtomicDirectoryProbeResumeState?
     var visitedItemCount: Int

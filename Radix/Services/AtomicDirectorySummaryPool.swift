@@ -565,22 +565,6 @@ nonisolated final class AtomicDirectorySummaryPool: @unchecked Sendable {
         notifyShutdownOnce()
     }
 
-    /// Convenience structured lifetime for callers that do not need to mutate
-    /// inout scan state from the operation closure.
-    func run<T: Sendable>(
-        operation: () async throws -> T
-    ) async throws -> T {
-        start()
-        do {
-            let result = try await operation()
-            await finish()
-            return result
-        } catch {
-            await cancelAndFinish(with: error)
-            throw error
-        }
-    }
-
     func summarize(_ request: AtomicSummaryPoolRequest) async throws -> AtomicDirectorySummary? {
         start()
         try request.cancellationCheck()
