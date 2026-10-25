@@ -25,6 +25,36 @@ struct AppModelDependencyTests {
         #expect(!preferences.preferences.isReadOnlyMode)
     }
 
+    @Test
+    func testSettingsResetWaitsUntilReadOnlyModeCanChange() {
+        var scanPreferences = AppScanPreferences.defaults
+        scanPreferences.showHiddenFiles = false
+        scanPreferences.maxRenderedDepth = 10
+        let preferences = SpyAppPreferencesStore(preferences: AppPreferences(
+            scan: scanPreferences,
+            didCompleteOnboarding: true
+        ))
+        let model = AppModel(dependencies: makeDependencies(preferences: preferences))
+        defer { model.cleanup() }
+        #expect(!model.isReadOnlyMode)
+        #expect(model.canStartWorkspaceTour)
+        model.workspaceTour.start(snapshotID: nil, isReady: false)
+        #expect(!model.canChangeReadOnlyMode)
+
+        #expect(!model.restoreDefaultPreferences())
+
+        #expect(!model.isReadOnlyMode)
+        #expect(!model.showHiddenFiles)
+        #expect(model.maxRenderedDepth == 10)
+
+        model.workspaceTour.stop()
+        #expect(model.restoreDefaultPreferences())
+
+        #expect(!model.isReadOnlyMode)
+        #expect(model.showHiddenFiles)
+        #expect(model.maxRenderedDepth == AppScanPreferences.defaults.maxRenderedDepth)
+    }
+
     @Test(arguments: [false, true])
     func testReadOnlyModeSuspendsDiscardPileHistoryWithoutDiscardingIt(isRedo: Bool) {
         let model = AppModel(dependencies: makeDependencies())
@@ -123,13 +153,24 @@ struct AppModelDependencyTests {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         defer { model.cleanup() }
         let file = installSelection(on: model)
+        var observedModelChange = false
+        let cancellable = model.objectWillChange.sink { observedModelChange = true }
+        defer { cancellable.cancel() }
         let session = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
+        defer { session.end(operation: []) }
+        #expect(model.canChangeReadOnlyMode)
+
+        observedModelChange = false
         session.begin()
         #expect(!model.canChangeReadOnlyMode)
+        #expect(observedModelChange)
         model.setReadOnlyMode(true)
         #expect(!model.isReadOnlyMode)
+
+        observedModelChange = false
         session.end(operation: [])
         #expect(model.canChangeReadOnlyMode)
+        #expect(observedModelChange)
         model.setReadOnlyMode(true)
         let readOnlySession = try #require(model.fileDragController.prepare(nodeIDs: [file.id]))
         #expect(readOnlySession.operationMask(for: .outsideApplication) == .copy)

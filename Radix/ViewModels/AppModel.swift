@@ -278,6 +278,7 @@ final class AppModel: ObservableObject {
             self?.fileTransferReconciliation.fileTransferDidEnd(transfer)
         },
         draggingChanged: { [weak self] in
+            self?.objectWillChange.send()
             self?.updateAutomaticFolderRefresh()
         }
     )
@@ -877,7 +878,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func restoreDefaultPreferences() {
+    @discardableResult
+    func restoreDefaultPreferences() -> Bool {
+        guard canChangeReadOnlyMode else { return false }
         setReadOnlyMode(AppPreferences.defaults.isReadOnlyMode)
         showHiddenFiles = AppScanPreferences.defaults.showHiddenFiles
         treatPackagesAsDirectories = AppScanPreferences.defaults.treatPackagesAsDirectories
@@ -888,6 +891,7 @@ final class AppModel: ObservableObject {
         scanVisualizationMode = AppScanPreferences.defaults.visualizationMode
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
         exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
+        return true
     }
 
     func clearRecentTargets() {
