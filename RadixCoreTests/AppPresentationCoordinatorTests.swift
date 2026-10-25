@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -5,6 +6,22 @@ import Testing
 
 @MainActor
 struct AppPresentationCoordinatorTests {
+    @Test
+    func testPresentingActiveDestinationPublishesOnlyChangedPayloads() {
+        let first = AppPresentationCoordinator.Destination.sheet(.comparisonSetup(UUID()))
+        let second = AppPresentationCoordinator.Destination.sheet(.comparisonSetup(UUID()))
+        let coordinator = AppPresentationCoordinator(initialDestination: first)
+        var destinations: [AppPresentationCoordinator.Destination?] = []
+        let subscription = coordinator.$activeDestination.sink { destinations.append($0) }
+        defer { subscription.cancel() }
+
+        coordinator.present(first)
+        coordinator.present(second)
+        coordinator.present(second)
+
+        #expect(destinations == [first, second])
+    }
+
     @Test
     func testPresentationsAdvanceInRequestOrder() {
         let coordinator = AppPresentationCoordinator(
