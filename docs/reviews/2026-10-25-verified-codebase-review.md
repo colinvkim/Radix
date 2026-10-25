@@ -17,9 +17,26 @@ Six independent pull requests target `main`. A status of "PR open" means the fix
 | 1 | Remove unused helpers and use checked Sendable conformance | PR open | 1131 core tests; app build; independent review passed | https://github.com/colinvkim/Radix/pull/96 |
 | 2 | Avoid redundant presentation updates, items 9 and 25 | PR open | Regression red/green; 1132 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/97 |
 | 3 | Skip unchanged child-buffer writes, item 68 | PR open | 1131 core tests; app build; review; matched Release outputs; no timing win established | https://github.com/colinvkim/Radix/pull/100 |
-| 4 | Gate settings reset, item 16 | PR open | Reachable regression red/green; 1132 core tests; app build; manual Settings check passed | https://github.com/colinvkim/Radix/pull/99 |
+| 4 | Gate settings reset, item 16 | PR open; drag-state publication follow-up | Reachable regression red/green; 1132 core tests; app build; tour check passed; drag availability needs follow-up | https://github.com/colinvkim/Radix/pull/99 |
 | 5 | Correct Sunburst aggregate bytes, item 46 | PR open; manual hover check pending | 1131 core tests; app build; review; scan and selection passed; Mac unlock needed | https://github.com/colinvkim/Radix/pull/101 |
 | 6 | Retain FSEvents history callback context, item 31 | PR open | Native lifetime and release-balance probes; 1131 core tests; app build; review passed | https://github.com/colinvkim/Radix/pull/98 |
+
+## Follow-up work while manual validation is blocked
+
+A single status pass on 2026-10-25 found passing CI and no merge conflicts on PRs 96 through 101. The document-link comments on PR 96 are addressed by its current pinned GitHub source links. Its reset-status wording now explicitly identifies open PR 99. These observations do not replace local or manual validation.
+
+[New feedback on PR 99](https://github.com/colinvkim/Radix/pull/99#discussion_r4371955001) identifies missing drag-state publication. The `draggingChanged` callback only updates automatic folder refresh, while `canChangeReadOnlyMode` also depends on `fileDragController.isDragging`. Neither the controller nor that callback publishes the change through `AppModel.objectWillChange`. This is a source-confirmed notification gap. The displayed stale-button scenario has not been reproduced manually. A follow-up can first verify begin/end notifications and eligibility through a model test, then recheck Settings when the Mac is available.
+
+The following order prioritizes work with deterministic tests that can run while the Mac is locked. Effort is a relative estimate, not a measured duration. None of these new implementation scopes has started.
+
+| Order | Finding and scope | Estimated effort | Required proof |
+|---|---|---|---|
+| 1 | Item 32. Bound FSEvents history and retain conservative full-scan fallback. | Medium | Exact-limit, single-batch and cumulative overflow, completion and cancellation, then resulting full-scan snapshot parity. Bound both retained events and callback-local allocation. |
+| 2 | Item 54. Protect alternate-case root aliases using filesystem-aware matching. | Medium | Policy and native preflight rejection without invoking Trash. Cover insensitive aliases, distinct names on a sensitive fixture, and allowed descendants. Global lowercasing is insufficient. |
+| 3 | Item 6. Consolidate browser sorting semantics. | Medium | Every field and direction, secondary descriptors, nil dates, package counts, deterministic ties and cancellation. Preserve prepared expensive keys and the protocol requirement. No speedup is established. |
+| 4 | Item 38. Clean up abandoned archive packages after process exit. | Large | Kill an exporter and prove only its abandoned package is removed. Concurrent exports, completed archives and unrelated matching directories must survive. Establish ownership and liveness before deletion. |
+
+Core changes still require the full core suite and app build. The pending chart hover check and temporary UI cleanup remain blocked by the locked Mac.
 
 ## Behavior and correctness findings
 
@@ -57,7 +74,7 @@ The read-only setter rejects changes during an active tour, native drag, or tras
 
 Manual baseline validation confirmed that an active tour disables the read-only toggle while leaving Reset All Settings enabled. Starting a tour itself requires read-only mode to be off at [AppModel.swift:721](https://github.com/colinvkim/Radix/blob/e320bd6a02217a454fa39796387449211ffd4c01/Radix/ViewModels/AppModel.swift#L721). The earlier example of starting a tour with read-only enabled was unreachable and did not establish a failed read-only reset.
 
-The approved change makes reset follow the existing active-operation restriction. It rejects the entire reset at the model boundary and disables initiation and confirmation while restricted. This is consistent operation gating. The reachable tour scenario has read-only already off, so it does not demonstrate a partial read-only default mismatch.
+PR 99 implements the active-operation restriction and remains open. It rejects the entire reset at the model boundary and disables initiation and confirmation while restricted. This is consistent operation gating. The reachable tour scenario has read-only already off, so it does not demonstrate a partial read-only default mismatch.
 
 ### 1. Asynchronous current-contents refreshes hide retained rows
 
