@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct GoToPathSheet: View {
@@ -60,6 +61,15 @@ struct GoToPathSheet: View {
                         .tag(node.id)
                         .id(node.id)
                         .listRowSeparator(.hidden)
+                        .listRowBackground(
+                            selectedCompletionID == node.id
+                                ? PathSelectionMaterial()
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .padding(.horizontal, 10)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                                : nil
+                        )
                         .accessibilityLabel(Text(verbatim: ScanPathResolver.completionPath(for: node)))
                         .accessibilityAction(named: Text("Go to Path")) {
                             navigate(to: node)
@@ -181,6 +191,7 @@ struct GoToPathSheet: View {
                 .truncationMode(.middle)
                 .layoutPriority(1)
         }
+        .foregroundStyle(CompletionForeground(isSelected: selectedCompletionID == node.id))
     }
 
     private var isSubmitting: Bool { submissionTask != nil }
@@ -219,6 +230,40 @@ struct GoToPathSheet: View {
             guard !Task.isCancelled else { return }
             showsError = !succeeded
             if !succeeded { isPathFocused = true }
+        }
+    }
+}
+
+private struct PathSelectionMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .selection
+        view.blendingMode = .withinWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.isEmphasized = context.environment.pathSelectionAppearsActive
+    }
+}
+
+private struct CompletionForeground: ShapeStyle {
+    let isSelected: Bool
+
+    func resolve(in environment: EnvironmentValues) -> some ShapeStyle {
+        guard isSelected else { return AnyShapeStyle(.primary) }
+        return AnyShapeStyle(Color(nsColor: environment.pathSelectionAppearsActive
+            ? .alternateSelectedControlTextColor : .unemphasizedSelectedTextColor))
+    }
+}
+
+private extension EnvironmentValues {
+    nonisolated var pathSelectionAppearsActive: Bool {
+        if #available(macOS 15.0, *) {
+            appearsActive
+        } else {
+            controlActiveState != .inactive
         }
     }
 }
