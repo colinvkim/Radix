@@ -40,7 +40,6 @@ struct GoToPathSheet: View {
                         } label: {
                             breadcrumbLabel(for: node)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 5)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -83,7 +82,7 @@ struct GoToPathSheet: View {
                     if let nodeID { proxy.scrollTo(nodeID) }
                 }
             }
-            .frame(height: 240)
+            .frame(height: 212)
         }
         .frame(width: 520)
         .onDisappear { submissionTask?.cancel() }
@@ -186,7 +185,6 @@ struct GoToPathSheet: View {
                     .accessibilityHidden(true)
             }
             Text(verbatim: components.last ?? node.url.path)
-                .fontWeight(.medium)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(1)
