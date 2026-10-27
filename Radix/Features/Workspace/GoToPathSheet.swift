@@ -31,18 +31,15 @@ struct GoToPathSheet: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
+            ScrollViewReader { proxy in
+                List(selection: $selectedCompletionID) {
                     ForEach(completions) { node in
                         Button {
                             accept(node)
                         } label: {
                             breadcrumbLabel(for: node)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
                                 .padding(.vertical, 5)
-                                .background(selectedCompletionID == node.id ? Color.accentColor.opacity(0.18) : .clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 5))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -60,16 +57,21 @@ struct GoToPathSheet: View {
                                     }
                                 }
                         )
+                        .tag(node.id)
+                        .id(node.id)
+                        .listRowSeparator(.hidden)
                         .accessibilityLabel(Text(verbatim: ScanPathResolver.completionPath(for: node)))
-                        .accessibilityAddTraits(selectedCompletionID == node.id ? .isSelected : [])
                         .accessibilityAction(named: Text("Go to Path")) {
                             navigate(to: node)
                         }
                         .help(ScanPathResolver.completionPath(for: node))
                     }
                 }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .onChange(of: selectedCompletionID) { _, nodeID in
+                    if let nodeID { proxy.scrollTo(nodeID) }
+                }
             }
             .frame(height: 240)
         }
@@ -78,8 +80,6 @@ struct GoToPathSheet: View {
         .task { isPathFocused = true }
         .task(id: path) {
             showsError = false
-            selectedCompletionID = nil
-            completions = []
             let input = path
             let resolver = resolver
             let query = Task.detached(priority: .userInitiated) {
@@ -92,12 +92,28 @@ struct GoToPathSheet: View {
             }
             guard !Task.isCancelled, path == input else { return }
             completions = matches ?? []
+            if let selectedCompletionID,
+               !completions.contains(where: { $0.id == selectedCompletionID }) {
+                self.selectedCompletionID = nil
+            }
         }
+    }
+
+    private var editedPath: Binding<String> {
+        Binding(
+            get: { path },
+            set: { input in
+                guard path != input else { return }
+                path = input
+                selectedCompletionID = nil
+                completions = []
+            }
+        )
     }
 
     private var pathHeader: some View {
         HStack(spacing: 10) {
-            TextField("Go to Path", text: $path)
+            TextField("Go to Path", text: editedPath)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .focused($isPathFocused)
@@ -105,8 +121,18 @@ struct GoToPathSheet: View {
                 .accessibilityAction(named: Text("Go to Path")) { submit() }
                 .disabled(isSubmitting)
                 .onSubmit { submit() }
-                .onKeyPress(.downArrow) { moveSelection(by: 1) }
-                .onKeyPress(.upArrow) { moveSelection(by: -1) }
+                .onKeyPress(.downArrow, phases: [.down, .repeat]) { press in
+                    guard press.modifiers.intersection([.command, .option, .control, .shift]).isEmpty else {
+                        return .ignored
+                    }
+                    return moveSelection(by: 1)
+                }
+                .onKeyPress(.upArrow, phases: [.down, .repeat]) { press in
+                    guard press.modifiers.intersection([.command, .option, .control, .shift]).isEmpty else {
+                        return .ignored
+                    }
+                    return moveSelection(by: -1)
+                }
                 .onKeyPress(.tab, phases: .down) { press in
                     guard press.modifiers.isEmpty, let completion = selectedCompletion ?? completions.first else {
                         return .ignored
@@ -135,18 +161,22 @@ struct GoToPathSheet: View {
         let ancestors = components.dropLast().joined(separator: " › ")
         return HStack(spacing: 6) {
             if !ancestors.isEmpty {
-                Text(verbatim: ancestors)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+                Group {
+                    if selectedCompletionID == node.id {
+                        Text(verbatim: ancestors)
+                    } else {
+                        Text(verbatim: ancestors)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .lineLimit(1)
+                .truncationMode(.head)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
             Text(verbatim: components.last ?? node.url.path)
                 .fontWeight(.medium)
-                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(1)
@@ -170,7 +200,7 @@ struct GoToPathSheet: View {
 
     private func accept(_ node: FileNodeRecord) {
         path = ScanPathResolver.completionPath(for: node)
-        selectedCompletionID = nil
+        selectedCompletionID = node.id
         isPathFocused = true
     }
 

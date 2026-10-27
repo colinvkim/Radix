@@ -265,6 +265,7 @@ struct RadixCommands: Commands {
 
     private var canUseWorkspaceCommands: Bool {
         isWorkspaceWindowFocused == true && appModel.canUseWorkspaceCommands
+            && appModel.presentationCoordinator.activeDestination == nil
     }
 
     private var addSelectionToDiscardPileTitle: String {
