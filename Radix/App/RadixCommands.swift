@@ -236,6 +236,12 @@ struct RadixCommands: Commands {
 
             Divider()
 
+            Button("Go to Path…") {
+                appModel.presentGoToPath()
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(!canUseWorkspaceCommands || !appModel.canGoToPath)
+
             Button("Go to Parent", systemImage: "arrow.up") {
                 appModel.navigateToParent()
             }

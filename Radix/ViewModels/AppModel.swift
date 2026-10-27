@@ -208,9 +208,12 @@ final class AppModel: ObservableObject {
         dependencies.preferences.saveReadOnlyMode(isEnabled)
     }
 
+    private weak var fileBrowser: FileBrowserModel?
+
     func makeFileBrowserModel() -> FileBrowserModel {
         let model = tourSession.makeFileBrowser(snapshotID: scanCoordinator.snapshot?.id)
         quickLookController.fileBrowser = model
+        fileBrowser = model
         return model
     }
 
@@ -764,6 +767,8 @@ final class AppModel: ObservableObject {
 
     func dismissActiveSheet() {
         switch presentationCoordinator.activeSheet {
+        case .goToPath:
+            dismissGoToPath()
         case .onboarding:
             dismissOnboarding()
         case .discardPileReview:
@@ -1968,6 +1973,66 @@ final class AppModel: ObservableObject {
     func clearSelection() {
         cancelDeferredNavigationAction()
         performNavigationAction(.clearSelection)
+    }
+
+    var canGoToPath: Bool {
+        scanCoordinator.snapshot != nil && canUseWorkspaceCommands && !tourSession.isActive
+            && !workspaceTour.isActive && !scanCoordinator.isForegroundScanOperationInProgress
+            && !isArchiveOperationInProgress && !isExportPanelPresented
+            && presentationCoordinator.activeDestination == nil
+    }
+
+    func presentGoToPath() {
+        guard canGoToPath, let snapshot = scanCoordinator.snapshot else { return }
+        presentationCoordinator.present(.sheet(.goToPath(GoToPathRequest(
+            snapshotID: snapshot.id,
+            treeContentID: snapshot.treeStore.contentID,
+            directoryID: navigationModel.currentFocusNode?.id ?? snapshot.root.id
+        ))))
+    }
+
+    func dismissGoToPath() {
+        resumeDeferredArchiveImport(presentationCoordinator.cancel(kind: .goToPath))
+    }
+
+    func goToPath(
+        _ path: String,
+        request: GoToPathRequest
+    ) async -> Bool {
+        let sheet = AppPresentationCoordinator.Sheet.goToPath(request)
+        guard presentationCoordinator.activeSheet == sheet,
+              let snapshot = scanCoordinator.snapshot,
+              snapshot.id == request.snapshotID, snapshot.treeStore.contentID == request.treeContentID else { return false }
+        let resolver = ScanPathResolver(
+            treeStore: snapshot.treeStore,
+            hiddenNodeIDs: workspaceHiddenNodeIDs,
+            baseDirectoryID: request.directoryID
+        )
+        let resolution = Task.detached(priority: .userInitiated) {
+            try resolver.resolve(path, cancellationCheck: { try Task.checkCancellation() })
+        }
+        let node = await withTaskCancellationHandler {
+            try? await resolution.value
+        } onCancel: {
+            resolution.cancel()
+        }
+        guard !Task.isCancelled, let node,
+              presentationCoordinator.activeSheet == sheet,
+              scanCoordinator.snapshot?.id == request.snapshotID,
+              scanCoordinator.fileTreeStore?.contentID == request.treeContentID,
+              !scanCoordinator.isForegroundScanOperationInProgress,
+              canUseWorkspaceCommands, !workspaceTour.isActive,
+              isVisibleNavigationNode(node.id) else { return false }
+        cancelDeferredNavigationAction()
+        fileBrowser?.showCurrentContents()
+        if node.isDirectory {
+            navigationModel.clearSelection()
+            navigationModel.focus(nodeID: node.id)
+        } else {
+            navigationModel.reveal(nodeID: node.id)
+        }
+        dismissGoToPath()
+        return true
     }
 
     func zoomIntoSelection() {
@@ -3204,6 +3269,10 @@ final class AppModel: ObservableObject {
         scanCoordinator.$snapshot
             .sink { [weak self] snapshot in
                 guard let self else { return }
+                if case .goToPath(let request) = presentationCoordinator.activeSheet,
+                   snapshot?.id != request.snapshotID || snapshot?.treeStore.contentID != request.treeContentID {
+                    dismissGoToPath()
+                }
                 quickLookController.closePreview()
                 refreshDiskFreeSpaceCapacity(for: snapshot)
                 syncOptimisticTrashVisibility(with: snapshot)
