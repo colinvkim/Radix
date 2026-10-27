@@ -7,6 +7,23 @@ import Testing
 struct AppUsageStatsStoreTests {
     private let temporaryDefaults = TemporaryTestDefaults()
 
+    @Test(arguments: [Double.infinity, -.infinity, .nan])
+    func testUserDefaultsStoreClearsPreviousDataWhenStatisticsCannotBeEncoded(value: Double) throws {
+        let defaults = try temporaryDefaults.make()
+        let store = UserDefaultsAppUsageStatsStore(defaults: defaults)
+        var stats = AppUsageStats.empty
+        stats.totalScansRun = 3
+        store.saveUsageStats(stats)
+        #expect(store.loadUsageStats() == stats)
+        #expect(defaults.data(forKey: "usageStats") != nil)
+
+        stats.totalScanDuration = value
+        store.saveUsageStats(stats)
+
+        #expect(defaults.data(forKey: "usageStats") == nil)
+        #expect(store.loadUsageStats() == .empty)
+    }
+
     @Test
     func testRecordsScanInteractionAndTrashStats() {
         let first = makeTestFileNode(id: "/stats/first.bin", name: "first.bin", size: 100)

@@ -419,7 +419,7 @@ struct FileBrowserBenchmarkTests {
         var samples: [SearchSample] = []
         samples.reserveCapacity(count)
         for _ in 0..<count {
-            let measurement = try await measureAsync {
+            let measurement = try await BenchmarkSupport.measureAsync {
                 try await service.search(
                     snapshotID: snapshotID,
                     treeStore: store,
@@ -492,7 +492,7 @@ struct FileBrowserBenchmarkTests {
     private static func measureColdSearchCancellation(
         store: FileTreeStore,
         query: FileBrowserQuery
-    ) async throws -> CancellationMeasurement {
+    ) async throws -> BenchmarkCancellationMeasurement {
         let service = FileSearchService()
         return try await measureSearchCancellation(
             service: service,
@@ -507,7 +507,7 @@ struct FileBrowserBenchmarkTests {
         snapshotID: UUID,
         store: FileTreeStore,
         query: FileBrowserQuery
-    ) async throws -> CancellationMeasurement {
+    ) async throws -> BenchmarkCancellationMeasurement {
         let task = Task {
             _ = try await service.search(
                 snapshotID: snapshotID,
@@ -524,13 +524,13 @@ struct FileBrowserBenchmarkTests {
         task.cancel()
         do {
             let completedAt = try await task.value
-            return CancellationMeasurement(
+            return BenchmarkCancellationMeasurement(
                 seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
                 wasCancelled: false,
                 completedBeforeCancellation: completedAt <= cancellationRequestedAt
             )
         } catch is CancellationError {
-            return CancellationMeasurement(
+            return BenchmarkCancellationMeasurement(
                 seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
                 wasCancelled: true,
                 completedBeforeCancellation: false
@@ -543,7 +543,7 @@ struct FileBrowserBenchmarkTests {
         sortOrder: [FileNodeTableComparator],
         store: FileTreeStore,
         baselineSortSeconds: Double
-    ) async throws -> CancellationMeasurement {
+    ) async throws -> BenchmarkCancellationMeasurement {
         let task = Task.detached {
             _ = try FileBrowserResults.sorted(
                 nodes,
@@ -562,13 +562,13 @@ struct FileBrowserBenchmarkTests {
         task.cancel()
         do {
             let completedAt = try await task.value
-            return CancellationMeasurement(
+            return BenchmarkCancellationMeasurement(
                 seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
                 wasCancelled: false,
                 completedBeforeCancellation: completedAt <= cancellationRequestedAt
             )
         } catch is CancellationError {
-            return CancellationMeasurement(
+            return BenchmarkCancellationMeasurement(
                 seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
                 wasCancelled: true,
                 completedBeforeCancellation: false
@@ -892,17 +892,6 @@ struct FileBrowserBenchmarkTests {
         return String(hash, radix: 16)
     }
 
-    private static func measureAsync<Value>(
-        _ operation: () async throws -> Value
-    ) async rethrows -> BenchmarkMeasurement<Value> {
-        let startedAt = ContinuousClock.now
-        let value = try await operation()
-        return BenchmarkMeasurement(
-            value: value,
-            seconds: BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
-        )
-    }
-
     private static func measureAsyncWithMemory<Value>(
         _ operation: () async throws -> Value
     ) async rethrows -> MemoryBenchmarkMeasurement<Value> {
@@ -1035,12 +1024,6 @@ private struct MemoryBenchmarkMeasurement<Value> {
     let startRSS: UInt64
     let endRSS: UInt64
     let peakRSS: UInt64
-}
-
-private struct CancellationMeasurement {
-    let seconds: Double
-    let wasCancelled: Bool
-    let completedBeforeCancellation: Bool
 }
 
 private struct FileBrowserBenchmarkTimeoutError: LocalizedError {

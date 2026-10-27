@@ -235,7 +235,9 @@ struct SystemIntegrationTests {
             availableCapacityForImportantUsage: 0
         )
 
-        #expect(description == "512 GB free of 2 TB")
+        let available = ByteCountFormatter.string(fromByteCount: 512_000_000_000, countStyle: .file)
+        let total = ByteCountFormatter.string(fromByteCount: 2_000_000_000_000, countStyle: .file)
+        #expect(description == String(localized: "\(available) free of \(total)"))
     }
 
     @Test

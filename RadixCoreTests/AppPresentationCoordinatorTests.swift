@@ -88,4 +88,36 @@ struct AppPresentationCoordinatorTests {
         #expect(coordinator.cancel(kind: .importPreview) == secondURL)
         #expect(coordinator.activeDestination == nil)
     }
+
+    @Test
+    func testIdleArchiveImportStartsImmediatelyWithoutQueuingIt() {
+        let coordinator = AppPresentationCoordinator()
+        let url = URL(filePath: "/tmp/immediate.radixscan")
+
+        #expect(coordinator.requestArchiveImport(url) == .startNow)
+        #expect(coordinator.activeDestination == nil)
+        coordinator.present(.sheet(.onboarding))
+        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.activeDestination == nil)
+    }
+
+    @Test
+    func testResetClearsActiveAndQueuedPresentationsAndArchiveImports() {
+        let coordinator = AppPresentationCoordinator(initialDestination: .sheet(.onboarding))
+        let queuedURL = URL(filePath: "/tmp/queued.radixscan")
+        coordinator.present(.dialog(.trashConfirmation))
+        #expect(coordinator.requestArchiveImport(queuedURL) == .queued)
+        coordinator.present(.sheet(.discardPileReview))
+
+        coordinator.reset()
+
+        #expect(coordinator.activeDestination == nil)
+        #expect(coordinator.activeSheet == nil)
+        #expect(coordinator.activeDialog == nil)
+        let freshURL = URL(filePath: "/tmp/fresh.radixscan")
+        #expect(coordinator.requestArchiveImport(freshURL) == .startNow)
+        coordinator.present(.sheet(.onboarding))
+        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.activeDestination == nil)
+    }
 }

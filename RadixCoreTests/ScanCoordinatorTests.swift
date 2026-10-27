@@ -2591,22 +2591,25 @@ struct ScanCoordinatorTests {
         #expect(!(model.scanState.canStopScan))
     }
 
-    @Test
-    func testAppModelStopCancelsDeferredScanStart() async throws {
+    @Test(arguments: ["stop", "cleanup", "suspend"])
+    func testAppModelCancelsDeferredScanStart(trigger: String) async throws {
         let service = ControlledScanService()
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
-
-        model.startScan(makeCoordinatorTarget("/app/deferred-stop"))
+        defer { model.cleanup() }
+        model.startScan(makeCoordinatorTarget("/app/deferred-\(trigger)"))
         let pendingTasks = model.deferredViewUpdateTasks
         #expect(!pendingTasks.isEmpty)
-        model.stopScan()
-
+        switch trigger {
+        case "stop": model.stopScan()
+        case "cleanup": model.cleanup()
+        default: model.suspendMainWindowActivity()
+        }
         for task in pendingTasks { await task.value }
-
         #expect(service.requests.isEmpty)
         #expect(model.scanState.phase == .idle)
-        #expect(!(model.scanState.canStopScan))
+        #expect(!model.scanState.canStopScan)
     }
+
 
     @Test
     func testAppModelDeferredSidebarSelectionStartsAfterViewUpdate() async throws {
@@ -2679,40 +2682,6 @@ struct ScanCoordinatorTests {
         try await waitUntil("same sidebar target restarts after cancel") {
             model.sidebar.activeTargetID == target.id && service.requests.count == 2
         }
-    }
-
-    @Test
-    func testAppModelCleanupCancelsDeferredScanStart() async throws {
-        let service = ControlledScanService()
-        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
-
-        model.startScan(makeCoordinatorTarget("/app/deferred-cleanup"))
-        let pendingTasks = model.deferredViewUpdateTasks
-        #expect(!pendingTasks.isEmpty)
-        model.cleanup()
-
-        for task in pendingTasks { await task.value }
-
-        #expect(service.requests.isEmpty)
-        #expect(model.scanState.phase == .idle)
-        #expect(!(model.scanState.canStopScan))
-    }
-
-    @Test
-    func testAppModelSuspendingMainWindowActivityCancelsDeferredScanStart() async throws {
-        let service = ControlledScanService()
-        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service))
-
-        model.startScan(makeCoordinatorTarget("/app/deferred-window-suspend"))
-        let pendingTasks = model.deferredViewUpdateTasks
-        #expect(!pendingTasks.isEmpty)
-        model.suspendMainWindowActivity()
-
-        for task in pendingTasks { await task.value }
-
-        #expect(service.requests.isEmpty)
-        #expect(model.scanState.phase == .idle)
-        #expect(!(model.scanState.canStopScan))
     }
 
     @Test

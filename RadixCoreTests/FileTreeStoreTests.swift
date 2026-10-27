@@ -5,6 +5,89 @@ import Testing
 
 struct FileTreeStoreTests {
     @Test
+    func testCombiningNoSubtreesPreservesRoot() throws {
+        let root = makeDirectoryNode(id: "/combined", name: "combined", children: [], isAccessible: false)
+        let combined = try FileTreeStore.combining(root: root, childSubtrees: [], cancellationCheck: {})
+
+        #expect(combined.root == root)
+        #expect(combined.nodeCount == 1)
+        #expect(combined.childIDs(of: root.id).isEmpty)
+        #expect(combined.aggregateStats.directoryCount == 1)
+        #expect(combined.aggregateStats.inaccessibleItemCount == 1)
+    }
+
+    @Test
+    func testCombiningSubtreesReparentsOnlyRequestedHierarchyAndPreservesTotals() throws {
+        let first = makeFileNode(id: "/source/folder/first", name: "first", size: 13)
+        let second = makeFileNode(id: "/source/folder/second", name: "second", size: 25)
+        let folder = makeDirectoryNode(id: "/source/folder", name: "folder", children: [first, second])
+        let outside = makeFileNode(id: "/source/outside", name: "outside", size: 101)
+        let sourceRoot = makeDirectoryNode(id: "/source", name: "source", children: [folder, outside])
+        let source = FileTreeStore(root: sourceRoot, childrenByID: [
+            sourceRoot.id: [folder, outside], folder.id: [first, second],
+        ])
+        let loose = makeFileNode(id: "/combined/loose", name: "loose", size: 7)
+        let root = makeDirectoryNode(id: "/combined", name: "combined", children: [loose, folder])
+        let subtree = try #require(FileTreeStore.SubtreeSource(store: source, rootedAt: folder.id))
+
+        let combined = try FileTreeStore.combining(
+            root: root, childSubtrees: [.init(node: loose), subtree], cancellationCheck: {}
+        )
+
+        #expect(combined.nodeCount == 5)
+        #expect(combined.childIDs(of: root.id) == [loose.id, folder.id])
+        #expect(combined.childIDs(of: folder.id) == [second.id, first.id])
+        #expect(combined.parentID(of: folder.id) == root.id)
+        #expect(combined.parentID(of: first.id) == folder.id)
+        #expect(combined.node(id: outside.id) == nil)
+        #expect(combined.node(id: sourceRoot.id) == nil)
+        #expect(combined.root.allocatedSize == 45)
+        #expect(combined.root.logicalSize == 45)
+        #expect(combined.root.descendantFileCount == 3)
+        #expect(combined.aggregateStats.totalAllocatedSize == 45)
+        #expect(combined.aggregateStats.fileCount == 3)
+        #expect(combined.aggregateStats.directoryCount == 2)
+        #expect(source.parentID(of: folder.id) == sourceRoot.id)
+        #expect(source.root.allocatedSize == 139)
+    }
+
+    @Test(arguments: [false, true])
+    func testCombiningRejectsNodeIDCollisions(collidesWithRoot: Bool) {
+        let root = makeDirectoryNode(id: "/combined", name: "combined", children: [])
+        let collisionID = collidesWithRoot ? root.id : "/shared"
+        let first = makeFileNode(id: collisionID, name: "first", size: 3)
+        var subtrees = [FileTreeStore.SubtreeSource(node: first)]
+        if !collidesWithRoot {
+            subtrees.append(.init(node: makeFileNode(id: collisionID, name: "second", size: 4)))
+        }
+
+        #expect {
+            try FileTreeStore.combining(root: root, childSubtrees: subtrees, cancellationCheck: {})
+        } throws: { error in
+            error.localizedDescription.contains("reuses an existing node ID")
+                && error.localizedDescription.contains(collisionID)
+        }
+    }
+
+    @Test
+    func testCombiningHonorsCancellationWithoutChangingSource() throws {
+        let children = (0..<1_024).map {
+            makeFileNode(id: "/source/\($0)", name: "\($0)", size: 1)
+        }
+        let sourceRoot = makeDirectoryNode(id: "/source", name: "source", children: children)
+        let source = FileTreeStore(root: sourceRoot, childrenByID: [sourceRoot.id: children])
+        let subtree = try #require(FileTreeStore.SubtreeSource(store: source, rootedAt: sourceRoot.id))
+        let root = makeDirectoryNode(id: "/combined", name: "combined", children: [])
+
+        #expect(throws: CancellationError.self) {
+            try FileTreeStore.combining(root: root, childSubtrees: [subtree]) { throw CancellationError() }
+        }
+        #expect(source.nodeCount == 1_025)
+        #expect(source.root.allocatedSize == 1_024)
+        #expect(source.childIDs(of: sourceRoot.id).count == 1_024)
+    }
+
+    @Test
     func testRepairingMaterializedDirectoryTotalsSaturatesOverflow() {
         let first = makeFileNode(id: "/root/first.bin", name: "first.bin", size: .max)
         let second = makeFileNode(id: "/root/second.bin", name: "second.bin", size: 1)

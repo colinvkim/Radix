@@ -192,7 +192,7 @@ final class AppModel: ObservableObject {
     let trashFlow = TrashFlowController()
     let comparisonFlow = ComparisonFlowController()
     let workspaceTour = WorkspaceTourController()
-    private let tourSession = WorkspaceTourSessionController()
+    private let tourSession = WorkspaceTourSessionController(directoryRootURL: TourPracticeDirectory.defaultRootURL)
 
     var workspaceTourSessionID: UUID? { tourSession.sessionID }
 
@@ -389,6 +389,8 @@ final class AppModel: ObservableObject {
         quickLookController.delegate = self
         folderRefreshController = FolderRefreshController(
             watcher: dependencies.fileSystemChangeWatcher,
+            now: dependencies.folderRefreshClock.now,
+            sleep: dependencies.folderRefreshClock.sleep,
             directoryExists: { [systemActions = dependencies.systemActions] path in
                 systemActions.isExistingDirectory(URL(filePath: path))
             },
@@ -447,7 +449,9 @@ final class AppModel: ObservableObject {
             self?.presentError(error)
         }
         workspaceTour.onStop = { [weak self] in self?.finishWorkspaceTour() }
-        Task.detached(priority: .utility) { TourPracticeDirectory.removeAbandonedDirectories() }
+        Task.detached(priority: .utility) {
+            TourPracticeDirectory.removeAbandonedDirectories(in: TourPracticeDirectory.defaultRootURL)
+        }
         observeNavigationModel()
         observeScanCoordinator()
         observeMountedVolumes()

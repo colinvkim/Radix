@@ -219,6 +219,7 @@ struct FolderRefreshControllerTests {
                 harness.clock.advance(by: .milliseconds(100))
                 try await harness.watcher.emitAndWaitUntilProcessed([])
             }
+            if !harness.requests.isEmpty { break }
         }
         #expect(harness.requests.first == downloads)
         #expect(harness.requestTimes.first.map { firstEventAt.duration(to: $0) <= .seconds(5) } == true)

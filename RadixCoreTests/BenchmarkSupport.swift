@@ -13,6 +13,18 @@ enum BenchmarkSupport {
         )
     }
 
+    static func measureAsync<Value>(
+        isolation: isolated (any Actor)? = #isolation,
+        _ operation: () async throws -> Value
+    ) async rethrows -> BenchmarkMeasurement<Value> {
+        let startedAt = ContinuousClock.now
+        let value = try await operation()
+        return BenchmarkMeasurement(
+            value: value,
+            seconds: durationSeconds(startedAt.duration(to: .now))
+        )
+    }
+
     static func durationSeconds(_ duration: Duration) -> Double {
         let components = duration.components
         return Double(components.seconds)
@@ -79,6 +91,12 @@ enum BenchmarkSupport {
 struct BenchmarkMeasurement<Value> {
     let value: Value
     let seconds: Double
+}
+
+struct BenchmarkCancellationMeasurement {
+    let seconds: Double
+    let wasCancelled: Bool
+    let completedBeforeCancellation: Bool
 }
 
 final class BenchmarkMemorySampler: @unchecked Sendable {

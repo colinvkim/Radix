@@ -6,6 +6,7 @@ nonisolated struct TourPracticeDirectory: Sendable {
     let sessionID: UUID
     let containerURL: URL
     let target: ScanTarget
+    private let rootURL: URL
 
     private struct Ownership: Codable {
         let sessionID: UUID
@@ -13,14 +14,14 @@ nonisolated struct TourPracticeDirectory: Sendable {
     }
 
     private static let markerName = ".radix-tour.json"
-    private static var baseURL: URL {
+    static var defaultRootURL: URL {
         FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
             .appendingPathComponent("com.colinkim.Radix.WorkspaceTours", isDirectory: true)
     }
 
-    static func create() throws -> TourPracticeDirectory {
+    static func create(in rootURL: URL) throws -> TourPracticeDirectory {
         let manager = FileManager.default
-        let base = baseURL
+        let base = rootURL.standardizedFileURL
         try manager.createDirectory(
             at: base, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
@@ -55,7 +56,9 @@ nonisolated struct TourPracticeDirectory: Sendable {
                 let text = String(repeating: sampleText, count: max(1, bytes / sampleText.utf8.count))
                 try Data(text.utf8).write(to: url)
             }
-            return TourPracticeDirectory(sessionID: id, containerURL: container, target: ScanTarget(url: root))
+            return TourPracticeDirectory(
+                sessionID: id, containerURL: container, target: ScanTarget(url: root), rootURL: base
+            )
         } catch {
             try? manager.removeItem(at: container)
             throw error
@@ -63,30 +66,30 @@ nonisolated struct TourPracticeDirectory: Sendable {
     }
 
     func remove() {
-        guard let ownership = Self.ownership(of: containerURL),
+        guard let ownership = Self.ownership(of: containerURL, in: rootURL),
               ownership.sessionID == sessionID,
               ownership.processID == getpid() else { return }
         try? FileManager.default.removeItem(at: containerURL)
     }
 
-    static func removeAbandonedDirectories() {
-        let base = baseURL
+    static func removeAbandonedDirectories(in rootURL: URL) {
+        let base = rootURL.standardizedFileURL
         guard isOwnedDirectory(base),
               let entries = try? FileManager.default.contentsOfDirectory(
                 at: base, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
               ) else { return }
         for entry in entries {
-            guard let ownership = ownership(of: entry), ownership.processID > 0 else { continue }
+            guard let ownership = ownership(of: entry, in: base), ownership.processID > 0 else { continue }
             // A second Radix instance may still be using its practice directory.
             guard kill(ownership.processID, 0) == -1, errno == ESRCH else { continue }
             try? FileManager.default.removeItem(at: entry)
         }
     }
 
-    private static func ownership(of directory: URL) -> Ownership? {
-        guard directory.deletingLastPathComponent().standardizedFileURL == baseURL.standardizedFileURL,
+    private static func ownership(of directory: URL, in rootURL: URL) -> Ownership? {
+        guard directory.deletingLastPathComponent().standardizedFileURL == rootURL,
               let id = UUID(uuidString: directory.lastPathComponent),
-              isOwnedDirectory(baseURL), isOwnedDirectory(directory) else { return nil }
+              isOwnedDirectory(rootURL), isOwnedDirectory(directory) else { return nil }
         let marker = directory.appendingPathComponent(markerName)
         guard let values = try? marker.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
               values.isRegularFile == true, values.isSymbolicLink != true,

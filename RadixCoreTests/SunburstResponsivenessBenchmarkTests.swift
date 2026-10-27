@@ -122,7 +122,7 @@ struct SunburstResponsivenessBenchmarkTests {
         let publicationModel = SunburstChartModel(
             layoutService: PrecomputedSunburstLayoutService(segments: interactionSegments)
         )
-        let publicationMeasurement = await ChartBenchmarkSupport.measureAsync {
+        let publicationMeasurement = await BenchmarkSupport.measureAsync {
             await publicationModel.loadLayout(
                 treeStore: interactionDiskMapStore,
                 rootID: interactionFixture.store.rootID,

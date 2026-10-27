@@ -131,7 +131,7 @@ struct TreemapResponsivenessBenchmarkTests {
         let publicationModel = TreemapChartModel(
             layoutService: PrecomputedTreemapLayoutService(prepared: preparationMeasurement.value)
         )
-        let publicationMeasurement = await ChartBenchmarkSupport.measureAsync {
+        let publicationMeasurement = await BenchmarkSupport.measureAsync {
             await publicationModel.loadLayout(
                 treeStore: diskMapStore,
                 rootID: fixture.denseDirectoryID,

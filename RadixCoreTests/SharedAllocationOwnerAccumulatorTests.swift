@@ -20,7 +20,14 @@ struct SharedAllocationOwnerAccumulatorTests {
         ]
 
         for order in orders {
-            let accumulator = SharedAllocationOwnerAccumulator(order)
+            var accumulator = SharedAllocationOwnerAccumulator()
+            for (index, claim) in order.enumerated() {
+                accumulator.record(claim)
+                if index == 0 {
+                    #expect(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
+                }
+            }
+            #expect(accumulator.identityCount == 1)
 
             let winner = try #require(accumulator.winner(for: identity))
             #expect(winner.path == expectedWinner.path)
@@ -31,26 +38,6 @@ struct SharedAllocationOwnerAccumulatorTests {
                     laterPathLoser.ownerNodeID: 100,
                 ])
         }
-    }
-
-    @Test
-    func testRecordingEarlierWinnerMovesPreviousWinnerIntoCorrections() throws {
-        let identity = FileIdentity(device: 2, inode: 7)
-        var accumulator = SharedAllocationOwnerAccumulator()
-
-        accumulator.record(claim(identity, owner: "/z-owner", path: "/z", size: 80))
-        #expect(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
-
-        accumulator.record(claim(identity, owner: "/m-owner", path: "/m", size: 80))
-        accumulator.record(claim(identity, owner: "/a-owner", path: "/a", size: 80))
-
-        #expect(try #require(accumulator.winner(for: identity)).path == "/a")
-        #expect(
-            accumulator.duplicateAllocatedSizeByOwner == [
-                "/m-owner": 80,
-                "/z-owner": 80,
-            ])
-        #expect(accumulator.identityCount == 1)
     }
 
     @Test

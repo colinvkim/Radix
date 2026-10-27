@@ -369,7 +369,7 @@ struct AppModelDependencyTests {
         let defaultDependencies = AppDependencies(
             preferences: SpyAppPreferencesStore(preferences: .defaults),
             recentTargets: RecentTargetStore(
-                persistence: SpyRecentTargetPersistence(),
+                persistence: TestRecentTargetPersistence(),
                 isAvailable: { _ in true }
             ),
             systemActions: .inert
@@ -399,7 +399,7 @@ struct AppModelDependencyTests {
                 didCompleteOnboarding: true
             )
         )
-        let recentPersistence = SpyRecentTargetPersistence(targets: [availableRecent, missingRecent])
+        let recentPersistence = TestRecentTargetPersistence(targets: [availableRecent, missingRecent])
         var actions = AppSystemActions.inert
         actions.defaultTargets = { [defaultTarget] }
         actions.preferredSmartTargetIDs = { [defaultTarget.id] }
@@ -440,7 +440,7 @@ struct AppModelDependencyTests {
         let first = makeTestTarget("/recent/first")
         let removed = makeTestTarget("/recent/removed")
         let last = makeTestTarget("/recent/last")
-        let recentPersistence = SpyRecentTargetPersistence(targets: [first, removed, last])
+        let recentPersistence = TestRecentTargetPersistence(targets: [first, removed, last])
         let model = AppModel(
             dependencies: makeDependencies(
                 recentPersistence: recentPersistence,
@@ -458,7 +458,7 @@ struct AppModelDependencyTests {
     @Test
     func testClearRecentTargetsClearsActiveSidebarTarget() {
         let first = makeTestTarget("/recent/first")
-        let recentPersistence = SpyRecentTargetPersistence(targets: [first])
+        let recentPersistence = TestRecentTargetPersistence(targets: [first])
         let model = AppModel(
             dependencies: makeDependencies(
                 recentPersistence: recentPersistence,
@@ -491,7 +491,7 @@ struct AppModelDependencyTests {
             )
         )
         let recent = makeTestTarget("/recent/kept")
-        let recentPersistence = SpyRecentTargetPersistence(targets: [recent])
+        let recentPersistence = TestRecentTargetPersistence(targets: [recent])
         var stats = AppUsageStats.empty
         stats.recordSunburstSegmentClick()
         let usageStats = SpyAppUsageStatsStore(stats: stats)
@@ -4012,7 +4012,7 @@ private final class ControlledAppModelScanService: ScanEventStreaming, @unchecke
 @MainActor
 private func makeDependencies(
     preferences: SpyAppPreferencesStore = SpyAppPreferencesStore(preferences: .defaults),
-    recentPersistence: SpyRecentTargetPersistence = SpyRecentTargetPersistence(),
+    recentPersistence: TestRecentTargetPersistence = TestRecentTargetPersistence(),
     availableRecentIDs: Set<String> = [],
     systemActions: AppSystemActions = .inert,
     scanService: any ScanEventStreaming = IncrementalScanService(),
@@ -4178,30 +4178,6 @@ private final class SpyAppUsageStatsStore: AppUsageStatsPersisting {
 
     func clearUsageStats() {
         stats = .empty
-        didClear = true
-    }
-}
-
-private final class SpyRecentTargetPersistence: RecentTargetPersisting {
-    var targets: [ScanTarget]
-    var savedTargets: [[ScanTarget]] = []
-    var didClear = false
-
-    init(targets: [ScanTarget] = []) {
-        self.targets = targets
-    }
-
-    func loadRecentTargets() -> [ScanTarget] {
-        targets
-    }
-
-    func saveRecentTargets(_ targets: [ScanTarget]) {
-        self.targets = targets
-        savedTargets.append(targets)
-    }
-
-    func clearRecentTargets() {
-        targets = []
         didClear = true
     }
 }

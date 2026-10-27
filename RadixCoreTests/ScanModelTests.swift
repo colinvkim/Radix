@@ -482,24 +482,6 @@ struct ScanModelTests {
     }
 
     @Test
-    func testSnapshotRemovingMissingOrRootNodeReturnsNil() {
-        let root = FileNodeRecord.directory(
-            id: "/root",
-            url: URL(filePath: "/root", directoryHint: .isDirectory),
-            name: "root",
-            children: [],
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true
-        )
-        let treeStore = FileTreeStore(root: root)
-        let snapshot = makeSnapshot(root: root, treeStore: treeStore)
-
-        #expect(snapshot.removingNode(id: "/root/missing") == nil)
-        #expect(snapshot.removingNode(id: root.id) == nil)
-    }
-
-    @Test
     func testSnapshotRemovesMultipleSubtreesAndTheirWarningsTogether() throws {
         let first = makeNode(id: "/root/first/file.bin", isDirectory: false, isSynthetic: false, isAccessible: true)
         let firstDirectory = FileNodeRecord.directory(

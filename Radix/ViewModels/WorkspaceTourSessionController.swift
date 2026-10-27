@@ -18,9 +18,14 @@ final class WorkspaceTourSessionController: ObservableObject {
     private weak var currentFileBrowser: FileBrowserModel?
     private var previousFileBrowser: FileBrowserModel?
     private var fileBrowserToRestore: (snapshotID: UUID, model: FileBrowserModel)?
+    private let directoryRootURL: URL
 
     var onPrepared: ((ScanTarget) -> Void)?
     var onFailure: ((Error) -> Void)?
+
+    init(directoryRootURL: URL) {
+        self.directoryRootURL = directoryRootURL.standardizedFileURL
+    }
 
     var isActive: Bool { sessionID != nil }
 
@@ -30,10 +35,11 @@ final class WorkspaceTourSessionController: ObservableObject {
         returnState = state
         previousFileBrowser = currentFileBrowser
         sessionID = id
+        let directoryRootURL = directoryRootURL
         preparationTask = Task { [weak self] in
             do {
                 let directory = try await Task.detached(priority: .userInitiated) {
-                    try TourPracticeDirectory.create()
+                    try TourPracticeDirectory.create(in: directoryRootURL)
                 }.value
                 guard let self, !Task.isCancelled, sessionID == id else {
                     Task.detached(priority: .utility) { directory.remove() }

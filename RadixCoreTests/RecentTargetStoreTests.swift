@@ -5,11 +5,21 @@ import Testing
 
 @MainActor
 struct RecentTargetStoreTests {
+    private let temporaryDefaults = TemporaryTestDefaults()
+
+    @Test(arguments: ["not-json", #"[{"path":"/recent","kind":"unknown"}]"#, #"[{"kind":"folder"}]"#])
+    func testUserDefaultsPersistenceFallsBackToEmptyForInvalidPayload(payload: String) throws {
+        let defaults = try temporaryDefaults.make()
+        defaults.set(Data(payload.utf8), forKey: "recentTargets")
+
+        #expect(UserDefaultsRecentTargetPersistence(defaults: defaults).loadRecentTargets().isEmpty)
+    }
+
     @Test
     func testLoadPrunesUnavailableTargetsAndPersistsAvailableSubset() {
         let available = makeRecentTarget("/recent/available")
         let missing = makeRecentTarget("/recent/missing")
-        let persistence = InMemoryRecentTargetPersistence(targets: [available, missing])
+        let persistence = TestRecentTargetPersistence(targets: [available, missing])
         let store = RecentTargetStore(
             persistence: persistence,
             isAvailable: { $0.id == available.id }
@@ -26,7 +36,7 @@ struct RecentTargetStoreTests {
         let missing = makeRecentTarget("/recent/missing")
         let lastKept = makeRecentTarget("/recent/last-kept")
         let droppedByLimit = makeRecentTarget("/recent/dropped")
-        let persistence = InMemoryRecentTargetPersistence()
+        let persistence = TestRecentTargetPersistence()
         let availableIDs = Set([first.id, duplicate.id, lastKept.id, droppedByLimit.id])
         let store = RecentTargetStore(
             persistence: persistence,
@@ -48,7 +58,7 @@ struct RecentTargetStoreTests {
         let available = makeRecentTarget("/recent/available")
         let missing = makeRecentTarget("/recent/missing")
         let unavailableNewTarget = makeRecentTarget("/recent/unavailable-new")
-        let persistence = InMemoryRecentTargetPersistence()
+        let persistence = TestRecentTargetPersistence()
         let store = RecentTargetStore(
             persistence: persistence,
             isAvailable: { $0.id == available.id }
@@ -69,7 +79,7 @@ struct RecentTargetStoreTests {
         let removed = makeRecentTarget("/recent/removed")
         let missing = makeRecentTarget("/recent/missing")
         let last = makeRecentTarget("/recent/last")
-        let persistence = InMemoryRecentTargetPersistence()
+        let persistence = TestRecentTargetPersistence()
         let availableIDs = Set([first.id, removed.id, last.id])
         let store = RecentTargetStore(
             persistence: persistence,
@@ -87,7 +97,7 @@ struct RecentTargetStoreTests {
 
     @Test
     func testClearDelegatesToPersistence() {
-        let persistence = InMemoryRecentTargetPersistence(targets: [makeRecentTarget("/recent/item")])
+        let persistence = TestRecentTargetPersistence(targets: [makeRecentTarget("/recent/item")])
         let store = RecentTargetStore(
             persistence: persistence,
             isAvailable: { _ in true }
@@ -102,28 +112,4 @@ struct RecentTargetStoreTests {
 
 private func makeRecentTarget(_ path: String, kind: ScanTargetKind = .folder) -> ScanTarget {
     ScanTarget(url: URL(filePath: path, directoryHint: .isDirectory), kind: kind)
-}
-
-private final class InMemoryRecentTargetPersistence: RecentTargetPersisting {
-    var targets: [ScanTarget]
-    var savedTargets: [[ScanTarget]] = []
-    var didClear = false
-
-    init(targets: [ScanTarget] = []) {
-        self.targets = targets
-    }
-
-    func loadRecentTargets() -> [ScanTarget] {
-        targets
-    }
-
-    func saveRecentTargets(_ targets: [ScanTarget]) {
-        self.targets = targets
-        savedTargets.append(targets)
-    }
-
-    func clearRecentTargets() {
-        didClear = true
-        targets = []
-    }
 }

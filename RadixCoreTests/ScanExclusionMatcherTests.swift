@@ -4,6 +4,38 @@ import Testing
 @testable import RadixCore
 
 struct ScanExclusionMatcherTests {
+    @Test
+    func testPatternNormalizationPreservesPathAndDirectorySemantics() {
+        let cases: [(raw: String, normalized: String, relativePath: String, directoryOnly: Bool)] = [
+            (" \n ./cache///\t", "cache/", "cache", true),
+            (#".\.\Sources\\generated.swift"#, "Sources/generated.swift", "Sources/generated.swift", false),
+            ("///Sources//generated.swift", "Sources/generated.swift", "Sources/generated.swift", false),
+            ("././*.log", "*.log", "nested/debug.log", false),
+        ]
+        for entry in cases {
+            #expect(ScanExclusionMatcher.normalizedPatterns([entry.raw]) == [entry.normalized])
+            let matcher = ScanExclusionMatcher(
+                patterns: [entry.raw], rootPath: "/project", volumeSupportsCaseSensitiveNames: true
+            )
+            let path = "/project/\(entry.relativePath)"
+            #expect(matcher.excludesKnownNormalizedPath(path, isDirectory: true))
+            #expect(matcher.excludesKnownNormalizedPath(path, isDirectory: false) == !entry.directoryOnly)
+            #expect(!matcher.excludesKnownNormalizedPath("/project/unrelated.txt", isDirectory: false))
+        }
+    }
+
+    @Test
+    func testPatternNormalizationDropsEmptyAndDuplicatePatternsInFirstSeenOrder() {
+        let emptyPatterns = ["", " \t\n ", "./", "/", "///"]
+        let patterns = emptyPatterns + [
+            " cache// ", "./cache/", "/Sources\\generated.swift", "Sources/generated.swift", "second",
+        ]
+        #expect(ScanExclusionMatcher.normalizedPatterns(patterns) == ["cache/", "Sources/generated.swift", "second"])
+        #expect(ScanExclusionMatcher.normalizedPatterns(emptyPatterns).isEmpty)
+        let matcher = ScanExclusionMatcher(patterns: emptyPatterns, rootPath: "/project")
+        #expect(!matcher.excludesKnownNormalizedPath("/project/cache", isDirectory: true))
+    }
+
     @Test(arguments: [true, false])
     func testWildcardOnlyPatternsMatchOriginalNames(isCaseSensitive: Bool) {
         for pattern in ["*", "**", "*/", "**/"] {

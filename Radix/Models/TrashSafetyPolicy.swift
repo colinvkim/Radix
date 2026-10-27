@@ -63,10 +63,8 @@ nonisolated struct TrashSafetyPolicy: Sendable {
         FirmlinkEntry(visiblePath: "/usr/share/snmp", dataRelativePath: "usr/share/snmp")
     ]
 
-    private nonisolated static let defaultFirmlinkEntries: [FirmlinkEntry] = {
-        entriesFromFirmlinkFile(at: URL(fileURLWithPath: "/usr/share/firmlinks"))
-            ?? fallbackFirmlinkEntries
-    }()
+    private nonisolated static let defaultFirmlinkFileURL = URL(fileURLWithPath: "/usr/share/firmlinks")
+    private nonisolated static let defaultFirmlinkEntries = entriesFromFirmlinkFile(at: defaultFirmlinkFileURL)
 
     private nonisolated static let defaultFirmlinkRootPaths = Set(
         defaultFirmlinkEntries.map { standardizedPath(forPath: $0.visiblePath) }
@@ -80,7 +78,24 @@ nonisolated struct TrashSafetyPolicy: Sendable {
             includingResourceValuesForKeys: nil,
             options: []
         ),
-        firmlinkEntries: [FirmlinkEntry] = TrashSafetyPolicy.defaultFirmlinkEntries
+        firmlinkFileURL: URL = TrashSafetyPolicy.defaultFirmlinkFileURL
+    ) {
+        self.init(
+            homeDirectory: homeDirectory,
+            mountedVolumeURLs: mountedVolumeURLs,
+            firmlinkEntries: firmlinkFileURL == Self.defaultFirmlinkFileURL
+                ? Self.defaultFirmlinkEntries
+                : Self.entriesFromFirmlinkFile(at: firmlinkFileURL)
+        )
+    }
+
+    nonisolated init(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        mountedVolumeURLs: [URL]? = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: nil,
+            options: []
+        ),
+        firmlinkEntries: [FirmlinkEntry]
     ) {
         var paths = Set(Self.staticProtectedRootPaths.map(Self.standardizedPath(forPath:)))
 
@@ -148,13 +163,13 @@ nonisolated struct TrashSafetyPolicy: Sendable {
             }
     }
 
-    private nonisolated static func entriesFromFirmlinkFile(at url: URL) -> [FirmlinkEntry]? {
+    private nonisolated static func entriesFromFirmlinkFile(at url: URL) -> [FirmlinkEntry] {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
-            return nil
+            return fallbackFirmlinkEntries
         }
 
         let entries = parseFirmlinkEntries(contents)
-        return entries.isEmpty ? nil : entries
+        return entries.isEmpty ? fallbackFirmlinkEntries : entries
     }
 
     private nonisolated static func dataVolumePath(forAbsolutePath path: String) -> String? {

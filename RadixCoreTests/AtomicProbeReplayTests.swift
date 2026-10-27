@@ -6,6 +6,99 @@ import Testing
 @testable import RadixCore
 
 struct AtomicProbeReplayTests {
+    private enum DirectoryProbeBudget: CaseIterable {
+        case minimum
+        case scaled
+        case maximum
+
+        var minimumFileCount: Int {
+            switch self {
+            case .minimum: 3
+            case .scaled: 1_024
+            case .maximum: 4_096
+            }
+        }
+
+        var directoryLimit: Int {
+            switch self {
+            case .minimum: 64
+            case .scaled: 256
+            case .maximum: 512
+            }
+        }
+    }
+
+    @Test(arguments: [false, true], DirectoryProbeBudget.allCases)
+    private func testDirectoryOnlyProbeStopsAtBoundedDirectoryBudget(
+        forceFallback: Bool,
+        budget: DirectoryProbeBudget
+    ) throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        for index in 0...budget.directoryLimit {
+            try FileManager.default.createDirectory(
+                at: rootURL.appending(path: "empty-\(index)", directoryHint: .isDirectory),
+                withIntermediateDirectories: false
+            )
+        }
+        let outcome = try probe(
+            at: rootURL,
+            minFileCount: budget.minimumFileCount,
+            forcedBulkFailure: forceFallback ? BulkDirectoryEnumerator.ForcedFailure(batchCount: 0, errorCode: ENOTSUP) : nil,
+            isNodeDependencyLayout: false
+        )
+
+        #expect(outcome.profile.observedDirectoryCount == budget.directoryLimit)
+        #expect(outcome.profile.observedFileCount == 0)
+        #expect(outcome.visitedItemCount == budget.directoryLimit)
+        #expect(outcome.resumeState == nil)
+        #expect(!outcome.fullyExhausted)
+    }
+
+    @Test(arguments: [false, true])
+    func testDirectoryOnlyProbeVisitsEveryDirectoryBelowBudget(forceFallback: Bool) throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        for index in 0..<63 {
+            try FileManager.default.createDirectory(
+                at: rootURL.appending(path: "empty-\(index)", directoryHint: .isDirectory),
+                withIntermediateDirectories: false
+            )
+        }
+        let outcome = try probe(
+            at: rootURL,
+            minFileCount: 3,
+            forcedBulkFailure: forceFallback ? BulkDirectoryEnumerator.ForcedFailure(batchCount: 0, errorCode: ENOTSUP) : nil,
+            isNodeDependencyLayout: false
+        )
+
+        #expect(outcome.profile.observedDirectoryCount == 63)
+        #expect(outcome.profile.observedFileCount == 0)
+        #expect(outcome.visitedItemCount == 63)
+        #expect(outcome.resumeState == nil)
+    }
+
+    @Test
+    func testBulkProbeFailureFallsBackWithoutReplayState() throws {
+        let rootURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let childURL = rootURL.appending(path: "files", directoryHint: .isDirectory)
+        try makeProbeFiles(at: childURL, count: 3)
+        let outcome = try probe(
+            at: rootURL,
+            minFileCount: 2,
+            forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure(batchCount: 0, errorCode: ENOTSUP),
+            maxAverageFileSize: 256
+        )
+
+        #expect(outcome.profile.observedDirectoryCount == 1)
+        #expect(outcome.profile.observedFileCount == 2)
+        #expect(outcome.profile.totalSampledLogicalSize == 256)
+        #expect(outcome.visitedItemCount == 3)
+        #expect(outcome.resumeState == nil)
+        #expect(outcome.reusableDirectoryListings.isEmpty)
+    }
+
     @Test
     func testThresholdRejectionReusesWholeMultiBatchDirectory() throws {
         let rootURL = try makeTemporaryDirectory()
@@ -378,6 +471,7 @@ private func probe(
     orderedChildNames: [String]? = nil,
     rootEntries suppliedRootEntries: [DirectoryEntry]? = nil,
     maxAverageFileSize: Int64 = 1,
+    isNodeDependencyLayout: Bool = true,
     diagnostics: ScanDiagnosticsContext? = nil
 ) throws -> AtomicDirectoryProbeOutcome {
     let loader = ScanMetadataLoader(diagnostics: diagnostics)
@@ -407,7 +501,7 @@ private func probe(
         rootMetadata: rootMetadata,
         includeHiddenFiles: true,
         treatPackagesAsDirectories: false,
-        isNodeDependencyLayout: true,
+        isNodeDependencyLayout: isNodeDependencyLayout,
         minFileCount: minFileCount,
         maxAverageFileSize: maxAverageFileSize,
         exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),

@@ -349,16 +349,24 @@ struct ScanArchiveServiceTests {
         }
     }
 
-    @Test(arguments: [1_000, 40_000])
-    func testVersionFiveRejectsCorruptedTruncatedAndTrailingNodeStreams(childCount: Int) async throws {
+    @Test(arguments: [
+        (ArchiveTreeSection.nodes, 1_000),
+        (.nodes, 40_000),
+        (.topology, 1_000),
+    ])
+    private func testVersionFiveRejectsDamagedCompressedTreeSections(
+        section: ArchiveTreeSection,
+        childCount: Int
+    ) async throws {
         enum Mutation {
             case corrupt
             case truncate
             case append
         }
         let service = ScanArchiveService()
+        let mutations: [Mutation] = section == .nodes ? [.corrupt, .truncate, .append] : [.corrupt, .truncate]
 
-        for mutation in [Mutation.corrupt, .truncate, .append] {
+        for mutation in mutations {
             let archiveURL = try makeTemporaryArchiveURL()
             _ = try await service.export(
                 snapshot: makeLargeArchiveSnapshot(childCount: childCount),
@@ -366,37 +374,40 @@ struct ScanArchiveServiceTests {
                 options: ScanArchiveExportOptions()
             )
             let manifest = try readManifest(from: archiveURL)
-            let nodesURL = archiveURL.appending(path: manifest.sections.nodes)
-            var data = try Data(contentsOf: nodesURL)
+            let sectionName = section == .nodes ? manifest.sections.nodes : manifest.sections.topology
+            let sectionURL = archiveURL.appending(path: sectionName)
+            var data = try Data(contentsOf: sectionURL)
             switch mutation {
-            case .corrupt:
-                data[data.count / 2] ^= 0xFF
-            case .truncate:
-                data.removeLast()
-            case .append:
-                data.append(0)
+            case .corrupt: data[data.count / 2] ^= 0xFF
+            case .truncate: data.removeLast()
+            case .append: data.append(0)
             }
-            try data.write(to: nodesURL, options: [.atomic])
-            try rewriteManifestByteCount(Int64(data.count), key: "nodes", in: archiveURL)
+            try data.write(to: sectionURL, options: [.atomic])
+            try rewriteManifestByteCount(Int64(data.count), key: section.rawValue, in: archiveURL)
 
+            let failure: (section: ArchiveTreeSection, detail: String)
             do {
                 _ = try await service.importSnapshot(from: archiveURL)
-                Issue.record("Import should reject a \(mutation) v5 node stream.")
+                Issue.record("Import should reject a \(mutation) v5 \(section.rawValue) stream.")
+                continue
             } catch ScanArchiveError.nodes(let detail) {
-                switch mutation {
-                case .corrupt: #expect(!detail.isEmpty)
-                case .truncate: #expect(detail.contains("truncated"))
-                case .append: #expect(detail.contains("trailing"))
-                }
+                failure = (.nodes, detail)
+            } catch ScanArchiveError.topology(let detail) {
+                failure = (.topology, detail)
             } catch ScanArchiveError.integrity(let detail) {
-                if case .corrupt = mutation {
-                    #expect(detail.contains("nodes"))
-                } else {
-                    Issue.record("Expected a compressed node stream error, got \(detail).")
-                }
+                #expect(mutation == .corrupt, "Expected a compressed stream error, got \(detail).")
+                #expect(detail.contains(section.rawValue))
+                continue
+            }
+            #expect(failure.section == section)
+            switch mutation {
+            case .corrupt: #expect(!failure.detail.isEmpty)
+            case .truncate: #expect(failure.detail.contains("truncated"))
+            case .append: #expect(failure.detail.contains("trailing"))
             }
         }
     }
+
 
     @Test
     func testVersionFiveImportRejectsMissingCompressedTreeSections() async throws {
@@ -423,43 +434,6 @@ struct ScanArchiveServiceTests {
                 Issue.record("Import should reject a missing v5 \(section) section.")
             } catch ScanArchiveError.integrity(let detail) {
                 #expect(detail.contains(section))
-            }
-        }
-    }
-
-    @Test
-    func testVersionFiveRejectsCorruptedAndTruncatedTopologyStreams() async throws {
-        let service = ScanArchiveService()
-        for shouldTruncate in [false, true] {
-            let archiveURL = try makeTemporaryArchiveURL()
-            _ = try await service.export(
-                snapshot: makeLargeArchiveSnapshot(childCount: 1_000),
-                to: archiveURL,
-                options: ScanArchiveExportOptions()
-            )
-            let manifest = try readManifest(from: archiveURL)
-            let topologyURL = archiveURL.appending(path: manifest.sections.topology)
-            var data = try Data(contentsOf: topologyURL)
-            if shouldTruncate {
-                data.removeLast()
-            } else {
-                data[data.count / 2] ^= 0xFF
-            }
-            try data.write(to: topologyURL, options: [.atomic])
-            try rewriteManifestByteCount(Int64(data.count), key: "topology", in: archiveURL)
-
-            do {
-                _ = try await service.importSnapshot(from: archiveURL)
-                Issue.record("Import should reject a damaged v5 topology stream.")
-            } catch ScanArchiveError.topology(let detail) {
-                if shouldTruncate {
-                    #expect(detail.contains("truncated"))
-                } else {
-                    #expect(!detail.isEmpty)
-                }
-            } catch ScanArchiveError.integrity(let detail) {
-                #expect(!shouldTruncate, "Expected a compressed topology stream error, got \(detail).")
-                #expect(detail.contains("topology"))
             }
         }
     }
@@ -560,7 +534,10 @@ struct ScanArchiveServiceTests {
                 _ = try await service.previewSnapshot(from: archiveURL)
                 Issue.record("Preview should reject incomplete v5 integrity metadata.")
             } catch ScanArchiveError.integrity(let detail) {
-                #expect(!(detail.isEmpty))
+                let expectedDetail = mutation < 2
+                    ? String(localized: "snapshot section checksums are incomplete")
+                    : String(localized: "snapshot section byte counts are incomplete or invalid")
+                #expect(detail == expectedDetail)
             }
         }
     }
@@ -2266,4 +2243,9 @@ struct ScanArchiveServiceTests {
 private enum AsyncWaitError: Error {
     case streamFinished
     case timedOut
+}
+
+private enum ArchiveTreeSection: String {
+    case nodes
+    case topology
 }

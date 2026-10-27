@@ -5,6 +5,16 @@
 
 import Foundation
 
+struct FolderRefreshClock {
+    var now: @MainActor () -> ContinuousClock.Instant
+    var sleep: @MainActor (Duration) async throws -> Void
+
+    static let continuous = Self(
+        now: { .now },
+        sleep: { try await Task.sleep(for: $0) }
+    )
+}
+
 /// Watches the scan as a whole, but only refreshes the directory being browsed.
 /// Dirty paths survive navigation and subtree replacements of the same scan.
 @MainActor

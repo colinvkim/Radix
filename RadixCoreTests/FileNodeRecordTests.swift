@@ -74,9 +74,9 @@ struct FileNodeRecordTests {
         let volumeTarget = ScanTarget(url: volumeRoot.url, kind: .volume)
         let ordinaryFolder = makeTestDirectoryNode(id: "/Users", name: "Users", children: [])
 
-        #expect(volumeRoot.itemKind(activeTarget: volumeTarget) == "Volume")
-        #expect(ordinaryFolder.itemKind(activeTarget: volumeTarget) == "Folder")
-        #expect(volumeRoot.itemKind(activeTarget: ScanTarget(url: volumeRoot.url, kind: .folder)) == "Folder")
+        #expect(volumeRoot.itemKind(activeTarget: volumeTarget) == String(localized: "Volume"))
+        #expect(ordinaryFolder.itemKind(activeTarget: volumeTarget) == String(localized: "Folder"))
+        #expect(volumeRoot.itemKind(activeTarget: ScanTarget(url: volumeRoot.url, kind: .folder)) == String(localized: "Folder"))
     }
 
     @Test
@@ -92,7 +92,50 @@ struct FileNodeRecordTests {
             isAccessible: true
         )
 
-        #expect(visualizationRoot.itemKind(activeTarget: target) == "Volume")
+        #expect(visualizationRoot.itemKind(activeTarget: target) == String(localized: "Volume"))
+    }
+
+    @Test(arguments: ["Excluded & Unattributed", "System & Unattributed", "Unrecognized synthetic name"])
+    func testSyntheticDisplayNamesKeepStableStoredNames(name: String) {
+        let synthetic = makeTestFileNode(id: "/synthetic", name: name, isSynthetic: true)
+        let regular = makeTestFileNode(id: "/regular", name: name)
+        let expected: String
+        switch name {
+        case "Excluded & Unattributed": expected = String(localized: "Excluded & Unattributed")
+        case "System & Unattributed": expected = String(localized: "System & Unattributed")
+        default: expected = name
+        }
+
+        #expect(synthetic.name == name)
+        #expect(synthetic.displayName == expected)
+        #expect(regular.displayName == name)
+    }
+
+    @Test(arguments: [
+        IconCase(synthetic: true, symbolicLink: true, package: true, directory: true, expected: "internaldrive.fill"),
+        IconCase(synthetic: false, symbolicLink: true, package: true, directory: true, expected: "arrowshape.turn.up.right.circle.fill"),
+        IconCase(synthetic: false, symbolicLink: false, package: true, directory: true, expected: "shippingbox.fill"),
+        IconCase(synthetic: false, symbolicLink: false, package: false, directory: true, expected: "folder.fill"),
+        IconCase(synthetic: false, symbolicLink: false, package: false, directory: false, expected: "doc.fill"),
+    ])
+    func testSystemImagesRespectSyntheticLinkPackageAndDirectoryPrecedence(icon: IconCase) {
+        let node = FileNodeRecord(
+            id: "/node", url: URL(filePath: "/node"), name: "node",
+            isDirectory: icon.directory, isSymbolicLink: icon.symbolicLink,
+            allocatedSize: 0, logicalSize: 0, descendantFileCount: 0, lastModified: nil,
+            isPackage: icon.package, isAccessible: true, isSelfAccessible: true,
+            isSynthetic: icon.synthetic, isAutoSummarized: false
+        )
+
+        #expect(node.systemImageName == icon.expected)
+    }
+
+    struct IconCase: Sendable {
+        let synthetic: Bool
+        let symbolicLink: Bool
+        let package: Bool
+        let directory: Bool
+        let expected: String
     }
 
     @Test

@@ -275,19 +275,22 @@ struct IncrementalScanServiceTests {
         try assertEquivalent(result.snapshot, fresh)
     }
 
-    @Test
-    func testShallowRelistClassificationBudgetAccountsForConcurrentRelists() {
+    @Test(arguments: [(relists: 1, expectedMaximum: 8), (relists: 4, expectedMaximum: 4), (relists: 32, expectedMaximum: 1)])
+    func testShallowRelistClassificationBudgetAccountsForConcurrentRelists(budget: (relists: Int, expectedMaximum: Int)) {
         var options = ScanOptions()
         options.directoryTraversalWorkerLimit = 4
         options.directoryClassificationWorkerLimit = 8
 
         let limit = ScanEngine.shallowRelistClassificationWorkerLimit(
             for: options,
-            relistWorkerLimit: 4
+            relistWorkerLimit: budget.relists
         )
 
         #expect(limit >= 1)
-        #expect(limit < 8)
+        #expect(limit <= budget.expectedMaximum)
+        if budget.relists == 1 {
+            #expect(limit == 8)
+        }
     }
 
     @Test
@@ -424,6 +427,106 @@ struct IncrementalScanServiceTests {
         )
 
         #expect(history.checkpointMainThreadObservations == [false])
+    }
+
+    private enum IneligibleBaseline: CaseIterable {
+        case incomplete
+        case imported
+        case changedPath
+        case changedKind
+        case replacedRoot
+
+        var reason: IncrementalRescanFallbackReason {
+            switch self {
+            case .incomplete: .incompleteBaseline
+            case .imported: .readOnlyBaseline
+            case .changedPath, .changedKind: .changedTarget
+            case .replacedRoot: .targetIdentityChanged
+            }
+        }
+    }
+
+    @Test(arguments: IneligibleBaseline.allCases)
+    private func testIneligibleBaselineStartsFreshScanWithoutReadingHistory(scenario: IneligibleBaseline) async throws {
+        let fixtureURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureURL) }
+        let rootURL = fixtureURL.appending(path: "target", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+        try Data([1]).write(to: rootURL.appending(path: "stable.dat"))
+        let provider = IncrementalHistoryStub(checkpoints: [checkpoint(10), checkpoint(20)], events: [])
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let options = ScanOptions()
+        var target = ScanTarget(url: rootURL)
+        let original = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        var baselineTarget = target
+        var expectedLogicalSize: Int64 = 1
+
+        switch scenario {
+        case .incomplete, .imported:
+            break
+        case .changedPath:
+            let otherURL = fixtureURL.appending(path: "other", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: otherURL, withIntermediateDirectories: false)
+            try Data([2, 3]).write(to: otherURL.appending(path: "fresh.dat"))
+            target = ScanTarget(url: otherURL)
+            expectedLogicalSize = 2
+        case .changedKind:
+            baselineTarget = ScanTarget(url: rootURL, kind: .volume)
+        case .replacedRoot:
+            try FileManager.default.moveItem(at: rootURL, to: fixtureURL.appending(path: "original"))
+            try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+            try Data([2, 3]).write(to: rootURL.appending(path: "fresh.dat"))
+            expectedLogicalSize = 2
+        }
+
+        let baseline = ScanSnapshot(
+            target: baselineTarget,
+            treeStore: original.treeStore,
+            startedAt: original.startedAt,
+            finishedAt: scenario == .incomplete ? nil : original.finishedAt,
+            scanWarnings: original.scanWarnings,
+            isComplete: scenario != .incomplete,
+            scanOptions: original.scanOptions,
+            source: scenario == .imported
+                ? .imported(ImportedSnapshotContext(sourceURL: fixtureURL, pathMode: .absolute, liveActionCapability: .disabled))
+                : .live,
+            incrementalCheckpoint: original.incrementalCheckpoint
+        )
+        let result = try await incrementalScanResult(from: service.rescan(target: target, options: options, from: baseline))
+
+        #expect(result.executionModes == [.fullFallback(scenario.reason)])
+        #expect(provider.historyRequestCount == 0)
+        #expect(result.snapshot.target == target)
+        #expect(result.snapshot.aggregateStats.totalLogicalSize == expectedLogicalSize)
+        #expect(result.snapshot.incrementalCheckpoint?.eventID == 20)
+    }
+
+    @Test
+    func testUnavailableTargetReportsIdentityFallbackBeforeFullScanFails() async throws {
+        let fixtureURL = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureURL) }
+        let rootURL = fixtureURL.appending(path: "target", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+        let provider = IncrementalHistoryStub(checkpoints: [checkpoint(10), checkpoint(20)], events: [])
+        let service = IncrementalScanService(eventHistoryProvider: provider)
+        let target = ScanTarget(url: rootURL)
+        let options = ScanOptions()
+        let baseline = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        try FileManager.default.moveItem(at: rootURL, to: fixtureURL.appending(path: "original"))
+        let missingTarget = ScanTarget(url: URL(filePath: rootURL.path, directoryHint: .isDirectory))
+        var modes: [ScanExecutionMode] = []
+        var failure: (any Error)?
+        do {
+            for try await event in service.rescan(target: missingTarget, options: options, from: baseline) {
+                if case .executionMode(let mode) = event { modes.append(mode) }
+            }
+        } catch {
+            failure = error
+        }
+
+        #expect(modes == [.fullFallback(.targetIdentityUnavailable)])
+        #expect(provider.historyRequestCount == 0)
+        #expect(failure != nil)
     }
 
     @Test

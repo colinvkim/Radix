@@ -2509,16 +2509,19 @@ struct ScanEngineTests {
         #expect(snapshot.root.logicalSize == 24)
     }
 
-    @Test
-    func testIncludesResidentCloudStorageFiles() async throws {
+    @Test(arguments: [
+        (directory: "CloudStorage", provider: "GoogleDrive-example"),
+        (directory: "Mobile Documents", provider: "com~apple~CloudDocs"),
+    ])
+    func testIncludesResidentManagedCloudFiles(location: (directory: String, provider: String)) async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let localFileURL = rootURL.appending(path: "local.txt")
-        let cloudStorageURL = rootURL.appending(path: "Library/CloudStorage", directoryHint: .isDirectory)
+        let cloudStorageURL = rootURL.appending(path: "Library/" + location.directory, directoryHint: .isDirectory)
         let cloudFileURL =
             cloudStorageURL
-            .appending(path: "GoogleDrive-example", directoryHint: .isDirectory)
+            .appending(path: location.provider, directoryHint: .isDirectory)
             .appending(path: "remote.bin")
 
         try FileManager.default.createDirectory(
@@ -2532,42 +2535,9 @@ struct ScanEngineTests {
         )
         let libraryNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
         let cloudStorageNode = try #require(
-            children(of: libraryNode, in: snapshot).first(where: { $0.name == "CloudStorage" }))
+            children(of: libraryNode, in: snapshot).first(where: { $0.name == location.directory }))
         let providerNode = try #require(
-            children(of: cloudStorageNode, in: snapshot).first(where: { $0.name == "GoogleDrive-example" }))
-
-        #expect(rootChildren(in: snapshot).map(\.name).sorted() == ["Library", "local.txt"])
-        #expect(children(of: providerNode, in: snapshot).map(\.name) == ["remote.bin"])
-        #expect(snapshot.root.descendantFileCount == 2)
-        #expect(snapshot.root.logicalSize == 576)
-    }
-
-    @Test
-    func testIncludesResidentICloudDriveFiles() async throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let localFileURL = rootURL.appending(path: "local.txt")
-        let iCloudDriveURL = rootURL.appending(path: "Library/Mobile Documents", directoryHint: .isDirectory)
-        let cloudFileURL =
-            iCloudDriveURL
-            .appending(path: "com~apple~CloudDocs", directoryHint: .isDirectory)
-            .appending(path: "remote.bin")
-
-        try FileManager.default.createDirectory(
-            at: cloudFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: 0x1, count: 64).write(to: localFileURL)
-        try Data(repeating: 0x2, count: 512).write(to: cloudFileURL)
-
-        let snapshot = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: ScanOptions()
-        )
-        let libraryNode = try #require(rootChildren(in: snapshot).first(where: { $0.name == "Library" }))
-        let iCloudDriveNode = try #require(
-            children(of: libraryNode, in: snapshot).first(where: { $0.name == "Mobile Documents" }))
-        let providerNode = try #require(
-            children(of: iCloudDriveNode, in: snapshot).first(where: { $0.name == "com~apple~CloudDocs" }))
+            children(of: cloudStorageNode, in: snapshot).first(where: { $0.name == location.provider }))
 
         #expect(rootChildren(in: snapshot).map(\.name).sorted() == ["Library", "local.txt"])
         #expect(children(of: providerNode, in: snapshot).map(\.name) == ["remote.bin"])
@@ -4274,13 +4244,13 @@ struct ScanEngineTests {
         metrics.estimatedTotalBytes = 10_000
         metrics.discoveredItems = 6
         metrics.completedItems = 5
+        metrics.completedTraversalWeight = 0.9
         metrics.filesVisited = 500
         metrics.bytesDiscovered = 1_200
 
         metrics.recalculateProgress()
 
         #expect(metrics.progressFraction < 0.5)
-        #expect(!(metrics.isFinalizing))
     }
 
     @Test

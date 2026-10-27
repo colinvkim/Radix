@@ -4,7 +4,6 @@ import Testing
 
 @testable import RadixCore
 
-/// Opt-in measurements for the performance audit; elapsed times are never test assertions.
 @Suite(.serialized)
 struct PerformanceAuditBenchmarkTests {
 
@@ -370,8 +369,6 @@ extension PerformanceAuditBenchmarkTests {
         }
     }
 
-    /// Traversal and metadata only: no retained file tree, sorting, allocation
-    /// deduplication, or progress publication. Use a controlled readable fixture.
     @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_TRAVERSAL_PATH"] != nil))
     func testNativeTraversalBenchmark() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -446,6 +443,7 @@ extension PerformanceAuditBenchmarkTests {
             }
             return total
         }
+        #expect(counts.directories >= 1)
         Self.report(
             phase: "native_traversal", count: counts.files + counts.directories,
             seconds: BenchmarkSupport.durationSeconds(start.duration(to: .now)),
@@ -536,8 +534,6 @@ extension PerformanceAuditBenchmarkTests {
         )
     }
 
-    /// Compare path storage only; both representations omit metadata and lookup
-    /// indices. Run records and packed in separate Release processes for RSS.
     @Test(.tags(.benchmark), .enabled(if: ProcessInfo.processInfo.environment["RADIX_BENCH_PATH_STORAGE"] != nil))
     func testPathStorageBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment

@@ -71,18 +71,6 @@ enum ChartResponsivenessBenchmarkSupport {
     }
 
     @MainActor
-    static func measureAsync<Value>(
-        _ operation: () async throws -> Value
-    ) async rethrows -> BenchmarkMeasurement<Value> {
-        let startedAt = ContinuousClock.now
-        let value = try await operation()
-        return BenchmarkMeasurement(
-            value: value,
-            seconds: BenchmarkSupport.durationSeconds(startedAt.duration(to: .now))
-        )
-    }
-
-    @MainActor
     static func measureRequestSequence<Request>(
         _ requests: [Request],
         probe: LayoutProbe,
@@ -155,7 +143,7 @@ enum ChartResponsivenessBenchmarkSupport {
     static func measureLayoutCancellation(
         baselineLayoutSeconds: Double,
         operation: @escaping @Sendable () throws -> Void
-    ) async throws -> CancellationMeasurement {
+    ) async throws -> BenchmarkCancellationMeasurement {
         let task = Task.detached {
             try operation()
             return ContinuousClock.now
@@ -168,13 +156,13 @@ enum ChartResponsivenessBenchmarkSupport {
         task.cancel()
         do {
             let completedAt = try await task.value
-            return CancellationMeasurement(
+            return BenchmarkCancellationMeasurement(
                 seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
                 wasCancelled: false,
                 completedBeforeCancellation: completedAt <= cancellationRequestedAt
             )
         } catch is CancellationError {
-            return CancellationMeasurement(
+            return BenchmarkCancellationMeasurement(
                 seconds: BenchmarkSupport.durationSeconds(cancellationRequestedAt.duration(to: .now)),
                 wasCancelled: true,
                 completedBeforeCancellation: false
@@ -284,11 +272,7 @@ enum ChartResponsivenessBenchmarkSupport {
         let fingerprint: String
     }
 
-    struct CancellationMeasurement {
-        let seconds: Double
-        let wasCancelled: Bool
-        let completedBeforeCancellation: Bool
-    }
+
 
     struct RequestSequenceMeasurement {
         let requestCount: Int

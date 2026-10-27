@@ -98,7 +98,8 @@ struct AppModelFolderRefreshTests {
 
     @Test(arguments: [false, true])
     func manualRescanAcknowledgesEarlierChangesAndPreservesLaterEvents(hasLaterChange: Bool) async throws {
-        let harness = AppFolderRefreshHarness()
+        let clock = ManualTestClock()
+        let harness = AppFolderRefreshHarness(clock: clock)
         defer { harness.model.cleanup() }
         let fixture = AppFolderRefreshFixture()
         let model = harness.model
@@ -107,8 +108,6 @@ struct AppModelFolderRefreshTests {
         try await waitForFolderRefresh("manual refresh watcher") { harness.watcher.requests.count == 1 }
 
         try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
-        // The explicit request runs before the one-second automatic debounce.
-        let manualStartedAt = ContinuousClock.now
         model.rescanFolder(id: fixture.downloads.id)
         try await waitForFolderRefresh("manual refresh begins") { harness.scanner.requests.count == 1 }
         #expect(model.scanState.folderRescanState?.isBackground == false)
@@ -120,9 +119,11 @@ struct AppModelFolderRefreshTests {
             index: 0
         )
         try await waitForFolderRefresh("manual refresh applied") { !model.scanState.isScanOperationInProgress }
-        let manualElapsed = manualStartedAt.duration(to: .now)
+        try await harness.watcher.emitAndWaitUntilProcessed([])
 
         if hasLaterChange {
+            try await waitForFolderRefresh("later event schedules after cooldown") { clock.pendingSleeps == 1 }
+            clock.advance(by: .seconds(6))
             try await waitForFolderRefresh("later event remains pending") { harness.scanner.requests.count == 2 }
             #expect(model.scanState.folderRescanState?.isBackground == true)
             let updatedFile = fixture.file(fixture.keptDownload, withSize: 200)
@@ -135,10 +136,10 @@ struct AppModelFolderRefreshTests {
                     && !model.scanState.isScanOperationInProgress
             }
         } else {
-            // Cross the adaptive cooldown even when the suite delays the manual
-            // refresh. Covered events must not request another traversal afterward.
-            let cooldown = max(.seconds(5), manualElapsed * 2)
-            try await settleFolderRefreshTasks(for: cooldown + .seconds(1))
+            drainFolderRefreshRunLoop()
+            clock.advance(by: .seconds(6))
+            try await harness.watcher.emitAndWaitUntilProcessed([])
+            #expect(clock.pendingSleeps == 0)
         }
         #expect(harness.scanner.requests.count == (hasLaterChange ? 2 : 1))
     }
@@ -354,7 +355,11 @@ private struct AppFolderRefreshHarness {
     let scanner = AppFolderRefreshScanner()
     let model: AppModel
 
-    init(isEnabled: Bool = true, systemActions: AppSystemActions = .inert) {
+    init(
+        isEnabled: Bool = true,
+        systemActions: AppSystemActions = .inert,
+        clock: ManualTestClock? = nil
+    ) {
         var systemActions = systemActions
         systemActions.isExistingDirectory = { _ in true }
         var preferences = AppScanPreferences.defaults
@@ -370,7 +375,10 @@ private struct AppFolderRefreshHarness {
             ),
             systemActions: systemActions,
             scanService: scanner,
-            fileSystemChangeWatcher: watcher
+            fileSystemChangeWatcher: watcher,
+            folderRefreshClock: clock.map { clock in
+                FolderRefreshClock(now: { clock.now }, sleep: { try await clock.sleep(for: $0) })
+            } ?? .continuous
         ))
     }
 }

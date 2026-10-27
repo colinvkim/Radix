@@ -116,21 +116,23 @@ final class TestAppPreferencesStore: AppPreferencesPersisting {
 
 final class TestRecentTargetPersistence: RecentTargetPersisting {
     var targets: [ScanTarget]
+    var savedTargets: [[ScanTarget]] = []
+    var didClear = false
 
     init(targets: [ScanTarget] = []) {
         self.targets = targets
     }
 
-    func loadRecentTargets() -> [ScanTarget] {
-        targets
-    }
+    func loadRecentTargets() -> [ScanTarget] { targets }
 
     func saveRecentTargets(_ targets: [ScanTarget]) {
         self.targets = targets
+        savedTargets.append(targets)
     }
 
     func clearRecentTargets() {
         targets = []
+        didClear = true
     }
 }
 
