@@ -32,11 +32,11 @@ struct ScanPathResolverTests {
         let resolver = ScanPathResolver(treeStore: fixture.store, hiddenNodeIDs: [fixture.folder.id])
         #expect(try resolver.resolve("/scan/Reports/notes.txt") == nil)
         #expect(try resolver.resolve("/scan/System") == nil)
-        #expect(try resolver.completions(for: "/scan/").isEmpty)
+        #expect(try resolver.completions(for: "/scan/").map(\.id) == [fixture.root.id])
         #expect(try resolver.completions(for: "/sc").map(\.id) == [fixture.root.id])
         let visible = ScanPathResolver(treeStore: fixture.store)
         #expect(try visible.completions(for: "/scan/rep").map(\.id) == [fixture.folder.id])
-        #expect(try visible.completions(for: "/scan/Reports/Empty/").isEmpty)
+        #expect(try visible.completions(for: "/scan/Reports/Empty/").map(\.id) == [fixture.empty.id])
     }
 
     @Test
@@ -45,6 +45,9 @@ struct ScanPathResolverTests {
         let root = pathRecord(id: "root", path: "/scan", directory: true)
         let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root, childrenByID: [root.id: children]))
         #expect(try resolver.completions(for: "/scan/item").map(\.id) == (1...8).map { "id-\($0)" })
+        #expect(try resolver.completions(for: "/scan/").map(\.id) == [root.id] + (1...7).map { "id-\($0)" })
+        #expect(try resolver.completions(for: "/scan/", limit: 1).map(\.id) == [root.id])
+        #expect(try resolver.completions(for: "/scan/", limit: 0).isEmpty)
         let probe = CancellationProbe(throwOnCheck: 5)
         #expect(throws: CancellationError.self) {
             try resolver.completions(for: "/scan/", cancellationCheck: probe.check)

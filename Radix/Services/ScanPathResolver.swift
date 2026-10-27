@@ -50,6 +50,8 @@ nonisolated struct ScanPathResolver: Sendable {
         let parentPath = listsChildren ? path : "/" + components.dropLast().joined(separator: "/")
         guard let parent = try node(at: parentPath, cancellationCheck: cancellationCheck),
               parent.isDirectory else { return [] }
+        if listsChildren, limit == 1 { return [parent] }
+        let childLimit = listsChildren ? limit - 1 : limit
         var matches: [FileNodeRecord] = []
         for child in try treeStore.children(of: parent.id, cancellationCheck: cancellationCheck) {
             try cancellationCheck()
@@ -58,12 +60,12 @@ nonisolated struct ScanPathResolver: Sendable {
                     of: prefix, options: [.anchored, .caseInsensitive]
                   ) != nil else { continue }
             let insertion = matches.firstIndex { precedes(child, $0) } ?? matches.endIndex
-            if insertion < limit {
+            if insertion < childLimit {
                 matches.insert(child, at: insertion)
-                if matches.count > limit { matches.removeLast() }
+                if matches.count > childLimit { matches.removeLast() }
             }
         }
-        return matches
+        return listsChildren ? [parent] + matches : matches
     }
 
     static func completionPath(for node: FileNodeRecord) -> String {

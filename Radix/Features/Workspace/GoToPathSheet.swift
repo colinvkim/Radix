@@ -47,8 +47,24 @@ struct GoToPathSheet: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(isSubmitting)
+                        .highPriorityGesture(
+                            TapGesture(count: 2)
+                                .exclusively(before: TapGesture(count: 1))
+                                .onEnded { activation in
+                                    guard !isSubmitting else { return }
+                                    switch activation {
+                                    case .first:
+                                        navigate(to: node)
+                                    case .second:
+                                        accept(node)
+                                    }
+                                }
+                        )
                         .accessibilityLabel(Text(verbatim: ScanPathResolver.completionPath(for: node)))
                         .accessibilityAddTraits(selectedCompletionID == node.id ? .isSelected : [])
+                        .accessibilityAction(named: Text("Go to Path")) {
+                            navigate(to: node)
+                        }
                         .help(ScanPathResolver.completionPath(for: node))
                     }
                 }
@@ -86,6 +102,7 @@ struct GoToPathSheet: View {
                 .font(.title3)
                 .focused($isPathFocused)
                 .accessibilityLabel("Path")
+                .accessibilityAction(named: Text("Go to Path")) { submit() }
                 .disabled(isSubmitting)
                 .onSubmit { submit() }
                 .onKeyPress(.downArrow) { moveSelection(by: 1) }
@@ -97,10 +114,6 @@ struct GoToPathSheet: View {
                     accept(completion)
                     return .handled
                 }
-            Button("Go") { submit() }
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
-                .disabled(path.isEmpty || isSubmitting)
             Button(action: onCancel) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 16))
@@ -159,6 +172,12 @@ struct GoToPathSheet: View {
         path = ScanPathResolver.completionPath(for: node)
         selectedCompletionID = nil
         isPathFocused = true
+    }
+
+    private func navigate(to node: FileNodeRecord) {
+        guard !isSubmitting else { return }
+        accept(node)
+        submit()
     }
 
     private func submit() {
