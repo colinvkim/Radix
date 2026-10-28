@@ -37,14 +37,14 @@ nonisolated struct ScanPathResolver: Sendable {
     ) throws -> [FileNodeRecord] {
         guard limit > 0, let path = absolutePath(input) else { return [] }
         let rootPath = normalizedPath(treeStore.root.url.path)
-        if path != rootPath,
+        let listsChildren = input.hasSuffix("/") || input == "~"
+            || input.split(separator: "/").last.map { $0 == "." || $0 == ".." } == true
+        if !listsChildren,
            rootPath.range(of: path, options: [.anchored, .caseInsensitive]) != nil,
            isVisible(treeStore.root) {
             return [treeStore.root]
         }
 
-        let listsChildren = input.hasSuffix("/") || input == "~"
-            || input.split(separator: "/").last.map { $0 == "." || $0 == ".." } == true
         let components = path.split(separator: "/").map(String.init)
         let prefix = listsChildren ? "" : components.last ?? ""
         let parentPath = listsChildren ? path : "/" + components.dropLast().joined(separator: "/")

@@ -2025,7 +2025,9 @@ final class AppModel: ObservableObject {
               isVisibleNavigationNode(node.id) else { return false }
         cancelDeferredNavigationAction()
         fileBrowser?.showCurrentContents()
-        if node.isDirectory {
+        let contentsAreUnavailable = FileBrowserPackageContents.areHidden(for: node, fileTreeStore: snapshot.treeStore)
+            || (node.isAutoSummarized && !snapshot.treeStore.containsChildren(id: node.id))
+        if node.isDirectory && !contentsAreUnavailable {
             navigationModel.clearSelection()
             navigationModel.focus(nodeID: node.id)
         } else {
