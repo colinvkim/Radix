@@ -46,6 +46,13 @@ struct ScanPathResolverTests {
         #expect(try resolver.completions(for: "/scan").map(\.id) == [fixture.root.id])
     }
 
+    @Test(arguments: ["/", "/scan/"])
+    func ancestorsOfScanRootCompleteToTheRoot(input: String) throws {
+        let root = pathRecord(id: "root", path: "/scan/nested", directory: true)
+        let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root))
+        #expect(try resolver.completions(for: input).map(\.id) == [root.id])
+    }
+
     @Test
     func completionIsBoundedNaturallyOrderedAndCancellable() throws {
         let children = (1...20).reversed().map { pathRecord(id: "id-\($0)", path: "/scan/item\($0)") }
