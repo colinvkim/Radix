@@ -39,7 +39,7 @@ nonisolated struct ScanPathResolver: Sendable {
         let rootPath = normalizedPath(treeStore.root.url.path)
         let listsChildren = input.hasSuffix("/") || input == "~"
             || input.split(separator: "/").last.map { $0 == "." || $0 == ".." } == true
-        if !listsChildren,
+        if (path != rootPath || !listsChildren),
            rootPath.range(of: path, options: [.anchored, .caseInsensitive]) != nil,
            isVisible(treeStore.root) {
             return [treeStore.root]
