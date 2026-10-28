@@ -167,7 +167,7 @@ struct GoToPathTests {
     }
 
     @Test
-    func invalidAndCancelledJumpsPreserveBrowsingAndOldScansCannotNavigate() async throws {
+    func invalidPathsAndStaleRequestsPreserveBrowsing() async throws {
         let fixture = PathFixture()
         let model = makePathApp(fixture)
         defer { model.cleanup() }
@@ -197,6 +197,64 @@ struct GoToPathTests {
         #expect(await !model.goToPath(fixture.file.url.path, request: reopenedRequest))
         #expect(model.navigation.currentFocusNode?.id == replacement.root.id)
         #expect(model.navigation.selectedNodeIDs.isEmpty)
+    }
+
+    @Test
+    func preCancelledJumpPreservesBrowsingAndAllowsRetry() async throws {
+        let fixture = PathFixture()
+        let model = makePathApp(fixture)
+        defer { model.cleanup() }
+        let browser = model.makeFileBrowserModel()
+        browser.setActiveQuery(FileBrowserQuery(text: "notes"))
+        model.select(nodeID: fixture.folder.id)
+        model.presentGoToPath()
+        let request = try pathRequest(model)
+
+        let cancelledJump = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await model.goToPath(fixture.empty.url.path, request: request)
+        }
+        #expect(await !cancelledJump.value)
+        #expect(model.navigation.currentFocusNode?.id == fixture.root.id)
+        #expect(model.navigation.selectedNodeIDs == [fixture.folder.id])
+        #expect(!model.navigation.canNavigateBack)
+        #expect(browser.activeQuery.text == "notes")
+        #expect(model.presentationCoordinator.activeSheet == .goToPath(request))
+
+        #expect(await model.goToPath(fixture.empty.url.path, request: request))
+        #expect(model.navigation.currentFocusNode?.id == fixture.empty.id)
+        #expect(model.presentationCoordinator.activeSheet == nil)
+    }
+
+    @Test
+    func changedTreeContentsDismissPathSheetWithoutChangingScanIdentity() async throws {
+        let fixture = PathFixture()
+        let model = makePathApp(fixture)
+        defer { model.cleanup() }
+        let browser = model.makeFileBrowserModel()
+        browser.setActiveQuery(FileBrowserQuery(text: "notes"))
+        model.select(nodeID: fixture.folder.id)
+        model.presentGoToPath()
+        let request = try pathRequest(model)
+        let snapshot = try #require(model.scanState.snapshot)
+        let replacement = try #require(snapshot.removingNode(id: fixture.empty.id))
+        #expect(replacement.id == request.snapshotID)
+        #expect(replacement.treeStore.contentID != request.treeContentID)
+
+        model.scanState.replaceCurrentSnapshot(replacement)
+
+        #expect(model.presentationCoordinator.activeSheet == nil)
+        #expect(await !model.goToPath(fixture.file.url.path, request: request))
+        #expect(model.navigation.currentFocusNode?.id == fixture.root.id)
+        #expect(model.navigation.selectedNodeIDs == [fixture.folder.id])
+        #expect(!model.navigation.canNavigateBack)
+        #expect(browser.activeQuery.text == "notes")
+
+        model.presentGoToPath()
+        let currentRequest = try pathRequest(model)
+        #expect(await model.goToPath(fixture.file.url.path, request: currentRequest))
+        #expect(model.navigation.currentFocusNode?.id == fixture.folder.id)
+        #expect(model.navigation.selectedNodeIDs == [fixture.file.id])
     }
 }
 
