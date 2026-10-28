@@ -40,6 +40,13 @@ struct ScanPathResolverTests {
     }
 
     @Test
+    func exactScanRootCompletesWithoutATrailingSlash() throws {
+        let fixture = PathFixture()
+        let resolver = ScanPathResolver(treeStore: fixture.store)
+        #expect(try resolver.completions(for: "/scan").map(\.id) == [fixture.root.id])
+    }
+
+    @Test
     func completionIsBoundedNaturallyOrderedAndCancellable() throws {
         let children = (1...20).reversed().map { pathRecord(id: "id-\($0)", path: "/scan/item\($0)") }
         let root = pathRecord(id: "root", path: "/scan", directory: true)
@@ -121,6 +128,37 @@ struct GoToPathTests {
         }
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func directoryJumpUsesAvailableContents(isSummarized: Bool, hasMaterializedChildren: Bool) async throws {
+        let fixture = PathFixture()
+        let directory = FileNodeRecord(
+            id: "directory", url: URL(filePath: "/scan/Reports/Directory"), name: "Directory",
+            isDirectory: true, isSymbolicLink: false, allocatedSize: 1, logicalSize: 1,
+            descendantFileCount: 1, lastModified: nil,
+            isPackage: !isSummarized, isAccessible: true, isSelfAccessible: true,
+            isSynthetic: false, isAutoSummarized: isSummarized
+        )
+        let child = pathRecord(id: "child", path: "/scan/Reports/Directory/child.txt")
+        var childrenByID = [
+            fixture.root.id: [fixture.folder],
+            fixture.folder.id: [directory],
+        ]
+        if hasMaterializedChildren { childrenByID[directory.id] = [child] }
+        let store = FileTreeStore(root: fixture.root, childrenByID: childrenByID)
+        let model = makePathApp(fixture, store: store)
+        defer { model.cleanup() }
+        model.select(nodeID: fixture.folder.id)
+        model.presentGoToPath()
+        let request = try pathRequest(model)
+
+        #expect(await model.goToPath(directory.url.path, request: request))
+        #expect(model.navigation.currentFocusNode?.id == (hasMaterializedChildren ? directory.id : fixture.folder.id))
+        #expect(model.navigation.selectedNodeIDs == (hasMaterializedChildren ? [] : [directory.id]))
+        #expect(model.navigation.tableNodes.map(\.id) == (hasMaterializedChildren ? [child.id] : [directory.id]))
+        model.navigateBack()
+        #expect(model.navigation.currentFocusNode?.id == fixture.root.id)
+    }
+
     @Test
     func invalidAndCancelledJumpsPreserveBrowsingAndOldScansCannotNavigate() async throws {
         let fixture = PathFixture()
@@ -182,14 +220,14 @@ private func pathRecord(id: String, path: String, directory: Bool = false, synth
 }
 
 @MainActor
-private func makePathApp(_ fixture: PathFixture) -> AppModel {
+private func makePathApp(_ fixture: PathFixture, store: FileTreeStore? = nil) -> AppModel {
     let model = AppModel(dependencies: AppDependencies(
         preferences: TestAppPreferencesStore(preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: true)),
         recentTargets: RecentTargetStore(persistence: TestRecentTargetPersistence(), isAvailable: { _ in false }),
         systemActions: .inert
     ))
     let snapshot = ScanSnapshot(
-        target: ScanTarget(url: fixture.root.url), treeStore: fixture.store,
+        target: ScanTarget(url: fixture.root.url), treeStore: store ?? fixture.store,
         startedAt: Date(), finishedAt: Date(), scanWarnings: [], isComplete: true,
         source: .imported(ImportedSnapshotContext(
             sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute,
