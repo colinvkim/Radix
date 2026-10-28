@@ -11,7 +11,7 @@ struct GoToPathSheet: View {
     @State private var selectedCompletionID: FileNodeRecord.ID?
     @State private var showsError = false
     @State private var submissionTask: Task<Void, Never>?
-    @State private var focusRequest = UUID()
+    @State private var inputRequest = NativePathField.Request(.focus)
 
     init(resolver: ScanPathResolver, onCancel: @escaping () -> Void, onGo: @escaping (String) async -> Bool) {
         self.resolver = resolver
@@ -122,7 +122,7 @@ struct GoToPathSheet: View {
 
     private var pathHeader: some View {
         HStack(spacing: 10) {
-            NativePathField(text: editedPath, focusRequest: focusRequest, onCommand: handleInputCommand)
+            NativePathField(text: editedPath, request: inputRequest, onCommand: handleInputCommand)
                 .frame(maxWidth: .infinity)
                 .accessibilityAction(named: Text("Go to Path")) { submit() }
                 .disabled(isSubmitting)
@@ -203,7 +203,7 @@ struct GoToPathSheet: View {
     private func accept(_ node: FileNodeRecord) {
         path = ScanPathResolver.completionPath(for: node)
         selectedCompletionID = node.id
-        focusRequest = UUID()
+        inputRequest = NativePathField.Request(.replaceAndMoveCaretToEnd)
     }
 
     private func clearOrCancel() {
@@ -213,7 +213,7 @@ struct GoToPathSheet: View {
         selectedCompletionID = nil
         completions = []
         showsError = false
-        focusRequest = UUID()
+        inputRequest = NativePathField.Request(.replaceAndMoveCaretToEnd)
     }
 
     private func navigate(to node: FileNodeRecord) {
@@ -230,12 +230,24 @@ struct GoToPathSheet: View {
             submissionTask = nil
             guard !Task.isCancelled else { return }
             showsError = !succeeded
-            if !succeeded { focusRequest = UUID() }
+            if !succeeded { inputRequest = NativePathField.Request(.focus) }
         }
     }
 }
 
 private struct NativePathField: NSViewRepresentable {
+    struct Request {
+        enum Intent {
+            case focus
+            case replaceAndMoveCaretToEnd
+        }
+
+        let id = UUID()
+        let intent: Intent
+
+        init(_ intent: Intent) { self.intent = intent }
+    }
+
     enum Command {
         case moveSelection(Int)
         case complete
@@ -244,7 +256,7 @@ private struct NativePathField: NSViewRepresentable {
     }
 
     @Binding var text: String
-    let focusRequest: UUID
+    let request: Request
     let onCommand: (Command) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -294,43 +306,44 @@ private struct NativePathField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: NativePathField
-        private var appliedRequest: UUID?
+        private var appliedRequestID: UUID?
         private var applyingEdit = false
 
         init(parent: NativePathField) { self.parent = parent }
 
         func update(_ field: Field) {
-            let hasRequest = appliedRequest != parent.focusRequest
+            let hasRequest = appliedRequestID != parent.request.id
             if hasRequest { field.requestFocus() }
             field.focusIfRequested()
-            guard let editor = field.currentEditor() as? NSTextView else {
-                field.stringValue = parent.text
-                appliedRequest = parent.focusRequest
-                return
-            }
             guard hasRequest else { return }
-            guard editor.string != parent.text else {
-                appliedRequest = parent.focusRequest
-                return
-            }
-            applyingEdit = true
-            defer { applyingEdit = false }
-            editor.breakUndoCoalescing()
-            if editor.hasMarkedText() {
-                editor.inputContext?.discardMarkedText()
-                editor.unmarkText()
-            }
-            let previous = editor.string
-            let prefixCount = zip(previous, parent.text).prefix { $0.0 == $0.1 }.count
-            let prefixLength = previous.prefix(prefixCount).utf16.count
-            let replacement = String(parent.text.dropFirst(prefixCount))
-            let range = NSRange(location: prefixLength, length: previous.utf16.count - prefixLength)
-            let attributed = NSAttributedString(string: replacement, attributes: editor.typingAttributes)
-            if editor.performValidatedReplacement(in: range, with: attributed) {
+
+            switch parent.request.intent {
+            case .focus:
+                appliedRequestID = parent.request.id
+            case .replaceAndMoveCaretToEnd:
+                guard field.isEnabled, let editor = field.currentEditor() as? NSTextView else { return }
+                applyingEdit = true
+                editor.breakUndoCoalescing()
+                defer {
+                    editor.breakUndoCoalescing()
+                    applyingEdit = false
+                }
+                if editor.hasMarkedText() {
+                    editor.inputContext?.discardMarkedText()
+                    editor.unmarkText()
+                }
+                if editor.string != parent.text {
+                    let previous = editor.string
+                    let prefixCount = zip(previous, parent.text).prefix { $0.0 == $0.1 }.count
+                    let prefixLength = previous.prefix(prefixCount).utf16.count
+                    let replacement = String(parent.text.dropFirst(prefixCount))
+                    let range = NSRange(location: prefixLength, length: previous.utf16.count - prefixLength)
+                    let attributed = NSAttributedString(string: replacement, attributes: editor.typingAttributes)
+                    guard editor.performValidatedReplacement(in: range, with: attributed) else { return }
+                }
                 editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
-                appliedRequest = parent.focusRequest
+                appliedRequestID = parent.request.id
             }
-            editor.breakUndoCoalescing()
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
