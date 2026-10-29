@@ -113,6 +113,7 @@ struct GoToPathSheet: View {
         Binding(
             get: { path },
             set: { input in
+                submissionTask?.cancel()
                 guard path != input else { return }
                 path = input
                 selectedCompletionID = nil
@@ -126,7 +127,6 @@ struct GoToPathSheet: View {
             NativePathField(text: editedPath, request: inputRequest, onCommand: handleInputCommand)
                 .frame(maxWidth: .infinity)
                 .accessibilityAction(named: Text("Go to Path")) { submit() }
-                .disabled(isSubmitting)
             Button(action: clearOrCancel) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 16))
@@ -176,6 +176,10 @@ struct GoToPathSheet: View {
     }
 
     private func handleInputCommand(_ command: NativePathField.Command) -> Bool {
+        guard !isSubmitting else {
+            if case .cancel = command { onCancel() }
+            return true
+        }
         switch command {
         case let .moveSelection(offset):
             return moveSelection(by: offset)
@@ -231,7 +235,6 @@ struct GoToPathSheet: View {
             submissionTask = nil
             guard !Task.isCancelled else { return }
             showsError = !succeeded
-            if !succeeded { inputRequest = NativePathField.Request(.focus) }
         }
     }
 }
@@ -279,6 +282,9 @@ private struct NativePathField: NSViewRepresentable {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setAccessibilityLabel(String(localized: "Path"))
         field.delegate = context.coordinator
+        field.didAcquireEditor = { [weak coordinator = context.coordinator] field in
+            coordinator?.observeEditor(of: field)
+        }
         return field
     }
 
@@ -288,8 +294,21 @@ private struct NativePathField: NSViewRepresentable {
         context.coordinator.update(field)
     }
 
+    static func dismantleNSView(_ field: Field, coordinator: Coordinator) {
+        field.didAcquireEditor = nil
+        field.delegate = nil
+        coordinator.stopObservingEditor()
+    }
+
     final class Field: NSTextField {
+        var didAcquireEditor: ((Field) -> Void)?
         private var pendingFocus = true
+
+        override func becomeFirstResponder() -> Bool {
+            let accepted = super.becomeFirstResponder()
+            if accepted { didAcquireEditor?(self) }
+            return accepted
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -303,9 +322,10 @@ private struct NativePathField: NSViewRepresentable {
             guard pendingFocus, isEnabled, let window else { return }
             if let editor = currentEditor(), window.firstResponder === editor {
                 pendingFocus = false
-                return
+            } else {
+                pendingFocus = !window.makeFirstResponder(self)
             }
-            pendingFocus = !window.makeFirstResponder(self)
+            if !pendingFocus { didAcquireEditor?(self) }
         }
     }
 
@@ -313,6 +333,9 @@ private struct NativePathField: NSViewRepresentable {
         var parent: NativePathField
         private var appliedRequestID: UUID?
         private var applyingEdit = false
+        private weak var observedField: Field?
+        private weak var observedEditor: NSTextView?
+        private weak var observedStorage: NSTextStorage?
 
         init(parent: NativePathField) { self.parent = parent }
 
@@ -365,15 +388,52 @@ private struct NativePathField: NSViewRepresentable {
             }
         }
 
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField,
-                  let editor = field.currentEditor() as? NSTextView else { return }
+        func observeEditor(of field: Field) {
+            guard let editor = field.currentEditor() as? NSTextView,
+                  let storage = editor.textStorage else { return }
             editor.allowsUndo = true
+            guard observedEditor !== editor || observedStorage !== storage else { return }
+            stopObservingEditor()
+            observedField = field
+            observedEditor = editor
+            observedStorage = storage
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(storageDidProcessEditing(_:)),
+                name: NSTextStorage.didProcessEditingNotification,
+                object: storage
+            )
         }
 
-        func controlTextDidChange(_ notification: Notification) {
-            guard !applyingEdit, let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
+        func stopObservingEditor() {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSTextStorage.didProcessEditingNotification,
+                object: observedStorage
+            )
+            observedField = nil
+            observedEditor = nil
+            observedStorage = nil
+        }
+
+        @objc private func storageDidProcessEditing(_ notification: Notification) {
+            guard !applyingEdit,
+                  let storage = notification.object as? NSTextStorage,
+                  storage === observedStorage,
+                  storage.editedMask.contains(.editedCharacters),
+                  let editor = observedEditor,
+                  observedField?.currentEditor() === editor,
+                  editor.textStorage === storage else { return }
+            parent.text = editor.string
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            guard let field = notification.object as? Field else { return }
+            observeEditor(of: field)
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            stopObservingEditor()
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
