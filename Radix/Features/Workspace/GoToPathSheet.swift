@@ -101,9 +101,8 @@ struct GoToPathSheet: View {
             }
             guard !Task.isCancelled, path == input else { return }
             completions = matches ?? []
-            if let selectedCompletionID,
-               !completions.contains(where: { $0.id == selectedCompletionID }) {
-                self.selectedCompletionID = nil
+            if !completions.contains(where: { $0.id == selectedCompletionID }) {
+                selectedCompletionID = completions.first?.id
             }
         }
     }
