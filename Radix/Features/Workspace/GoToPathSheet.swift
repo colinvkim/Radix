@@ -24,62 +24,64 @@ struct GoToPathSheet: View {
         VStack(spacing: 0) {
             pathHeader
             Divider()
-            if showsError {
-                Text("This path is not available in the current scan.")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-            }
-            ScrollViewReader { proxy in
-                List(selection: $selectedCompletionID) {
-                    ForEach(completions) { node in
-                        Button {
-                            accept(node)
-                        } label: {
-                            breadcrumbLabel(for: node)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isSubmitting)
-                        .highPriorityGesture(
-                            TapGesture(count: 2)
-                                .exclusively(before: TapGesture(count: 1))
-                                .onEnded { activation in
-                                    guard !isSubmitting else { return }
-                                    switch activation {
-                                    case .first:
-                                        navigate(to: node)
-                                    case .second:
-                                        accept(node)
-                                    }
-                                }
-                        )
-                        .tag(node.id)
-                        .id(node.id)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(
-                            selectedCompletionID == node.id
-                                ? PathSelectionMaterial()
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .padding(.horizontal, 10)
-                                    .allowsHitTesting(false)
-                                    .accessibilityHidden(true)
-                                : nil
-                        )
-                        .accessibilityLabel(Text(verbatim: ScanPathResolver.completionPath(for: node)))
-                        .accessibilityAction(named: Text("Go to Path")) {
-                            navigate(to: node)
-                        }
-                        .help(ScanPathResolver.completionPath(for: node))
-                    }
+            VStack(spacing: 0) {
+                if showsError {
+                    Text("This path is not available in the current scan.")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
-                .onChange(of: selectedCompletionID) { _, nodeID in
-                    if let nodeID { proxy.scrollTo(nodeID) }
+                ScrollViewReader { proxy in
+                    List(selection: $selectedCompletionID) {
+                        ForEach(completions) { node in
+                            Button {
+                                accept(node)
+                            } label: {
+                                breadcrumbLabel(for: node)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isSubmitting)
+                            .highPriorityGesture(
+                                TapGesture(count: 2)
+                                    .exclusively(before: TapGesture(count: 1))
+                                    .onEnded { activation in
+                                        guard !isSubmitting else { return }
+                                        switch activation {
+                                        case .first:
+                                            navigate(to: node)
+                                        case .second:
+                                            accept(node)
+                                        }
+                                    }
+                            )
+                            .tag(node.id)
+                            .id(node.id)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(
+                                selectedCompletionID == node.id
+                                    ? PathSelectionMaterial()
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .padding(.horizontal, 10)
+                                        .allowsHitTesting(false)
+                                        .accessibilityHidden(true)
+                                    : nil
+                            )
+                            .accessibilityLabel(Text(verbatim: ScanPathResolver.completionPath(for: node)))
+                            .accessibilityAction(named: Text("Go to Path")) {
+                                navigate(to: node)
+                            }
+                            .help(ScanPathResolver.completionPath(for: node))
+                        }
+                    }
+                    .listStyle(.inset)
+                    .scrollContentBackground(.hidden)
+                    .onChange(of: selectedCompletionID) { _, nodeID in
+                        if let nodeID { proxy.scrollTo(nodeID) }
+                    }
                 }
             }
             .frame(height: 212)
