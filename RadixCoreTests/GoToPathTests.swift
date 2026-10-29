@@ -12,6 +12,9 @@ struct ScanPathResolverTests {
         ("/scan/Reports/space name.txt", "spaces"),
         ("/scan/Reports/末尾 ", "unicode"),
         ("/scan//Reports/Empty/../notes.txt", "file"),
+        ("/SCAN/reports/EMPTY/", "empty"),
+        ("/ScAn/REPORTS/NOTES.TXT", "file"),
+        ("/scan/reports", "reports"),
     ])
     func resolvesScannedPathsWithIndependentRecordIDs(input: String, expectedID: String) throws {
         let fixture = PathFixture()
@@ -21,7 +24,7 @@ struct ScanPathResolverTests {
         #expect(try resolver.resolve(input)?.id == expectedID)
     }
 
-    @Test(arguments: ["", "/scan-other/Reports", "/scan/Reports/missing", "/scan/Reports/notes.txt/", "/scan/reports", "~someone/Reports"])
+    @Test(arguments: ["", "/scan-other/Reports", "/SCAN-other/Reports", "/scan/Reports/missing", "/scan/Reports/notes.txt/", "~someone/Reports"])
     func unavailablePathsDoNotResolve(input: String) throws {
         #expect(try ScanPathResolver(treeStore: PathFixture().store).resolve(input) == nil)
     }
@@ -31,8 +34,11 @@ struct ScanPathResolverTests {
         let fixture = PathFixture()
         let resolver = ScanPathResolver(treeStore: fixture.store, hiddenNodeIDs: [fixture.folder.id])
         #expect(try resolver.resolve("/scan/Reports/notes.txt") == nil)
+        #expect(try resolver.resolve("/SCAN/reports/NOTES.TXT") == nil)
         #expect(try resolver.resolve("/scan/System") == nil)
+        #expect(try resolver.resolve("/SCAN/system") == nil)
         #expect(try resolver.completions(for: "/scan/").map(\.id) == [fixture.root.id])
+        #expect(try resolver.completions(for: "/SCAN/").map(\.id) == [fixture.root.id])
         #expect(try resolver.completions(for: "/sc").map(\.id) == [fixture.root.id])
         let visible = ScanPathResolver(treeStore: fixture.store)
         #expect(try visible.completions(for: "/scan/rep").map(\.id) == [fixture.folder.id])
@@ -69,6 +75,60 @@ struct ScanPathResolverTests {
     }
 
     @Test
+    func exactCompletionPrecedesCaseVariantsBeforeApplyingTheLimit() throws {
+        let names = [
+            "README", "Readme", "readme", "rEADME", "ReADME", "REaDME", "REAdME", "READmE",
+            "READMe", "rEadme", "reAdme", "reaDme", "readMe", "readmE", "ReAdMe", "rEaDmE",
+        ]
+        let children = names.enumerated().map { index, name in
+            pathRecord(id: "variant-\(index)", path: "/scan/\(name)")
+        }
+        let root = pathRecord(id: "root", path: "/scan", directory: true)
+        let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root, childrenByID: [root.id: children]))
+
+        for (index, name) in names.enumerated() {
+            #expect(try resolver.completions(for: "/scan/\(name)").first?.id == "variant-\(index)")
+            #expect(try resolver.resolve("/scan/\(name)")?.id == "variant-\(index)")
+        }
+        #expect(try resolver.resolve("/scan/ReAdmE") == nil)
+    }
+
+    @Test
+    func caseInsensitiveCompletionsTraverseDirectoriesAndListTheRoot() throws {
+        let fixture = PathFixture()
+        let resolver = ScanPathResolver(treeStore: fixture.store)
+
+        #expect(try resolver.completions(for: "/SCAN/").map(\.id) == [fixture.root.id, fixture.folder.id])
+        #expect(try resolver.completions(for: "/SCAN/reports/no").map(\.id) == [fixture.file.id])
+        #expect(try resolver.completions(for: "/SCAN/reports/empty/").map(\.id) == [fixture.empty.id])
+    }
+
+    @Test
+    func exactDirectorySpellingDisambiguatesCaseVariants() throws {
+        let root = pathRecord(id: "root", path: "/Scan", directory: true)
+        let upper = pathRecord(id: "upper", path: "/Scan/Reports", directory: true)
+        let lower = pathRecord(id: "lower", path: "/Scan/reports", directory: true)
+        let upperFile = pathRecord(id: "upper-file", path: "/Scan/Reports/notes.txt")
+        let lowerFile = pathRecord(id: "lower-file", path: "/Scan/reports/notes.txt")
+        let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root, childrenByID: [
+            root.id: [lower, upper],
+            upper.id: [upperFile],
+            lower.id: [lowerFile],
+        ]))
+        let cases: [(String, String?)] = [
+            ("Reports", upperFile.id),
+            ("reports", lowerFile.id),
+            ("REPORTS", nil),
+        ]
+
+        for (spelling, expectedID) in cases {
+            let expectedIDs = expectedID.map { [$0] } ?? []
+            #expect(try resolver.resolve("/SCAN/\(spelling)/NOTES.TXT")?.id == expectedID)
+            #expect(try resolver.completions(for: "/SCAN/\(spelling)/no").map(\.id) == expectedIDs)
+        }
+    }
+
+    @Test
     func tildeUsesTheCurrentHomeDirectory() throws {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let root = pathRecord(id: "home", path: home, directory: true)
@@ -83,6 +143,7 @@ struct ScanPathResolverTests {
         let root = pathRecord(id: "root", path: "/private/tmp/scan", directory: true)
         let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root, childrenByID: [root.id: [file]]))
         #expect(try resolver.resolve("/private/tmp/scan/ padded ")?.id == file.id)
+        #expect(try resolver.resolve("/PRIVATE/TMP/SCAN/ padded ")?.id == file.id)
         #expect(try resolver.resolve("/tmp/scan/ padded ") == nil)
     }
 }
