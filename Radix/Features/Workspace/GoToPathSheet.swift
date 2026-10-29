@@ -300,6 +300,10 @@ private struct NativePathField: NSViewRepresentable {
 
         func focusIfRequested() {
             guard pendingFocus, isEnabled, let window else { return }
+            if let editor = currentEditor(), window.firstResponder === editor {
+                pendingFocus = false
+                return
+            }
             pendingFocus = !window.makeFirstResponder(self)
         }
     }
@@ -339,6 +343,20 @@ private struct NativePathField: NSViewRepresentable {
                     let replacement = String(parent.text.dropFirst(prefixCount))
                     let range = NSRange(location: prefixLength, length: previous.utf16.count - prefixLength)
                     let attributed = NSAttributedString(string: replacement, attributes: editor.typingAttributes)
+                    let undoGroup: (manager: UndoManager, groupsByEvent: Bool)?
+                    if let manager = editor.undoManager, manager.groupingLevel == 0 {
+                        undoGroup = (manager, manager.groupsByEvent)
+                        manager.groupsByEvent = false
+                        manager.beginUndoGrouping()
+                    } else {
+                        undoGroup = nil
+                    }
+                    defer {
+                        if let undoGroup {
+                            undoGroup.manager.endUndoGrouping()
+                            undoGroup.manager.groupsByEvent = undoGroup.groupsByEvent
+                        }
+                    }
                     guard editor.performValidatedReplacement(in: range, with: attributed) else { return }
                 }
                 editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
