@@ -39,7 +39,7 @@ nonisolated struct ScanPathResolver: Sendable {
         let rootPath = normalizedPath(treeStore.root.url.path)
         let listsChildren = input.hasSuffix("/") || input == "~"
             || input.split(separator: "/").last.map { $0 == "." || $0 == ".." } == true
-        if (path != rootPath || !listsChildren),
+        if (path.caseInsensitiveCompare(rootPath) != .orderedSame || !listsChildren),
            rootPath.range(of: path, options: [.anchored, .caseInsensitive]) != nil,
            isVisible(treeStore.root) {
             return [treeStore.root]
@@ -59,7 +59,7 @@ nonisolated struct ScanPathResolver: Sendable {
                   prefix.isEmpty || child.url.lastPathComponent.range(
                     of: prefix, options: [.anchored, .caseInsensitive]
                   ) != nil else { continue }
-            let insertion = matches.firstIndex { precedes(child, $0) } ?? matches.endIndex
+            let insertion = matches.firstIndex { precedes(child, $0, prefix: prefix) } ?? matches.endIndex
             if insertion < childLimit {
                 matches.insert(child, at: insertion)
                 if matches.count > childLimit { matches.removeLast() }
@@ -77,20 +77,31 @@ nonisolated struct ScanPathResolver: Sendable {
         try cancellationCheck()
         let rootComponents = normalizedPath(treeStore.root.url.path).split(separator: "/")
         let components = path.split(separator: "/")
-        guard components.starts(with: rootComponents), isVisible(treeStore.root) else { return nil }
+        guard components.starts(with: rootComponents, by: {
+            String($0).caseInsensitiveCompare(String($1)) == .orderedSame
+        }), isVisible(treeStore.root) else { return nil }
         var current = treeStore.root
         for component in components.dropFirst(rootComponents.count) {
             guard current.isDirectory else { return nil }
+            let requestedName = String(component)
             let children = try treeStore.children(of: current.id, cancellationCheck: cancellationCheck)
             var match: FileNodeRecord?
+            var isAmbiguous = false
             for child in children {
                 try cancellationCheck()
-                if child.url.lastPathComponent == component, isVisible(child) {
+                guard isVisible(child) else { continue }
+                let name = child.url.lastPathComponent
+                if name == requestedName {
                     match = child
+                    isAmbiguous = false
                     break
                 }
+                if name.caseInsensitiveCompare(requestedName) == .orderedSame {
+                    if match != nil { isAmbiguous = true }
+                    match = child
+                }
             }
-            guard let match else { return nil }
+            guard let match, !isAmbiguous else { return nil }
             current = match
         }
         return current
@@ -127,7 +138,10 @@ nonisolated struct ScanPathResolver: Sendable {
         return "/" + components.joined(separator: "/")
     }
 
-    private func precedes(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord) -> Bool {
+    private func precedes(_ lhs: FileNodeRecord, _ rhs: FileNodeRecord, prefix: String) -> Bool {
+        let lhsIsExact = lhs.url.lastPathComponent == prefix
+        let rhsIsExact = rhs.url.lastPathComponent == prefix
+        if lhsIsExact != rhsIsExact { return lhsIsExact }
         let order = lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent)
         return order == .orderedSame ? lhs.url.path < rhs.url.path : order == .orderedAscending
     }
