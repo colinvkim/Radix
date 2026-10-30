@@ -1,16 +1,26 @@
 import Combine
 import Foundation
 
+struct GoToPathRequest: Hashable, Sendable {
+    let id = UUID()
+    let snapshotID: UUID
+    let treeContentID: UUID
+    let directoryID: FileNodeRecord.ID
+}
+
 @MainActor
 final class AppPresentationCoordinator: ObservableObject {
     enum Sheet: Hashable, Identifiable {
         case onboarding
+        case goToPath(GoToPathRequest)
         case discardPileReview
         case importPreview(URL)
         case comparisonSetup(UUID)
 
         var id: String {
             switch self {
+            case .goToPath(let request):
+                "go-to-path-\(request.id)"
             case .onboarding:
                 "onboarding"
             case .discardPileReview:
@@ -24,6 +34,7 @@ final class AppPresentationCoordinator: ObservableObject {
 
         fileprivate var kind: DestinationKind {
             switch self {
+            case .goToPath: .goToPath
             case .onboarding: .onboarding
             case .discardPileReview: .discardPileReview
             case .importPreview: .importPreview
@@ -64,6 +75,7 @@ final class AppPresentationCoordinator: ObservableObject {
     }
 
     enum DestinationKind: Hashable {
+        case goToPath
         case onboarding
         case discardPileReview
         case importPreview

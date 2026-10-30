@@ -131,6 +131,12 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
+    func showCurrentContents() {
+        currentContentsQuery = FileBrowserQuery()
+        searchScope = .currentContents
+        refreshDisplayedNodes()
+    }
+
     func setSearchScope(_ scope: FileBrowserFindTarget) {
         guard searchScope != scope else { return }
         searchScope = scope

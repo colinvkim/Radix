@@ -236,6 +236,12 @@ struct RadixCommands: Commands {
 
             Divider()
 
+            Button("Go to Path…") {
+                appModel.presentGoToPath()
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(!canUseWorkspaceCommands || !appModel.canGoToPath)
+
             Button("Go to Parent", systemImage: "arrow.up") {
                 appModel.navigateToParent()
             }
@@ -259,6 +265,7 @@ struct RadixCommands: Commands {
 
     private var canUseWorkspaceCommands: Bool {
         isWorkspaceWindowFocused == true && appModel.canUseWorkspaceCommands
+            && appModel.presentationCoordinator.activeDestination == nil
     }
 
     private var addSelectionToDiscardPileTitle: String {

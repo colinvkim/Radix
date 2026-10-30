@@ -166,6 +166,23 @@ struct ContentView: View {
         )
         .sheet(item: activeSheetBinding) { sheet in
             switch sheet {
+            case .goToPath(let request):
+                if let snapshot = appModel.scanState.snapshot,
+                   snapshot.id == request.snapshotID, snapshot.treeStore.contentID == request.treeContentID {
+                    GoToPathSheet(
+                        resolver: ScanPathResolver(
+                            treeStore: snapshot.treeStore,
+                            hiddenNodeIDs: appModel.workspaceHiddenNodeIDs,
+                            baseDirectoryID: request.directoryID
+                        ),
+                        onCancel: { appModel.dismissGoToPath() },
+                        onGo: { path in
+                            let succeeded = await appModel.goToPath(path, request: request)
+                            if succeeded { focusedWorkspaceTarget = .contents }
+                            return succeeded
+                        }
+                    )
+                }
             case .onboarding:
                 OnboardingView()
             case .discardPileReview:
