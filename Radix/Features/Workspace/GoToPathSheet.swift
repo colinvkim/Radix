@@ -149,7 +149,7 @@ struct GoToPathSheet: View {
             var label = AttributedString(component)
             if let match, match.componentIndex == index {
                 let end = label.characters.index(label.startIndex, offsetBy: match.matchedCharacterCount)
-                label[..<end].font = Font.body.weight(.semibold)
+                label[..<end].font = Font.body.weight(.bold)
             }
             return label
         }
