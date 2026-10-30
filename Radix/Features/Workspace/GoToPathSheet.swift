@@ -7,8 +7,7 @@ struct GoToPathSheet: View {
     let onGo: (String) async -> Bool
 
     @State private var path: String
-    @State private var completions: [FileNodeRecord] = []
-    @State private var selectedCompletionID: FileNodeRecord.ID?
+    @State private var completionBatch = CompletionBatch(input: "", nodes: [])
     @State private var showsError = false
     @State private var submissionTask: Task<Void, Never>?
     @State private var inputRequest = NativePathField.Request(.focus)
@@ -34,10 +33,10 @@ struct GoToPathSheet: View {
                         .padding(.vertical, 12)
                 }
                 ScrollViewReader { proxy in
-                    List(selection: $selectedCompletionID) {
-                        ForEach(completions) { node in
+                    List(selection: completionSelection) {
+                        ForEach(completionBatch.nodes) { node in
                             Button {
-                                accept(node)
+                                accept(node.id)
                             } label: {
                                 breadcrumbLabel(for: node)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -52,9 +51,9 @@ struct GoToPathSheet: View {
                                         guard !isSubmitting else { return }
                                         switch activation {
                                         case .first:
-                                            navigate(to: node)
+                                            navigate(to: node.id)
                                         case .second:
-                                            accept(node)
+                                            accept(node.id)
                                         }
                                     }
                             )
@@ -62,7 +61,7 @@ struct GoToPathSheet: View {
                             .id(node.id)
                             .listRowSeparator(.hidden)
                             .listRowBackground(
-                                selectedCompletionID == node.id
+                                completionBatch.selectedID == node.id
                                     ? PathSelectionMaterial()
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
                                         .padding(.horizontal, 10)
@@ -72,14 +71,15 @@ struct GoToPathSheet: View {
                             )
                             .accessibilityLabel(Text(verbatim: ScanPathResolver.completionPath(for: node)))
                             .accessibilityAction(named: Text("Go to Path")) {
-                                navigate(to: node)
+                                navigate(to: node.id)
                             }
                             .help(ScanPathResolver.completionPath(for: node))
                         }
                     }
                     .listStyle(.inset)
                     .scrollContentBackground(.hidden)
-                    .onChange(of: selectedCompletionID) { _, nodeID in
+                    .allowsHitTesting(hasCurrentCompletions)
+                    .onChange(of: completionBatch.selectedID) { _, nodeID in
                         if let nodeID { proxy.scrollTo(nodeID) }
                     }
                 }
@@ -102,10 +102,11 @@ struct GoToPathSheet: View {
                 query.cancel()
             }
             guard !Task.isCancelled, path == input else { return }
-            completions = matches ?? []
-            if !completions.contains(where: { $0.id == selectedCompletionID }) {
-                selectedCompletionID = completions.first?.id
-            }
+            completionBatch = CompletionBatch(
+                input: input,
+                nodes: matches ?? [],
+                preferredSelectionID: completionBatch.selectedID
+            )
         }
     }
 
@@ -116,8 +117,7 @@ struct GoToPathSheet: View {
                 submissionTask?.cancel()
                 guard path != input else { return }
                 path = input
-                selectedCompletionID = nil
-                completions = []
+                if input.isEmpty { completionBatch = CompletionBatch(input: input, nodes: []) }
             }
         )
     }
@@ -144,7 +144,7 @@ struct GoToPathSheet: View {
 
     private func breadcrumbLabel(for node: FileNodeRecord) -> some View {
         let components = node.url.pathComponents.filter { $0 != "/" }
-        let match = resolver.completionMatch(for: path, in: node)
+        let match = resolver.completionMatch(for: completionBatch.input, in: node)
         let labels = components.enumerated().map { index, component in
             var label = AttributedString(component)
             if let match, match.componentIndex == index {
@@ -160,7 +160,7 @@ struct GoToPathSheet: View {
         return HStack(spacing: 6) {
             if !ancestors.characters.isEmpty {
                 Group {
-                    if selectedCompletionID == node.id {
+                    if completionBatch.selectedID == node.id {
                         Text(ancestors)
                     } else {
                         Text(ancestors)
@@ -178,13 +178,25 @@ struct GoToPathSheet: View {
                 .truncationMode(.middle)
                 .layoutPriority(1)
         }
-        .foregroundStyle(CompletionForeground(isSelected: selectedCompletionID == node.id))
+        .foregroundStyle(CompletionForeground(isSelected: completionBatch.selectedID == node.id))
     }
 
     private var isSubmitting: Bool { submissionTask != nil }
 
+    private var hasCurrentCompletions: Bool { completionBatch.input == path }
+
+    private var completionSelection: Binding<FileNodeRecord.ID?> {
+        Binding(
+            get: { completionBatch.selectedID },
+            set: { nodeID in
+                guard hasCurrentCompletions else { return }
+                completionBatch.select(nodeID)
+            }
+        )
+    }
+
     private var selectedCompletion: FileNodeRecord? {
-        completions.first { $0.id == selectedCompletionID }
+        hasCurrentCompletions ? completionBatch.selectedNode : nil
     }
 
     private func handleInputCommand(_ command: NativePathField.Command) -> Bool {
@@ -196,8 +208,9 @@ struct GoToPathSheet: View {
         case let .moveSelection(offset):
             return moveSelection(by: offset)
         case .complete:
-            guard let completion = selectedCompletion ?? completions.first else { return false }
-            accept(completion)
+            guard hasCurrentCompletions else { return true }
+            guard let completion = selectedCompletion ?? completionBatch.nodes.first else { return false }
+            accept(completion.id)
             return true
         case .submit:
             submit()
@@ -209,33 +222,37 @@ struct GoToPathSheet: View {
     }
 
     private func moveSelection(by offset: Int) -> Bool {
-        guard !completions.isEmpty else { return false }
-        let index = selectedCompletionID.flatMap { id in completions.firstIndex { $0.id == id } }
-        let next = index.map { min(max($0 + offset, 0), completions.count - 1) }
-            ?? (offset > 0 ? 0 : completions.count - 1)
-        selectedCompletionID = completions[next].id
+        guard hasCurrentCompletions else { return true }
+        let nodes = completionBatch.nodes
+        guard !nodes.isEmpty else { return false }
+        let index = completionBatch.selectedID.flatMap { id in nodes.firstIndex { $0.id == id } }
+        let next = index.map { min(max($0 + offset, 0), nodes.count - 1) }
+            ?? (offset > 0 ? 0 : nodes.count - 1)
+        completionBatch.select(nodes[next].id)
         return true
     }
 
-    private func accept(_ node: FileNodeRecord) {
+    @discardableResult
+    private func accept(_ nodeID: FileNodeRecord.ID) -> Bool {
+        guard !isSubmitting, hasCurrentCompletions,
+              let node = completionBatch.nodes.first(where: { $0.id == nodeID }) else { return false }
+        completionBatch.select(node.id)
         path = ScanPathResolver.completionPath(for: node)
-        selectedCompletionID = node.id
         inputRequest = NativePathField.Request(.replaceAndMoveCaretToEnd)
+        return true
     }
 
     private func clearOrCancel() {
         guard !path.isEmpty else { onCancel(); return }
         submissionTask?.cancel()
         path = ""
-        selectedCompletionID = nil
-        completions = []
+        completionBatch = CompletionBatch(input: path, nodes: [])
         showsError = false
         inputRequest = NativePathField.Request(.replaceAndMoveCaretToEnd)
     }
 
-    private func navigate(to node: FileNodeRecord) {
-        guard !isSubmitting else { return }
-        accept(node)
+    private func navigate(to nodeID: FileNodeRecord.ID) {
+        guard accept(nodeID) else { return }
         submit()
     }
 
@@ -248,6 +265,27 @@ struct GoToPathSheet: View {
             guard !Task.isCancelled else { return }
             showsError = !succeeded
         }
+    }
+}
+
+private struct CompletionBatch {
+    let input: String
+    let nodes: [FileNodeRecord]
+    private(set) var selectedID: FileNodeRecord.ID?
+
+    init(input: String, nodes: [FileNodeRecord], preferredSelectionID: FileNodeRecord.ID? = nil) {
+        self.input = input
+        self.nodes = nodes
+        selectedID = nodes.contains { $0.id == preferredSelectionID } ? preferredSelectionID : nodes.first?.id
+    }
+
+    var selectedNode: FileNodeRecord? {
+        nodes.first { $0.id == selectedID }
+    }
+
+    mutating func select(_ nodeID: FileNodeRecord.ID?) {
+        guard nodeID == nil || nodes.contains(where: { $0.id == nodeID }) else { return }
+        selectedID = nodeID
     }
 }
 
