@@ -144,14 +144,26 @@ struct GoToPathSheet: View {
 
     private func breadcrumbLabel(for node: FileNodeRecord) -> some View {
         let components = node.url.pathComponents.filter { $0 != "/" }
-        let ancestors = components.dropLast().joined(separator: " › ")
+        let match = resolver.completionMatch(for: path, in: node)
+        let labels = components.enumerated().map { index, component in
+            var label = AttributedString(component)
+            if let match, match.componentIndex == index {
+                let end = label.characters.index(label.startIndex, offsetBy: match.matchedCharacterCount)
+                label[..<end].font = Font.body.weight(.semibold)
+            }
+            return label
+        }
+        let ancestors = labels.dropLast().reduce(into: AttributedString()) { result, component in
+            if !result.characters.isEmpty { result.append(AttributedString(" › ")) }
+            result.append(component)
+        }
         return HStack(spacing: 6) {
-            if !ancestors.isEmpty {
+            if !ancestors.characters.isEmpty {
                 Group {
                     if selectedCompletionID == node.id {
-                        Text(verbatim: ancestors)
+                        Text(ancestors)
                     } else {
-                        Text(verbatim: ancestors)
+                        Text(ancestors)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -161,7 +173,7 @@ struct GoToPathSheet: View {
                     .font(.caption2)
                     .accessibilityHidden(true)
             }
-            Text(verbatim: components.last ?? node.url.path)
+            Text(labels.last ?? AttributedString(node.url.path))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(1)

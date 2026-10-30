@@ -59,6 +59,52 @@ struct ScanPathResolverTests {
         #expect(try resolver.completions(for: input).map(\.id) == [root.id])
     }
 
+    @Test(arguments: [
+        ("/scan/rep", "reports", 1, 3),
+        ("/SCAN/REP", "reports", 1, 3),
+        ("no", "file", 2, 2),
+        ("./no", "file", 2, 2),
+        ("../Reports/no", "file", 2, 2),
+        ("/scan//Reports/Empty/../no", "file", 2, 2),
+    ])
+    func completionMatchIdentifiesOnlyTheCurrentComponent(
+        input: String, candidateID: String, componentIndex: Int, characterCount: Int
+    ) throws {
+        let fixture = PathFixture()
+        let resolver = ScanPathResolver(treeStore: fixture.store, baseDirectoryID: fixture.folder.id)
+        let candidate = try #require(try resolver.completions(for: input).first { $0.id == candidateID })
+        let match = try #require(resolver.completionMatch(for: input, in: candidate))
+        #expect(match.componentIndex == componentIndex)
+        #expect(match.matchedCharacterCount == characterCount)
+    }
+
+    @Test(arguments: ["", "/", "/scan/Reports/", "~", "~/", ".", "..", "/scan/Reports/.", "/scan/Reports/..", "~someone", "/scan/\0"])
+    func childListingsAndInvalidInputsHaveNoCompletionMatch(input: String) {
+        let fixture = PathFixture()
+        let resolver = ScanPathResolver(treeStore: fixture.store, baseDirectoryID: fixture.folder.id)
+        #expect(resolver.completionMatch(for: input, in: fixture.folder) == nil)
+    }
+
+    @Test(arguments: [("ßeta.txt", "SS", 1), ("Straße.txt", "STRASS", 5), ("e\u{301}clair.txt", "é", 1)])
+    func completionMatchCountsCandidateGraphemes(name: String, input: String, characterCount: Int) throws {
+        let root = pathRecord(id: "root", path: "/scan", directory: true)
+        let file = pathRecord(id: "file", path: "/scan/\(name)")
+        let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root, childrenByID: [root.id: [file]]))
+        let candidate = try #require(try resolver.completions(for: "/scan/\(input)").first)
+        let match = try #require(resolver.completionMatch(for: "/scan/\(input)", in: candidate))
+        #expect(match.componentIndex == 1)
+        #expect(match.matchedCharacterCount == characterCount)
+    }
+
+    @Test(arguments: [("/sc", 0, 2), ("/scan/ne", 1, 2)])
+    func completionMatchCanIdentifyAnAncestorOfTheScanRoot(input: String, componentIndex: Int, characterCount: Int) throws {
+        let root = pathRecord(id: "root", path: "/scan/nested", directory: true)
+        let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root))
+        let match = try #require(resolver.completionMatch(for: input, in: root))
+        #expect(match.componentIndex == componentIndex)
+        #expect(match.matchedCharacterCount == characterCount)
+    }
+
     @Test
     func completionIsBoundedNaturallyOrderedAndCancellable() throws {
         let children = (1...20).reversed().map { pathRecord(id: "id-\($0)", path: "/scan/item\($0)") }
@@ -135,6 +181,9 @@ struct ScanPathResolverTests {
         let file = pathRecord(id: "file", path: home + "/scanned-only.txt")
         let resolver = ScanPathResolver(treeStore: FileTreeStore(root: root, childrenByID: [root.id: [file]]))
         #expect(try resolver.resolve("~/scanned-only.txt")?.id == file.id)
+        let match = try #require(resolver.completionMatch(for: "~/sca", in: file))
+        #expect(match.componentIndex == home.split(separator: "/").count)
+        #expect(match.matchedCharacterCount == 3)
     }
 
     @Test

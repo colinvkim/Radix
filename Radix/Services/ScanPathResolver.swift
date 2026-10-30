@@ -1,6 +1,20 @@
 import Foundation
 
 nonisolated struct ScanPathResolver: Sendable {
+    struct CompletionMatch: Sendable {
+        let componentIndex: Int
+        let matchedCharacterCount: Int
+    }
+
+    private struct CompletionQuery {
+        let path: String
+        let components: [String]
+        let listsChildren: Bool
+
+        var prefix: String { listsChildren ? "" : components.last ?? "" }
+        var parentPath: String { listsChildren ? path : "/" + components.dropLast().joined(separator: "/") }
+    }
+
     let treeStore: FileTreeStore
     let baseDirectoryID: FileNodeRecord.ID?
     private let hiddenNodes: PreparedFileTreeNodeSet
@@ -35,20 +49,18 @@ nonisolated struct ScanPathResolver: Sendable {
         limit: Int = 8,
         cancellationCheck: () throws -> Void = {}
     ) throws -> [FileNodeRecord] {
-        guard limit > 0, let path = absolutePath(input) else { return [] }
+        guard limit > 0, let query = completionQuery(for: input) else { return [] }
+        let path = query.path
+        let listsChildren = query.listsChildren
         let rootPath = normalizedPath(treeStore.root.url.path)
-        let listsChildren = input.hasSuffix("/") || input == "~"
-            || input.split(separator: "/").last.map { $0 == "." || $0 == ".." } == true
         if (path.caseInsensitiveCompare(rootPath) != .orderedSame || !listsChildren),
            rootPath.range(of: path, options: [.anchored, .caseInsensitive]) != nil,
            isVisible(treeStore.root) {
             return [treeStore.root]
         }
 
-        let components = path.split(separator: "/").map(String.init)
-        let prefix = listsChildren ? "" : components.last ?? ""
-        let parentPath = listsChildren ? path : "/" + components.dropLast().joined(separator: "/")
-        guard let parent = try node(at: parentPath, cancellationCheck: cancellationCheck),
+        let prefix = query.prefix
+        guard let parent = try node(at: query.parentPath, cancellationCheck: cancellationCheck),
               parent.isDirectory else { return [] }
         if listsChildren, limit == 1 { return [parent] }
         let childLimit = listsChildren ? limit - 1 : limit
@@ -66,6 +78,20 @@ nonisolated struct ScanPathResolver: Sendable {
             }
         }
         return listsChildren ? [parent] + matches : matches
+    }
+
+    func completionMatch(for input: String, in node: FileNodeRecord) -> CompletionMatch? {
+        guard let query = completionQuery(for: input), !query.prefix.isEmpty else { return nil }
+        let componentIndex = query.components.count - 1
+        let components = node.url.pathComponents.filter { $0 != "/" }
+        guard componentIndex < components.count,
+              let range = components[componentIndex].range(
+                of: query.prefix, options: [.anchored, .caseInsensitive]
+              ) else { return nil }
+        return CompletionMatch(
+            componentIndex: componentIndex,
+            matchedCharacterCount: components[componentIndex][..<range.upperBound].count
+        )
     }
 
     static func completionPath(for node: FileNodeRecord) -> String {
@@ -109,6 +135,16 @@ nonisolated struct ScanPathResolver: Sendable {
 
     private func isVisible(_ node: FileNodeRecord) -> Bool {
         !node.isSynthetic && !treeStore.isNodeOrDescendant(node.id, of: hiddenNodes)
+    }
+
+    private func completionQuery(for input: String) -> CompletionQuery? {
+        guard let path = absolutePath(input) else { return nil }
+        return CompletionQuery(
+            path: path,
+            components: path.split(separator: "/").map(String.init),
+            listsChildren: input.hasSuffix("/") || input == "~"
+                || input.split(separator: "/").last.map { $0 == "." || $0 == ".." } == true
+        )
     }
 
     private func absolutePath(_ input: String) -> String? {
