@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import Testing
 
 @testable import RadixCore
@@ -156,7 +157,7 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testReadOnlyModeBlocksCleanupPreservesPileAndAllowsBrowsing() {
+    func testReadOnlyModeBlocksCleanupPreservesPileAndAllowsBrowsing() async {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -181,7 +182,7 @@ struct AppModelDependencyTests {
         model.requestMoveSelectedToTrash()
         #expect(model.pendingTrashSelection != nil)
         model.trashFlow.pendingCloudFileAction = .init(
-            kind: .moveToTrash(allowsHiddenNodes: false), nodes: [file], cloudImpact: .storedInCloud)
+            kind: .moveToTrash, nodes: [file], cloudImpact: .storedInCloud)
 
         model.setReadOnlyMode(true)
         #expect(model.pendingTrashSelection == nil)
@@ -191,7 +192,7 @@ struct AppModelDependencyTests {
         #expect(!model.addNodesToDiscardPile([file]))
         #expect(!model.addNodeIDsToDiscardPile([file.id], snapshotID: snapshot.id))
         #expect(!model.requestMoveNodesToTrash([file]))
-        #expect(!model.requestMoveDiscardPileToTrash())
+        #expect(!(await model.requestMoveDiscardPileToTrash()))
         model.requestMoveSelectedToTrash()
         model.requestMovePrimarySelectionToTrash()
         #expect(model.pendingTrashSelection == nil)
@@ -1232,6 +1233,7 @@ struct AppModelDependencyTests {
     func testOptimisticTrashVisibilityMutationsPublishThroughAppModel() {
         let model = AppModel(dependencies: makeDependencies())
         let snapshotID = UUID()
+        let file = makeTestFileNode(id: "/selection/file.txt", name: "file.txt")
         var publicationCount = 0
         let cancellable = model.objectWillChange.sink {
             publicationCount += 1
@@ -1240,14 +1242,14 @@ struct AppModelDependencyTests {
 
         #expect(
             model.trashFlow.replaceOptimisticTrashVisibility(
-                nodeIDs: ["/selection/file.txt"],
+                nodes: [file.id: file],
                 snapshotID: snapshotID
             ))
         #expect(publicationCount == 1)
 
         #expect(
             !(model.trashFlow.replaceOptimisticTrashVisibility(
-                nodeIDs: ["/selection/file.txt"],
+                nodes: [file.id: file],
                 snapshotID: snapshotID
             )))
         #expect(publicationCount == 1)
@@ -1303,18 +1305,18 @@ struct AppModelDependencyTests {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
-        let oldFile = makeTestFileNode(id: "/selection/file.txt", name: "file.txt", size: 40)
+        let oldFile = makeTestFileNode(id: "/selection/file.txt", name: "file.txt", size: 40, fileIdentity: FileIdentity(device: 1, inode: 1))
         let oldRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [oldFile])
         let oldStore = FileTreeStore(root: oldRoot, childrenByID: [oldRoot.id: [oldFile]])
         let oldSnapshot = makeTestSnapshot(root: oldRoot, store: oldStore)
         model.scanState.replaceCurrentSnapshot(oldSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
         model.addNodesToDiscardPile([oldFile])
-        #expect(model.requestMoveDiscardPileToTrash())
+        #expect(await model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
         try await probe.waitUntilStarted()
 
-        let newFile = makeTestFileNode(id: oldFile.id, name: oldFile.name, size: 80)
+        let newFile = makeTestFileNode(id: oldFile.id, name: oldFile.name, size: 80, fileIdentity: FileIdentity(device: 1, inode: 2))
         let newRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [newFile])
         let newStore = FileTreeStore(root: newRoot, childrenByID: [newRoot.id: [newFile]])
         let newSnapshot = makeTestSnapshot(root: newRoot, store: newStore)
@@ -1327,7 +1329,6 @@ struct AppModelDependencyTests {
         try await waitUntil("old async trash completion recorded", timeout: 2) {
             model.usageStats.bytesMovedToTrash == oldFile.allocatedSize
         }
-        #expect(model.discardPile.snapshotID == newSnapshot.id)
         #expect(model.discardPile.nodeIDs == [newFile.id])
         #expect(model.discardPileSnapshot.summary.totalAllocatedSize == newFile.allocatedSize)
     }
@@ -1346,15 +1347,15 @@ struct AppModelDependencyTests {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
-        let first = makeTestFileNode(id: "/selection/first.bin", name: "first.bin", size: 40)
-        let second = makeTestFileNode(id: "/selection/second.bin", name: "second.bin", size: 60)
+        let first = makeTestFileNode(id: "/selection/first.bin", name: "first.bin", size: 40, fileIdentity: FileIdentity(device: 1, inode: 1))
+        let second = makeTestFileNode(id: "/selection/second.bin", name: "second.bin", size: 60, fileIdentity: FileIdentity(device: 1, inode: 2))
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
         model.scanState.replaceCurrentSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([first, second])
-        #expect(model.requestMoveDiscardPileToTrash())
+        #expect(await model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
 
         try await probe.waitUntilStarted()
@@ -1619,7 +1620,7 @@ struct AppModelDependencyTests {
 
         #expect(recorder.movedToTrashURLs.isEmpty)
         #expect(model.pendingTrashSelection == nil)
-        #expect(model.pendingCloudFileAction?.kind == .moveToTrash(allowsHiddenNodes: false))
+        #expect(model.pendingCloudFileAction?.kind == .moveToTrash)
         #expect(model.pendingCloudFileAction?.cloudImpact == .storedInCloud)
 
         model.confirmPendingCloudFileAction()
@@ -1664,7 +1665,6 @@ struct AppModelDependencyTests {
         }
         #expect(model.scanState.snapshot?.treeStore.node(id: queued.id) != nil)
         #expect(model.discardPile.nodeIDs == [queued.id])
-        #expect(model.discardPile.snapshotID == snapshot.id)
     }
 
     @Test
@@ -1705,7 +1705,6 @@ struct AppModelDependencyTests {
             model.scanState.snapshot?.treeStore.node(id: visible.id) == nil
         }
         #expect(model.discardPile.nodeIDs == [firstQueued.id, secondQueued.id])
-        #expect(model.discardPile.snapshotID == snapshot.id)
     }
 
     @Test
@@ -1905,7 +1904,6 @@ struct AppModelDependencyTests {
         model.removeDiscardPileNodes(ids: [first.id, third.id])
 
         #expect(model.discardPile.nodeIDs == [second.id])
-        #expect(model.discardPile.snapshotID == snapshot.id)
         #expect(publicationCount == 1)
     }
 
@@ -1963,24 +1961,22 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testEmptyDiscardPileHistoryClearsForNewScanAndChangedTree() throws {
+    func testDiscardPileHistorySurvivesSnapshotChanges() throws {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model)
         #expect(model.addNodesToDiscardPile([file]))
         model.clearDiscardPile()
-        #expect(model.canUndoDiscardPileChange)
         let existing = try #require(model.scanState.snapshot)
-        let changed = try #require(existing.removingNode(id: file.id))
-        #expect(changed.id == existing.id)
-        model.scanState.replaceCurrentSnapshot(changed)
-        #expect(!(model.discardPileUndoManager.canUndo))
-        #expect(!(model.discardPileUndoManager.canRedo))
-        let replacement = installSelection(on: model)
-        #expect(model.addNodesToDiscardPile([replacement]))
-        model.clearDiscardPile()
+        model.scanState.replaceCurrentSnapshot(existing.removingNode(id: file.id))
         #expect(model.canUndoDiscardPileChange)
+        model.undoDiscardPileChange()
+        #expect(model.discardPileSnapshot.nodes == [file])
+        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+
         installSelection(on: model)
-        #expect(!(model.discardPileUndoManager.canUndo))
+        #expect(model.canRedoDiscardPileChange)
+        model.redoDiscardPileChange()
+        #expect(model.discardPile.isEmpty)
     }
 
     @Test
@@ -2027,27 +2023,58 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileAddDefersLivePathValidationUntilTrashRequest() {
-        var fileExistsCallCount = 0
+    func testDiscardPileAddDefersLivePathValidationUntilTrashRequest() async {
+        let verified = OSAllocatedUnfairLock(initialState: [FileNodeRecord]())
         var actions = AppSystemActions.inert
-        actions.fileExists = { _ in
-            fileExistsCallCount += 1
-            return false
+        actions.verifyTrashIdentity = { node in
+            verified.withLock { $0.append(node) }
+            return .missingCurrentItem
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
+        let file = installSelection(
+            on: model,
+            file: makeTestFileNode(id: "/selection/file.txt", name: "file.txt", fileIdentity: FileIdentity(device: 1, inode: 1))
+        )
 
-        let didAdd = model.addNodesToDiscardPile([file])
+        #expect(model.addNodesToDiscardPile([file]))
+        #expect(verified.withLock { $0.isEmpty })
 
-        #expect(didAdd)
-        #expect(model.discardPile.nodeIDs == [file.id])
-        #expect(fileExistsCallCount == 0)
+        #expect(await model.requestMoveDiscardPileToTrash())
+        #expect(verified.withLock { $0 } == [file])
+        #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
+        #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [file])
+        #expect(model.discardPileSnapshot.nodes == [file])
+    }
 
-        let didRequestTrash = model.requestMoveDiscardPileToTrash()
+    @Test
+    func testDismissingDiscardPileReviewCancelsPreparation() async throws {
+        let verifierStarted = OSAllocatedUnfairLock(initialState: false)
+        let verifierGate = DispatchSemaphore(value: 0)
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { _ in
+            verifierStarted.withLock { $0 = true }
+            _ = verifierGate.wait(timeout: .now() + 5)
+            return .matches
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let file = installSelection(
+            on: model,
+            file: makeTestFileNode(id: "/selection/file.txt", name: "file.txt", fileIdentity: FileIdentity(device: 1, inode: 1))
+        )
+        try #require(model.addNodesToDiscardPile([file]))
+        model.presentDiscardPileReview()
+        let preparation = Task { await model.requestMoveDiscardPileToTrash() }
+        defer { verifierGate.signal() }
 
-        #expect(!(didRequestTrash))
-        #expect(fileExistsCallCount == 1)
-        #expect(model.discardPile.nodeIDs == [file.id])
+        try await waitUntil("discard pile verifier starts") { verifierStarted.withLock { $0 } }
+        #expect(model.isPreparingDiscardPileTrash)
+        model.dismissDiscardPileReview()
+        verifierGate.signal()
+
+        #expect(!(await preparation.value))
+        #expect(!model.isPreparingDiscardPileTrash)
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.discardPileSnapshot.nodes == [file])
     }
 
     @Test
@@ -2370,7 +2397,7 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileClearsWhenActiveSnapshotIsReplaced() {
+    func testDiscardPileReviewSurvivesActiveSnapshotReplacement() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -2389,7 +2416,7 @@ struct AppModelDependencyTests {
         let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
         model.scanState.replaceCurrentSnapshot(secondSnapshot)
 
-        #expect(model.discardPile.isEmpty)
+        #expect(model.discardPileSnapshot.nodes == [firstFile])
         #expect(model.workspaceHiddenNodeIDs.isEmpty)
     }
 
@@ -2404,7 +2431,7 @@ struct AppModelDependencyTests {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
-        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child], fileIdentity: FileIdentity(device: 1, inode: 1))
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
         let store = FileTreeStore(
             root: root,
@@ -2418,7 +2445,7 @@ struct AppModelDependencyTests {
         model.addNodesToDiscardPile([child])
         model.addNodesToDiscardPile([folder])
 
-        let didRequestTrash = model.requestMoveDiscardPileToTrash()
+        let didRequestTrash = await model.requestMoveDiscardPileToTrash()
 
         #expect(didRequestTrash)
         #expect(model.pendingTrashSelection?.nodes.map(\.id) == [folder.id])
@@ -2434,7 +2461,50 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileReconcilesUnavailableQueuedIDsOut() {
+    func testDiscardPilePreviewsFrozenCrossLocationBatchAndKeepsFailedSuffix() async throws {
+        let first = makeTestFileNode(
+            id: "/first/file", name: "file", size: 10, fileIdentity: FileIdentity(device: 1, inode: 1)
+        )
+        let failed = makeTestFileNode(
+            id: "/second/failed", name: "failed", size: 20, fileIdentity: FileIdentity(device: 1, inode: 2)
+        )
+        let unattempted = makeTestFileNode(
+            id: "/second/unattempted", name: "unattempted", size: 30, fileIdentity: FileIdentity(device: 1, inode: 3)
+        )
+        var attempted: [FileNodeRecord] = []
+        var actions = AppSystemActions.inert
+        actions.moveToTrash = { node in
+            attempted.append(node)
+            return node == failed ? .mismatch : .matches
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+
+        func display(_ rootID: String, nodes: [FileNodeRecord]) {
+            let root = makeTestDirectoryNode(id: rootID, name: rootID, children: nodes)
+            let tree = FileTreeStore(root: root, childrenByID: [root.id: nodes])
+            model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: tree))
+        }
+
+        display("/first", nodes: [first])
+        try #require(model.addNodesToDiscardPile([first]))
+        display("/second", nodes: [failed, unattempted])
+        try #require(model.addNodesToDiscardPile([failed, unattempted]))
+        #expect(model.discardPileSnapshot.nodes == [first, failed, unattempted])
+        #expect(model.workspaceHiddenNodeIDs == [failed.id, unattempted.id])
+
+        try #require(await model.requestMoveDiscardPileToTrash())
+        #expect(model.pendingTrashSelection?.nodes == [first, failed, unattempted])
+        #expect(attempted.isEmpty)
+
+        model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("cross-location Trash reports its failed item") { model.lastErrorMessage != nil }
+        #expect(attempted == [first, failed])
+        #expect(model.discardPileSnapshot.nodes == [failed, unattempted])
+        #expect(model.usageStats.bytesMovedToTrash == first.allocatedSize)
+    }
+
+    @Test
+    func testDiscardPileKeepsMarksMissingFromCurrentTree() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -2463,7 +2533,7 @@ struct AppModelDependencyTests {
         )
         model.scanState.replaceCurrentSnapshot(updatedSnapshot)
 
-        #expect(model.discardPile.nodeIDs == [first.id])
+        #expect(model.discardPileSnapshot.nodes == [first, second])
     }
 
     @Test
@@ -3535,7 +3605,7 @@ struct AppModelDependencyTests {
             model.clearSelection()
         case .hidden:
             model.trashFlow.replaceDiscardPile(
-                DiscardPileState(nodeIDs: [node.id], snapshotID: current.id)
+                DiscardPileState(marks: [.init(node: node, treeID: current.treeStore.contentID)])
             )
         case .removed:
             let removed = try #require(current.removingNode(id: node.id))

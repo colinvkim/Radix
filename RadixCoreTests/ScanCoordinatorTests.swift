@@ -1386,7 +1386,7 @@ struct ScanCoordinatorTests {
                 store: store
             ))
 
-        let didRemove = await coordinator.removeNodesFromCurrentSnapshot(ids: [first.id, second.id])
+        let didRemove = await coordinator.removeNodesFromCurrentSnapshot([first, second])
         let batches = await transformService.recordedRemovingNodeIDBatches()
 
         #expect(didRemove)
@@ -1414,10 +1414,10 @@ struct ScanCoordinatorTests {
             ))
 
         let firstRemoval = Task { @MainActor in
-            await coordinator.removeNodesFromCurrentSnapshot(ids: [first.id])
+            await coordinator.removeNodesFromCurrentSnapshot([first])
         }
         try await transformService.waitUntilPaused()
-        let didRemoveSecond = await coordinator.removeNodesFromCurrentSnapshot(ids: [second.id])
+        let didRemoveSecond = await coordinator.removeNodesFromCurrentSnapshot([second])
         await transformService.resume()
         let didRemoveFirst = await firstRemoval.value
         let batches = await transformService.recordedRemovalBatches()
@@ -1428,6 +1428,62 @@ struct ScanCoordinatorTests {
         #expect(coordinator.snapshot?.treeStore.node(id: first.id) == nil)
         #expect(coordinator.snapshot?.treeStore.node(id: second.id) == nil)
         #expect(coordinator.snapshot?.treeStore.node(id: retained.id) != nil)
+    }
+
+    @Test
+    func testConfirmedTrashRemovalRetriesAfterRescanChangesIdentityEncoding() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let target = ScanTarget(url: fixture)
+        let folder = ScanTarget(url: fixture.appending(path: "folder", directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
+        let file = folder.url.appending(path: "moved.dat")
+        try Data([1]).write(to: file)
+        let loader = ScanMetadataLoader()
+        let inode = try loader.fileSystemIdentity(at: file)
+        let resource = try #require(loader.metadata(for: file).fileIdentity)
+        try #require(inode.isFileSystemIdentity != resource.isFileSystemIdentity)
+        let originalFile = makeTestFileNode(id: file.path, name: "moved.dat", fileIdentity: inode)
+        let alternateFile = makeTestFileNode(id: file.path, name: "moved.dat", fileIdentity: resource)
+        try #require(SystemIntegration.verifyTrashIdentity(originalFile) == .matches)
+        try #require(SystemIntegration.verifyTrashIdentity(alternateFile) == .matches)
+        let folderRoot = makeTestDirectoryNode(id: folder.id, name: folder.displayName, children: [originalFile])
+        let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [folderRoot])
+        let tree = FileTreeStore(root: root, childrenByID: [root.id: [folderRoot], folder.id: [originalFile]])
+        let baseline = makeCoordinatorSnapshot(target: target, root: root, store: tree, scanOptions: ScanOptions())
+        let alternateRoot = makeTestDirectoryNode(id: folder.id, name: folder.displayName, children: [alternateFile])
+        let alternateScan = makeCoordinatorSnapshot(
+            target: folder, root: alternateRoot,
+            store: FileTreeStore(root: alternateRoot, childrenByID: [folder.id: [alternateFile]])
+        )
+
+        let service = ControlledScanService()
+        let transformer = PausingSnapshotTransformService(pausedRemovalID: originalFile.id)
+        defer { Task { await transformer.resume() } }
+        let coordinator = ScanCoordinator(scanService: service, snapshotTransformService: transformer)
+        coordinator.restoreCompletedSnapshot(baseline)
+        try #require(coordinator.rescanFolder(id: folder.id))
+
+        try FileManager.default.moveItem(at: file, to: fixture.appending(path: "moved-fixture"))
+        let removal = Task { @MainActor in
+            await coordinator.removeNodesFromCurrentSnapshot([originalFile]) { moved, current in
+                moved.fileIdentity == current.fileIdentity
+                    || SystemIntegration.verifyTrashIdentity(current) == .missingCurrentItem
+            }
+        }
+        try await transformer.waitUntilPaused()
+
+        service.yield(.finished(alternateScan), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("subtree rescan publishes stale alternate file", timeout: 5) {
+            coordinator.snapshot?.treeStore.node(id: file.path)?.fileIdentity == resource
+        }
+
+        await transformer.resume()
+        let didRemove = await removal.value
+        #expect(didRemove)
+        try #require(!FileManager.default.fileExists(atPath: file.path))
+        #expect(coordinator.snapshot?.treeStore.node(id: file.path) == nil)
     }
 
     @Test
@@ -1447,7 +1503,7 @@ struct ScanCoordinatorTests {
         coordinator.replaceCurrentSnapshot(originalSnapshot)
 
         let removal = Task { @MainActor in
-            await coordinator.removeNodesFromCurrentSnapshot(ids: [removed.id])
+            await coordinator.removeNodesFromCurrentSnapshot([removed])
         }
         try await transformService.waitUntilPaused()
 
@@ -1515,7 +1571,7 @@ struct ScanCoordinatorTests {
         scanService.finish(scanIndex: 0)
         try await transformService.waitUntilPaused()
 
-        let didRemove = await coordinator.removeNodesFromCurrentSnapshot(ids: [removed.id])
+        let didRemove = await coordinator.removeNodesFromCurrentSnapshot([removed])
         await transformService.resume()
         try await waitUntil("expansion retry") {
             expansionResult != nil
@@ -1665,6 +1721,509 @@ struct ScanCoordinatorTests {
         #expect(model.scanState.snapshot?.target == firstTarget)
         #expect(model.navigation.focusedNodeID == firstSnapshot.root.id)
         #expect(model.sidebar.activeTargetID == firstTarget.id)
+    }
+
+    @Test(arguments: [false, true])
+    func testAppModelRestoresDiscardPileWhenReturningToSidebarTarget(rescansOnReturn: Bool) async throws {
+        let service = ControlledScanService()
+        let firstTarget = makeCoordinatorTarget("/app/sidebar/first")
+        let secondTarget = makeCoordinatorTarget("/app/sidebar/second")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service,
+                systemActions: makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget])
+            ),
+            completedScanCacheMaxTotalNodeCount: rescansOnReturn ? 1 : 100
+        )
+        let kept = makeTestFileNode(
+            id: firstTarget.id + "/kept.txt", name: "kept.txt", fileIdentity: FileIdentity(device: 1, inode: 1)
+        )
+        let replaced = makeTestFileNode(
+            id: firstTarget.id + "/replaced.txt", name: "replaced.txt", fileIdentity: FileIdentity(device: 1, inode: 2)
+        )
+        let replacement = makeTestFileNode(
+            id: replaced.id, name: replaced.name, fileIdentity: FileIdentity(device: 1, inode: 3)
+        )
+        func firstSnapshot(with files: [FileNodeRecord]) -> ScanSnapshot {
+            let root = makeTestDirectoryNode(id: firstTarget.id, name: firstTarget.displayName, children: files)
+            let store = FileTreeStore(root: root, childrenByID: [root.id: files])
+            return makeCoordinatorSnapshot(target: firstTarget, root: root, store: store)
+        }
+
+        model.selectSidebarTarget(id: firstTarget.id)
+        try await waitUntil("first sidebar scan request") { service.requests.count == 1 }
+        service.yield(.finished(firstSnapshot(with: [kept, replaced])), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("first sidebar scan finished") { model.scanState.snapshot?.target == firstTarget }
+        try #require(model.addNodesToDiscardPile([kept, replaced]))
+
+        model.selectSidebarTarget(id: secondTarget.id)
+        try await waitUntil("second sidebar scan request") { service.requests.count == 2 }
+        service.yield(.finished(makeCoordinatorSnapshot(target: secondTarget)), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("second sidebar scan finished") { model.scanState.snapshot?.target == secondTarget }
+        #expect(model.discardPileSnapshot.nodes == [kept, replaced])
+        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+
+        model.selectSidebarTarget(id: firstTarget.id)
+        if rescansOnReturn {
+            try await waitUntil("first sidebar target rescanned") { service.requests.count == 3 }
+            service.yield(.finished(firstSnapshot(with: [kept, replacement])), scanIndex: 2)
+            service.finish(scanIndex: 2)
+        }
+        try await waitUntil("first sidebar target restored") { model.scanState.snapshot?.target == firstTarget }
+
+        let expectedIDs = rescansOnReturn ? [kept.id] : [kept.id, replaced.id]
+        #expect(model.discardPileSnapshot.nodes == [kept, replaced])
+        #expect(model.workspaceHiddenNodeIDs == Set(expectedIDs))
+    }
+
+    @Test(arguments: [false, true])
+    func testMovedSummarizedAncestorClearsDisplayedDescendant(recreated: Bool) async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let parent = ScanTarget(url: fixture.appending(path: "parent", directoryHint: .isDirectory))
+        let cacheURL = parent.url.appending(path: "intermediate/cache", directoryHint: .isDirectory)
+        let child = ScanTarget(url: cacheURL.appending(path: "child", directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: child.url, withIntermediateDirectories: true)
+        let fileURL = child.url.appending(path: "file")
+        try Data([1]).write(to: fileURL)
+        let loader = ScanMetadataLoader()
+        let summarized = FileNodeRecord(
+            id: cacheURL.path, url: cacheURL, name: "cache", isDirectory: true,
+            isSymbolicLink: false, allocatedSize: 20, logicalSize: 20, descendantFileCount: 1, lastModified: nil,
+            fileIdentity: try loader.fileSystemIdentity(at: cacheURL),
+            isPackage: false, isAccessible: true, isSelfAccessible: true, isSynthetic: false, isAutoSummarized: true
+        )
+        let intermediate = makeTestDirectoryNode(
+            id: cacheURL.deletingLastPathComponent().path, name: "intermediate", children: [summarized]
+        )
+        let parentRoot = makeTestDirectoryNode(id: parent.id, name: parent.displayName, children: [intermediate])
+        let parentStore = FileTreeStore(root: parentRoot, childrenByID: [parent.id: [intermediate], intermediate.id: [summarized]])
+        let parentSnapshot = makeCoordinatorSnapshot(target: parent, root: parentRoot, store: parentStore)
+        let file = makeTestFileNode(id: fileURL.path, name: "file", fileIdentity: try loader.fileSystemIdentity(at: fileURL))
+        let childRoot = makeTestDirectoryNode(
+            id: child.id, name: child.displayName, children: [file], fileIdentity: try loader.fileSystemIdentity(at: child.url)
+        )
+        let childStore = FileTreeStore(root: childRoot, childrenByID: [child.id: [file]])
+        let childSnapshot = makeCoordinatorSnapshot(target: child, root: childRoot, store: childStore)
+        let service = ControlledScanService()
+
+        let move = PausedFixtureTrashMove(destination: fixture.appending(path: "moved-directory"))
+        var actions = makeCoordinatorSidebarActions(targets: [parent, child])
+        actions.fileExists = { FileManager.default.fileExists(atPath: $0.path) }
+        actions.verifyTrashIdentity = { SystemIntegration.verifyTrashIdentity($0) }
+        actions.moveToTrash = { node in
+            let result = try await move.perform(node)
+            if result == .matches, recreated {
+                try FileManager.default.createDirectory(at: child.url, withIntermediateDirectories: true)
+            }
+            return result
+        }
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
+        defer {
+            move.cancel()
+            model.cleanup()
+        }
+        model.selectSidebarTarget(id: parent.id)
+        try await waitUntil("parent scan starts", timeout: 5) { service.requests.count == 1 }
+        service.yield(.finished(parentSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("parent scan publishes", timeout: 5) { model.scanState.snapshot?.id == parentSnapshot.id }
+        try #require(model.requestMoveNodesToTrash([summarized]))
+        model.confirmMovePendingSelectionToTrash()
+        try await move.waitUntilStarted()
+
+        model.selectSidebarTarget(id: child.id)
+        try await waitUntil("child scan starts", timeout: 5) { service.requests.count == 2 }
+        service.yield(.finished(childSnapshot), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("child scan publishes", timeout: 5) { model.scanState.snapshot?.id == childSnapshot.id }
+
+        move.finish()
+        try await waitUntil("move finishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try #require(FileManager.default.fileExists(atPath: child.id) == recreated)
+        if recreated {
+            let replacementIdentity = try loader.fileSystemIdentity(at: child.url)
+            try #require(replacementIdentity != childRoot.fileIdentity)
+        }
+        #expect(model.scanState.snapshot == nil)
+    }
+
+    @Test
+    func testContainedNavigationCanUseUpdatedTreeAfterTrash() async throws {
+        let service = ControlledScanService()
+        let parent = makeCoordinatorTarget("/review-again/cache/parent")
+        let child = makeCoordinatorTarget(parent.id + "/child")
+        let initial = makeCoordinatorHomeSnapshot(target: parent, downloadsTarget: child, rootName: "parent")
+        let removed = try #require(initial.treeStore.node(id: parent.id + "/notes.txt"))
+        var actions = makeCoordinatorSidebarActions(targets: [parent, child])
+        actions.fileExists = { _ in true }
+        actions.moveToTrash = { _ in .matches }
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
+        defer { model.cleanup() }
+
+        model.selectSidebarTarget(id: parent.id)
+        try await waitUntil("parent scan starts", timeout: 5) { service.requests.count == 1 }
+        service.yield(.finished(initial), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("parent scan publishes", timeout: 5) { model.scanState.snapshot?.id == initial.id }
+
+        try #require(model.requestMoveNodesToTrash([removed]))
+        model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("tree no longer contains moved node", timeout: 5) {
+            model.scanState.snapshot?.id == initial.id && model.scanState.fileTreeStore?.node(id: removed.id) == nil
+        }
+
+        model.selectSidebarTarget(id: child.id)
+        try await waitUntil("child display or fresh scan", timeout: 5) {
+            model.scanState.snapshot?.target == child || service.requests.count > 1
+        }
+        #expect(service.requests.count == 1)
+        #expect(model.scanState.snapshot?.target == child)
+    }
+
+    @Test
+    func testTrashCompletingBeforeOverlappingFullScanPublishes() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let parent = ScanTarget(url: fixture.appending(path: "parent", directoryHint: .isDirectory))
+        let child = ScanTarget(url: parent.url.appending(path: "child", directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: child.url, withIntermediateDirectories: true)
+        let fileURL = child.url.appending(path: "marked.txt")
+        try Data([1]).write(to: fileURL)
+        let identity = try ScanMetadataLoader().fileSystemIdentity(at: fileURL)
+        let marked = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: identity)
+        let childRoot = makeTestDirectoryNode(id: child.id, name: child.displayName, children: [marked])
+        let childStore = FileTreeStore(root: childRoot, childrenByID: [child.id: [marked]])
+        let childSnapshot = makeCoordinatorSnapshot(target: child, root: childRoot, store: childStore)
+        let parentRoot = makeTestDirectoryNode(id: parent.id, name: parent.displayName, children: [childRoot])
+        let parentStore = FileTreeStore(root: parentRoot, childrenByID: [parent.id: [childRoot], child.id: [marked]])
+        let parentSnapshot = makeCoordinatorSnapshot(target: parent, root: parentRoot, store: parentStore)
+        let service = ControlledScanService()
+
+        let move = PausedFixtureTrashMove(destination: fixture.appending(path: "moved-file"))
+        var actions = makeCoordinatorSidebarActions(targets: [parent, child])
+        actions.fileExists = { FileManager.default.fileExists(atPath: $0.path) }
+        actions.moveToTrash = move.perform
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
+        defer {
+            move.cancel()
+            model.cleanup()
+        }
+        model.selectSidebarTarget(id: child.id)
+        try await waitUntil("child scan starts", timeout: 5) { service.requests.count == 1 }
+        service.yield(.finished(childSnapshot), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("child scan publishes", timeout: 5) { model.scanState.snapshot?.id == childSnapshot.id }
+        try #require(model.addNodesToDiscardPile([marked]))
+        try #require(await model.requestMoveDiscardPileToTrash())
+        model.confirmMovePendingSelectionToTrash()
+        try await move.waitUntilStarted()
+
+        model.selectSidebarTarget(id: parent.id)
+        try await waitUntil("parent scan reads file before move finishes", timeout: 5) { service.requests.count == 2 }
+        try #require(model.scanState.snapshot == nil)
+        move.finish()
+        try await waitUntil("move finishes before scan publishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try #require(!FileManager.default.fileExists(atPath: fileURL.path))
+
+        service.yield(.finished(parentSnapshot), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("parent scan publishes or restarts", timeout: 5) {
+            model.scanState.snapshot?.target == parent || service.requests.count > 2
+        }
+        if service.requests.count == 3 {
+            let refreshed = try #require(parentSnapshot.removingNode(id: marked.id))
+            service.yield(.finished(refreshed), scanIndex: 2)
+            service.finish(scanIndex: 2)
+        }
+        try await waitUntil("parent scan is displayed", timeout: 5) {
+            model.scanState.snapshot?.target == parent
+        }
+        #expect(model.scanState.snapshot?.treeStore.node(id: marked.id) == nil)
+    }
+
+    @Test
+    func testTrashRestartsInFlightFullFallbackWithoutRepublishingMovedFile() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let target = ScanTarget(url: fixture)
+        let child = ScanTarget(url: fixture.appending(path: "Changed", directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: child.url, withIntermediateDirectories: true)
+        let fileURL = fixture.appending(path: "marked.txt")
+        try Data([1]).write(to: fileURL)
+        let identity = try ScanMetadataLoader().fileSystemIdentity(at: fileURL)
+        let moved = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: identity)
+        let keptURL = fixture.appending(path: "kept.txt")
+        try Data([2]).write(to: keptURL)
+        let kept = makeTestFileNode(
+            id: keptURL.path, name: "kept.txt", fileIdentity: try ScanMetadataLoader().fileSystemIdentity(at: keptURL)
+        )
+        let cloneIdentity = CloneIdentity(device: 1, cloneID: 42)
+        let clone = makeTestFileNode(
+            id: child.id + "/shared.dat", name: "shared.dat", size: 20,
+            cloneIdentity: cloneIdentity, mayShareDataBlocks: true
+        )
+        let siblingClone = makeTestFileNode(
+            id: target.id + "/shared.dat", name: "shared.dat", size: 0, unduplicatedAllocatedSize: 20,
+            cloneIdentity: cloneIdentity, mayShareDataBlocks: true
+        )
+        let childRoot = makeTestDirectoryNode(id: child.id, name: child.displayName, children: [clone])
+        let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [childRoot, siblingClone, moved, kept])
+        let tree = FileTreeStore(root: root, childrenByID: [root.id: [childRoot, siblingClone, moved, kept], childRoot.id: [clone]])
+        let options = ScanOptions()
+        let baseline = makeCoordinatorSnapshot(target: target, root: root, store: tree, scanOptions: options)
+        let staleFullScan = makeCoordinatorSnapshot(target: target, root: root, store: tree, scanOptions: options)
+        let service = ControlledScanService()
+        let move = PausedFixtureTrashMove(destination: fixture.appending(path: "moved-file"))
+        var actions = makeCoordinatorSidebarActions(targets: [target])
+        actions.fileExists = { FileManager.default.fileExists(atPath: $0.path) }
+        actions.moveToTrash = move.perform
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
+        defer {
+            move.cancel()
+            model.cleanup()
+        }
+        model.selectSidebarTarget(id: target.id)
+        try await waitUntil("initial scan starts", timeout: 5) { service.requests.count == 1 }
+        service.yield(.finished(baseline), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("initial scan publishes", timeout: 5) { model.scanState.snapshot?.id == baseline.id }
+        try #require(model.addNodesToDiscardPile([kept]))
+        try #require(model.requestMoveNodesToTrash([moved]))
+        model.confirmMovePendingSelectionToTrash()
+        try await move.waitUntilStarted()
+        try #require(model.scanState.rescanFolder(id: child.id))
+        let changed = makeTestFileNode(
+            id: clone.id, name: clone.name, size: 40, cloneIdentity: cloneIdentity, mayShareDataBlocks: true
+        )
+        let changedRoot = makeTestDirectoryNode(id: child.id, name: child.displayName, children: [changed])
+        let replacement = makeCoordinatorSnapshot(
+            target: child, root: changedRoot, store: FileTreeStore(root: changedRoot, childrenByID: [child.id: [changed]])
+        )
+        service.yield(.finished(replacement), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("manual rescan falls back to a full scan", timeout: 5) {
+            service.requests.count == 3 && model.scanState.progress.executionMode == .fullFallback(.sharedAllocationTopologyChanged)
+        }
+        try #require(model.scanState.snapshot?.id == baseline.id)
+
+        move.finish()
+        try await waitUntil("move finishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try #require(!FileManager.default.fileExists(atPath: moved.id))
+        service.yield(.finished(staleFullScan), scanIndex: 2)
+        service.finish(scanIndex: 2)
+        try await waitUntil("full scan finishes or restarts", timeout: 5) {
+            !model.scanState.isScanOperationInProgress || service.requests.count > 3
+        }
+        if service.requests.count == 4 {
+            let refreshed = try #require(staleFullScan.removingNode(id: moved.id))
+            service.yield(.finished(refreshed), scanIndex: 3)
+            service.finish(scanIndex: 3)
+        }
+        try await waitUntil("updated scan publishes", timeout: 5) { model.scanState.phase == .displaying }
+        #expect(model.scanState.snapshot?.treeStore.node(id: moved.id) == nil)
+        #expect(model.discardPileSnapshot.nodes.map(\.id) == [kept.id])
+    }
+
+    @Test
+    func testCompletedTrashUpdatesOverlappingSidebarView() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let parent = ScanTarget(url: fixture.appending(path: "parent", directoryHint: .isDirectory))
+        let scope = ScanTarget(url: parent.url.appending(path: "scope", directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: scope.url, withIntermediateDirectories: true)
+        let fileURL = scope.url.appending(path: "marked.txt")
+        try Data([1]).write(to: fileURL)
+        let identity = try ScanMetadataLoader().fileSystemIdentity(at: fileURL)
+        let marked = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: identity)
+        let scopedRoot = makeTestDirectoryNode(id: scope.id, name: scope.displayName, children: [marked])
+        let root = makeTestDirectoryNode(id: parent.id, name: parent.displayName, children: [scopedRoot])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [scopedRoot], scopedRoot.id: [marked]])
+        let initial = makeCoordinatorSnapshot(target: parent, root: root, store: store)
+        let service = ControlledScanService()
+
+        let move = PausedFixtureTrashMove(destination: fixture.appending(path: "moved-file"))
+        var actions = makeCoordinatorSidebarActions(targets: [parent, scope])
+        actions.fileExists = { FileManager.default.fileExists(atPath: $0.path) }
+        actions.moveToTrash = move.perform
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
+        defer {
+            move.cancel()
+            model.cleanup()
+        }
+
+        model.selectSidebarTarget(id: parent.id)
+        try await waitUntil("parent scan request", timeout: 5) { service.requests.count == 1 }
+        service.yield(.finished(initial), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("parent finishes", timeout: 5) { model.scanState.snapshot?.id == initial.id }
+
+        model.selectSidebarTarget(id: scope.id)
+        try await waitUntil("scope displays", timeout: 5) { model.scanState.snapshot?.target == scope }
+        try #require(model.addNodesToDiscardPile([marked]))
+
+        model.selectSidebarTarget(id: parent.id)
+        try await waitUntil("parent displays", timeout: 5) { model.scanState.snapshot?.id == initial.id }
+        try #require(model.addNodesToDiscardPile([marked]))
+        try #require(await model.requestMoveDiscardPileToTrash())
+        model.confirmMovePendingSelectionToTrash()
+        try await move.waitUntilStarted()
+
+        model.selectSidebarTarget(id: scope.id)
+        try await waitUntil("scope displays again", timeout: 5) { model.scanState.snapshot?.target == scope }
+        try #require(model.discardPileSnapshot.nodes.map(\.id) == [marked.id])
+        try #require(model.workspaceHiddenNodeIDs.contains(marked.id))
+
+        move.finish()
+        try await waitUntil("confirmed move finishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try #require(!FileManager.default.fileExists(atPath: fileURL.path))
+        try #require(model.discardPileSnapshot.nodes.isEmpty)
+
+        if model.scanState.fileTreeStore?.node(id: marked.id) != nil {
+            #expect(model.workspaceHiddenNodeIDs.contains(marked.id))
+        }
+        try await waitUntil("moved file is removed from the overlapping scan", timeout: 5) {
+            model.scanState.fileTreeStore?.node(id: marked.id) == nil
+        }
+    }
+
+    @Test
+    func testRestoredMarkRejectsReplacementAfterFolderRefresh() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let target = ScanTarget(url: fixture.appending(path: "first", directoryHint: .isDirectory))
+        let other = ScanTarget(url: fixture.appending(path: "second", directoryHint: .isDirectory))
+        let folder = ScanTarget(url: target.url.appending(path: "Folder", directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
+        let fileURL = folder.url.appending(path: "marked.txt")
+        try Data([1]).write(to: fileURL)
+        let oldIdentity = try ScanMetadataLoader().fileSystemIdentity(at: fileURL)
+
+        let service = ControlledScanService()
+        var actions = makeCoordinatorSidebarActions(targets: [target, other])
+        actions.fileExists = { FileManager.default.fileExists(atPath: $0.path) }
+        actions.verifyTrashIdentity = SystemIntegration.verifyTrashIdentity
+        var preferences = AppPreferences.defaults
+        preferences.didCompleteOnboarding = true
+        let model = AppModel(dependencies: makeCoordinatorAppDependencies(
+            preferences: TestAppPreferencesStore(preferences: preferences), scanService: service, systemActions: actions
+        ))
+        defer { model.cleanup() }
+        let marked = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: oldIdentity)
+        let initialFolder = makeTestDirectoryNode(id: folder.id, name: folder.displayName, children: [marked])
+        let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [initialFolder])
+        let initial = makeCoordinatorSnapshot(
+            target: target, root: root,
+            store: FileTreeStore(root: root, childrenByID: [root.id: [initialFolder], initialFolder.id: [marked]]),
+            scanOptions: ScanOptions()
+        )
+        model.selectSidebarTarget(id: target.id)
+        try await waitUntil("initial scan request") { service.requests.count == 1 }
+        service.yield(.finished(initial), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("initial scan finishes") { model.scanState.snapshot?.id == initial.id }
+        try #require(model.addNodesToDiscardPile([marked]))
+
+        model.selectSidebarTarget(id: other.id)
+        try await waitUntil("other scan request") { service.requests.count == 2 }
+        service.yield(.finished(makeCoordinatorSnapshot(target: other)), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("other scan finishes") { model.scanState.snapshot?.target == other }
+
+        try FileManager.default.moveItem(at: fileURL, to: fixture.appending(path: "old-file"))
+        try Data([2]).write(to: fileURL)
+        let newIdentity = try ScanMetadataLoader().fileSystemIdentity(at: fileURL)
+        try #require(oldIdentity != newIdentity)
+
+        model.selectSidebarTarget(id: target.id)
+        try await waitUntil("initial snapshot restores from cache") { model.scanState.snapshot?.id == initial.id }
+        try #require(model.discardPileSnapshot.nodes.map(\.fileIdentity) == [oldIdentity])
+        try #require(model.scanState.refreshFolderInBackground(id: folder.id))
+        let replacement = makeTestFileNode(id: fileURL.path, name: marked.name, fileIdentity: newIdentity)
+        let replacementFolder = makeTestDirectoryNode(id: folder.id, name: folder.displayName, children: [replacement])
+        let replacementScan = makeCoordinatorSnapshot(
+            target: folder, root: replacementFolder,
+            store: FileTreeStore(root: replacementFolder, childrenByID: [replacementFolder.id: [replacement]])
+        )
+        service.yield(.finished(replacementScan), scanIndex: 2)
+        service.finish(scanIndex: 2)
+        try await waitUntil("replacement folder refresh publishes", timeout: 5) {
+            model.scanState.snapshot?.treeStore.node(id: marked.id)?.fileIdentity == newIdentity
+        }
+        try #require(model.scanState.snapshot?.id == initial.id)
+        #expect(model.discardPileSnapshot.nodes == [marked])
+        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+        #expect(await model.requestMoveDiscardPileToTrash())
+        #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
+        #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [marked])
+    }
+
+    @Test
+    func testTemporarilySummarizedFileRestoresWhenVisibleAgain() async throws {
+        let service = ControlledScanService()
+        let target = makeCoordinatorTarget("/review/summary/first")
+        let other = makeCoordinatorTarget("/review/summary/second")
+        let model = AppModel(
+            dependencies: makeCoordinatorAppDependencies(
+                scanService: service, systemActions: makeCoordinatorSidebarActions(targets: [target, other])
+            ),
+            completedScanCacheMaxTotalNodeCount: 1
+        )
+        defer { model.cleanup() }
+        let summarized = makeCoordinatorSummarizedDirectoryNode(id: target.id + "/parent/cache", name: "cache", size: 300)
+        let parent = makeTestDirectoryNode(id: target.id + "/parent", name: "parent", children: [summarized])
+        let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [parent])
+        let collapsed = FileTreeStore(root: root, childrenByID: [root.id: [parent], parent.id: [summarized]])
+        let marked = makeTestFileNode(
+            id: summarized.id + "/marked.txt", name: "marked.txt", size: 300,
+            fileIdentity: FileIdentity(device: 1, inode: 10)
+        )
+        let expanded = makeTestDirectoryNode(id: summarized.id, name: summarized.name, children: [marked])
+        let subtree = makeCoordinatorSnapshot(
+            target: makeCoordinatorTarget(summarized.id), root: expanded,
+            store: FileTreeStore(root: expanded, childrenByID: [expanded.id: [marked]])
+        )
+
+        model.selectSidebarTarget(id: target.id)
+        try await waitUntil("initial summary scan request") { service.requests.count == 1 }
+        service.yield(.finished(makeCoordinatorSnapshot(target: target, root: root, store: collapsed)), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        try await waitUntil("initial summary scan finishes") { model.scanState.snapshot?.target == target }
+        model.expandSummarizedNode(summarized) {}
+        try await waitUntil("initial expansion request") { service.requests.count == 2 }
+        service.yield(.finished(subtree), scanIndex: 1)
+        service.finish(scanIndex: 1)
+        try await waitUntil("marked file visible after initial expansion") {
+            model.scanState.fileTreeStore?.node(id: marked.id) != nil
+        }
+        try #require(model.addNodesToDiscardPile([marked]))
+
+        model.selectSidebarTarget(id: other.id)
+        try await waitUntil("other scan request") { service.requests.count == 3 }
+        service.yield(.finished(makeCoordinatorSnapshot(target: other)), scanIndex: 2)
+        service.finish(scanIndex: 2)
+        try await waitUntil("other scan finishes") { model.scanState.snapshot?.target == other }
+
+        model.selectSidebarTarget(id: target.id)
+        try await waitUntil("first target scans again after cache eviction") { service.requests.count == 4 }
+        service.yield(.finished(makeCoordinatorSnapshot(target: target, root: root, store: collapsed)), scanIndex: 3)
+        service.finish(scanIndex: 3)
+        try await waitUntil("fresh summary scan finishes") { model.scanState.snapshot?.target == target }
+        try #require(model.scanState.fileTreeStore?.node(id: summarized.id)?.isAutoSummarized == true)
+        try #require(model.scanState.fileTreeStore?.node(id: marked.id) == nil)
+        #expect(model.discardPileSnapshot.nodes == [marked])
+        #expect(!model.workspaceHiddenNodeIDs.contains(marked.id))
+
+        model.expandSummarizedNode(summarized) {}
+        try await waitUntil("second expansion request") { service.requests.count == 5 }
+        service.yield(.finished(subtree), scanIndex: 4)
+        service.finish(scanIndex: 4)
+        try await waitUntil("same file appears after second expansion") {
+            model.scanState.fileTreeStore?.node(id: marked.id)?.fileIdentity == marked.fileIdentity
+        }
+        #expect(model.discardPileSnapshot.nodes.map(\.id) == [marked.id])
     }
 
     @Test
@@ -3004,6 +3563,41 @@ private actor PausingSnapshotTransformService: ScanSnapshotTransforming {
         await withCheckedContinuation { continuation in
             resumeContinuation = continuation
         }
+    }
+}
+
+@MainActor
+private final class PausedFixtureTrashMove {
+    private let destination: URL
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(destination: URL) {
+        self.destination = destination
+    }
+
+    func perform(_ node: FileNodeRecord) async throws -> TrashIdentityVerificationResult {
+        let proceed = await withCheckedContinuation { continuation = $0 }
+        guard proceed else { throw CancellationError() }
+
+        let verification = SystemIntegration.verifyTrashIdentity(node)
+        if verification == .matches {
+            try FileManager.default.moveItem(at: node.url, to: destination)
+        }
+        return verification
+    }
+
+    func waitUntilStarted() async throws {
+        try await waitUntil("move is in flight", timeout: 5) { self.continuation != nil }
+    }
+
+    func finish() {
+        continuation?.resume(returning: true)
+        continuation = nil
+    }
+
+    func cancel() {
+        continuation?.resume(returning: false)
+        continuation = nil
     }
 }
 

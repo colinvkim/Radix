@@ -176,8 +176,10 @@ final class SidebarScanCacheController {
     private let completedScanCache: CompletedScanCache
     private var activeScanCacheKey: ScanCacheKey?
     private var displayedScanCacheKey: ScanCacheKey?
+    private var movedDisplayedNodes: (snapshotID: UUID, nodes: [FileNodeRecord])?
     private var sidebarScopeTask: Task<Void, Never>?
     private var sidebarScopeID: UUID?
+    private var cacheGeneration: UInt64 = 0
     private var transferGeneration: UInt64 = 0
     private var transferValidationByKey: [ScanCacheKey: FileTransferValidation] = [:]
     // Expansion can replace a scoped child's backing. Its original parent
@@ -199,7 +201,7 @@ final class SidebarScanCacheController {
     func resetTransientState() {
         cancelPendingSidebarTargetRestore()
         activeScanCacheKey = nil
-        displayedScanCacheKey = nil
+        clearDisplayedSnapshot()
     }
 
     func cancelPendingSidebarTargetRestore() {
@@ -214,9 +216,32 @@ final class SidebarScanCacheController {
 
     func clearDisplayedSnapshot() {
         displayedScanCacheKey = nil
+        movedDisplayedNodes = nil
+    }
+
+    func invalidateDisplayedNodes(_ nodes: [FileNodeRecord], in snapshot: ScanSnapshot) {
+        let previous = movedDisplayedNodes?.snapshotID == snapshot.id
+            ? movedDisplayedNodes?.nodes.filter { Self.contains($0, in: snapshot) } ?? []
+            : []
+        movedDisplayedNodes = (snapshot.id, previous + nodes)
+    }
+
+    private func isReusable(_ snapshot: ScanSnapshot) -> Bool {
+        guard let moved = movedDisplayedNodes else { return true }
+        if moved.snapshotID == snapshot.id && moved.nodes.contains(where: { Self.contains($0, in: snapshot) }) {
+            return false
+        }
+        movedDisplayedNodes = nil
+        return true
+    }
+
+    private static func contains(_ node: FileNodeRecord, in snapshot: ScanSnapshot) -> Bool {
+        guard let current = snapshot.treeStore.node(id: node.id) else { return false }
+        return current.fileIdentity == node.fileIdentity
     }
 
     func clearCache() {
+        cacheGeneration &+= 1
         completedScanCache.removeAll()
         transferValidationByKey.removeAll()
         containingKeyByScope.removeAll()
@@ -384,7 +409,7 @@ final class SidebarScanCacheController {
         let key = ScanCacheKey(target: target, options: options)
         activeScanCacheKey = key
         containingKeyByScope.removeValue(forKey: key)
-        displayedScanCacheKey = nil
+        clearDisplayedSnapshot()
     }
 
     func currentScanExclusionRootPath(currentSnapshot: ScanSnapshot?) -> String? {
@@ -403,7 +428,9 @@ final class SidebarScanCacheController {
             return
         }
 
-        completedScanCache.store(snapshot, for: cacheKey)
+        if isReusable(snapshot) {
+            completedScanCache.store(snapshot, for: cacheKey)
+        }
         displayedScanCacheKey = cacheKey
     }
 
@@ -418,6 +445,7 @@ final class SidebarScanCacheController {
         startScan: @escaping ScanStart
     ) -> Bool {
         let cacheKey = ScanCacheKey(target: target, options: options)
+        let currentSnapshot = currentSnapshot.flatMap { isReusable($0) ? $0 : nil }
         if let currentSnapshot,
            currentSnapshot.target.id == target.id,
            displayedScanCacheKey == cacheKey {
@@ -526,6 +554,7 @@ final class SidebarScanCacheController {
         let canonicalKey = containingKeyByScope[initialContainingKey] ?? initialContainingKey
         let canonicalVersion = completedScanCache.snapshot(for: canonicalKey).map(ScanCacheSnapshotVersion.init)
         let scopeID = UUID()
+        let scopeCacheGeneration = cacheGeneration
         sidebarScopeID = scopeID
         sidebarScopeTask = Task { @MainActor [weak self, snapshotTransformService] in
             do {
@@ -542,6 +571,11 @@ final class SidebarScanCacheController {
                     guard isCurrentSidebarScope(scopeID) else { return }
                     guard isTargetActive(target) else {
                         clearSidebarScope(scopeID)
+                        return
+                    }
+                    guard cacheGeneration == scopeCacheGeneration else {
+                        clearSidebarScope(scopeID)
+                        startScan(target)
                         return
                     }
                     let canonicalParent = completedScanCache.snapshot(for: canonicalKey)

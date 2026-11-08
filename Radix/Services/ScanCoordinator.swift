@@ -227,6 +227,13 @@ final class ScanCoordinator: ObservableObject {
         isScanOperationInProgress && folderRescanState?.isBackground != true
     }
 
+    var isFullScanInProgress: Bool {
+        guard isForegroundScanOperationInProgress else { return false }
+        if snapshot == nil { return true }
+        guard case .manualFolder = folderRescanState?.origin else { return false }
+        return progress.executionMode == .fullFallback(.sharedAllocationTopologyChanged)
+    }
+
     var canRescan: Bool {
         selectedTarget != nil && !isForegroundScanOperationInProgress
     }
@@ -564,22 +571,25 @@ final class ScanCoordinator: ObservableObject {
     }
 
     @discardableResult
-    func removeNodesFromCurrentSnapshot(ids nodeIDs: [FileNodeRecord.ID]) async -> Bool {
-        guard let initialSnapshot = snapshot else { return false }
-        let removalNodeIDs = initialSnapshot.treeStore.topLevelNodeIDs(from: nodeIDs)
-        guard !removalNodeIDs.isEmpty else { return false }
+    func removeNodesFromCurrentSnapshot(
+        _ nodes: [FileNodeRecord],
+        matching matchesMovedNode: (FileNodeRecord, FileNodeRecord) -> Bool = { $0.fileIdentity == $1.fileIdentity }
+    ) async -> Bool {
+        guard !nodes.isEmpty else { return false }
         let removalContextID = snapshotContextID
 
         do {
             while snapshotContextID == removalContextID {
                 try Task.checkCancellation()
                 guard let currentSnapshot = snapshot else { return false }
-                let currentRemovalNodeIDs = currentSnapshot.treeStore.topLevelNodeIDs(
-                    from: removalNodeIDs
-                )
-                if currentRemovalNodeIDs.isEmpty {
-                    return true
+                let treeStore = currentSnapshot.treeStore
+                let matchingIDs = nodes.compactMap { moved -> FileNodeRecord.ID? in
+                    guard let node = treeStore.node(id: moved.id),
+                          matchesMovedNode(moved, node) else { return nil }
+                    return node.id
                 }
+                let currentRemovalNodeIDs = treeStore.topLevelNodeIDs(from: matchingIDs)
+                guard !currentRemovalNodeIDs.isEmpty else { return false }
 
                 if let expandingNodeID,
                    currentRemovalNodeIDs.contains(where: {

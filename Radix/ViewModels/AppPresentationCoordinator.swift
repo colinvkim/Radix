@@ -14,6 +14,7 @@ final class AppPresentationCoordinator: ObservableObject {
         case onboarding
         case goToPath(GoToPathRequest)
         case discardPileReview
+        case discardPileTrashConfirmation
         case importPreview(URL)
         case comparisonSetup(UUID)
 
@@ -25,6 +26,8 @@ final class AppPresentationCoordinator: ObservableObject {
                 "onboarding"
             case .discardPileReview:
                 "discard-pile-review"
+            case .discardPileTrashConfirmation:
+                "discard-pile-trash-confirmation"
             case .importPreview(let url):
                 "import-preview-\(url.absoluteString)"
             case .comparisonSetup(let id):
@@ -37,6 +40,7 @@ final class AppPresentationCoordinator: ObservableObject {
             case .goToPath: .goToPath
             case .onboarding: .onboarding
             case .discardPileReview: .discardPileReview
+            case .discardPileTrashConfirmation: .discardPileTrashConfirmation
             case .importPreview: .importPreview
             case .comparisonSetup: .comparisonSetup
             }
@@ -78,6 +82,7 @@ final class AppPresentationCoordinator: ObservableObject {
         case goToPath
         case onboarding
         case discardPileReview
+        case discardPileTrashConfirmation
         case importPreview
         case comparisonSetup
         case error

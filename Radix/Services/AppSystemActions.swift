@@ -31,7 +31,7 @@ struct AppSystemActions {
     var presentImportScanPanel: () -> URL?
     var presentComparisonSnapshotPanel: () async -> URL?
     var fileExists: (URL) -> Bool
-    var verifyTrashIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
+    var verifyTrashIdentity: @Sendable (FileNodeRecord) -> TrashIdentityVerificationResult
     var isExistingDirectory: (URL) -> Bool
     var preferredSmartTargetIDs: () -> [String]
     var mountedVolumeEvents: () -> AnyPublisher<Void, Never>

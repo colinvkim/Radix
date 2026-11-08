@@ -52,9 +52,10 @@ struct AppModelFolderRefreshTests {
     func nativeFileDragPausesAutomaticRefreshAndPublicationUntilSessionsEnd() async throws {
         let fixture = AppFolderRefreshFixture()
         var actions = AppSystemActions.inert
+        let scannedTree = fixture.snapshot.treeStore
         actions.verifyTrashIdentity = { node in
             guard let scannedIdentity = node.fileIdentity else { return .missingScannedIdentity }
-            guard let currentIdentity = fixture.snapshot.treeStore.node(id: node.id)?.fileIdentity else {
+            guard let currentIdentity = scannedTree.node(id: node.id)?.fileIdentity else {
                 return .missingCurrentItem
             }
             return scannedIdentity == currentIdentity ? .matches : .mismatch
@@ -285,7 +286,8 @@ struct AppModelFolderRefreshTests {
         #expect(model.navigation.focusedNodeID == fixture.downloads.id)
         #expect(model.navigation.selectedNodeID == fixture.keptDownload.id)
         #expect(model.discardPile.nodeIDs == [fixture.markedDownload.id])
-        #expect(model.discardPile.snapshotID == fixture.snapshot.id)
+        #expect(model.workspaceHiddenNodeIDs.contains(fixture.markedDownload.id))
+
         #expect(model.scanState.snapshot?.treeStore.node(id: fixture.document.id) == fixture.document)
         #expect(model.scanState.scanCompletionNotice == nil)
         #expect(harness.scanner.requests.count == 1)

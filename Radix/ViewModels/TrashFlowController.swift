@@ -1,43 +1,96 @@
 import Combine
 import Foundation
 
-@MainActor
-final class TrashFlowController {
-    struct OptimisticTrashVisibilityState: Equatable, Sendable {
-        let nodeIDs: Set<FileNodeRecord.ID>
-        let snapshotID: UUID?
+struct DiscardPileState: Equatable, Sendable {
+    struct Mark: Equatable, Sendable {
+        let node: FileNodeRecord
+        let unidentifiedTreeID: UUID?
 
-        init(
-            nodeIDs: Set<FileNodeRecord.ID> = [],
-            snapshotID: UUID? = nil
-        ) {
-            self.nodeIDs = nodeIDs.isEmpty ? [] : nodeIDs
-            self.snapshotID = nodeIDs.isEmpty ? nil : snapshotID
+        init(node: FileNodeRecord, treeID: UUID? = nil) {
+            self.node = node
+            unidentifiedTreeID = node.fileIdentity == nil ? treeID : nil
+        }
+
+        func matches(_ current: FileNodeRecord, treeID: UUID) -> Bool {
+            guard node.id == current.id else { return false }
+            if node.fileIdentity == nil {
+                return unidentifiedTreeID == treeID && current.fileIdentity == nil
+            }
+            return Self.matchesIdentity(of: node, with: current)
+        }
+
+        static func matchesIdentity(of original: FileNodeRecord, with current: FileNodeRecord) -> Bool {
+            guard original.id == current.id else { return false }
+            if original.fileIdentity == current.fileIdentity { return true }
+            guard !original.isSymbolicLink, !current.isSymbolicLink,
+                  let first = original.fileIdentity, let second = current.fileIdentity,
+                  first.isFileSystemIdentity != second.isFileSystemIdentity else { return false }
+            return SystemIntegration.verifyTrashIdentity(original) == .matches
+                && SystemIntegration.verifyTrashIdentity(current) == .matches
+                && SystemIntegration.verifyTrashIdentity(original) == .matches
         }
     }
 
-    struct PendingTrashSelection {
-        let nodes: [FileNodeRecord]
-        let allowsHiddenNodes: Bool
+    let marks: [Mark]
 
-        init(
-            nodes: [FileNodeRecord],
-            allowsHiddenNodes: Bool = false
-        ) {
+    init(marks: [Mark] = []) {
+        self.marks = marks
+    }
+
+    var nodes: [FileNodeRecord] { marks.map(\.node) }
+    var nodeIDs: [FileNodeRecord.ID] { marks.map(\.node.id) }
+    var isEmpty: Bool { marks.isEmpty }
+
+    func matchingNodeIDs(in snapshot: ScanSnapshot?) -> Set<FileNodeRecord.ID> {
+        guard let snapshot, snapshot.isComplete, snapshot.source.allowsFileMutation else { return [] }
+        let tree = snapshot.treeStore
+        return Set(marks.compactMap { mark in
+            guard let current = tree.node(id: mark.node.id),
+                  mark.matches(current, treeID: tree.contentID) else { return nil }
+            return current.id
+        })
+    }
+}
+
+@MainActor
+final class TrashFlowController {
+    struct OptimisticTrashVisibilityState: Equatable, Sendable {
+        let nodes: [FileNodeRecord.ID: FileNodeRecord]
+        let snapshotID: UUID?
+
+        init(nodes: [FileNodeRecord.ID: FileNodeRecord] = [:], snapshotID: UUID? = nil) {
             self.nodes = nodes
-            self.allowsHiddenNodes = allowsHiddenNodes
+            self.snapshotID = nodes.isEmpty ? nil : snapshotID
         }
+
+        var nodeIDs: Set<FileNodeRecord.ID> { Set(nodes.keys) }
+    }
+
+    nonisolated struct DiscardPileTrashBatch: Sendable {
+        struct Unavailable: Sendable {
+            let node: FileNodeRecord
+            let message: String
+        }
+
+        let unavailable: [Unavailable]
+        let coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]]
+    }
+
+    nonisolated struct PendingTrashSelection: Sendable {
+        let nodes: [FileNodeRecord]
+        var discardPileBatch: DiscardPileTrashBatch? = nil
     }
 
     struct PendingCloudFileAction {
         enum Kind: Equatable {
             case addToDiscardPile
-            case moveToTrash(allowsHiddenNodes: Bool)
+            case moveToTrash
         }
 
         let kind: Kind
         let nodes: [FileNodeRecord]
         let cloudImpact: CloudStorageLocation.Impact
+        var discardPileBatch: DiscardPileTrashBatch? = nil
     }
 
     var onChange: (() -> Void)?
@@ -57,8 +110,6 @@ final class TrashFlowController {
     let discardPileUndoManager = UndoManager()
     var onDiscardPileHistoryReplay: ((DiscardPileState) -> Void)?
 
-    private var discardPileHistorySnapshotID: UUID?
-    private var discardPileHistoryTreeContentID: UUID?
     private var historyNotifications = Set<AnyCancellable>()
 
     private(set) var optimisticTrashVisibility = OptimisticTrashVisibilityState()
@@ -92,7 +143,6 @@ final class TrashFlowController {
         self.pendingTrashSelection = pendingTrashSelection
         self.pendingCloudFileAction = pendingCloudFileAction
         self.discardPile = discardPile
-        discardPileHistorySnapshotID = discardPile.snapshotID
         discardPileUndoManager.groupsByEvent = false
         discardPileUndoManager.levelsOfUndo = 50
         NotificationCenter.default.publisher(
@@ -125,13 +175,10 @@ final class TrashFlowController {
 
     @discardableResult
     func replaceOptimisticTrashVisibility(
-        nodeIDs: Set<FileNodeRecord.ID>,
+        nodes: [FileNodeRecord.ID: FileNodeRecord],
         snapshotID: UUID?
     ) -> Bool {
-        let updatedState = OptimisticTrashVisibilityState(
-            nodeIDs: nodeIDs,
-            snapshotID: snapshotID
-        )
+        let updatedState = OptimisticTrashVisibilityState(nodes: nodes, snapshotID: snapshotID)
         guard updatedState != optimisticTrashVisibility else { return false }
         optimisticTrashVisibility = updatedState
         notifyChanged()
@@ -140,39 +187,80 @@ final class TrashFlowController {
 
     @discardableResult
     func clearOptimisticTrashVisibility() -> Bool {
-        replaceOptimisticTrashVisibility(nodeIDs: [], snapshotID: nil)
+        replaceOptimisticTrashVisibility(nodes: [:], snapshotID: nil)
     }
 
     func stageTrashRequest(
         for nodes: [FileNodeRecord],
         activeTarget: ScanTarget?,
         trashSafetyPolicy: TrashSafetyPolicy,
-        fileTreeStore: FileTreeStore?,
-        allowingHiddenNodes: Bool = false
+        fileTreeStore: FileTreeStore?
     ) throws {
         guard !isReadOnlyMode else { throw FileActionError.readOnlyMode }
-        guard nodes.allSatisfy({ node in
-            node.supportsMoveToTrash(
-                activeTarget: activeTarget,
-                trashSafetyPolicy: trashSafetyPolicy
-            )
+        guard nodes.allSatisfy({
+            $0.supportsMoveToTrash(activeTarget: activeTarget, trashSafetyPolicy: trashSafetyPolicy)
         }) else {
             throw FileActionError.unsupported
         }
 
         let trashNodes = Self.topLevelTrashNodes(from: nodes, fileTreeStore: fileTreeStore)
-        pendingTrashSelection = PendingTrashSelection(
-            nodes: trashNodes,
-            allowsHiddenNodes: allowingHiddenNodes
-        )
+        pendingTrashSelection = PendingTrashSelection(nodes: trashNodes)
     }
 
-    func synchronizeDiscardPileContext(snapshotID: UUID?, treeContentID: UUID?) {
-        guard discardPileHistorySnapshotID != snapshotID ||
-                discardPileHistoryTreeContentID != treeContentID else { return }
-        discardPileHistorySnapshotID = snapshotID
-        discardPileHistoryTreeContentID = treeContentID
-        invalidateDiscardPileHistory()
+    nonisolated static func prepareDiscardPileTrashRequest(
+        nodes: [FileNodeRecord],
+        trashSafetyPolicy: TrashSafetyPolicy,
+        verifyIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
+    ) throws -> PendingTrashSelection {
+        guard !nodes.isEmpty else { throw FileActionError.noSelection }
+
+        var unavailable: [DiscardPileTrashBatch.Unavailable] = []
+        var eligible: [FileNodeRecord] = []
+        for node in nodes {
+            try Task.checkCancellation()
+            let message: String?
+            if !node.supportsMoveToTrash(trashSafetyPolicy: trashSafetyPolicy) {
+                message = FileActionError.unsupported.localizedDescription
+            } else {
+                let result = node.fileIdentity == nil ? .missingScannedIdentity : verifyIdentity(node)
+                switch result {
+                case .mismatch, .missingScannedIdentity:
+                    message = String(localized: "Radix can’t verify this mark. Scan the item and mark it again.")
+                default:
+                    message = Self.fileActionError(for: result, node: node)?.localizedDescription
+                }
+            }
+            if let message {
+                unavailable.append(.init(node: node, message: message))
+            } else {
+                eligible.append(node)
+            }
+        }
+
+        var foldersByPath: [String: FileNodeRecord.ID] = [:]
+        for folder in eligible where folder.isDirectory && !folder.isSymbolicLink {
+            try Task.checkCancellation()
+            let path = folder.url.resolvingSymlinksInPath().path
+            if foldersByPath[path] == nil { foldersByPath[path] = folder.id }
+        }
+        var coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]] = [:]
+        let operations = try eligible.filter { node in
+            try Task.checkCancellation()
+            guard !foldersByPath.isEmpty else { return true }
+            var parent = node.url.deletingLastPathComponent().resolvingSymlinksInPath().path
+            var coveringID: FileNodeRecord.ID?
+            while let separator = parent.lastIndex(of: "/"), parent != "/" {
+                if let ancestor = foldersByPath[parent] { coveringID = ancestor }
+                parent = String(parent[..<separator])
+            }
+            guard let coveringID else { return true }
+            coveredMarks[coveringID, default: []].append(node)
+            return false
+        }
+        return PendingTrashSelection(
+            nodes: operations,
+            discardPileBatch: DiscardPileTrashBatch(unavailable: unavailable, coveredMarks: coveredMarks)
+        )
     }
 
     func invalidateDiscardPileHistory() {
@@ -187,18 +275,74 @@ final class TrashFlowController {
         discardPile = state
     }
 
+    func discardPileAdding(_ nodes: [FileNodeRecord], in snapshot: ScanSnapshot) -> DiscardPileState {
+        let tree = snapshot.treeStore
+        var updated = discardPile.marks
+        var offsets = Dictionary(uniqueKeysWithValues: updated.enumerated().map { ($0.element.node.id, $0.offset) })
+        for node in nodes {
+            let mark = DiscardPileState.Mark(node: node, treeID: tree.contentID)
+            guard let current = tree.node(id: node.id), mark.matches(current, treeID: tree.contentID) else { continue }
+            if let offset = offsets[node.id] {
+                if !updated[offset].matches(node, treeID: tree.contentID) { updated[offset] = mark }
+            } else {
+                offsets[node.id] = updated.count
+                updated.append(mark)
+            }
+        }
+
+        let incomingIDs = Set(nodes.map(\.id))
+        let matchingIDs = DiscardPileState(marks: updated).matchingNodeIDs(in: snapshot)
+        return DiscardPileState(marks: updated.filter { mark in
+            guard matchingIDs.contains(mark.node.id) else { return true }
+            var parent = tree.parent(of: mark.node.id)
+            while let ancestor = parent {
+                if matchingIDs.contains(ancestor.id),
+                   let offset = offsets[ancestor.id],
+                   ancestor.isDirectory, !ancestor.isSymbolicLink,
+                   incomingIDs.contains(ancestor.id) || incomingIDs.contains(mark.node.id),
+                   updated[offset].node.fileIdentity != nil || mark.node.fileIdentity == nil {
+                    return false
+                }
+                parent = tree.parent(of: ancestor.id)
+            }
+            return true
+        })
+    }
+
+    func removeMovedDiscardPileNodes(
+        _ movedNodes: [FileNodeRecord],
+        batch: DiscardPileTrashBatch?,
+        from originalSnapshot: ScanSnapshot?
+    ) {
+        guard !discardPile.isEmpty else { return }
+        let removed = movedNodes + movedNodes.flatMap { batch?.coveredMarks[$0.id] ?? [] }
+        let removedByID = Dictionary(removed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let tree = originalSnapshot?.treeStore
+        let movedFolders = movedNodes.filter { $0.isDirectory && !$0.isSymbolicLink }
+        let matchedFolders = movedFolders.filter { folder in
+            tree?.node(id: folder.id)?.fileIdentity == folder.fileIdentity
+        }
+        let removedSubtrees = tree?.preparedNodeSet(for: Set(matchedFolders.map(\.id)))
+
+        let remaining = discardPile.marks.filter { mark in
+            if let node = removedByID[mark.node.id] {
+                return mark.node.fileIdentity != node.fileIdentity
+                    || (node.fileIdentity == nil && mark.unidentifiedTreeID != tree?.contentID)
+            }
+            guard batch == nil, let tree, let removedSubtrees,
+                  tree.isNodeOrDescendant(mark.node.id, of: removedSubtrees),
+                  let original = tree.node(id: mark.node.id) else { return true }
+            return !mark.matches(original, treeID: tree.contentID)
+        }
+        if remaining != discardPile.marks { replaceDiscardPile(DiscardPileState(marks: remaining)) }
+    }
+
     func changeDiscardPile(_ state: DiscardPileState, actionName: String) {
         guard state != discardPile else { return }
-        if discardPileHistorySnapshotID == nil {
-            discardPileHistorySnapshotID = state.snapshotID ?? discardPile.snapshotID
-        }
-        guard let snapshotID = discardPileHistorySnapshotID,
-              state.isEmpty || state.snapshotID == snapshotID else { return }
         let previous = discardPile
         let isReplaying = discardPileUndoManager.isUndoing || discardPileUndoManager.isRedoing
         if !isReplaying { discardPileUndoManager.beginUndoGrouping() }
         discardPileUndoManager.registerUndo(withTarget: self) { controller in
-            guard controller.discardPileHistorySnapshotID == snapshotID else { return }
             controller.changeDiscardPile(previous, actionName: actionName)
         }
         discardPileUndoManager.setActionName(actionName)
@@ -209,9 +353,9 @@ final class TrashFlowController {
 
     func removeDiscardPileNodes(ids nodeIDs: Set<FileNodeRecord.ID>) {
         guard !nodeIDs.isEmpty else { return }
-        let remainingIDs = discardPile.nodeIDs.filter { !nodeIDs.contains($0) }
+        let remaining = discardPile.marks.filter { !nodeIDs.contains($0.node.id) }
         changeDiscardPile(
-            DiscardPileState(nodeIDs: remainingIDs, snapshotID: discardPile.snapshotID),
+            DiscardPileState(marks: remaining),
             actionName: String(localized: "Remove from Discard Pile", comment: "Action for unmarking items that will no longer be included in the Discard Pile.")
         )
     }
@@ -232,7 +376,7 @@ final class TrashFlowController {
         return fileTreeStore.topLevelNodeIDs(from: nodes.map(\.id)).compactMap { nodesByID[$0] }
     }
 
-    static func fileActionError(
+    nonisolated static func fileActionError(
         for result: TrashIdentityVerificationResult,
         node: FileNodeRecord
     ) -> Error? {
@@ -263,17 +407,21 @@ final class TrashFlowController {
             return false
         }
 
-        let nodeIDs = Set(activeFileTreeStore.topLevelNodeIDs(from: nodes.map(\.id)))
+        let matched = nodes.compactMap { node -> FileNodeRecord? in
+            guard let current = activeFileTreeStore.node(id: node.id),
+                  DiscardPileState.Mark.matchesIdentity(of: node, with: current) else { return nil }
+            return current
+        }
+        let nodeIDs = Set(activeFileTreeStore.topLevelNodeIDs(from: matched.map(\.id)))
         guard !nodeIDs.isEmpty else { return false }
 
-        let existingIDs = optimisticTrashVisibility.snapshotID == snapshotID
-            ? optimisticTrashVisibility.nodeIDs
-            : []
-        let hiddenIDs = existingIDs.union(nodeIDs)
-        replaceOptimisticTrashVisibility(
-            nodeIDs: hiddenIDs,
-            snapshotID: snapshotID
-        )
+        var hiddenNodes = optimisticTrashVisibility.snapshotID == snapshotID
+            ? optimisticTrashVisibility.nodes
+            : [:]
+        for node in matched where nodeIDs.contains(node.id) {
+            hiddenNodes[node.id] = node
+        }
+        replaceOptimisticTrashVisibility(nodes: hiddenNodes, snapshotID: snapshotID)
         return true
     }
 
@@ -282,22 +430,16 @@ final class TrashFlowController {
         movedNodes: [FileNodeRecord],
         snapshotID: UUID?
     ) {
-        guard let snapshotID,
-              optimisticTrashVisibility.snapshotID == snapshotID else {
-            return
-        }
-
         let movedNodeIDs = Set(movedNodes.map(\.id))
-        let unmovedNodeIDs = Set(
-            requestedNodes
-                .map(\.id)
-                .filter { !movedNodeIDs.contains($0) }
-        )
-        guard !unmovedNodeIDs.isEmpty else { return }
+        let unmovedNodeIDs = Set(requestedNodes.map(\.id)).subtracting(movedNodeIDs)
+        unhideTrashNodes(unmovedNodeIDs, snapshotID: snapshotID)
+    }
 
-        let hiddenIDs = optimisticTrashVisibility.nodeIDs.subtracting(unmovedNodeIDs)
+    func unhideTrashNodes(_ nodeIDs: Set<FileNodeRecord.ID>, snapshotID: UUID?) {
+        guard !nodeIDs.isEmpty, let snapshotID,
+              optimisticTrashVisibility.snapshotID == snapshotID else { return }
         replaceOptimisticTrashVisibility(
-            nodeIDs: hiddenIDs,
+            nodes: optimisticTrashVisibility.nodes.filter { !nodeIDs.contains($0.key) },
             snapshotID: snapshotID
         )
     }
