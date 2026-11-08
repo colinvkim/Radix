@@ -515,8 +515,9 @@ enum SystemIntegration {
     }
 
     private nonisolated static func currentResourceIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
+        let currentURL = URL(filePath: url.path)
         do {
-            let values = try url.resourceValues(forKeys: [.fileResourceIdentifierKey])
+            let values = try currentURL.resourceValues(forKeys: [.fileResourceIdentifierKey])
             guard let identifierData = values.fileResourceIdentifier as? Data else {
                 return .failure(.metadataUnavailable(String(localized: "file resource identifier unavailable", comment: "Reason the selected file identity could not be verified.")))
             }

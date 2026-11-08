@@ -374,26 +374,34 @@ struct SystemIntegrationTests {
         }
     }
 
-    @Test
-    func testIdentityBoundTrashMoveDoesNotMutateReplacementAtScannedPath() throws {
-        let node = trashTestNode()
-        var operationOrder: [String] = []
+    @Test(arguments: [false, true])
+    func testIdentityBoundTrashMoveUsesCurrentResourceIdentity(replaced: Bool) throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let itemURL = fixture.appending(path: "marked.txt")
+        try Data([1]).write(to: itemURL)
+        let scannedURLs = try FileManager.default.contentsOfDirectory(
+            at: fixture,
+            includingPropertiesForKeys: [.fileResourceIdentifierKey]
+        )
+        let scannedURL = try #require(scannedURLs.first)
+        let scannedIdentity = try #require(ScanMetadataLoader().metadata(for: scannedURL).fileIdentity)
+        try #require(!scannedIdentity.isFileSystemIdentity)
+        let node = trashTestNode(url: scannedURL, fileIdentity: scannedIdentity)
+        if replaced {
+            try FileManager.default.moveItem(at: itemURL, to: fixture.appending(path: "original.txt"))
+            try Data([2]).write(to: itemURL)
+        }
+        var trashedURLs: [URL] = []
 
         let result = try SystemIntegration.moveToTrash(
             node,
-            identityVerifier: { verifiedNode in
-                operationOrder.append("verify:\(verifiedNode.id)")
-                // Models the path having been replaced after the user confirmed
-                // the request but before the consolidated mutation begins.
-                return .mismatch
-            },
-            trashItem: { _ in
-                operationOrder.append("trash")
-            }
+            identityVerifier: SystemIntegration.verifyTrashIdentity,
+            trashItem: { trashedURLs.append($0) }
         )
 
-        #expect(result == .mismatch)
-        #expect(operationOrder == ["verify:\(node.id)"])
+        #expect(result == (replaced ? .mismatch : .matches))
+        #expect(trashedURLs == (replaced ? [] : [scannedURL]))
     }
 
     @Test
@@ -416,9 +424,11 @@ struct SystemIntegrationTests {
         #expect(operationOrder == ["verify", "trash:\(node.url.path)"])
     }
 
-    private func trashTestNode() -> FileNodeRecord {
-        let url = URL(filePath: "/tmp/radix-trash-test.txt", directoryHint: .notDirectory)
-        return FileNodeRecord(
+    private func trashTestNode(
+        url: URL = URL(filePath: "/tmp/radix-trash-test.txt", directoryHint: .notDirectory),
+        fileIdentity: FileIdentity = FileIdentity(device: 1, inode: 2)
+    ) -> FileNodeRecord {
+        FileNodeRecord(
             id: url.path,
             url: url,
             name: url.lastPathComponent,
@@ -428,7 +438,7 @@ struct SystemIntegrationTests {
             logicalSize: 1,
             descendantFileCount: 1,
             lastModified: nil,
-            fileIdentity: FileIdentity(device: 1, inode: 2),
+            fileIdentity: fileIdentity,
             isPackage: false,
             isAccessible: true,
             isSelfAccessible: true,
