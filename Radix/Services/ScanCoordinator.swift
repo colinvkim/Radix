@@ -834,7 +834,12 @@ final class ScanCoordinator: ObservableObject {
         var visitedCount = 0
         while let id = pending.popLast() {
             try Task.checkCancellation()
-            guard baseline.treeStore.node(id: id) == replacement.treeStore.node(id: id) else {
+            // File identity equality ignores evidence used to verify Trash actions.
+            guard let oldNode = baseline.treeStore.node(id: id),
+                  let newNode = replacement.treeStore.node(id: id),
+                  oldNode == newNode,
+                  oldNode.fileIdentity?.birthTime == newNode.fileIdentity?.birthTime,
+                  oldNode.fileIdentity?.trashResourceIdentifier == newNode.fileIdentity?.trashResourceIdentifier else {
                 return false
             }
             let oldChildren = baseline.treeStore.childIDs(of: id)
