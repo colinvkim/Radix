@@ -509,18 +509,18 @@ nonisolated struct ScanArchiveFileIdentity: Codable, Sendable {
 
     init(_ identity: FileIdentity) {
         switch identity {
-        case .resourceIdentifier(let data, _):
+        case .resourceIdentifier(let data, _, _):
             self.kind = .resourceIdentifier
             self.resourceIdentifier = data.base64EncodedString()
             self.device = nil
             self.inode = nil
             self.volumeToken = nil
-        case .fileSystem(let device, let inode, let volumeToken):
+        case .fileSystem(let device, let inode, _, _):
             self.kind = .fileSystem
             self.resourceIdentifier = nil
             self.device = device
             self.inode = inode
-            self.volumeToken = volumeToken
+            self.volumeToken = identity.darwinIdentity?.volumeToken
         }
     }
 

@@ -81,16 +81,13 @@ struct TrashFlowControllerTests {
         try #require(original.fileIdentity == alias.fileIdentity)
         try #require(original.fileIdentity == distinctEntries[0].fileIdentity)
         let marks = [original, alias] + distinctEntries
-        let controller = TrashFlowController(discardPile: DiscardPileState(marks: marks.map { .init(node: $0) }))
-
         let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
             nodes: marks, trashSafetyPolicy: .live(), verifyIdentity: SystemIntegration.verifyTrashIdentity
         )
         #expect(preview.nodes == [original] + distinctEntries)
         let batch = try #require(preview.discardPileBatch)
         #expect(batch.unavailable.isEmpty)
-        controller.removeMovedDiscardPileNodes(batch.affectedNodes(for: [original]), from: nil, includeSnapshotDescendants: false)
-        #expect(controller.discardPile.nodes == distinctEntries)
+        #expect(batch.plannedNodes(for: [original]) == [original, alias])
     }
 
     @Test
@@ -135,20 +132,15 @@ struct TrashFlowControllerTests {
         let sibling = makeTestFileNode(
             id: "/scope/folder-other/file", name: "file", fileIdentity: FileIdentity(device: 1, inode: 4)
         )
-        let controller = TrashFlowController(
-            discardPile: DiscardPileState(marks: [child, folder, unavailable, sibling].map { .init(node: $0) })
-        )
-
         let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
-            nodes: controller.discardPile.nodes, trashSafetyPolicy: .live()
+            nodes: [child, folder, unavailable, sibling], trashSafetyPolicy: .live()
         ) {
             $0 == unavailable ? .missingCurrentItem : .matches
         }
         #expect(preview.nodes == [folder, sibling])
         let batch = try #require(preview.discardPileBatch)
         #expect(batch.unavailable.map(\.node) == [unavailable])
-        controller.removeMovedDiscardPileNodes(batch.affectedNodes(for: [folder]), from: nil, includeSnapshotDescendants: false)
-        #expect(controller.discardPile.nodes == [unavailable, sibling])
+        #expect(batch.plannedNodes(for: [folder]) == [folder, child])
     }
 
     @Test
@@ -251,11 +243,11 @@ struct TrashFlowControllerTests {
         var didFinish = false
         controller.startConfirmedMove([node], moveToTrash: { _ in
             Issue.record("Read-only mode must prevent filesystem moves")
-            return .matches
+            return TrashMoveOutcome(.matches)
         }, beginMove: {
             Issue.record("Rejected moves must not hide scan results")
         }, onFinish: { _, moved, error, wasCancelled in
-            #expect(moved.isEmpty)
+            #expect(moved.operations.isEmpty)
             #expect(!wasCancelled)
             if case .readOnlyMode? = error as? FileActionError {} else {
                 Issue.record("Expected the read-only mode error")
@@ -274,7 +266,7 @@ struct TrashFlowControllerTests {
         var didFinish = false
         controller.startConfirmedMove([node], moveToTrash: { _ in
             await withCheckedContinuation { continuation = $0 }
-            return .matches
+            return TrashMoveOutcome(.matches)
         }, beginMove: {}, onFinish: { _, _, _, _ in didFinish = true })
         #expect(!controller.setReadOnlyMode(true))
         try await waitUntil("move starts") { continuation != nil }
@@ -301,12 +293,12 @@ struct TrashFlowControllerTests {
                 moveToTrash: { node in
                     attemptedIDs.append(node.id)
                     await withCheckedContinuation { continuations.append($0) }
-                    return .matches
+                    return TrashMoveOutcome(.matches)
                 },
                 beginMove: {},
                 onFinish: { requested, moved, error, wasCancelled in
                     #expect(requested == [first, second])
-                    #expect(moved == [first])
+                    #expect(moved.operations == [first])
                     #expect(error == nil)
                     #expect(wasCancelled)
                     finishedCount += 1
@@ -330,11 +322,11 @@ struct TrashFlowControllerTests {
             [node],
             moveToTrash: { _ in
                 Issue.record("A cancelled batch must not start a filesystem move")
-                return .matches
+                return TrashMoveOutcome(.matches)
             },
             beginMove: { controller.cancelConfirmedTrashMoves() },
             onFinish: { _, moved, error, wasCancelled in
-                #expect(moved.isEmpty)
+                #expect(moved.operations.isEmpty)
                 #expect(error == nil)
                 #expect(wasCancelled)
                 didFinish = true

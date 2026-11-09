@@ -1815,7 +1815,7 @@ struct ScanCoordinatorTests {
         actions.verifyTrashIdentity = { SystemIntegration.verifyTrashIdentity($0) }
         actions.moveToTrash = { node in
             let result = try await move.perform(node)
-            if result == .matches, recreated {
+            if result.verification == .matches, recreated {
                 try FileManager.default.createDirectory(at: child.url, withIntermediateDirectories: true)
             }
             return result
@@ -1859,7 +1859,7 @@ struct ScanCoordinatorTests {
         let removed = try #require(initial.treeStore.node(id: parent.id + "/notes.txt"))
         var actions = makeCoordinatorSidebarActions(targets: [parent, child])
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { _ in .matches }
+        actions.moveToTrash = { _ in TrashMoveOutcome(.matches) }
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
         defer { model.cleanup() }
 
@@ -2633,7 +2633,7 @@ struct ScanCoordinatorTests {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { _ in .matches }
+        actions.moveToTrash = { _ in TrashMoveOutcome(.matches) }
         let model = AppModel(
             dependencies: makeCoordinatorAppDependencies(
                 scanService: service,
@@ -2676,7 +2676,7 @@ struct ScanCoordinatorTests {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { _ in .matches }
+        actions.moveToTrash = { _ in TrashMoveOutcome(.matches) }
         let model = AppModel(
             dependencies: makeCoordinatorAppDependencies(
                 scanService: service,
@@ -2714,7 +2714,7 @@ struct ScanCoordinatorTests {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { _ in .matches }
+        actions.moveToTrash = { _ in TrashMoveOutcome(.matches) }
         let model = AppModel(
             dependencies: makeCoordinatorAppDependencies(
                 scanService: service,
@@ -2748,7 +2748,7 @@ struct ScanCoordinatorTests {
         let service = ControlledScanService()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { _ in .matches }
+        actions.moveToTrash = { _ in TrashMoveOutcome(.matches) }
         let model = AppModel(
             dependencies: makeCoordinatorAppDependencies(
                 scanService: service,
@@ -2783,7 +2783,7 @@ struct ScanCoordinatorTests {
         let secondTarget = makeCoordinatorTarget("/app/sidebar/stale-second")
         var actions = makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget])
         actions.fileExists = { _ in true }
-        actions.moveToTrash = { _ in .matches }
+        actions.moveToTrash = { _ in TrashMoveOutcome(.matches) }
         let model = AppModel(
             dependencies: makeCoordinatorAppDependencies(
                 scanService: service,
@@ -3575,7 +3575,7 @@ private final class PausedFixtureTrashMove {
         self.destination = destination
     }
 
-    func perform(_ node: FileNodeRecord) async throws -> TrashIdentityVerificationResult {
+    func perform(_ node: FileNodeRecord) async throws -> TrashMoveOutcome {
         let proceed = await withCheckedContinuation { continuation = $0 }
         guard proceed else { throw CancellationError() }
 
@@ -3583,7 +3583,7 @@ private final class PausedFixtureTrashMove {
         if verification == .matches {
             try FileManager.default.moveItem(at: node.url, to: destination)
         }
-        return verification
+        return TrashMoveOutcome(verification, destination: destination)
     }
 
     func waitUntilStarted() async throws {

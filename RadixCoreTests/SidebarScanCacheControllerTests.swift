@@ -869,6 +869,52 @@ struct SidebarScanCacheControllerTests {
         #expect(requiresScan)
     }
 
+    @Test(arguments: [1, 2, nil] as [UInt64?])
+    func testSidebarReuseRejectsMovedRowsAcrossIdentityFormats(resourceInode: UInt64?) {
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
+        let options = ScanOptions()
+        let snapshotID = UUID()
+        let moved = makeTestFileNode(
+            id: "/cache/root/file.txt", name: "file.txt",
+            fileIdentity: FileIdentity(device: 1, inode: 1, volumeToken: 3)
+        )
+        let resourceData = resourceInode.map { inode in
+            [inode.littleEndian, UInt64(3).littleEndian].withUnsafeBytes { Data($0) }
+        } ?? Data([1])
+        let current = makeTestFileNode(
+            id: moved.id, name: moved.name, fileIdentity: FileIdentity(resourceIdentifier: resourceData)
+        )
+        func snapshot(containing node: FileNodeRecord) -> ScanSnapshot {
+            let root = makeTestDirectoryNode(id: "/cache/root", name: "root", children: [node])
+            return ScanSnapshot(
+                id: snapshotID,
+                target: ScanTarget(url: root.url),
+                treeStore: FileTreeStore(root: root, childrenByID: [root.id: [node]]),
+                startedAt: Date(),
+                finishedAt: Date(),
+                scanWarnings: [],
+                isComplete: true
+            )
+        }
+        let original = snapshot(containing: moved)
+        controller.prepareForScanStart(target: original.target, options: options)
+        controller.handleCompletedScanSnapshot(original)
+        controller.clearCache()
+        controller.invalidateDisplayedNodes([moved], in: original)
+
+        let requiresScan = controller.applyCachedOrContainedSidebarTarget(
+            original.target,
+            options: options,
+            currentSnapshot: snapshot(containing: current),
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { _, _ in Issue.record("An exact current snapshot does not need restoration") },
+            startScan: { _ in Issue.record("The caller starts the fresh scan") }
+        )
+
+        #expect(requiresScan == (resourceInode != 2))
+    }
+
     @Test
     func testScopePendingWhenCacheIsInvalidatedStartsFreshScan() async throws {
         let transform = PausingCacheScopeTransform()

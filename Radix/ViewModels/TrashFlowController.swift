@@ -3,12 +3,24 @@ import Foundation
 
 struct DiscardPileState: Equatable, Sendable {
     struct Mark: Equatable, Sendable {
+        enum IdentityComparison {
+            case same
+            case different
+            case unknown
+        }
+
         let node: FileNodeRecord
         let unidentifiedTreeID: UUID?
 
         init(node: FileNodeRecord, treeID: UUID? = nil) {
             self.node = node
             unidentifiedTreeID = node.fileIdentity == nil ? treeID : nil
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.node == rhs.node && lhs.unidentifiedTreeID == rhs.unidentifiedTreeID
+                && lhs.node.fileIdentity?.birthTime == rhs.node.fileIdentity?.birthTime
+                && lhs.node.fileIdentity?.trashResourceIdentifier == rhs.node.fileIdentity?.trashResourceIdentifier
         }
 
         func matches(_ current: FileNodeRecord, treeID: UUID) -> Bool {
@@ -20,16 +32,28 @@ struct DiscardPileState: Equatable, Sendable {
         }
 
         static func matchesIdentity(of original: FileNodeRecord, with current: FileNodeRecord) -> Bool {
-            guard original.id == current.id else { return false }
-            if original.fileIdentity == current.fileIdentity { return true }
-            guard !original.isSymbolicLink, !current.isSymbolicLink,
-                  let first = original.fileIdentity, let second = current.fileIdentity,
-                  first.isFileSystemIdentity != second.isFileSystemIdentity else { return false }
-            if let firstDarwin = first.darwinIdentity, let secondDarwin = second.darwinIdentity {
-                return firstDarwin == secondDarwin
+            compareIdentity(of: original, with: current) == .same
+        }
+
+        static func compareIdentity(of original: FileNodeRecord, with current: FileNodeRecord) -> IdentityComparison {
+            guard original.id == current.id else { return .different }
+            guard let first = original.fileIdentity, let second = current.fileIdentity else {
+                return original.fileIdentity == current.fileIdentity ? .same : .different
             }
-            guard let firstNative = first.scanFileSystemIdentity else { return false }
-            return firstNative == second.scanFileSystemIdentity
+            guard !first.hasConflictingTrashEvidence(with: second) else { return .different }
+            if first == second { return .same }
+            guard !original.isSymbolicLink, !current.isSymbolicLink,
+                  first.isFileSystemIdentity != second.isFileSystemIdentity else { return .different }
+            if let identifier = first.trashResourceIdentifier, identifier == second.trashResourceIdentifier {
+                return .same
+            }
+            if let firstDarwin = first.darwinIdentity, let secondDarwin = second.darwinIdentity {
+                return firstDarwin == secondDarwin ? .same : .different
+            }
+            if let firstNative = first.scanFileSystemIdentity, let secondNative = second.scanFileSystemIdentity {
+                return firstNative == secondNative ? .same : .different
+            }
+            return .unknown
         }
     }
 
@@ -74,13 +98,45 @@ final class TrashFlowController {
             let message: String
         }
 
+        struct CoveredMark: Sendable {
+            let node: FileNodeRecord
+            let relativePath: String
+        }
+
         let unavailable: [Unavailable]
         let resolvedURLsByOperationID: [FileNodeRecord.ID: URL]
-        let coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]]
+        let coveredMarks: [FileNodeRecord.ID: [CoveredMark]]
 
-        func affectedNodes(for operations: [FileNodeRecord]) -> [FileNodeRecord] {
-            operations + operations.flatMap { coveredMarks[$0.id] ?? [] }
+        func plannedNodes(for operations: [FileNodeRecord]) -> [FileNodeRecord] {
+            operations + operations.flatMap { coveredMarks[$0.id]?.map(\.node) ?? [] }
         }
+
+        func verifyCoveredMarks(for operation: FileNodeRecord, at destination: URL) -> [FileNodeRecord] {
+            guard let marks = coveredMarks[operation.id] else { return [] }
+            let canonicalDestination = try? destination.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
+            return marks.compactMap { mark in
+                let movedURL: URL
+                if mark.relativePath.isEmpty {
+                    let original = SystemIntegration.verifyTrashIdentity(mark.node)
+                    guard original == .missingCurrentItem || original == .mismatch else { return nil }
+                    movedURL = destination
+                } else {
+                    movedURL = destination.appending(path: mark.relativePath)
+                    // A replaced intermediate directory could redirect this path outside Trash.
+                    guard let canonicalDestination,
+                          let path = try? movedURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath,
+                          path.hasPrefix(canonicalDestination + "/") else { return nil }
+                }
+                return SystemIntegration.verifyTrashIdentity(mark.node, at: movedURL) == .matches ? mark.node : nil
+            }
+        }
+    }
+
+    struct CompletedTrashMoves {
+        var operations: [FileNodeRecord] = []
+        var coveredMarks: [FileNodeRecord] = []
+
+        var affectedNodes: [FileNodeRecord] { operations + coveredMarks }
     }
 
     nonisolated struct PendingTrashSelection: Sendable {
@@ -251,22 +307,23 @@ final class TrashFlowController {
 
         let entriesByPath = Dictionary(eligible.map { ($0.resolvedURL.path, $0.node) }, uniquingKeysWith: { first, _ in first })
         var operations: [(node: FileNodeRecord, resolvedURL: URL)] = []
-        var coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]] = [:]
+        var coveredMarks: [FileNodeRecord.ID: [DiscardPileTrashBatch.CoveredMark]] = [:]
         for (node, resolvedURL) in eligible {
             try Task.checkCancellation()
             let path = resolvedURL.path
-            var coveringID = entriesByPath[path]?.id ?? node.id
+            var covering = (id: entriesByPath[path]?.id ?? node.id, path: path)
             var parent = path
             while let separator = parent.lastIndex(of: "/"), separator != parent.startIndex {
                 parent = String(parent[..<separator])
                 if let ancestor = entriesByPath[parent], ancestor.isDirectory, !ancestor.isSymbolicLink {
-                    coveringID = ancestor.id
+                    covering = (ancestor.id, parent)
                 }
             }
-            if coveringID == node.id {
+            if covering.id == node.id {
                 operations.append((node, resolvedURL))
             } else {
-                coveredMarks[coveringID, default: []].append(node)
+                let relativePath = path == covering.path ? "" : String(path.dropFirst(covering.path.count + 1))
+                coveredMarks[covering.id, default: []].append(.init(node: node, relativePath: relativePath))
             }
         }
         return PendingTrashSelection(
@@ -292,15 +349,14 @@ final class TrashFlowController {
     }
 
     func discardPileAdding(
-        _ nodes: [FileNodeRecord],
+        _ validatedNodes: [FileNodeRecord],
         in snapshot: ScanSnapshot
     ) -> (pile: DiscardPileState, matchingNodeIDs: Set<FileNodeRecord.ID>) {
         let tree = snapshot.treeStore
         var updated = discardPile.marks
         var offsets = Dictionary(uniqueKeysWithValues: updated.enumerated().map { ($0.element.node.id, $0.offset) })
-        for node in nodes {
+        for node in validatedNodes {
             let mark = DiscardPileState.Mark(node: node, treeID: tree.contentID)
-            guard let current = tree.node(id: node.id), mark.matches(current, treeID: tree.contentID) else { continue }
             if let offset = offsets[node.id] {
                 if !updated[offset].matches(node, treeID: tree.contentID) { updated[offset] = mark }
             } else {
@@ -309,7 +365,7 @@ final class TrashFlowController {
             }
         }
 
-        let incomingIDs = Set(nodes.map(\.id))
+        let incomingIDs = Set(validatedNodes.map(\.id))
         let matchingIDs = DiscardPileState(marks: updated).matchingNodeIDs(in: snapshot)
         var retainedIDs = matchingIDs
         let retainedMarks = updated.filter { mark in
@@ -342,7 +398,8 @@ final class TrashFlowController {
         let removedSubtrees: PreparedFileTreeNodeSet? = if includeSnapshotDescendants, let tree {
             tree.preparedNodeSet(for: Set(movedNodes.compactMap { node in
                 guard node.isDirectory, !node.isSymbolicLink,
-                      let current = tree.node(id: node.id), current.fileIdentity == node.fileIdentity else { return nil }
+                      let current = tree.node(id: node.id),
+                      DiscardPileState.Mark.matchesIdentity(of: node, with: current) else { return nil }
                 return node.id
             }))
         } else {
@@ -351,7 +408,7 @@ final class TrashFlowController {
 
         let remaining = discardPile.marks.filter { mark in
             if let node = removedByID[mark.node.id] {
-                return mark.node.fileIdentity != node.fileIdentity
+                return !DiscardPileState.Mark.matchesIdentity(of: mark.node, with: node)
                     || (node.fileIdentity == nil && mark.unidentifiedTreeID != tree?.contentID)
             }
             guard let tree, let removedSubtrees,
@@ -462,7 +519,7 @@ final class TrashFlowController {
         return true
     }
 
-    func unhideTrashNodesAfterFailedMove(
+    func unhideUnmovedTrashNodes(
         requestedNodes: [FileNodeRecord],
         movedNodes: [FileNodeRecord],
         snapshotID: UUID?
@@ -483,28 +540,35 @@ final class TrashFlowController {
 
     func startConfirmedMove(
         _ nodes: [FileNodeRecord],
-        moveToTrash: @escaping @MainActor (FileNodeRecord) async throws -> TrashIdentityVerificationResult,
+        discardPileBatch: DiscardPileTrashBatch? = nil,
+        moveToTrash: @escaping @MainActor (FileNodeRecord) async throws -> TrashMoveOutcome,
         beginMove: () -> Void,
-        onFinish: @escaping @MainActor (_ requested: [FileNodeRecord], _ moved: [FileNodeRecord], _ actionError: Error?, _ wasCancelled: Bool) -> Void
+        onFinish: @escaping @MainActor (_ requested: [FileNodeRecord], _ moved: CompletedTrashMoves, _ actionError: Error?, _ wasCancelled: Bool) -> Void
     ) {
         guard !isReadOnlyMode else {
-            onFinish(nodes, [], FileActionError.readOnlyMode, false)
+            onFinish(nodes, CompletedTrashMoves(), FileActionError.readOnlyMode, false)
             return
         }
         let requestID = UUID()
         confirmedTrashMoveTasks[requestID] = Task { [weak self] in
-            var movedNodes: [FileNodeRecord] = []
+            var moved = CompletedTrashMoves()
             var actionError: Error?
             var wasCancelled = false
             for node in nodes {
                 do {
                     try Task.checkCancellation()
-                    let verificationResult = try await moveToTrash(node)
-                    if let identityError = Self.fileActionError(for: verificationResult, node: node) {
+                    let outcome = try await moveToTrash(node)
+                    if let identityError = Self.fileActionError(for: outcome.verification, node: node) {
                         actionError = identityError
                         break
                     }
-                    movedNodes.append(node)
+                    moved.operations.append(node)
+                    if let discardPileBatch, discardPileBatch.coveredMarks[node.id] != nil, let destination = outcome.destination {
+                        let covered = await Task.detached(priority: .userInitiated) {
+                            discardPileBatch.verifyCoveredMarks(for: node, at: destination)
+                        }.value
+                        moved.coveredMarks.append(contentsOf: covered)
+                    }
                 } catch is CancellationError {
                     wasCancelled = true
                     break
@@ -515,7 +579,7 @@ final class TrashFlowController {
             }
 
             self?.confirmedTrashMoveTasks.removeValue(forKey: requestID)
-            onFinish(nodes, movedNodes, actionError, wasCancelled)
+            onFinish(nodes, moved, actionError, wasCancelled)
         }
         beginMove()
     }

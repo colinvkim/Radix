@@ -444,15 +444,16 @@ enum SystemIntegration {
     /// practical window while preserving native per-volume Trash behavior.
     nonisolated static func moveToTrash(
         _ node: FileNodeRecord
-    ) throws -> TrashIdentityVerificationResult {
-        try moveToTrash(
+    ) throws -> TrashMoveOutcome {
+        var resultingItemURL: NSURL?
+        let verification = try moveToTrash(
             node,
             identityVerifier: verifyTrashIdentity,
             trashItem: { url in
-                var resultingItemURL: NSURL?
                 try FileManager.default.trashItem(at: url, resultingItemURL: &resultingItemURL)
             }
         )
+        return TrashMoveOutcome(verification, destination: resultingItemURL as URL?)
     }
 
     nonisolated static func moveToTrash(
@@ -471,23 +472,30 @@ enum SystemIntegration {
     }
 
     nonisolated static func verifyTrashIdentity(_ node: FileNodeRecord) -> TrashIdentityVerificationResult {
+        verifyTrashIdentity(node, at: node.url)
+    }
+
+    nonisolated static func verifyTrashIdentity(_ node: FileNodeRecord, at url: URL) -> TrashIdentityVerificationResult {
         guard !node.isSynthetic else { return .matches }
-        guard let scannedIdentity = node.fileIdentity else {
+        guard let scannedIdentity = node.fileIdentity, let birthTime = scannedIdentity.birthTime else {
             return .missingScannedIdentity
         }
 
-        switch currentFileSystemIdentity(for: node.url) {
-        case .success(let currentIdentity):
-            if node.isSymbolicLink || scannedIdentity.isFileSystemIdentity {
-                return currentIdentity == scannedIdentity ? .matches : .mismatch
+        let requiresNativeIdentity = node.isSymbolicLink || scannedIdentity.isFileSystemIdentity
+        switch currentFileSystemIdentity(for: url) {
+        case .success(let identity):
+            if requiresNativeIdentity, identity != scannedIdentity || identity.birthTime != birthTime {
+                return .mismatch
             }
         case .failure(let error):
             return error.verificationResult
         }
 
-        switch currentResourceIdentity(for: node.url) {
-        case .success(let currentIdentity):
-            return currentIdentity == scannedIdentity ? .matches : .mismatch
+        guard let resourceIdentifier = scannedIdentity.trashResourceIdentifier else { return .matches }
+        switch currentResourceIdentity(for: url) {
+        case .success(let identity):
+            return identity.trashResourceIdentifier == resourceIdentifier &&
+                (requiresNativeIdentity || identity.birthTime == birthTime) ? .matches : .mismatch
         case .failure(let error):
             return error.verificationResult
         }
@@ -517,11 +525,11 @@ enum SystemIntegration {
     private nonisolated static func currentResourceIdentity(for url: URL) -> Result<FileIdentity, CurrentIdentityError> {
         let currentURL = URL(filePath: url.path)
         do {
-            let values = try currentURL.resourceValues(forKeys: [.fileResourceIdentifierKey])
+            let values = try currentURL.resourceValues(forKeys: [.fileResourceIdentifierKey, .creationDateKey])
             guard let identifierData = values.fileResourceIdentifier as? Data else {
                 return .failure(.metadataUnavailable(String(localized: "file resource identifier unavailable", comment: "Reason the selected file identity could not be verified.")))
             }
-            return .success(FileIdentity(resourceIdentifier: identifierData))
+            return .success(FileIdentity(resourceIdentifier: identifierData, birthTime: values.creationDate))
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileNoSuchFileError {

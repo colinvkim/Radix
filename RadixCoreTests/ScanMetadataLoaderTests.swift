@@ -612,14 +612,14 @@ struct ScanMetadataLoaderTests {
         let data = [UInt64(42).littleEndian, UInt64(123).littleEndian].withUnsafeBytes { Data($0) }
         let resource = FileIdentity(resourceIdentifier: data)
         #expect(
-            native.preservingVolumeIdentity(from: resource).darwinIdentity
+            native.preservingResourceIdentity(from: resource, isDirectory: false).darwinIdentity
                 == FileIdentity.DarwinIdentity(fileID: 42, volumeToken: 123))
-        #expect(FileIdentity(device: 7, inode: 43).preservingVolumeIdentity(from: resource).darwinIdentity == nil)
-        #expect(native.preservingVolumeIdentity(from: nil).darwinIdentity == nil)
+        #expect(FileIdentity(device: 7, inode: 43).preservingResourceIdentity(from: resource, isDirectory: false).darwinIdentity == nil)
+        #expect(native.preservingResourceIdentity(from: nil, isDirectory: false).darwinIdentity == nil)
         for length in [0, 8, 15, 17, 32] {
             let unfamiliar = FileIdentity(resourceIdentifier: Data(repeating: 0, count: length))
             #expect(unfamiliar.darwinIdentity == nil)
-            #expect(native.preservingVolumeIdentity(from: unfamiliar).darwinIdentity == nil)
+            #expect(native.preservingResourceIdentity(from: unfamiliar, isDirectory: false).darwinIdentity == nil)
         }
     }
 

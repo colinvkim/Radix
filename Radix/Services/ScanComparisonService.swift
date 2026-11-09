@@ -1061,7 +1061,7 @@ nonisolated struct ScanComparisonService: Sendable {
         }
         // Bulk records borrow a preserved token only for their own device;
         // an APFS startup scan may span multiple volumes.
-        if case .fileSystem(let device, let inode, _) = identity {
+        if case .fileSystem(let device, let inode, _, _) = identity {
             guard !context.ambiguousDevices.contains(device) else { return nil }
             if let volumeToken = context.volumeTokens[device] {
                 return .darwin(FileIdentity.DarwinIdentity(fileID: inode, volumeToken: volumeToken))

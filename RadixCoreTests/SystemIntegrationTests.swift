@@ -404,6 +404,68 @@ struct SystemIntegrationTests {
         #expect(trashedURLs == (replaced ? [] : [scannedURL]))
     }
 
+    @Test(arguments: [false, true])
+    func testIdentityBoundTrashMoveRejectsReusedIdentity(useNativeIdentity: Bool) throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let itemURL = fixture.appending(path: "marked.txt")
+        try Data([1]).write(to: itemURL)
+        let loader = ScanMetadataLoader()
+        func currentIdentity() throws -> FileIdentity {
+            if useNativeIdentity {
+                return try loader.fileSystemIdentity(at: itemURL)
+            }
+            let freshURL = URL(filePath: itemURL.path)
+            return try #require(loader.metadata(for: freshURL).fileIdentity)
+        }
+        let scannedIdentity = try currentIdentity()
+        #expect(scannedIdentity.isFileSystemIdentity == useNativeIdentity)
+        let birthTime = try #require(scannedIdentity.birthTime)
+        let node = trashTestNode(url: itemURL, fileIdentity: scannedIdentity)
+
+        // Reproduce a recycled identity without depending on allocator behavior.
+        var replacementURL = itemURL
+        var values = URLResourceValues()
+        values.creationDate = birthTime.addingTimeInterval(-60)
+        try replacementURL.setResourceValues(values)
+        #expect(try currentIdentity() == scannedIdentity)
+
+        let result = try SystemIntegration.moveToTrash(
+            node,
+            identityVerifier: SystemIntegration.verifyTrashIdentity,
+            trashItem: { _ in Issue.record("Moved an item with a different birth time") }
+        )
+
+        #expect(result == .mismatch)
+    }
+
+    @Test
+    func testIdentityBoundTrashMoveRejectsReusedNativeDirectoryIdentity() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let directory = fixture.appending(path: "marked", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let loader = ScanMetadataLoader()
+        let originalIdentity = try #require(loader.metadata(for: directory).fileIdentity)
+        let originalResourceIdentifier = try #require(originalIdentity.trashResourceIdentifier)
+        try FileManager.default.moveItem(at: directory, to: fixture.appending(path: "original"))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+
+        // Keep the original opaque ID and simulate a recycled stat inode and birth time.
+        let replacementIdentity = try loader.fileSystemIdentity(at: directory)
+        let scannedIdentity = replacementIdentity.preservingResourceIdentity(
+            from: FileIdentity(resourceIdentifier: originalResourceIdentifier), isDirectory: true
+        )
+        let node = makeTestDirectoryNode(id: directory.path, name: "marked", children: [], fileIdentity: scannedIdentity)
+        let result = try SystemIntegration.moveToTrash(
+            node,
+            identityVerifier: SystemIntegration.verifyTrashIdentity,
+            trashItem: { _ in Issue.record("Moved a directory with a different resource identifier") }
+        )
+
+        #expect(result == .mismatch)
+    }
+
     @Test
     func testIdentityBoundTrashMoveVerifiesImmediatelyBeforeNativeMutation() throws {
         let node = trashTestNode()

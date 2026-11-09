@@ -221,23 +221,23 @@ final class SidebarScanCacheController {
 
     func invalidateDisplayedNodes(_ nodes: [FileNodeRecord], in snapshot: ScanSnapshot) {
         let previous = movedDisplayedNodes?.snapshotID == snapshot.id
-            ? movedDisplayedNodes?.nodes.filter { Self.contains($0, in: snapshot) } ?? []
+            ? movedDisplayedNodes?.nodes.filter { Self.mayContain($0, in: snapshot) } ?? []
             : []
         movedDisplayedNodes = (snapshot.id, previous + nodes)
     }
 
     private func isReusable(_ snapshot: ScanSnapshot) -> Bool {
         guard let moved = movedDisplayedNodes else { return true }
-        if moved.snapshotID == snapshot.id && moved.nodes.contains(where: { Self.contains($0, in: snapshot) }) {
+        if moved.snapshotID == snapshot.id && moved.nodes.contains(where: { Self.mayContain($0, in: snapshot) }) {
             return false
         }
         movedDisplayedNodes = nil
         return true
     }
 
-    private static func contains(_ node: FileNodeRecord, in snapshot: ScanSnapshot) -> Bool {
+    private static func mayContain(_ node: FileNodeRecord, in snapshot: ScanSnapshot) -> Bool {
         guard let current = snapshot.treeStore.node(id: node.id) else { return false }
-        return current.fileIdentity == node.fileIdentity
+        return DiscardPileState.Mark.compareIdentity(of: node, with: current) != .different
     }
 
     func clearCache() {

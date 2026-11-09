@@ -467,7 +467,7 @@ nonisolated enum BulkDirectoryEnumerator {
     }
 
     private static var requestedCommonAttributes: attrgroup_t {
-        requiredCommonAttributes | attrgroup_t(ATTR_CMN_FNDRINFO)
+        requiredCommonAttributes | attrgroup_t(ATTR_CMN_CRTIME | ATTR_CMN_FNDRINFO)
     }
 
     private static var requiredCommonAttributes: attrgroup_t {
@@ -521,8 +521,7 @@ nonisolated enum BulkDirectoryEnumerator {
         let dataAllocatedSize: Int64
         let modificationTime: timespec
         let isReadable: Bool
-        let device: UInt64
-        let inode: UInt64
+        let fileIdentity: FileIdentity
         let linkCount: UInt64
         let cloneIdentity: CloneIdentity?
         let mayShareDataBlocks: Bool
@@ -657,6 +656,7 @@ nonisolated enum BulkDirectoryEnumerator {
               ),
               let deviceID: dev_t = cursor.read(),
               let objectType: fsobj_type_t = cursor.read(),
+              let creationTime: timespec = cursor.read(),
               let modificationTime: timespec = cursor.read() else {
             return nil
         }
@@ -748,6 +748,9 @@ nonisolated enum BulkDirectoryEnumerator {
         } else {
             cloneIdentity = nil
         }
+        let birthTime = returned.commonattr & attrgroup_t(ATTR_CMN_CRTIME) != 0
+            ? FileIdentity.birthTime(from: creationTime)
+            : nil
         let metadata = ParsedEntryMetadata(
             isSymbolicLink: isSymbolicLink,
             logicalSize: max(Int64(logicalSize), 0),
@@ -755,8 +758,9 @@ nonisolated enum BulkDirectoryEnumerator {
             dataAllocatedSize: max(Int64(dataAllocatedSize), 0),
             modificationTime: modificationTime,
             isReadable: (userAccess & UInt32(R_OK)) != 0,
-            device: UInt64(truncatingIfNeeded: deviceID),
-            inode: fileID,
+            fileIdentity: FileIdentity(
+                device: UInt64(truncatingIfNeeded: deviceID), inode: fileID, birthTime: birthTime
+            ),
             linkCount: isDirectory ? 1 : max(UInt64(fileLinkCount), 1),
             cloneIdentity: cloneIdentity,
             mayShareDataBlocks: !isDirectory && !isSymbolicLink &&
@@ -816,7 +820,7 @@ nonisolated enum BulkDirectoryEnumerator {
             lastModified: lastModified,
             isReadable: metadata.isReadable,
             volumeCapacity: nil,
-            fileIdentity: FileIdentity(device: metadata.device, inode: metadata.inode),
+            fileIdentity: metadata.fileIdentity,
             linkCount: metadata.linkCount,
             cloneIdentity: metadata.cloneIdentity,
             mayShareDataBlocks: metadata.mayShareDataBlocks

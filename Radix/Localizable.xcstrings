@@ -27642,43 +27642,43 @@
         }
       }
     },
-    "The item at %@ changed since this scan. Rescan before moving it to Trash." : {
+    "The item at %@ changed since this scan. Rescan and select it again." : {
       "comment" : "Safety error shown when a selected item changed after scanning.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das Element unter %@ wurde seit diesem Scan geändert. Scannen Sie es erneut, bevor Sie es in den Papierkorb bewegen."
+            "value" : "Das Element unter %@ wurde seit diesem Scan geändert. Führen Sie den Scan erneut aus und wählen Sie das Element erneut aus."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El elemento de %@ cambió desde este análisis. Vuelve a analizarlo antes de moverlo a la papelera."
+            "value" : "El elemento de %@ cambió desde este análisis. Vuelve a escanearlo y selecciónalo de nuevo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’élément situé à %@ a changé depuis cette analyse. Réanalysez-le avant de le placer dans la corbeille."
+            "value" : "L’élément situé à %@ a changé depuis cette analyse. Relancez l’analyse, puis sélectionnez-le à nouveau."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'elemento in %@ è cambiato dopo questa scansione. Esegui nuovamente la scansione prima di spostarlo nel Cestino."
+            "value" : "L'elemento in %@ è cambiato dopo questa scansione. Ripeti la scansione e selezionalo di nuovo."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Объект по адресу %@ изменился после сканирования. Выполните повторное сканирование перед перемещением в Корзину."
+            "value" : "Объект по адресу %@ изменился после сканирования. Выполните сканирование ещё раз и снова выберите объект."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ 处的项目自本次扫描后已更改。移到废纸篓前请重新扫描。"
+            "value" : "%@ 处的项目自本次扫描后已更改。请重新扫描并再次选择该项目。"
           }
         }
       }
