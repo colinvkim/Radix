@@ -35,7 +35,7 @@ struct TrashFlowControllerTests {
         }
         let initial = snapshot(nativeNode)
         let controller = TrashFlowController()
-        controller.changeDiscardPile(controller.discardPileAdding([nativeNode], in: initial), actionName: "Add")
+        controller.changeDiscardPile(controller.discardPileAdding([nativeNode], in: initial).pile, actionName: "Add")
         let refreshed = snapshot(foundationNode)
 
         #expect(controller.discardPile.matchingNodeIDs(in: refreshed) == (replaced ? [] : [nativeNode.id]))
@@ -46,6 +46,48 @@ struct TrashFlowControllerTests {
         )
         #expect(preview.nodes == (replaced ? [] : [nativeNode]))
         #expect(preview.discardPileBatch?.unavailable.map(\.node) == (replaced ? [nativeNode] : []))
+    }
+
+    @Test
+    func testDiscardPileBatchDeduplicatesAliasesAndKeepsDistinctDirectoryEntries() throws {
+        let fixture = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: fixture) }
+        let folder = fixture.appending(path: "folder", directoryHint: .isDirectory)
+        let aliasFolder = fixture.appending(path: "alias", directoryHint: .isDirectory)
+        try manager.createDirectory(at: folder, withIntermediateDirectories: false)
+        try manager.createSymbolicLink(at: aliasFolder, withDestinationURL: folder)
+        let file = folder.appending(path: "marked.txt")
+        let hardLink = folder.appending(path: "hard-link.txt")
+        let symlink = folder.appending(path: "symlink.txt")
+        try Data([1]).write(to: file)
+        try manager.linkItem(at: file, to: hardLink)
+        try manager.createSymbolicLink(at: symlink, withDestinationURL: file)
+
+        let loader = ScanMetadataLoader()
+        func node(at url: URL, isSymbolicLink: Bool = false) throws -> FileNodeRecord {
+            makeTestFileNode(
+                id: url.path,
+                name: url.lastPathComponent,
+                fileIdentity: try loader.fileSystemIdentity(at: url),
+                isSymbolicLink: isSymbolicLink
+            )
+        }
+        let original = try node(at: file)
+        let alias = try node(at: aliasFolder.appending(path: file.lastPathComponent))
+        let distinctEntries = try [node(at: hardLink), node(at: symlink, isSymbolicLink: true)]
+        try #require(original.fileIdentity == alias.fileIdentity)
+        try #require(original.fileIdentity == distinctEntries[0].fileIdentity)
+        let marks = [original, alias] + distinctEntries
+        let controller = TrashFlowController(discardPile: DiscardPileState(marks: marks.map { .init(node: $0) }))
+
+        let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
+            nodes: marks, trashSafetyPolicy: .live(), verifyIdentity: SystemIntegration.verifyTrashIdentity
+        )
+        #expect(preview.nodes == [original] + distinctEntries)
+        #expect(preview.discardPileBatch?.unavailable.isEmpty == true)
+        controller.removeMovedDiscardPileNodes([original], batch: preview.discardPileBatch, from: nil)
+        #expect(controller.discardPile.nodes == distinctEntries)
     }
 
     @Test
@@ -103,7 +145,7 @@ struct TrashFlowControllerTests {
         let store = FileTreeStore(root: root, childrenByID: [root.id: [folder, kept], folder.id: [child]])
         let snapshot = makeTestSnapshot(root: root, store: store)
         let controller = TrashFlowController()
-        controller.changeDiscardPile(controller.discardPileAdding([child, kept], in: snapshot), actionName: "Add")
+        controller.changeDiscardPile(controller.discardPileAdding([child, kept], in: snapshot).pile, actionName: "Add")
 
         controller.removeMovedDiscardPileNodes([folder], batch: nil, from: snapshot)
 

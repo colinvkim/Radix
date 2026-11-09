@@ -2046,8 +2046,8 @@ struct AppModelDependencyTests {
         #expect(model.discardPileSnapshot.nodes == [file])
     }
 
-    @Test
-    func testDismissingDiscardPileReviewCancelsPreparation() async throws {
+    @Test(arguments: [false, true])
+    func testDiscardPilePreparationSurvivesScanPublicationAndCancelsOnDismissal(dismissed: Bool) async throws {
         let verifierStarted = OSAllocatedUnfairLock(initialState: false)
         let verifierGate = DispatchSemaphore(value: 0)
         var actions = AppSystemActions.inert
@@ -2068,12 +2068,19 @@ struct AppModelDependencyTests {
 
         try await waitUntil("discard pile verifier starts") { verifierStarted.withLock { $0 } }
         #expect(model.isPreparingDiscardPileTrash)
-        model.dismissDiscardPileReview()
+        if dismissed {
+            model.dismissDiscardPileReview()
+        } else {
+            let original = try #require(model.scanState.snapshot)
+            let refreshed = makeTestSnapshot(root: original.root, store: original.treeStore)
+            try #require(original.id != refreshed.id)
+            model.scanState.restoreCompletedSnapshot(refreshed)
+        }
         verifierGate.signal()
 
-        #expect(!(await preparation.value))
+        #expect(await preparation.value == !dismissed)
         #expect(!model.isPreparingDiscardPileTrash)
-        #expect(model.pendingTrashSelection == nil)
+        #expect(model.pendingTrashSelection?.nodes == (dismissed ? nil : [file]))
         #expect(model.discardPileSnapshot.nodes == [file])
     }
 

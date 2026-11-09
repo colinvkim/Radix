@@ -106,6 +106,7 @@ final class TrashFlowController {
     @Published private(set) var discardPile: DiscardPileState {
         didSet { notifyChanged() }
     }
+    var onDiscardPileChange: ((DiscardPileState, Set<FileNodeRecord.ID>?) -> Void)?
 
     let discardPileUndoManager = UndoManager()
     var onDiscardPileHistoryReplay: ((DiscardPileState) -> Void)?
@@ -215,7 +216,7 @@ final class TrashFlowController {
         guard !nodes.isEmpty else { throw FileActionError.noSelection }
 
         var unavailable: [DiscardPileTrashBatch.Unavailable] = []
-        var eligible: [FileNodeRecord] = []
+        var eligible: [(node: FileNodeRecord, path: String)] = []
         for node in nodes {
             try Task.checkCancellation()
             let message: String?
@@ -233,29 +234,26 @@ final class TrashFlowController {
             if let message {
                 unavailable.append(.init(node: node, message: message))
             } else {
-                eligible.append(node)
+                let parent = node.url.deletingLastPathComponent().resolvingSymlinksInPath()
+                eligible.append((node, parent.appending(path: node.url.lastPathComponent).path))
             }
         }
 
-        var foldersByPath: [String: FileNodeRecord.ID] = [:]
-        for folder in eligible where folder.isDirectory && !folder.isSymbolicLink {
-            try Task.checkCancellation()
-            let path = folder.url.resolvingSymlinksInPath().path
-            if foldersByPath[path] == nil { foldersByPath[path] = folder.id }
-        }
+        let entriesByPath = Dictionary(eligible.map { ($0.path, $0.node) }, uniquingKeysWith: { first, _ in first })
         var coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]] = [:]
-        let operations = try eligible.filter { node in
+        let operations = try eligible.compactMap { node, path -> FileNodeRecord? in
             try Task.checkCancellation()
-            guard !foldersByPath.isEmpty else { return true }
-            var parent = node.url.deletingLastPathComponent().resolvingSymlinksInPath().path
-            var coveringID: FileNodeRecord.ID?
-            while let separator = parent.lastIndex(of: "/"), parent != "/" {
-                if let ancestor = foldersByPath[parent] { coveringID = ancestor }
+            var coveringID = entriesByPath[path]?.id ?? node.id
+            var parent = path
+            while let separator = parent.lastIndex(of: "/"), separator != parent.startIndex {
                 parent = String(parent[..<separator])
+                if let ancestor = entriesByPath[parent], ancestor.isDirectory, !ancestor.isSymbolicLink {
+                    coveringID = ancestor.id
+                }
             }
-            guard let coveringID else { return true }
+            guard coveringID != node.id else { return node }
             coveredMarks[coveringID, default: []].append(node)
-            return false
+            return nil
         }
         return PendingTrashSelection(
             nodes: operations,
@@ -272,10 +270,13 @@ final class TrashFlowController {
     func replaceDiscardPile(_ state: DiscardPileState) {
         invalidateDiscardPileHistory()
         guard state != discardPile else { return }
-        discardPile = state
+        publishDiscardPile(state)
     }
 
-    func discardPileAdding(_ nodes: [FileNodeRecord], in snapshot: ScanSnapshot) -> DiscardPileState {
+    func discardPileAdding(
+        _ nodes: [FileNodeRecord],
+        in snapshot: ScanSnapshot
+    ) -> (pile: DiscardPileState, matchingNodeIDs: Set<FileNodeRecord.ID>) {
         let tree = snapshot.treeStore
         var updated = discardPile.marks
         var offsets = Dictionary(uniqueKeysWithValues: updated.enumerated().map { ($0.element.node.id, $0.offset) })
@@ -292,7 +293,8 @@ final class TrashFlowController {
 
         let incomingIDs = Set(nodes.map(\.id))
         let matchingIDs = DiscardPileState(marks: updated).matchingNodeIDs(in: snapshot)
-        return DiscardPileState(marks: updated.filter { mark in
+        var retainedIDs = matchingIDs
+        let retainedMarks = updated.filter { mark in
             guard matchingIDs.contains(mark.node.id) else { return true }
             var parent = tree.parent(of: mark.node.id)
             while let ancestor = parent {
@@ -301,12 +303,14 @@ final class TrashFlowController {
                    ancestor.isDirectory, !ancestor.isSymbolicLink,
                    incomingIDs.contains(ancestor.id) || incomingIDs.contains(mark.node.id),
                    updated[offset].node.fileIdentity != nil || mark.node.fileIdentity == nil {
+                    retainedIDs.remove(mark.node.id)
                     return false
                 }
                 parent = tree.parent(of: ancestor.id)
             }
             return true
-        })
+        }
+        return (DiscardPileState(marks: retainedMarks), retainedIDs)
     }
 
     func removeMovedDiscardPileNodes(
@@ -337,7 +341,11 @@ final class TrashFlowController {
         if remaining != discardPile.marks { replaceDiscardPile(DiscardPileState(marks: remaining)) }
     }
 
-    func changeDiscardPile(_ state: DiscardPileState, actionName: String) {
+    func changeDiscardPile(
+        _ state: DiscardPileState,
+        actionName: String,
+        matchingNodeIDs: Set<FileNodeRecord.ID>? = nil
+    ) {
         guard state != discardPile else { return }
         let previous = discardPile
         let isReplaying = discardPileUndoManager.isUndoing || discardPileUndoManager.isRedoing
@@ -347,8 +355,16 @@ final class TrashFlowController {
         }
         discardPileUndoManager.setActionName(actionName)
         if !isReplaying { discardPileUndoManager.endUndoGrouping() }
-        discardPile = state
+        publishDiscardPile(state, matchingNodeIDs: matchingNodeIDs)
         if isReplaying { onDiscardPileHistoryReplay?(state) }
+    }
+
+    private func publishDiscardPile(
+        _ state: DiscardPileState,
+        matchingNodeIDs: Set<FileNodeRecord.ID>? = nil
+    ) {
+        onDiscardPileChange?(state, matchingNodeIDs)
+        discardPile = state
     }
 
     func removeDiscardPileNodes(ids nodeIDs: Set<FileNodeRecord.ID>) {

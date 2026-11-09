@@ -414,12 +414,10 @@ final class AppModel: ObservableObject {
             self.objectWillChange.send()
             self.fileTransferReconciliation.resumeIfPossible()
         }
-        trashFlow.$discardPile
-            .sink { [weak self] pile in
-                guard let self else { return }
-                projectedDiscardPileIDs = pile.matchingNodeIDs(in: scanCoordinator.snapshot)
-            }
-            .store(in: &cancellables)
+        trashFlow.onDiscardPileChange = { [weak self] pile, matchingNodeIDs in
+            guard let self else { return }
+            projectedDiscardPileIDs = matchingNodeIDs ?? pile.matchingNodeIDs(in: scanCoordinator.snapshot)
+        }
         trashFlow.onDiscardPileHistoryReplay = { [weak self] _ in
             guard let self, let fileTreeStore = self.scanCoordinator.fileTreeStore else { return }
             self.reconcileNavigationForHiddenNodes(
@@ -2503,7 +2501,6 @@ final class AppModel: ObservableObject {
 
             let pile = discardPile
             let nodes = pile.nodes
-            let snapshotID = scanCoordinator.snapshot?.id
             let policy = scanCoordinator.trashSafetyPolicy
             let verifyIdentity = dependencies.systemActions.verifyTrashIdentity
             let id = UUID()
@@ -2527,7 +2524,7 @@ final class AppModel: ObservableObject {
                 task.cancel()
             }
             guard !Task.isCancelled, discardPilePreparation?.id == id,
-                  discardPile == pile, scanCoordinator.snapshot?.id == snapshotID,
+                  discardPile == pile,
                   canUseWorkspaceCommands, !trashFlow.isMovingFiles,
                   pendingTrashSelection == nil, pendingCloudFileAction == nil else { return false }
             try validateSnapshotAllowsMutation()
@@ -3066,15 +3063,16 @@ final class AppModel: ObservableObject {
         _ nodes: [FileNodeRecord],
         snapshot: ScanSnapshot
     ) {
-        let updatedPile = trashFlow.discardPileAdding(nodes, in: snapshot)
+        let (updatedPile, matchingNodeIDs) = trashFlow.discardPileAdding(nodes, in: snapshot)
         reconcileNavigationForHiddenNodes(
-            hiddenNodeIDs: hiddenNodeIDs(for: snapshot.id).union(updatedPile.matchingNodeIDs(in: snapshot)),
+            hiddenNodeIDs: hiddenNodeIDs(for: snapshot.id).union(matchingNodeIDs),
             fileTreeStore: snapshot.treeStore,
             preservingSelection: navigationModel.selectedNodeIDs.count == 1
         )
         trashFlow.changeDiscardPile(
             updatedPile,
-            actionName: String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion.")
+            actionName: String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion."),
+            matchingNodeIDs: matchingNodeIDs
         )
     }
 
