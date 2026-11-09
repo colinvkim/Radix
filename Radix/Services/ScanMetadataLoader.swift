@@ -774,7 +774,7 @@ nonisolated struct CloneIdentity: Hashable, Sendable {
 nonisolated enum FileIdentity: Hashable, Sendable {
     enum NativeResourceEvidence: Sendable {
         case volumeToken(UInt64)
-        case directoryIdentifier(Data)
+        case identifier(Data)
     }
 
     case resourceIdentifier(Data, scanDevice: UInt64? = nil, birthTime: Date? = nil)
@@ -819,7 +819,7 @@ nonisolated enum FileIdentity: Hashable, Sendable {
 
     var trashResourceIdentifier: Data? {
         switch self {
-        case .resourceIdentifier(let data, _, _), .fileSystem(_, _, .directoryIdentifier(let data), _):
+        case .resourceIdentifier(let data, _, _), .fileSystem(_, _, .identifier(let data), _):
             data
         case .fileSystem:
             nil
@@ -883,7 +883,7 @@ nonisolated enum FileIdentity: Hashable, Sendable {
         switch self {
         case .fileSystem(_, let inode, .volumeToken(let token), _):
             return DarwinIdentity(fileID: inode, volumeToken: token)
-        case .fileSystem(_, let inode, .directoryIdentifier(let data), _):
+        case .fileSystem(_, let inode, .identifier(let data), _):
             guard let identity = Self.decodeDarwinIdentity(data), identity.fileID == inode else { return nil }
             return identity
         case .fileSystem:
@@ -929,18 +929,18 @@ nonisolated enum FileIdentity: Hashable, Sendable {
     }
 
     func preservingResourceIdentity(from resourceIdentity: FileIdentity?, isDirectory: Bool) -> Self {
-        guard case .fileSystem(let device, let inode, _, let birthTime) = self,
-              let resourceIdentity else { return self }
-        let evidence: NativeResourceEvidence
-        if isDirectory, let identifier = resourceIdentity.trashResourceIdentifier {
-            // Some filesystems recycle stat's inode before reusing the resource identifier.
-            evidence = .directoryIdentifier(identifier)
-        } else if let identity = resourceIdentity.darwinIdentity, identity.fileID == inode,
-                  !hasConflictingTrashEvidence(with: resourceIdentity) {
-            evidence = .volumeToken(identity.volumeToken)
-        } else {
-            return self
+        guard case .fileSystem(let device, let inode, let evidence, _) = self else { return self }
+        // A later stat can provide an accounting key, but Trash needs evidence from the prefetched entry.
+        guard let resourceIdentity, let identifier = resourceIdentity.trashResourceIdentifier else {
+            return .fileSystem(device: device, inode: inode, resourceEvidence: evidence)
         }
-        return .fileSystem(device: device, inode: inode, resourceEvidence: evidence, birthTime: birthTime)
+        // On some volumes a directory's resource ID and stat inode have separate namespaces.
+        if !isDirectory, resourceIdentity.darwinIdentity?.fileID != inode ||
+            hasConflictingTrashEvidence(with: resourceIdentity) {
+            return resourceIdentity
+        }
+        return .fileSystem(
+            device: device, inode: inode, resourceEvidence: .identifier(identifier), birthTime: resourceIdentity.birthTime
+        )
     }
 }

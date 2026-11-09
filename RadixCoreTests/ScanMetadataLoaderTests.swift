@@ -652,7 +652,7 @@ struct ScanMetadataLoaderTests {
         #expect(
             native.preservingResourceIdentity(from: resource, isDirectory: false).darwinIdentity
                 == FileIdentity.DarwinIdentity(fileID: 42, volumeToken: 123))
-        #expect(FileIdentity(device: 7, inode: 43).preservingResourceIdentity(from: resource, isDirectory: false).darwinIdentity == nil)
+        #expect(FileIdentity(device: 7, inode: 43).preservingResourceIdentity(from: resource, isDirectory: false) == resource)
         #expect(native.preservingResourceIdentity(from: nil, isDirectory: false).darwinIdentity == nil)
         for length in [0, 8, 15, 17, 32] {
             let unfamiliar = FileIdentity(resourceIdentifier: Data(repeating: 0, count: length))

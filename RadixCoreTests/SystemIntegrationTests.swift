@@ -454,7 +454,8 @@ struct SystemIntegrationTests {
         // Keep the original opaque ID and simulate a recycled stat inode and birth time.
         let replacementIdentity = try loader.fileSystemIdentity(at: directory)
         let scannedIdentity = replacementIdentity.preservingResourceIdentity(
-            from: FileIdentity(resourceIdentifier: originalResourceIdentifier), isDirectory: true
+            from: FileIdentity(resourceIdentifier: originalResourceIdentifier, birthTime: replacementIdentity.birthTime),
+            isDirectory: true
         )
         let node = makeTestDirectoryNode(id: directory.path, name: "marked", children: [], fileIdentity: scannedIdentity)
         let result = try SystemIntegration.moveToTrash(
