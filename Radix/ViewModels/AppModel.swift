@@ -2555,7 +2555,8 @@ final class AppModel: ObservableObject {
                 try validateMutationDoesNotIncludeHiddenNodes(selection.nodes)
             }
 
-            let urls = selection.nodes.map(\.url) + (selection.discardPileBatch?.resolvedOperationURLs ?? [])
+            let resolvedURLs = selection.discardPileBatch?.resolvedURLsByOperationID ?? [:]
+            let urls = selection.nodes.map(\.url) + Array(resolvedURLs.values)
             if let cloudImpact = cloudStorageImpact(of: urls) {
                 pendingCloudFileAction = PendingCloudFileAction(
                     kind: .moveToTrash,
@@ -2693,7 +2694,11 @@ final class AppModel: ObservableObject {
         if !movedNodes.isEmpty {
             trashFlow.invalidateDiscardPileHistory()
             sidebarScanCacheController.clearCache()
-            reconcileScanAfterTrash(affectedMovedNodes, originalSnapshotID: originalSnapshotID)
+            reconcileScanAfterTrash(
+                affectedMovedNodes,
+                resolvedURLs: discardPileBatch?.resolvedURLsByOperationID ?? [:],
+                originalSnapshotID: originalSnapshotID
+            )
             trashFlow.removeMovedDiscardPileNodes(
                 affectedMovedNodes, from: originalSnapshot, includeSnapshotDescendants: discardPileBatch == nil
             )
@@ -2711,14 +2716,34 @@ final class AppModel: ObservableObject {
         if let actionError { presentError(actionError) }
     }
 
-    private func reconcileScanAfterTrash(_ movedNodes: [FileNodeRecord], originalSnapshotID: UUID?) {
+    private func reconcileScanAfterTrash(
+        _ movedNodes: [FileNodeRecord],
+        resolvedURLs: [FileNodeRecord.ID: URL],
+        originalSnapshotID: UUID?
+    ) {
         guard let target = scanCoordinator.selectedTarget else { return }
         let snapshot = scanCoordinator.snapshot
         let isFullScanInProgress = scanCoordinator.isFullScanInProgress
         guard snapshot?.source.allowsFileMutation ?? isFullScanInProgress else { return }
 
-        let rootMayHaveMoved = movedNodes.contains {
-            $0.id == target.id || ($0.isDirectory && Self.path(target.id, isWithin: $0.id))
+        let resolvedTargetPath = resolvedURLs.isEmpty ? target.id : Self.resolvedScanPath(target.url)
+        let alternatePaths = movedNodes.flatMap { node -> [(id: String, node: FileNodeRecord)] in
+            guard let resolvedPath = resolvedURLs[node.id]?.path else { return [] }
+            var paths = [resolvedPath]
+            if let alternate = TrashSafetyPolicy.alternateStartupVolumePath(for: resolvedPath) {
+                paths.append(alternate)
+            }
+            if resolvedTargetPath != target.id, Self.path(resolvedPath, isWithin: resolvedTargetPath) {
+                paths.append(target.id + resolvedPath.dropFirst(resolvedTargetPath.count))
+            }
+            return paths.filter { $0 != node.id }.map { (id: $0, node: node) }
+        }
+        let paths = movedNodes.map { (id: $0.id, node: $0) } + alternatePaths
+        let targetPaths = [target.id, resolvedTargetPath]
+        let rootMayHaveMoved = paths.contains { id, node in
+            targetPaths.contains { targetPath in
+                id == targetPath || (node.isDirectory && !node.isSymbolicLink && Self.path(targetPath, isWithin: id))
+            }
         }
         if rootMayHaveMoved {
             let rootStillValid = snapshot.map {
@@ -2731,22 +2756,28 @@ final class AppModel: ObservableObject {
         }
 
         if isFullScanInProgress,
-           rootMayHaveMoved || movedNodes.contains(where: { Self.path($0.id, isWithin: target.id) }) {
+           rootMayHaveMoved || paths.contains(where: { Self.path($0.id, isWithin: target.id) }) {
             if restartCurrentScanAfterTrash(target, snapshot: snapshot) { return }
             scanCoordinator.stopScan()
         }
 
         guard let snapshot else { return }
         let tree = snapshot.treeStore
-        let matching = { [self] (moved: FileNodeRecord, current: FileNodeRecord) in
-            matchesMovedNode(moved, current: current, sameSnapshot: originalSnapshotID == snapshot.id)
-        }
+        let sameSnapshot = originalSnapshotID == snapshot.id
         var summarized: [FileNodeRecord] = []
-        let matched = movedNodes.compactMap { moved -> FileNodeRecord? in
-            if let current = tree.node(id: moved.id) {
-                return matching(moved, current) ? current : nil
+        var alternateMatches: [FileNodeRecord] = []
+        var matchedIDs: Set<FileNodeRecord.ID> = []
+        let matched = paths.compactMap { id, moved -> FileNodeRecord? in
+            if let current = tree.node(id: id) {
+                let isAlternatePath = id != moved.id
+                guard !matchedIDs.contains(id), matchesMovedNode(
+                    moved, current: current, sameSnapshot: sameSnapshot, requiresMissingPath: isAlternatePath
+                ) else { return nil }
+                if isAlternatePath { alternateMatches.append(current) }
+                matchedIDs.insert(id)
+                return current
             }
-            if let ancestor = summarizedAncestor(of: moved.id, in: tree) { summarized.append(ancestor) }
+            if let ancestor = summarizedAncestor(of: id, in: tree) { summarized.append(ancestor) }
             return nil
         }
         if matched.contains(where: { $0.id == target.id }) {
@@ -2769,20 +2800,35 @@ final class AppModel: ObservableObject {
             activeFileTreeStore: tree
         )
         enqueuePostTrashSnapshotRemoval(
-            movedNodes: movedNodes,
+            movedNodes: movedNodes + alternateMatches,
             hiddenIDs: Set(matched.map(\.id)),
-            sameSnapshot: originalSnapshotID == snapshot.id,
+            sameSnapshot: sameSnapshot,
             fallbackFocusID: fallbackFocusID
         )
+    }
+
+    private static func resolvedScanPath(_ url: URL) -> String {
+        let path = url.path
+        var ancestor = URL(filePath: path)
+        // The move may have removed the scan root or one of its parents.
+        while ancestor.path != "/" {
+            if let resolved = try? ancestor.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
+                return resolved + path.dropFirst(ancestor.path.count)
+            }
+            ancestor.deleteLastPathComponent()
+        }
+        return path
     }
 
     private func matchesMovedNode(
         _ moved: FileNodeRecord,
         current: FileNodeRecord,
-        sameSnapshot: Bool
+        sameSnapshot: Bool,
+        requiresMissingPath: Bool = false
     ) -> Bool {
         if moved.fileIdentity == current.fileIdentity {
-            return moved.fileIdentity != nil || sameSnapshot
+            guard moved.fileIdentity != nil || sameSnapshot else { return false }
+            return !requiresMissingPath || dependencies.systemActions.verifyTrashIdentity(current) == .missingCurrentItem
         }
         guard let movedIdentity = moved.fileIdentity, let currentIdentity = current.fileIdentity,
               movedIdentity.isFileSystemIdentity != currentIdentity.isFileSystemIdentity else { return false }

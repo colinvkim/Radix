@@ -2539,18 +2539,22 @@ struct AppModelDependencyTests {
         #expect(model.usageStats.bytesMovedToTrash == first.allocatedSize)
     }
 
-    @Test
-    func testDiscardPileTrashRemovesTheCoveredPathFromTheDisplayedScan() async throws {
+    @Test(arguments: [false, true])
+    func testDiscardPileTrashRemovesAliasedRowAndKeepsHardLink(markAlias: Bool) async throws {
         let fixture = try makeTemporaryDirectory()
         let manager = FileManager.default
         defer { try? manager.removeItem(at: fixture) }
-        let folder = fixture.appending(path: "folder", directoryHint: .isDirectory)
-        let alias = fixture.appending(path: "alias", directoryHint: .isDirectory)
+        let canonicalPath = try #require(fixture.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
+        let parent = URL(filePath: canonicalPath, directoryHint: .isDirectory)
+        let alternateParent = URL(filePath: "/System/Volumes/Data" + canonicalPath, directoryHint: .isDirectory)
+        let folder = parent.appending(path: "folder", directoryHint: .isDirectory)
+        let alias = alternateParent.appending(path: "folder", directoryHint: .isDirectory)
         try manager.createDirectory(at: folder, withIntermediateDirectories: false)
-        try manager.createSymbolicLink(at: alias, withDestinationURL: folder)
         let file = folder.appending(path: "marked.txt")
+        let link = folder.appending(path: "keep.txt")
         let moved = fixture.appending(path: "moved.txt")
         try Data([1]).write(to: file)
+        try manager.linkItem(at: file, to: link)
 
         var attempted: [URL] = []
         var actions = AppSystemActions.inert
@@ -2564,20 +2568,22 @@ struct AppModelDependencyTests {
         defer { model.cleanup() }
 
         func display(_ parent: URL) throws -> FileNodeRecord {
-            let url = parent.appending(path: file.lastPathComponent)
-            let node = makeTestFileNode(id: url.path, name: url.lastPathComponent,
+            let nodes = try [file, link].map { entry in
+                let url = parent.appending(path: entry.lastPathComponent)
+                return makeTestFileNode(id: url.path, name: url.lastPathComponent,
                                         fileIdentity: try ScanMetadataLoader().fileSystemIdentity(at: url))
-            let root = makeTestDirectoryNode(id: parent.path, name: parent.lastPathComponent, children: [node])
-            let tree = FileTreeStore(root: root, childrenByID: [root.id: [node]])
+            }
+            let root = makeTestDirectoryNode(id: parent.path, name: parent.lastPathComponent, children: nodes)
+            let tree = FileTreeStore(root: root, childrenByID: [root.id: nodes])
             let target = ScanTarget(id: root.id, url: root.url, displayName: root.name, kind: .folder)
             model.scanState.restoreCompletedSnapshot(makeTestSnapshot(target: target, root: root, store: tree))
-            return node
+            return nodes[0]
         }
 
         let original = try display(folder)
         try #require(model.addNodesToDiscardPile([original]))
         let covered = try display(alias)
-        try #require(model.addNodesToDiscardPile([covered]))
+        if markAlias { try #require(model.addNodesToDiscardPile([covered])) }
         try #require(await model.requestMoveDiscardPileToTrash())
         try #require(model.pendingTrashSelection?.nodes == [original])
 
@@ -2588,6 +2594,106 @@ struct AppModelDependencyTests {
         #expect(!manager.fileExists(atPath: covered.id))
         #expect(model.discardPile.isEmpty)
         #expect(model.scanState.fileTreeStore?.node(id: covered.id) == nil)
+        #expect(model.scanState.fileTreeStore?.node(id: alias.appending(path: link.lastPathComponent).path) != nil)
+    }
+
+    @Test
+    func testDiscardPileTrashRemovesRowAfterCaseOnlyRename() async throws {
+        let fixture = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: fixture) }
+        let target = ScanTarget(url: fixture)
+        let originalURL = target.url.appending(path: "Marked.txt")
+        let renamedURL = target.url.appending(path: "marked.txt")
+        let stagingURL = target.url.appending(path: "rename-tmp")
+        let movedURL = target.url.appending(path: "moved.txt")
+        try Data([1]).write(to: originalURL)
+        guard manager.fileExists(atPath: renamedURL.path) else { return }
+
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { SystemIntegration.verifyTrashIdentity($0) }
+        actions.moveToTrash = { node in
+            try SystemIntegration.moveToTrash(
+                node, identityVerifier: SystemIntegration.verifyTrashIdentity,
+                trashItem: { try manager.moveItem(at: $0, to: movedURL) }
+            )
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+
+        func scan(for url: URL) async throws -> FileNodeRecord {
+            model.scanState.startScan(target, options: ScanOptions())
+            try await waitUntil("live scan contains \(url.lastPathComponent)") {
+                model.scanState.snapshot?.isComplete == true && model.scanState.fileTreeStore?.node(id: url.path) != nil
+            }
+            return try #require(model.scanState.fileTreeStore?.node(id: url.path))
+        }
+
+        let original = try await scan(for: originalURL)
+        try #require(model.addNodesToDiscardPile([original]))
+        try manager.moveItem(at: originalURL, to: stagingURL)
+        try manager.moveItem(at: stagingURL, to: renamedURL)
+        let renamed = try await scan(for: renamedURL)
+        try #require(await model.requestMoveDiscardPileToTrash())
+        try #require(model.pendingTrashSelection?.nodes == [original])
+
+        model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("trash and scan reconciliation finish") { !model.trashFlow.isMovingFiles }
+
+        #expect(manager.fileExists(atPath: movedURL.path))
+        #expect(model.discardPile.isEmpty)
+        #expect(model.scanState.fileTreeStore?.node(id: renamed.id) == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func testDiscardPileTrashClosesScanOfMovedFolderUnderOtherVolumePath(markDataPath: Bool) async throws {
+        let fixture = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: fixture) }
+        let canonicalPath = try #require(fixture.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
+        let visibleParent = URL(filePath: canonicalPath, directoryHint: .isDirectory)
+        let dataParent = URL(filePath: "/System/Volumes/Data" + canonicalPath, directoryHint: .isDirectory)
+        let markParent = markDataPath ? dataParent : visibleParent
+        let displayedParent = markDataPath ? visibleParent : dataParent
+        let folder = visibleParent.appending(path: "folder", directoryHint: .isDirectory)
+        let moved = visibleParent.appending(path: "moved", directoryHint: .isDirectory)
+        try manager.createDirectory(at: folder, withIntermediateDirectories: false)
+
+        var actions = AppSystemActions.inert
+        actions.verifyTrashIdentity = { SystemIntegration.verifyTrashIdentity($0) }
+        actions.moveToTrash = { node in
+            try SystemIntegration.moveToTrash(
+                node, identityVerifier: SystemIntegration.verifyTrashIdentity,
+                trashItem: { try manager.moveItem(at: $0, to: moved) }
+            )
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+
+        func display(_ root: FileNodeRecord, children: [FileNodeRecord]) {
+            let target = ScanTarget(id: root.id, url: root.url, displayName: root.name, kind: .folder)
+            let tree = FileTreeStore(root: root, childrenByID: [root.id: children])
+            model.scanState.restoreCompletedSnapshot(makeTestSnapshot(target: target, root: root, store: tree))
+        }
+
+        func folderNode(in parent: URL) throws -> FileNodeRecord {
+            let url = parent.appending(path: folder.lastPathComponent, directoryHint: .isDirectory)
+            return makeTestDirectoryNode(id: url.path, name: url.lastPathComponent, children: [],
+                                         fileIdentity: try ScanMetadataLoader().fileSystemIdentity(at: url))
+        }
+        let marked = try folderNode(in: markParent)
+        display(makeTestDirectoryNode(id: markParent.path, name: markParent.lastPathComponent, children: [marked]), children: [marked])
+        try #require(model.addNodesToDiscardPile([marked]))
+        let displayed = try folderNode(in: displayedParent)
+        display(displayed, children: [])
+        try #require(await model.requestMoveDiscardPileToTrash())
+
+        model.confirmMovePendingSelectionToTrash()
+        try await waitUntil("trash and scan reconciliation finish") { !model.trashFlow.isMovingFiles }
+
+        #expect(manager.fileExists(atPath: moved.path))
+        #expect(model.discardPile.isEmpty)
+        #expect(model.scanState.snapshot == nil)
     }
 
     @Test

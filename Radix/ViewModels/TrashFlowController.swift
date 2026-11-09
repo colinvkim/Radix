@@ -73,7 +73,7 @@ final class TrashFlowController {
         }
 
         let unavailable: [Unavailable]
-        let resolvedOperationURLs: [URL]
+        let resolvedURLsByOperationID: [FileNodeRecord.ID: URL]
         let coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]]
 
         func affectedNodes(for operations: [FileNodeRecord]) -> [FileNodeRecord] {
@@ -270,7 +270,9 @@ final class TrashFlowController {
         return PendingTrashSelection(
             nodes: operations.map(\.node),
             discardPileBatch: DiscardPileTrashBatch(
-                unavailable: unavailable, resolvedOperationURLs: operations.map(\.resolvedURL), coveredMarks: coveredMarks
+                unavailable: unavailable,
+                resolvedURLsByOperationID: Dictionary(uniqueKeysWithValues: operations.map { ($0.node.id, $0.resolvedURL) }),
+                coveredMarks: coveredMarks
             )
         )
     }
