@@ -2420,7 +2420,7 @@ final class AppModel: ObservableObject {
                 throw FileActionError.unsupported
             }
             let discardNodes = topLevelTrashNodes(from: nodes)
-            if let cloudImpact = cloudStorageImpact(of: discardNodes) {
+            if let cloudImpact = cloudStorageImpact(of: discardNodes.map(\.url)) {
                 pendingCloudFileAction = PendingCloudFileAction(
                     kind: .addToDiscardPile,
                     nodes: discardNodes,
@@ -2555,7 +2555,8 @@ final class AppModel: ObservableObject {
                 try validateMutationDoesNotIncludeHiddenNodes(selection.nodes)
             }
 
-            if let cloudImpact = cloudStorageImpact(of: selection.nodes) {
+            let urls = selection.nodes.map(\.url) + (selection.discardPileBatch?.resolvedOperationURLs ?? [])
+            if let cloudImpact = cloudStorageImpact(of: urls) {
                 pendingCloudFileAction = PendingCloudFileAction(
                     kind: .moveToTrash,
                     nodes: selection.nodes,
@@ -2613,7 +2614,7 @@ final class AppModel: ObservableObject {
     }
 
     private func cloudStorageImpact(
-        of nodes: [FileNodeRecord]
+        of urls: [URL]
     ) -> CloudStorageLocation.Impact? {
         var containsCloudStorage = false
         var existenceByRootPath: [String: Bool] = [:]
@@ -2625,9 +2626,9 @@ final class AppModel: ObservableObject {
             existenceByRootPath[root.path] = rootExists
             return rootExists
         }
-        for node in nodes {
+        for url in urls {
             switch CloudStorageLocation.impact(
-                of: node.url,
+                of: url,
                 cloudRootExists: cloudRootExists
             ) {
             case .storedInCloud:
@@ -2654,7 +2655,7 @@ final class AppModel: ObservableObject {
             moveToTrash: dependencies.systemActions.moveToTrash,
             beginMove: {
                 let didHide = trashFlow.hideTrashNodesDuringMove(
-                    nodes,
+                    discardPileBatch?.affectedNodes(for: nodes) ?? nodes,
                     snapshotID: originalSnapshotID,
                     activeSnapshotID: scanCoordinator.snapshot?.id,
                     activeFileTreeStore: statsFileTreeStore
@@ -2688,29 +2689,26 @@ final class AppModel: ObservableObject {
         wasCancelled: Bool = false
     ) {
         let originalSnapshotID = originalSnapshot?.id
+        let affectedMovedNodes = discardPileBatch?.affectedNodes(for: movedNodes) ?? movedNodes
         if !movedNodes.isEmpty {
             trashFlow.invalidateDiscardPileHistory()
             sidebarScanCacheController.clearCache()
-            reconcileScanAfterTrash(movedNodes, originalSnapshotID: originalSnapshotID)
-            trashFlow.removeMovedDiscardPileNodes(movedNodes, batch: discardPileBatch, from: originalSnapshot)
+            reconcileScanAfterTrash(affectedMovedNodes, originalSnapshotID: originalSnapshotID)
+            trashFlow.removeMovedDiscardPileNodes(
+                affectedMovedNodes, from: originalSnapshot, includeSnapshotDescendants: discardPileBatch == nil
+            )
             recordTrashMove(movedNodes, fileTreeStore: originalSnapshot?.treeStore)
             refreshAvailableTargets()
         }
 
-        if let actionError {
+        if actionError != nil || wasCancelled {
             trashFlow.unhideTrashNodesAfterFailedMove(
-                requestedNodes: requestedNodes,
-                movedNodes: movedNodes,
-                snapshotID: originalSnapshotID
-            )
-            presentError(actionError)
-        } else if wasCancelled {
-            trashFlow.unhideTrashNodesAfterFailedMove(
-                requestedNodes: requestedNodes,
-                movedNodes: movedNodes,
+                requestedNodes: discardPileBatch?.affectedNodes(for: requestedNodes) ?? requestedNodes,
+                movedNodes: affectedMovedNodes,
                 snapshotID: originalSnapshotID
             )
         }
+        if let actionError { presentError(actionError) }
     }
 
     private func reconcileScanAfterTrash(_ movedNodes: [FileNodeRecord], originalSnapshotID: UUID?) {

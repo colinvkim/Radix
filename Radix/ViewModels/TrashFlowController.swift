@@ -73,7 +73,12 @@ final class TrashFlowController {
         }
 
         let unavailable: [Unavailable]
+        let resolvedOperationURLs: [URL]
         let coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]]
+
+        func affectedNodes(for operations: [FileNodeRecord]) -> [FileNodeRecord] {
+            operations + operations.flatMap { coveredMarks[$0.id] ?? [] }
+        }
     }
 
     nonisolated struct PendingTrashSelection: Sendable {
@@ -216,7 +221,7 @@ final class TrashFlowController {
         guard !nodes.isEmpty else { throw FileActionError.noSelection }
 
         var unavailable: [DiscardPileTrashBatch.Unavailable] = []
-        var eligible: [(node: FileNodeRecord, path: String)] = []
+        var eligible: [(node: FileNodeRecord, resolvedURL: URL)] = []
         for node in nodes {
             try Task.checkCancellation()
             let message: String?
@@ -234,15 +239,20 @@ final class TrashFlowController {
             if let message {
                 unavailable.append(.init(node: node, message: message))
             } else {
-                let parent = node.url.deletingLastPathComponent().resolvingSymlinksInPath()
-                eligible.append((node, parent.appending(path: node.url.lastPathComponent).path))
+                let url = URL(filePath: node.url.path)
+                // Canonical paths recover the on-disk spelling without following
+                // a final symlink or treating distinct hard links as one entry.
+                let path = (try? url.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath) ?? url.path
+                eligible.append((node, URL(filePath: path)))
             }
         }
 
-        let entriesByPath = Dictionary(eligible.map { ($0.path, $0.node) }, uniquingKeysWith: { first, _ in first })
+        let entriesByPath = Dictionary(eligible.map { ($0.resolvedURL.path, $0.node) }, uniquingKeysWith: { first, _ in first })
+        var operations: [(node: FileNodeRecord, resolvedURL: URL)] = []
         var coveredMarks: [FileNodeRecord.ID: [FileNodeRecord]] = [:]
-        let operations = try eligible.compactMap { node, path -> FileNodeRecord? in
+        for (node, resolvedURL) in eligible {
             try Task.checkCancellation()
+            let path = resolvedURL.path
             var coveringID = entriesByPath[path]?.id ?? node.id
             var parent = path
             while let separator = parent.lastIndex(of: "/"), separator != parent.startIndex {
@@ -251,13 +261,17 @@ final class TrashFlowController {
                     coveringID = ancestor.id
                 }
             }
-            guard coveringID != node.id else { return node }
-            coveredMarks[coveringID, default: []].append(node)
-            return nil
+            if coveringID == node.id {
+                operations.append((node, resolvedURL))
+            } else {
+                coveredMarks[coveringID, default: []].append(node)
+            }
         }
         return PendingTrashSelection(
-            nodes: operations,
-            discardPileBatch: DiscardPileTrashBatch(unavailable: unavailable, coveredMarks: coveredMarks)
+            nodes: operations.map(\.node),
+            discardPileBatch: DiscardPileTrashBatch(
+                unavailable: unavailable, resolvedOperationURLs: operations.map(\.resolvedURL), coveredMarks: coveredMarks
+            )
         )
     }
 
@@ -315,25 +329,28 @@ final class TrashFlowController {
 
     func removeMovedDiscardPileNodes(
         _ movedNodes: [FileNodeRecord],
-        batch: DiscardPileTrashBatch?,
-        from originalSnapshot: ScanSnapshot?
+        from originalSnapshot: ScanSnapshot?,
+        includeSnapshotDescendants: Bool
     ) {
         guard !discardPile.isEmpty else { return }
-        let removed = movedNodes + movedNodes.flatMap { batch?.coveredMarks[$0.id] ?? [] }
-        let removedByID = Dictionary(removed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let removedByID = Dictionary(movedNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let tree = originalSnapshot?.treeStore
-        let movedFolders = movedNodes.filter { $0.isDirectory && !$0.isSymbolicLink }
-        let matchedFolders = movedFolders.filter { folder in
-            tree?.node(id: folder.id)?.fileIdentity == folder.fileIdentity
+        let removedSubtrees: PreparedFileTreeNodeSet? = if includeSnapshotDescendants, let tree {
+            tree.preparedNodeSet(for: Set(movedNodes.compactMap { node in
+                guard node.isDirectory, !node.isSymbolicLink,
+                      let current = tree.node(id: node.id), current.fileIdentity == node.fileIdentity else { return nil }
+                return node.id
+            }))
+        } else {
+            nil
         }
-        let removedSubtrees = tree?.preparedNodeSet(for: Set(matchedFolders.map(\.id)))
 
         let remaining = discardPile.marks.filter { mark in
             if let node = removedByID[mark.node.id] {
                 return mark.node.fileIdentity != node.fileIdentity
                     || (node.fileIdentity == nil && mark.unidentifiedTreeID != tree?.contentID)
             }
-            guard batch == nil, let tree, let removedSubtrees,
+            guard let tree, let removedSubtrees,
                   tree.isNodeOrDescendant(mark.node.id, of: removedSubtrees),
                   let original = tree.node(id: mark.node.id) else { return true }
             return !mark.matches(original, treeID: tree.contentID)

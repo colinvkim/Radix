@@ -85,9 +85,39 @@ struct TrashFlowControllerTests {
             nodes: marks, trashSafetyPolicy: .live(), verifyIdentity: SystemIntegration.verifyTrashIdentity
         )
         #expect(preview.nodes == [original] + distinctEntries)
-        #expect(preview.discardPileBatch?.unavailable.isEmpty == true)
-        controller.removeMovedDiscardPileNodes([original], batch: preview.discardPileBatch, from: nil)
+        let batch = try #require(preview.discardPileBatch)
+        #expect(batch.unavailable.isEmpty)
+        controller.removeMovedDiscardPileNodes(batch.affectedNodes(for: [original]), from: nil, includeSnapshotDescendants: false)
         #expect(controller.discardPile.nodes == distinctEntries)
+    }
+
+    @Test
+    func testDiscardPileBatchOnlyMovesOneEntryAfterCaseOnlyRename() throws {
+        let fixture = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: fixture) }
+        let originalURL = fixture.appending(path: "Marked.txt")
+        let renamedURL = fixture.appending(path: "marked.txt")
+        let intermediateURL = fixture.appending(path: "rename-tmp")
+        let loader = ScanMetadataLoader()
+        try Data([1]).write(to: originalURL)
+        let original = makeTestFileNode(
+            id: originalURL.path, name: originalURL.lastPathComponent, fileIdentity: try loader.fileSystemIdentity(at: originalURL)
+        )
+        try manager.moveItem(at: originalURL, to: intermediateURL)
+        try manager.moveItem(at: intermediateURL, to: renamedURL)
+        let renamed = makeTestFileNode(
+            id: renamedURL.path, name: renamedURL.lastPathComponent, fileIdentity: try loader.fileSystemIdentity(at: renamedURL)
+        )
+        try #require(original.fileIdentity == renamed.fileIdentity)
+        let originalStillResolves = manager.fileExists(atPath: originalURL.path)
+
+        let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
+            nodes: [original, renamed], trashSafetyPolicy: .live(), verifyIdentity: SystemIntegration.verifyTrashIdentity
+        )
+
+        #expect(preview.nodes == [originalStillResolves ? original : renamed])
+        #expect(preview.discardPileBatch?.unavailable.map(\.node) == (originalStillResolves ? [] : [original]))
     }
 
     @Test
@@ -113,8 +143,9 @@ struct TrashFlowControllerTests {
             $0 == unavailable ? .missingCurrentItem : .matches
         }
         #expect(preview.nodes == [folder, sibling])
-        #expect(preview.discardPileBatch?.unavailable.map(\.node) == [unavailable])
-        controller.removeMovedDiscardPileNodes([folder], batch: preview.discardPileBatch, from: nil)
+        let batch = try #require(preview.discardPileBatch)
+        #expect(batch.unavailable.map(\.node) == [unavailable])
+        controller.removeMovedDiscardPileNodes(batch.affectedNodes(for: [folder]), from: nil, includeSnapshotDescendants: false)
         #expect(controller.discardPile.nodes == [unavailable, sibling])
     }
 
@@ -147,7 +178,7 @@ struct TrashFlowControllerTests {
         let controller = TrashFlowController()
         controller.changeDiscardPile(controller.discardPileAdding([child, kept], in: snapshot).pile, actionName: "Add")
 
-        controller.removeMovedDiscardPileNodes([folder], batch: nil, from: snapshot)
+        controller.removeMovedDiscardPileNodes([folder], from: snapshot, includeSnapshotDescendants: true)
 
         #expect(controller.discardPile.nodeIDs == [kept.id])
     }
