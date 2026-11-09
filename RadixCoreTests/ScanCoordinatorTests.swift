@@ -961,6 +961,45 @@ struct ScanCoordinatorTests {
     }
 
     @Test
+    func testBackgroundRefreshRevealsReplacementWithReusedFileIdentity() async throws {
+        let service = ControlledScanService()
+        let coordinator = ScanCoordinator(scanService: service)
+        let target = makeCoordinatorTarget("/scan/reused-identity")
+        let birthTime = Date(timeIntervalSinceReferenceDate: 100)
+        let fileID = target.id + "/marked.txt"
+        func snapshot(resourceIdentifier: Data) -> ScanSnapshot {
+            let file = makeTestFileNode(
+                id: fileID, name: "marked.txt",
+                fileIdentity: .fileSystem(
+                    device: 1, inode: 2, resourceEvidence: .identifier(resourceIdentifier), birthTime: birthTime
+                )
+            )
+            let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [file])
+            return makeCoordinatorSnapshot(
+                target: target, root: root,
+                store: FileTreeStore(root: root, childrenByID: [root.id: [file]]),
+                scanOptions: ScanOptions()
+            )
+        }
+        let baseline = snapshot(resourceIdentifier: Data([1]))
+        let marked = try #require(baseline.treeStore.node(id: fileID))
+        let pile = DiscardPileState(marks: [.init(node: marked, treeID: baseline.treeStore.contentID)])
+        coordinator.restoreCompletedSnapshot(baseline)
+        try #require(pile.matchingNodeIDs(in: coordinator.snapshot) == [fileID])
+
+        try #require(coordinator.refreshFolderInBackground(id: target.id))
+        let refresh = try #require(coordinator.scanTask)
+        let replacement = snapshot(resourceIdentifier: Data([2]))
+        service.yield(.finished(replacement), scanIndex: 0)
+        service.finish(scanIndex: 0)
+        await refresh.value
+
+        let displayedFile = coordinator.snapshot?.treeStore.node(id: fileID)
+        #expect(displayedFile?.fileIdentity?.trashResourceIdentifier == Data([2]))
+        #expect(pile.matchingNodeIDs(in: coordinator.snapshot).isEmpty)
+    }
+
+    @Test
     func testUnchangedAutomaticVolumeSubtreeDoesNotQueryCapacityOrRebuildTree() async throws {
         let service = ControlledScanService()
         let capacityProvider = CoordinatorCapacityProbe()
