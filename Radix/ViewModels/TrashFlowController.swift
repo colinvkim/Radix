@@ -25,9 +25,11 @@ struct DiscardPileState: Equatable, Sendable {
             guard !original.isSymbolicLink, !current.isSymbolicLink,
                   let first = original.fileIdentity, let second = current.fileIdentity,
                   first.isFileSystemIdentity != second.isFileSystemIdentity else { return false }
-            return SystemIntegration.verifyTrashIdentity(original) == .matches
-                && SystemIntegration.verifyTrashIdentity(current) == .matches
-                && SystemIntegration.verifyTrashIdentity(original) == .matches
+            if let firstDarwin = first.darwinIdentity, let secondDarwin = second.darwinIdentity {
+                return firstDarwin == secondDarwin
+            }
+            guard let firstNative = first.scanFileSystemIdentity else { return false }
+            return firstNative == second.scanFileSystemIdentity
         }
     }
 

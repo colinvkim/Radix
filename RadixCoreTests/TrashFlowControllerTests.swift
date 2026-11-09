@@ -27,7 +27,6 @@ struct TrashFlowControllerTests {
         let foundationNode = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: foundationIdentity)
         #expect(SystemIntegration.verifyTrashIdentity(nativeNode) == (replaced ? .mismatch : .matches))
         #expect(SystemIntegration.verifyTrashIdentity(foundationNode) == .matches)
-        try #require(nativeIdentity != foundationIdentity)
 
         func snapshot(_ node: FileNodeRecord) -> ScanSnapshot {
             let root = makeTestDirectoryNode(id: fixture.path, name: "fixture", children: [node])
@@ -46,6 +45,9 @@ struct TrashFlowControllerTests {
         )
         #expect(preview.nodes == (replaced ? [] : [nativeNode]))
         #expect(preview.discardPileBatch?.unavailable.map(\.node) == (replaced ? [nativeNode] : []))
+
+        try FileManager.default.moveItem(at: fileURL, to: fixture.appending(path: "after-scan.txt"))
+        #expect(controller.discardPile.matchingNodeIDs(in: refreshed) == (replaced ? [] : [nativeNode.id]))
     }
 
     @Test

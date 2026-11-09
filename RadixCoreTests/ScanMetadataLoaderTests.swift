@@ -112,6 +112,26 @@ struct ScanMetadataLoaderTests {
     }
 
     @Test
+    func testPrefetchedFileMetadataDoesNotAdoptReplacementIdentity() throws {
+        let root = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: root) }
+        let file = root.appending(path: "file.bin")
+        try Data([1]).write(to: file)
+        let values = try file.resourceValues(forKeys: ScanMetadataLoader.scanResourceKeys)
+        let original = FileIdentity(resourceIdentifier: try #require(values.fileResourceIdentifier as? Data))
+        try manager.moveItem(at: file, to: root.appending(path: "original.bin"))
+        try Data([2]).write(to: file)
+
+        let metadata = ScanMetadataLoader().metadata(for: file, prefetchedResourceValues: values)
+        let node = makeTestFileNode(id: file.path, name: file.lastPathComponent, fileIdentity: metadata.fileIdentity)
+
+        #expect(metadata.fileIdentity == original)
+        #expect(metadata.fileIdentity?.scanFileSystemIdentity == nil)
+        #expect(SystemIntegration.verifyTrashIdentity(node) == .mismatch)
+    }
+
+    @Test
     func testFileSystemIdentityValidationUsesTheDedicatedProvider() throws {
         let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
         let expectedIdentity = FileIdentity(device: 7, inode: 42)

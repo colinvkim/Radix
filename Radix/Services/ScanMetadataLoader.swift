@@ -533,7 +533,9 @@ nonisolated struct ScanMetadataLoader: Sendable {
             fileIdentity = fileSystemInfo.identity ?? fileIdentity
             linkCount = values.linkCount.map(UInt64.init) ?? fileSystemInfo.linkCount
         }
-        fileIdentity = fileIdentity?.preservingVolumeIdentity(from: resourceIdentity)
+        fileIdentity = fileIdentity?
+            .preservingVolumeIdentity(from: resourceIdentity)
+            .preservingScanDevice(from: status?.fileIdentity)
         let cloneMetadata = !isDirectory && !isSymbolicLink
             ? cloneMappingCapabilityCache.cloneMetadata(for: url)
             : (identity: nil, mayShareDataBlocks: false)
@@ -764,7 +766,7 @@ nonisolated struct CloneIdentity: Hashable, Sendable {
 }
 
 nonisolated enum FileIdentity: Hashable, Sendable {
-    case resourceIdentifier(Data)
+    case resourceIdentifier(Data, scanDevice: UInt64? = nil)
     case fileSystem(device: UInt64, inode: UInt64, volumeToken: UInt64? = nil)
 
     nonisolated init(device: UInt64, inode: UInt64, volumeToken: UInt64? = nil) {
@@ -797,11 +799,10 @@ nonisolated enum FileIdentity: Hashable, Sendable {
         return nil
     }
 
-    /// Supplementary archive-comparison metadata must not split native and
-    /// Foundation claims for the same hard link during scan accounting.
+    /// Supplementary metadata must not change identity equality or hashing.
     static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
-        case let (.resourceIdentifier(lhs), .resourceIdentifier(rhs)):
+        case let (.resourceIdentifier(lhs, _), .resourceIdentifier(rhs, _)):
             return lhs == rhs
         case let (.fileSystem(lhsDevice, lhsInode, _), .fileSystem(rhsDevice, rhsInode, _)):
             return lhsDevice == rhsDevice && lhsInode == rhsInode
@@ -812,7 +813,7 @@ nonisolated enum FileIdentity: Hashable, Sendable {
 
     func hash(into hasher: inout Hasher) {
         switch self {
-        case .resourceIdentifier(let data):
+        case .resourceIdentifier(let data, _):
             hasher.combine(0)
             hasher.combine(data)
         case .fileSystem(let device, let inode, _):
@@ -834,7 +835,7 @@ nonisolated enum FileIdentity: Hashable, Sendable {
         switch self {
         case .fileSystem(_, let inode, let volumeToken):
             return volumeToken.map { DarwinIdentity(fileID: inode, volumeToken: $0) }
-        case .resourceIdentifier(let data):
+        case .resourceIdentifier(let data, _):
             guard data.count == MemoryLayout<UInt64>.size * 2 else { return nil }
             return data.withUnsafeBytes { bytes in
                 DarwinIdentity(
@@ -845,6 +846,27 @@ nonisolated enum FileIdentity: Hashable, Sendable {
                 )
             }
         }
+    }
+
+    var scanFileSystemIdentity: Self? {
+        switch self {
+        case .fileSystem:
+            self
+        case .resourceIdentifier(_, let device):
+            if let device, let identity = darwinIdentity {
+                .fileSystem(device: device, inode: identity.fileID)
+            } else {
+                nil
+            }
+        }
+    }
+
+    func preservingScanDevice(from statusIdentity: FileIdentity?) -> Self {
+        // Prefetched metadata and lstat may observe different files at the same path.
+        guard case .resourceIdentifier(let data, _) = self,
+              case .fileSystem(let device, let inode, _) = statusIdentity,
+              darwinIdentity?.fileID == inode else { return self }
+        return .resourceIdentifier(data, scanDevice: device)
     }
 
     func preservingVolumeIdentity(from resourceIdentity: FileIdentity?) -> Self {
