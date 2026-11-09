@@ -934,10 +934,10 @@ struct SidebarScanCacheControllerTests {
             startScan: { target in recorder.startedTargets.append(target) }
         )
 
-        try await waitUntil("cache scope transform paused", timeout: 5) { await transform.isPaused }
+        try await waitUntil("cache scope transform paused") { await transform.isPaused }
         controller.clearCache()
         await transform.resume()
-        try await waitUntil("sidebar target resolves", timeout: 5) {
+        try await waitUntil("sidebar target resolves") {
             !recorder.restoredSnapshots.isEmpty || !recorder.startedTargets.isEmpty
         }
         #expect(recorder.restoredSnapshots.isEmpty)

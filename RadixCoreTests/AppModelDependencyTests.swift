@@ -2091,7 +2091,7 @@ struct AppModelDependencyTests {
         var actions = AppSystemActions.inert
         actions.verifyTrashIdentity = { _ in
             verifierStarted.withLock { $0 = true }
-            _ = verifierGate.wait(timeout: .now() + 5)
+            verifierGate.wait()
             return .matches
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -2102,19 +2102,19 @@ struct AppModelDependencyTests {
         try #require(model.addNodesToDiscardPile([file]))
         model.presentDiscardPileReview()
         let preparation = Task { await model.requestMoveDiscardPileToTrash() }
-        defer { verifierGate.signal() }
 
-        try await waitUntil("discard pile verifier starts") { verifierStarted.withLock { $0 } }
-        #expect(model.isPreparingDiscardPileTrash)
-        if dismissed {
-            model.dismissDiscardPileReview()
-        } else {
-            let original = try #require(model.scanState.snapshot)
-            let refreshed = makeTestSnapshot(root: original.root, store: original.treeStore)
-            try #require(original.id != refreshed.id)
-            model.scanState.restoreCompletedSnapshot(refreshed)
+        do {
+            defer { verifierGate.signal() }
+            try await waitUntil("discard pile verifier starts") { verifierStarted.withLock { $0 } }
+            try #require(model.isPreparingDiscardPileTrash)
+            if dismissed {
+                model.dismissDiscardPileReview()
+            } else {
+                let original = try #require(model.scanState.snapshot)
+                let refreshed = makeTestSnapshot(root: original.root, store: original.treeStore)
+                model.scanState.restoreCompletedSnapshot(refreshed)
+            }
         }
-        verifierGate.signal()
 
         #expect(await preparation.value == !dismissed)
         #expect(!model.isPreparingDiscardPileTrash)

@@ -13,17 +13,19 @@ struct ScanCoordinatorTests {
         defer { coordinator.stopScan() }
         let target = makeCoordinatorTarget("/scan/presentation")
         let folderTarget = makeCoordinatorTarget(target.id + "/Downloads")
-        coordinator.restoreCompletedSnapshot(makeCoordinatorHomeSnapshot(
-            target: target, downloadsTarget: folderTarget, rootName: "Home", scanOptions: ScanOptions()
-        ))
-        let replacement = makeCoordinatorSnapshot(target: folderTarget, scanOptions: ScanOptions())
-        try #require(coordinator.rescanFolder(id: folderTarget.id))
-        let manualTask = try #require(coordinator.scanTask)
-        service.yield(.finished(replacement), scanIndex: 0)
+        let options = ScanOptions()
+        let baseline = makeCoordinatorHomeSnapshot(
+            target: target, downloadsTarget: folderTarget, rootName: "Home", scanOptions: options
+        )
+        coordinator.startScan(target, options: options, baseline: baseline, isRescan: true)
+        let initialTask = try #require(coordinator.scanTask)
+        let fallback = IncrementalRescanFallbackReason.changedScanOptions
+        service.yield(.executionMode(.fullFallback(fallback)), scanIndex: 0)
+        service.yield(.finished(baseline), scanIndex: 0)
         service.finish(scanIndex: 0)
-        await manualTask.value
-        let notice = try #require(coordinator.scanCompletionNotice)
-        #expect(notice == .folderUpdated(name: "Downloads"))
+        await initialTask.value
+        let notice = ScanCompletionNotice.fullFallback(fallback)
+        try #require(coordinator.scanCompletionNotice == notice)
         let metrics = makeCoordinatorMetrics(path: "/previous/progress", filesVisited: 7)
         coordinator.scanMetrics = metrics
         coordinator.progress.executionMode = .incremental
@@ -37,7 +39,7 @@ struct ScanCoordinatorTests {
         #expect(coordinator.progress.executionMode == .incremental)
         let task = try #require(coordinator.scanTask)
         service.yield(.progress(makeCoordinatorMetrics(path: "/background/progress", filesVisited: 2)), scanIndex: 1)
-        service.yield(.finished(replacement), scanIndex: 1)
+        service.yield(.finished(makeCoordinatorSnapshot(target: folderTarget, scanOptions: options)), scanIndex: 1)
         service.finish(scanIndex: 1)
         await task.value
         #expect(coordinator.scanCompletionNotice == notice)
@@ -1475,7 +1477,7 @@ struct ScanCoordinatorTests {
 
         service.yield(.finished(alternateScan), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await waitUntil("subtree rescan publishes stale alternate file", timeout: 5) {
+        try await waitUntil("subtree rescan publishes stale alternate file") {
             coordinator.snapshot?.treeStore.node(id: file.path)?.fileIdentity == resource
         }
 
@@ -1826,22 +1828,22 @@ struct ScanCoordinatorTests {
             model.cleanup()
         }
         model.selectSidebarTarget(id: parent.id)
-        try await waitUntil("parent scan starts", timeout: 5) { service.requests.count == 1 }
+        try await waitUntil("parent scan starts") { service.requests.count == 1 }
         service.yield(.finished(parentSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await waitUntil("parent scan publishes", timeout: 5) { model.scanState.snapshot?.id == parentSnapshot.id }
+        try await waitUntil("parent scan publishes") { model.scanState.snapshot?.id == parentSnapshot.id }
         try #require(model.requestMoveNodesToTrash([summarized]))
         model.confirmMovePendingSelectionToTrash()
         try await move.waitUntilStarted()
 
         model.selectSidebarTarget(id: child.id)
-        try await waitUntil("child scan starts", timeout: 5) { service.requests.count == 2 }
+        try await waitUntil("child scan starts") { service.requests.count == 2 }
         service.yield(.finished(childSnapshot), scanIndex: 1)
         service.finish(scanIndex: 1)
-        try await waitUntil("child scan publishes", timeout: 5) { model.scanState.snapshot?.id == childSnapshot.id }
+        try await waitUntil("child scan publishes") { model.scanState.snapshot?.id == childSnapshot.id }
 
         move.finish()
-        try await waitUntil("move finishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try await waitUntil("move finishes") { model.usageStats.bytesMovedToTrash > 0 }
         try #require(FileManager.default.fileExists(atPath: child.id) == recreated)
         if recreated {
             let replacementIdentity = try loader.fileSystemIdentity(at: child.url)
@@ -1864,19 +1866,19 @@ struct ScanCoordinatorTests {
         defer { model.cleanup() }
 
         model.selectSidebarTarget(id: parent.id)
-        try await waitUntil("parent scan starts", timeout: 5) { service.requests.count == 1 }
+        try await waitUntil("parent scan starts") { service.requests.count == 1 }
         service.yield(.finished(initial), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await waitUntil("parent scan publishes", timeout: 5) { model.scanState.snapshot?.id == initial.id }
+        try await waitUntil("parent scan publishes") { model.scanState.snapshot?.id == initial.id }
 
         try #require(model.requestMoveNodesToTrash([removed]))
         model.confirmMovePendingSelectionToTrash()
-        try await waitUntil("tree no longer contains moved node", timeout: 5) {
+        try await waitUntil("tree no longer contains moved node") {
             model.scanState.snapshot?.id == initial.id && model.scanState.fileTreeStore?.node(id: removed.id) == nil
         }
 
         model.selectSidebarTarget(id: child.id)
-        try await waitUntil("child display or fresh scan", timeout: 5) {
+        try await waitUntil("child display or fresh scan") {
             model.scanState.snapshot?.target == child || service.requests.count > 1
         }
         #expect(service.requests.count == 1)
@@ -1912,25 +1914,25 @@ struct ScanCoordinatorTests {
             model.cleanup()
         }
         model.selectSidebarTarget(id: child.id)
-        try await waitUntil("child scan starts", timeout: 5) { service.requests.count == 1 }
+        try await waitUntil("child scan starts") { service.requests.count == 1 }
         service.yield(.finished(childSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await waitUntil("child scan publishes", timeout: 5) { model.scanState.snapshot?.id == childSnapshot.id }
+        try await waitUntil("child scan publishes") { model.scanState.snapshot?.id == childSnapshot.id }
         try #require(model.addNodesToDiscardPile([marked]))
         try #require(await model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
         try await move.waitUntilStarted()
 
         model.selectSidebarTarget(id: parent.id)
-        try await waitUntil("parent scan reads file before move finishes", timeout: 5) { service.requests.count == 2 }
+        try await waitUntil("parent scan reads file before move finishes") { service.requests.count == 2 }
         try #require(model.scanState.snapshot == nil)
         move.finish()
-        try await waitUntil("move finishes before scan publishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try await waitUntil("move finishes before scan publishes") { model.usageStats.bytesMovedToTrash > 0 }
         try #require(!FileManager.default.fileExists(atPath: fileURL.path))
 
         service.yield(.finished(parentSnapshot), scanIndex: 1)
         service.finish(scanIndex: 1)
-        try await waitUntil("parent scan publishes or restarts", timeout: 5) {
+        try await waitUntil("parent scan publishes or restarts") {
             model.scanState.snapshot?.target == parent || service.requests.count > 2
         }
         if service.requests.count == 3 {
@@ -1938,7 +1940,7 @@ struct ScanCoordinatorTests {
             service.yield(.finished(refreshed), scanIndex: 2)
             service.finish(scanIndex: 2)
         }
-        try await waitUntil("parent scan is displayed", timeout: 5) {
+        try await waitUntil("parent scan is displayed") {
             model.scanState.snapshot?.target == parent
         }
         #expect(model.scanState.snapshot?.treeStore.node(id: marked.id) == nil)
@@ -1986,10 +1988,10 @@ struct ScanCoordinatorTests {
             model.cleanup()
         }
         model.selectSidebarTarget(id: target.id)
-        try await waitUntil("initial scan starts", timeout: 5) { service.requests.count == 1 }
+        try await waitUntil("initial scan starts") { service.requests.count == 1 }
         service.yield(.finished(baseline), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await waitUntil("initial scan publishes", timeout: 5) { model.scanState.snapshot?.id == baseline.id }
+        try await waitUntil("initial scan publishes") { model.scanState.snapshot?.id == baseline.id }
         try #require(model.addNodesToDiscardPile([kept]))
         try #require(model.requestMoveNodesToTrash([moved]))
         model.confirmMovePendingSelectionToTrash()
@@ -2004,17 +2006,17 @@ struct ScanCoordinatorTests {
         )
         service.yield(.finished(replacement), scanIndex: 1)
         service.finish(scanIndex: 1)
-        try await waitUntil("manual rescan falls back to a full scan", timeout: 5) {
+        try await waitUntil("manual rescan falls back to a full scan") {
             service.requests.count == 3 && model.scanState.progress.executionMode == .fullFallback(.sharedAllocationTopologyChanged)
         }
         try #require(model.scanState.snapshot?.id == baseline.id)
 
         move.finish()
-        try await waitUntil("move finishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try await waitUntil("move finishes") { model.usageStats.bytesMovedToTrash > 0 }
         try #require(!FileManager.default.fileExists(atPath: moved.id))
         service.yield(.finished(staleFullScan), scanIndex: 2)
         service.finish(scanIndex: 2)
-        try await waitUntil("full scan finishes or restarts", timeout: 5) {
+        try await waitUntil("full scan finishes or restarts") {
             !model.scanState.isScanOperationInProgress || service.requests.count > 3
         }
         if service.requests.count == 4 {
@@ -2022,7 +2024,7 @@ struct ScanCoordinatorTests {
             service.yield(.finished(refreshed), scanIndex: 3)
             service.finish(scanIndex: 3)
         }
-        try await waitUntil("updated scan publishes", timeout: 5) { model.scanState.phase == .displaying }
+        try await waitUntil("updated scan publishes") { model.scanState.phase == .displaying }
         #expect(model.scanState.snapshot?.treeStore.node(id: moved.id) == nil)
         #expect(model.discardPileSnapshot.nodes.map(\.id) == [kept.id])
     }
@@ -2055,36 +2057,36 @@ struct ScanCoordinatorTests {
         }
 
         model.selectSidebarTarget(id: parent.id)
-        try await waitUntil("parent scan request", timeout: 5) { service.requests.count == 1 }
+        try await waitUntil("parent scan request") { service.requests.count == 1 }
         service.yield(.finished(initial), scanIndex: 0)
         service.finish(scanIndex: 0)
-        try await waitUntil("parent finishes", timeout: 5) { model.scanState.snapshot?.id == initial.id }
+        try await waitUntil("parent finishes") { model.scanState.snapshot?.id == initial.id }
 
         model.selectSidebarTarget(id: scope.id)
-        try await waitUntil("scope displays", timeout: 5) { model.scanState.snapshot?.target == scope }
+        try await waitUntil("scope displays") { model.scanState.snapshot?.target == scope }
         try #require(model.addNodesToDiscardPile([marked]))
 
         model.selectSidebarTarget(id: parent.id)
-        try await waitUntil("parent displays", timeout: 5) { model.scanState.snapshot?.id == initial.id }
+        try await waitUntil("parent displays") { model.scanState.snapshot?.id == initial.id }
         try #require(model.addNodesToDiscardPile([marked]))
         try #require(await model.requestMoveDiscardPileToTrash())
         model.confirmMovePendingSelectionToTrash()
         try await move.waitUntilStarted()
 
         model.selectSidebarTarget(id: scope.id)
-        try await waitUntil("scope displays again", timeout: 5) { model.scanState.snapshot?.target == scope }
+        try await waitUntil("scope displays again") { model.scanState.snapshot?.target == scope }
         try #require(model.discardPileSnapshot.nodes.map(\.id) == [marked.id])
         try #require(model.workspaceHiddenNodeIDs.contains(marked.id))
 
         move.finish()
-        try await waitUntil("confirmed move finishes", timeout: 5) { model.usageStats.bytesMovedToTrash > 0 }
+        try await waitUntil("confirmed move finishes") { model.usageStats.bytesMovedToTrash > 0 }
         try #require(!FileManager.default.fileExists(atPath: fileURL.path))
         try #require(model.discardPileSnapshot.nodes.isEmpty)
 
         if model.scanState.fileTreeStore?.node(id: marked.id) != nil {
             #expect(model.workspaceHiddenNodeIDs.contains(marked.id))
         }
-        try await waitUntil("moved file is removed from the overlapping scan", timeout: 5) {
+        try await waitUntil("moved file is removed from the overlapping scan") {
             model.scanState.fileTreeStore?.node(id: marked.id) == nil
         }
     }
@@ -2149,7 +2151,7 @@ struct ScanCoordinatorTests {
         )
         service.yield(.finished(replacementScan), scanIndex: 2)
         service.finish(scanIndex: 2)
-        try await waitUntil("replacement folder refresh publishes", timeout: 5) {
+        try await waitUntil("replacement folder refresh publishes") {
             model.scanState.snapshot?.treeStore.node(id: marked.id)?.fileIdentity == newIdentity
         }
         try #require(model.scanState.snapshot?.id == initial.id)
@@ -3587,7 +3589,7 @@ private final class PausedFixtureTrashMove {
     }
 
     func waitUntilStarted() async throws {
-        try await waitUntil("move is in flight", timeout: 5) { self.continuation != nil }
+        try await waitUntil("move is in flight") { self.continuation != nil }
     }
 
     func finish() {
