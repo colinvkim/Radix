@@ -111,24 +111,62 @@ struct ScanMetadataLoaderTests {
         #expect(try loader.metadata(for: directory).fileIdentity != original)
     }
 
-    @Test
-    func testPrefetchedFileMetadataDoesNotAdoptReplacementIdentity() throws {
+    enum PrefetchedEntryKind: CaseIterable {
+        case file, hardLink, symbolicLink
+    }
+
+    @Test(arguments: PrefetchedEntryKind.allCases)
+    func testPrefetchedFileMetadataDoesNotAdoptReplacementIdentity(kind: PrefetchedEntryKind) throws {
         let root = try makeTemporaryDirectory()
         let manager = FileManager.default
         defer { try? manager.removeItem(at: root) }
         let file = root.appending(path: "file.bin")
-        try Data([1]).write(to: file)
+        let originalFile = root.appending(path: "original.bin")
+        let target = root.appending(path: "target.bin")
+        let loader = ScanMetadataLoader()
+        func node(for metadata: NodeMetadata) -> FileNodeRecord {
+            makeTestFileNode(
+                id: file.path, name: file.lastPathComponent, fileIdentity: metadata.fileIdentity,
+                isSymbolicLink: metadata.isSymbolicLink
+            )
+        }
+        if kind == .symbolicLink {
+            try manager.createSymbolicLink(at: file, withDestinationURL: target)
+        } else {
+            try Data([1]).write(to: file)
+            if kind == .hardLink {
+                try manager.linkItem(at: file, to: root.appending(path: "alias.bin"))
+            }
+        }
         let values = try file.resourceValues(forKeys: ScanMetadataLoader.scanResourceKeys)
         let original = FileIdentity(resourceIdentifier: try #require(values.fileResourceIdentifier as? Data))
-        try manager.moveItem(at: file, to: root.appending(path: "original.bin"))
-        try Data([2]).write(to: file)
+        if kind == .hardLink {
+            try #require(values.linkCount == 2)
+        }
+        #expect(SystemIntegration.verifyTrashIdentity(node(for: loader.metadata(for: file, prefetchedResourceValues: values))) == .matches)
+        if kind != .file {
+            let keysWithoutBirthTime = ScanMetadataLoader.scanResourceKeys.subtracting([.creationDateKey])
+            let valuesWithoutBirthTime = try URL(filePath: file.path).resourceValues(forKeys: keysWithoutBirthTime)
+            try #require(valuesWithoutBirthTime.creationDate == nil)
+            let metadataWithoutBirthTime = loader.metadata(for: file, prefetchedResourceValues: valuesWithoutBirthTime)
+            #expect(SystemIntegration.verifyTrashIdentity(node(for: metadataWithoutBirthTime)) == .missingScannedIdentity)
+        }
+        try manager.moveItem(at: file, to: originalFile)
+        if kind == .symbolicLink {
+            try manager.createSymbolicLink(at: file, withDestinationURL: target)
+        } else {
+            try Data([2, 3]).write(to: file)
+        }
 
-        let metadata = ScanMetadataLoader().metadata(for: file, prefetchedResourceValues: values)
-        let node = makeTestFileNode(id: file.path, name: file.lastPathComponent, fileIdentity: metadata.fileIdentity)
+        let metadata = loader.metadata(for: file, prefetchedResourceValues: values)
 
         #expect(metadata.fileIdentity == original)
         #expect(metadata.fileIdentity?.scanFileSystemIdentity == nil)
-        #expect(SystemIntegration.verifyTrashIdentity(node) == .mismatch)
+        #expect(try SystemIntegration.moveToTrash(
+            node(for: metadata),
+            identityVerifier: SystemIntegration.verifyTrashIdentity,
+            trashItem: { _ in Issue.record("Moved the replacement") }
+        ) == .mismatch)
     }
 
     @Test
