@@ -286,7 +286,7 @@ struct AppModelFolderRefreshTests {
         #expect(model.navigation.focusedNodeID == fixture.downloads.id)
         #expect(model.navigation.selectedNodeID == fixture.keptDownload.id)
         #expect(model.discardPile.nodeIDs == [fixture.markedDownload.id])
-        #expect(model.workspaceHiddenNodeIDs.contains(fixture.markedDownload.id))
+        #expect(model.discardPileRootNodeIDs.contains(fixture.markedDownload.id))
 
         #expect(model.scanState.snapshot?.treeStore.node(id: fixture.document.id) == fixture.document)
         #expect(model.scanState.scanCompletionNotice == nil)

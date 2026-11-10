@@ -4,6 +4,7 @@ struct InspectorMultiSelectionView: View {
     let summary: InspectorSelectionSummary
     let percentOfScan: String
     let availability: FileNodeActionAvailability
+    let canAddSelectionToDiscardPile: Bool
     let canMoveSelectionToTrash: Bool
     let availabilityNotice: InspectorAvailabilityNoticeKind?
     let warnings: [ScanWarning]
@@ -49,15 +50,15 @@ struct InspectorMultiSelectionView: View {
             .formStyle(.grouped)
             .contentMargins(.horizontal, 0, for: .scrollContent)
 
-            if availability.canRevealInFinder || canMoveSelectionToTrash {
+            if availability.canRevealInFinder || canAddSelectionToDiscardPile {
                 InspectorActionBar(
                     revealAction: availability.canRevealInFinder
                         ? { actions.revealInFinder(summary.selectedNodes) }
                         : nil,
-                    discardPileAction: canMoveSelectionToTrash
+                    discardPileAction: canAddSelectionToDiscardPile
                         ? { actions.addToDiscardPile(summary.topLevelSelectedNodes) }
                         : nil,
-                    discardPileTitle: addToDiscardPileTitle,
+                    discardPileTitle: String(localized: "Add to Discard Pile"),
                     discardPileSystemImageName: "checklist"
                 )
             }
@@ -175,13 +176,6 @@ struct InspectorMultiSelectionView: View {
         return String(
             localized: "\(summary.selectedStorageCategoryCount) storage categories",
             comment: "Inspector multiple-selection synthetic storage category count."
-        )
-    }
-
-    private var addToDiscardPileTitle: String {
-        String(
-            localized: "Add \(summary.topLevelSelectedCount) Items to Discard Pile",
-            comment: "Action for marking one or more effective top-level selected items for possible deletion."
         )
     }
 

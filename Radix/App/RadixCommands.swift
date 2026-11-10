@@ -12,6 +12,10 @@ struct RadixCommands: Commands {
     @FocusedValue(\.chartViewportAction) private var chartViewportAction
 
     var body: some Commands {
+        let selectionIsInDiscardPile = appModel.selectionIsInDiscardPile
+        let discardPileSelectionTitle: LocalizedStringKey = selectionIsInDiscardPile
+            ? "Review Discard Pile"
+            : "Add to Discard Pile"
         let selectedActionAvailability = FileNodeActionAvailability(
             nodes: navigation.selectedNodes,
             activeTarget: scanState.selectedTarget,
@@ -174,8 +178,8 @@ struct RadixCommands: Commands {
 
             Divider()
 
-            Button(addSelectionToDiscardPileTitle, systemImage: "checklist") {
-                if appModel.selectionIncludesHiddenNodes {
+            Button(discardPileSelectionTitle, systemImage: "checklist") {
+                if selectionIsInDiscardPile {
                     appModel.presentDiscardPileReview()
                 } else {
                     appModel.addSelectedNodesToDiscardPile()
@@ -184,7 +188,7 @@ struct RadixCommands: Commands {
             .keyboardShortcut("l", modifiers: [.command, .shift])
             .disabled(
                 !canUseWorkspaceCommands ||
-                    (!appModel.selectionIncludesHiddenNodes
+                    (!selectionIsInDiscardPile
                         && !selectedActionAvailability.canMoveToTrash)
             )
 
@@ -268,20 +272,6 @@ struct RadixCommands: Commands {
             && appModel.presentationCoordinator.activeDestination == nil
     }
 
-    private var addSelectionToDiscardPileTitle: String {
-        if appModel.selectionIncludesHiddenNodes {
-            return String(
-                localized: "Review Discard Pile",
-                comment: "Command for reviewing the Discard Pile when the selection is already included."
-            )
-        }
-        let count = navigation.selectedNodeIDs.count
-        guard count > 1 else {
-            return String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion.")
-        }
-        return String(localized: "Add \(count) Items to Discard Pile", comment: "Action for marking multiple selected items for possible deletion.")
-    }
-
     private var commandSelectedFileActions: SelectedFileActions {
         SelectedFileActions(
             quickLook: { appModel.toggleQuickLookForSelected() },
@@ -307,7 +297,7 @@ struct RadixCommands: Commands {
             !canUseWorkspaceCommands ||
                 !action.isEnabled(in: availability) ||
                 (action == .moveToTrash &&
-                    (appModel.selectionIncludesHiddenNodes || isFileListSearchActive == true))
+                    (appModel.directTrashOverlapsProtectedNodes(navigation.selectedNodes) || isFileListSearchActive == true))
         )
     }
 }

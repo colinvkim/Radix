@@ -1186,7 +1186,6 @@ struct AppModelDependencyTests {
         #expect(model.scanState.snapshot?.treeStore.node(id: file.id) != nil)
         #expect(model.movingToTrashRootNodeIDs == [file.id])
         #expect(model.discardPileRootNodeIDs.isEmpty)
-        #expect(model.workspaceHiddenNodeIDs.contains(file.id))
 
         await probe.finish()
 
@@ -1217,7 +1216,6 @@ struct AppModelDependencyTests {
 
         try await probe.waitUntilStarted()
         #expect(model.movingToTrashRootNodeIDs == [file.id])
-        #expect(model.workspaceHiddenNodeIDs.contains(file.id))
 
         await probe.finish()
 
@@ -1225,7 +1223,6 @@ struct AppModelDependencyTests {
             model.lastErrorMessage != nil
         }
         #expect(model.scanState.snapshot?.treeStore.node(id: file.id) != nil)
-        #expect(!(model.workspaceHiddenNodeIDs.contains(file.id)))
         #expect(model.movingToTrashRootNodeIDs.isEmpty)
     }
 
@@ -1290,7 +1287,7 @@ struct AppModelDependencyTests {
         #expect(movedIDs == [first.id])
         #expect(model.usageStats.bytesMovedToTrash == first.allocatedSize)
         #expect(model.scanState.snapshot?.treeStore.node(id: second.id) != nil)
-        #expect(!(model.workspaceHiddenNodeIDs.contains(second.id)))
+        #expect(!(model.movingToTrashRootNodeIDs.contains(second.id)))
         #expect(model.lastErrorMessage == nil)
     }
 
@@ -1361,8 +1358,6 @@ struct AppModelDependencyTests {
         try await probe.waitUntilStarted()
         let startedURLs = await probe.movedURLs()
         #expect(startedURLs == [second.url])
-        #expect(model.workspaceHiddenNodeIDs.contains(first.id))
-        #expect(model.workspaceHiddenNodeIDs.contains(second.id))
         #expect(model.movingToTrashRootNodeIDs == [first.id, second.id])
         #expect(model.discardPileRootNodeIDs == [first.id, second.id])
 
@@ -1453,7 +1448,7 @@ struct AppModelDependencyTests {
 
         #expect(model.lastErrorMessage == expectedMessage)
         #expect(model.scanState.snapshot?.treeStore.node(id: file.id) == file)
-        #expect(!model.workspaceHiddenNodeIDs.contains(file.id))
+        #expect(!model.movingToTrashRootNodeIDs.contains(file.id))
         #expect(model.usageStats.bytesMovedToTrash == 0)
         #expect(model.pendingTrashSelection == nil)
     }
@@ -1502,7 +1497,7 @@ struct AppModelDependencyTests {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
         }
         #expect(model.scanState.snapshot?.treeStore.node(id: second.id) != nil)
-        #expect(!(model.workspaceHiddenNodeIDs.contains(second.id)))
+        #expect(!(model.movingToTrashRootNodeIDs.contains(second.id)))
     }
 
     @Test
@@ -1596,6 +1591,33 @@ struct AppModelDependencyTests {
         #expect(model.discardPile.nodeIDs == (replaced ? [] : [cloudFile.id]))
         #expect(model.pendingCloudFileAction == nil)
         #expect(model.lastErrorMessage == (replaced ? FileActionError.changedSinceScan(path: cloudFile.id).localizedDescription : nil))
+    }
+
+    @Test
+    func testMarkingLocalFileWithAlreadyMarkedCloudFileSkipsCloudConfirmation() throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let cloudFile = makeTestFileNode(
+            id: "/Users/alex/Library/CloudStorage/Dropbox/cloud.bin", name: "cloud.bin"
+        )
+        let localFile = makeTestFileNode(id: "/Users/alex/local.bin", name: "local.bin")
+        let root = makeTestDirectoryNode(id: "/Users/alex", name: "alex", children: [cloudFile, localFile])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [cloudFile, localFile]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.selectedTarget = snapshot.target
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        try #require(model.addNodesToDiscardPile([cloudFile]))
+        try #require(model.pendingCloudFileAction?.kind == .addToDiscardPile)
+        model.confirmPendingCloudFileAction()
+        try #require(model.discardPile.nodeIDs == [cloudFile.id])
+
+        model.navigation.select(nodeIDs: [cloudFile.id, localFile.id], primaryNodeID: localFile.id)
+        #expect(model.addSelectedNodesToDiscardPile())
+        #expect(model.pendingCloudFileAction == nil)
+        #expect(Set(model.discardPile.nodeIDs) == [cloudFile.id, localFile.id])
     }
 
     @Test
@@ -1850,7 +1872,7 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testPrimaryTrashRejectsStaleDiscardPileSelection() {
+    func testPrimaryTrashRejectsMarkedSelection() {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
@@ -1879,7 +1901,7 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testSelectedTrashFiltersStaleDiscardPileSelection() {
+    func testSelectedTrashRejectsMixedSelectionThatIncludesAMark() {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1894,9 +1916,12 @@ struct AppModelDependencyTests {
         #expect(model.addNodesToDiscardPile([queued]))
 
         model.navigation.select(nodeIDs: [queued.id, visible.id], primaryNodeID: visible.id)
+        #expect(!model.selectionIsInDiscardPile)
         model.requestMoveSelectedToTrash()
 
-        #expect(model.pendingTrashSelection?.nodes.map(\.id) == [visible.id])
+        #expect(model.pendingTrashSelection == nil)
+        #expect(model.navigation.selectedNodeIDs == [queued.id, visible.id])
+        #expect(model.lastErrorMessage == FileActionError.unsupported.localizedDescription)
         #expect(model.discardPile.nodeIDs == [queued.id])
     }
 
@@ -1972,7 +1997,7 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileUndoRestoresChildrenAfterAncestorCollapseAndHidesSelection() {
+    func testDiscardPileUndoRestoresChildrenAfterAncestorCollapseAndKeepsSelection() {
         let first = makeTestFileNode(id: "/selection/folder/first", name: "first")
         let second = makeTestFileNode(id: "/selection/folder/second", name: "second")
         let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [first, second])
@@ -1993,7 +2018,8 @@ struct AppModelDependencyTests {
         model.navigation.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
         model.undoDiscardPileChange()
         #expect(model.discardPile.nodeIDs == [second.id, first.id])
-        #expect(model.navigation.selectedNodeIDs.isEmpty)
+        #expect(model.navigation.selectedNodeIDs == [first.id, second.id])
+        #expect(model.navigation.focusedNodeID == folder.id)
         model.redoDiscardPileChange()
         #expect(model.discardPile.isEmpty)
     }
@@ -2009,7 +2035,7 @@ struct AppModelDependencyTests {
         #expect(model.canUndoDiscardPileChange)
         model.undoDiscardPileChange()
         #expect(model.discardPileSnapshot.nodes == [file])
-        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+        #expect(model.discardPileRootNodeIDs.isEmpty)
 
         installSelection(on: model)
         #expect(model.canRedoDiscardPileChange)
@@ -2041,23 +2067,6 @@ struct AppModelDependencyTests {
         #expect(model.discardPile.isEmpty)
         #expect(!(model.discardPileUndoManager.canUndo))
         #expect(!(model.discardPileUndoManager.canRedo))
-    }
-
-    @Test
-    func testPrimaryDiscardPileAddAfterViewUpdateDefersMutation() async throws {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
-
-        model.addPrimarySelectionToDiscardPileAfterViewUpdate()
-
-        #expect(model.discardPile.isEmpty)
-        #expect(model.navigation.selectedNodeID == file.id)
-
-        try await waitUntil("deferred discard pile add") {
-            model.discardPile.nodeIDs == [file.id] && model.navigation.selectedNodeID == file.id
-        }
     }
 
     @Test
@@ -2255,188 +2264,42 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileAddClearsQueuedMultiSelection() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let first = makeTestFileNode(id: "/selection/first.txt", name: "first.txt")
-        let second = makeTestFileNode(id: "/selection/second.txt", name: "second.txt")
-        let root = makeTestDirectoryNode(
-            id: "/selection",
-            name: "selection",
-            children: [first, second]
-        )
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
-
-        model.addSelectedNodesToDiscardPile()
-
-        #expect(model.navigation.selectedNodeIDs.isEmpty)
-        #expect(model.navigation.selectedNodeID == nil)
-    }
-
-    @Test
-    func testDiscardPileNodeCanBeSelectedButNotFocused() throws {
-        let recorder = AppModelActionRecorder()
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        actions.reveal = { recorder.revealedURLs.append($0) }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
-        let rootID = try #require(model.scanState.snapshot?.root.id)
-
-        model.addNodesToDiscardPile([file])
-        model.clearSelection()
-        model.select(nodeID: file.id)
-        model.focus(nodeID: file.id)
-        model.revealPrimarySelectionInFinder()
-
-        #expect(model.navigation.selectedNodeID == file.id)
-        #expect(model.navigation.focusedNodeID == rootID)
-        #expect(!(model.canZoomIntoSelection))
-        #expect(model.selectionIncludesHiddenNodes)
-        #expect(recorder.revealedURLs == [file.url])
-    }
-
-    @Test
-    func testDiscardPileAddMovesHiddenFocusToVisibleAncestor() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
-        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+    func testMarkingKeepsBrowserContentsSelectionAndHistory() throws {
+        let model = AppModel(dependencies: makeDependencies())
+        let first = makeTestFileNode(id: "/selection/folder/first.txt", name: "first.txt")
+        let second = makeTestFileNode(id: "/selection/folder/second.txt", name: "second.txt")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [first, second])
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [folder],
-                folder.id: [child],
-            ])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        let tree = FileTreeStore(root: root, childrenByID: [root.id: [folder], folder.id: [first, second]])
+        let snapshot = makeTestSnapshot(root: root, store: tree)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.focus(nodeID: folder.id)
-        model.select(nodeID: child.id)
+        model.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
+        let before = model.navigation.browserContent(excluding: model.movingToTrashRootNodeIDs)
 
-        model.addNodesToDiscardPile([folder])
+        try #require(model.addSelectedNodesToDiscardPile())
+        #expect(model.discardPileRootNodeIDs == [first.id, second.id])
+        try #require(model.addNodesToDiscardPile([folder]))
+        #expect(model.discardPileRootNodeIDs == [folder.id])
+        let after = model.navigation.browserContent(excluding: model.movingToTrashRootNodeIDs)
+        #expect(after.nodes.map(\.id) == [first.id, second.id])
+        #expect(after.refreshID == before.refreshID)
+        #expect(model.navigation.focusedNodeID == folder.id)
+        #expect(model.navigation.selectedNodeIDs == [first.id, second.id])
+        #expect(model.navigation.selectedNodeID == first.id)
+        #expect(model.selectionIsInDiscardPile)
 
-        #expect(model.navigation.focusedNodeID == root.id)
-        #expect(model.navigation.selectedNodeID == child.id)
-        #expect(model.navigation.selectedNodeIDs == [child.id])
-        #expect(!(model.navigation.canNavigateBack))
-    }
-
-    @Test
-    func testDiscardPileAddPrunesQueuedFolderFromBackHistory() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let queued = makeTestDirectoryNode(
-            id: "/selection/queued",
-            name: "queued",
-            children: []
-        )
-        let visible = makeTestDirectoryNode(
-            id: "/selection/visible",
-            name: "visible",
-            children: []
-        )
-        let root = makeTestDirectoryNode(
-            id: "/selection",
-            name: "selection",
-            children: [queued, visible]
-        )
-        let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.focus(nodeID: queued.id)
-        model.focus(nodeID: visible.id)
-
-        model.addNodesToDiscardPile([queued])
         model.navigateBack()
-
         #expect(model.navigation.focusedNodeID == root.id)
-        #expect(!(model.navigation.canNavigateBack))
-        #expect(model.navigation.canNavigateForward)
-    }
-
-    @Test
-    func testDiscardPileAddPrunesQueuedDescendantFromForwardHistory() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let descendant = makeTestDirectoryNode(
-            id: "/selection/queued/descendant",
-            name: "descendant",
-            children: []
-        )
-        let queued = makeTestDirectoryNode(
-            id: "/selection/queued",
-            name: "queued",
-            children: [descendant]
-        )
-        let root = makeTestDirectoryNode(
-            id: "/selection",
-            name: "selection",
-            children: [queued]
-        )
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [queued],
-                queued.id: [descendant],
-            ])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.focus(nodeID: descendant.id)
-        model.navigateBack()
-
-        model.addNodesToDiscardPile([queued])
-
-        #expect(model.navigation.focusedNodeID == root.id)
-        #expect(!(model.navigation.canNavigateForward))
+        model.undoDiscardPileChange()
+        model.redoDiscardPileChange()
         model.navigateForward()
-        #expect(model.navigation.focusedNodeID == root.id)
+        #expect(model.navigation.focusedNodeID == folder.id)
     }
 
     @Test
-    func testDiscardPilePublishesAfterHiddenFocusReconciles() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
-        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
-        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [folder],
-                folder.id: [child],
-            ])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.navigation.setFocusedNodeID(folder.id)
-        model.select(nodeID: folder.id)
-
-        var observedFocusID: FileNodeRecord.ID?
-        let cancellable = model.trashFlow.$discardPile.dropFirst().sink { _ in
-            observedFocusID = model.navigation.focusedNodeID
-        }
-        defer { cancellable.cancel() }
-
-        model.addNodesToDiscardPile([folder])
-
-        #expect(observedFocusID == root.id)
-    }
-
-    @Test
-    func testSnapshotReplacementPublishesChangedDiscardPileVisibility() throws {
+    func testSnapshotReplacementPublishesChangedDiscardPileProjection() throws {
         let model = AppModel(dependencies: makeDependencies())
         defer { model.cleanup() }
         model.showFreeSpaceInDiskMaps = true
@@ -2465,7 +2328,7 @@ struct AppModelDependencyTests {
         }
         model.scanState.restoreCompletedSnapshot(snapshot(containing: marked))
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(model.workspaceHiddenNodeIDs.contains(marked.id))
+        try #require(model.discardPileRootNodeIDs.contains(marked.id))
 
         var didPublish = false
         let cancellable = model.objectWillChange.sink { didPublish = true }
@@ -2473,39 +2336,10 @@ struct AppModelDependencyTests {
         model.scanState.replaceCurrentSnapshot(snapshot(containing: replacement))
 
         #expect(didPublish)
-        #expect(!model.workspaceHiddenNodeIDs.contains(marked.id))
+        #expect(!model.discardPileRootNodeIDs.contains(marked.id))
 
         #expect(model.addNodesToDiscardPile([replacement]))
-        #expect(model.workspaceHiddenNodeIDs.contains(replacement.id))
-    }
-
-    @Test
-    func testDeferredDiscardPileAddMovesFocusedSelectionToVisibleAncestor() async throws {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let child = makeTestFileNode(id: "/selection/folder/child.txt", name: "child.txt")
-        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
-        let sibling = makeTestFileNode(id: "/selection/sibling.txt", name: "sibling.txt")
-        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder, sibling])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [folder, sibling],
-                folder.id: [child],
-            ])
-        let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.navigation.reconcileAfterSnapshotApplied(snapshot)
-        model.navigation.setFocusedNodeID(folder.id)
-        model.select(nodeID: folder.id)
-
-        model.addPrimarySelectionToDiscardPileAfterViewUpdate()
-
-        try await waitUntil("deferred focused discard pile add") {
-            model.discardPile.nodeIDs == [folder.id] && model.navigation.focusedNodeID == root.id
-                && model.navigation.selectedNodeID == folder.id
-        }
+        #expect(model.discardPileRootNodeIDs.contains(replacement.id))
     }
 
     @Test
@@ -2520,7 +2354,7 @@ struct AppModelDependencyTests {
         model.scanState.replaceCurrentSnapshot(firstSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(firstSnapshot)
         model.addNodesToDiscardPile([firstFile])
-        #expect(model.workspaceHiddenNodeIDs == [firstFile.id])
+        #expect(model.discardPileRootNodeIDs == [firstFile.id])
 
         let secondFile = makeTestFileNode(id: "/second/file.txt", name: "file.txt")
         let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [secondFile])
@@ -2529,7 +2363,7 @@ struct AppModelDependencyTests {
         model.scanState.replaceCurrentSnapshot(secondSnapshot)
 
         #expect(model.discardPileSnapshot.nodes == [firstFile])
-        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+        #expect(model.discardPileRootNodeIDs.isEmpty)
     }
 
     @Test
@@ -2602,7 +2436,7 @@ struct AppModelDependencyTests {
         display("/second", nodes: [failed, unattempted])
         try #require(model.addNodesToDiscardPile([failed, unattempted]))
         #expect(model.discardPileSnapshot.nodes == [first, failed, unattempted])
-        #expect(model.workspaceHiddenNodeIDs == [failed.id, unattempted.id])
+        #expect(model.discardPileRootNodeIDs == [failed.id, unattempted.id])
 
         try #require(await model.requestMoveDiscardPileToTrash())
         #expect(model.pendingTrashSelection?.nodes == [first, failed, unattempted])
@@ -3890,7 +3724,8 @@ struct AppModelDependencyTests {
     enum ComparisonRevealInterruption: CaseIterable, Equatable {
         case none
         case cancelled
-        case hidden
+        case marked
+        case movingToTrash
         case removed
         case replacedSnapshot
         case replacedComparison
@@ -3923,10 +3758,12 @@ struct AppModelDependencyTests {
             break
         case .cancelled:
             model.clearSelection()
-        case .hidden:
+        case .marked:
             model.trashFlow.replaceDiscardPile(
                 DiscardPileState(marks: [.init(node: node, treeID: current.treeStore.contentID)])
             )
+        case .movingToTrash:
+            model.trashFlow.replaceOptimisticTrashVisibility(nodes: [node.id: node], snapshotID: current.id)
         case .removed:
             let removed = try #require(current.removingNode(id: node.id))
             model.scanState.replaceCurrentSnapshot(removed)
@@ -3949,7 +3786,7 @@ struct AppModelDependencyTests {
         }
         for task in pending { await task.value }
 
-        if interruption == .none || interruption == .refreshedMetadata {
+        if interruption == .none || interruption == .marked || interruption == .refreshedMetadata {
             #expect(model.scanComparison == nil)
             #expect(model.navigation.selectedNodeID == node.id)
             #expect(model.navigation.focusedNodeID == current.root.id)

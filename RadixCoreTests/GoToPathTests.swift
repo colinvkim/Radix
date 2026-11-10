@@ -225,13 +225,14 @@ struct GoToPathTests {
         #expect(model.navigation.currentFocusNode?.id == fixture.root.id)
     }
 
-    @Test(arguments: [false, true])
-    func fileJumpOpensItsParentAndSelectsIt(startInParent: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func fileJumpOpensItsParentAndSelectsIt(startInParent: Bool, isMarked: Bool) async throws {
         let fixture = PathFixture()
-        let model = makePathApp(fixture)
+        let model = makePathApp(fixture, isImported: !isMarked)
         defer { model.cleanup() }
         let base = startInParent ? fixture.folder.id : fixture.root.id
         model.navigation.setFocusedNodeID(base)
+        if isMarked { try #require(model.addNodesToDiscardPile([fixture.file])) }
         model.presentGoToPath()
         let request = try pathRequest(model)
         #expect(await model.goToPath(fixture.file.url.path, request: request))
@@ -395,7 +396,11 @@ private func pathRecord(id: String, path: String, directory: Bool = false, synth
 }
 
 @MainActor
-private func makePathApp(_ fixture: PathFixture, store: FileTreeStore? = nil) -> AppModel {
+private func makePathApp(
+    _ fixture: PathFixture,
+    store: FileTreeStore? = nil,
+    isImported: Bool = true
+) -> AppModel {
     let model = AppModel(dependencies: AppDependencies(
         preferences: TestAppPreferencesStore(preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: true)),
         recentTargets: RecentTargetStore(persistence: TestRecentTargetPersistence(), isAvailable: { _ in false }),
@@ -404,10 +409,10 @@ private func makePathApp(_ fixture: PathFixture, store: FileTreeStore? = nil) ->
     let snapshot = ScanSnapshot(
         target: ScanTarget(url: fixture.root.url), treeStore: store ?? fixture.store,
         startedAt: Date(), finishedAt: Date(), scanWarnings: [], isComplete: true,
-        source: .imported(ImportedSnapshotContext(
+        source: isImported ? .imported(ImportedSnapshotContext(
             sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute,
             liveActionCapability: .pathValidation
-        ))
+        )) : .live
     )
     model.scanState.replaceCurrentSnapshot(snapshot)
     model.navigation.reconcileAfterSnapshotApplied(snapshot)

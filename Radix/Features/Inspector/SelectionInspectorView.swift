@@ -5,7 +5,6 @@ struct SelectionInspectorActions {
     let selectAndFocusNodeAfterViewUpdate: (String) -> Void
     let expandSummarizedNode: (FileNodeRecord) -> Void
     let selectedFileActions: SelectedFileActions
-    let addPrimarySelectionToDiscardPile: () -> Void
     let removeDiscardPileNode: (FileNodeRecord.ID) -> Void
     let presentDiscardPileReview: () -> Void
     let bulkFileActions: BulkFileActions
@@ -52,7 +51,7 @@ struct SelectionInspectorView: View {
             trashSafetyPolicy: scanState.trashSafetyPolicy,
             snapshotSource: scanState.snapshotSource
         )
-        let canMoveSelectionToTrash = summary.missingSelectedNodeCount == 0
+        let canMarkOrMoveSelection = summary.missingSelectedNodeCount == 0
             && removalEligibility.canMoveToTrash
             && !isReadOnlyMode
         let warnings = relevantWarnings(for: summary.topLevelSelectedNodes)
@@ -61,7 +60,10 @@ struct SelectionInspectorView: View {
             summary: summary,
             percentOfScan: selectionPercentOfScanText(summary) ?? "—",
             availability: availability,
-            canMoveSelectionToTrash: canMoveSelectionToTrash,
+            canAddSelectionToDiscardPile: canMarkOrMoveSelection
+                && !summary.topLevelSelectedNodes.allSatisfy { discardPileMembership(for: $0) != nil },
+            canMoveSelectionToTrash: canMarkOrMoveSelection
+                && !actions.bulkFileActions.directTrashOverlapsProtectedNodes(summary.topLevelSelectedNodes),
             availabilityNotice: multiSelectionAvailabilityNotice(
                 summary: summary,
                 removalIsEligible: removalEligibility.canMoveToTrash
@@ -90,7 +92,7 @@ struct SelectionInspectorView: View {
                 InspectorSummarySection(
                     node: node,
                     availability: availability,
-                    allowsMoveToTrash: discardPileMembership == nil,
+                    allowsMoveToTrash: !actions.bulkFileActions.directTrashOverlapsProtectedNodes([node]),
                     actions: actions.selectedFileActions
                 )
 
@@ -125,7 +127,7 @@ struct SelectionInspectorView: View {
                     InspectorAvailabilityNotice(kind: notice)
                 }
 
-                if discardPileMembership == nil, canExpandSummarizedSelection(node) {
+                if canExpandSummarizedSelection(node) {
                     InspectorSummarizedSection {
                         actions.expandSummarizedNode(node)
                     }
@@ -200,7 +202,7 @@ struct SelectionInspectorView: View {
         }
 
         return availability.canMoveToTrash
-            ? actions.addPrimarySelectionToDiscardPile
+            ? { actions.bulkFileActions.addToDiscardPile([node]) }
             : nil
     }
 
@@ -317,8 +319,7 @@ struct SelectionInspectorView: View {
     }
 
     private func selectLargestChild(_ child: FileNodeRecord) {
-        guard discardPileMembership(for: child) == nil,
-              child.isDirectory,
+        guard child.isDirectory,
               scanState.fileTreeStore?.containsChildren(id: child.id) == true else {
             actions.selectNodeAfterViewUpdate(child.id)
             return

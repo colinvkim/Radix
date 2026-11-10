@@ -513,7 +513,7 @@ struct FileBrowserModelTests {
 
     @MainActor
     @Test
-    func testEntireScanSearchHidesDiscardPileQueuedDescendants() async throws {
+    func testEntireScanSearchHidesDescendantsOfExcludedFolders() async throws {
         let hiddenTarget = makeTestFileNode(id: "/root/folder/target-hidden.txt", name: "target-hidden.txt", size: 40)
         let hiddenFolder = makeTestDirectoryNode(id: "/root/folder", name: "folder", children: [hiddenTarget])
         let visibleTarget = makeTestFileNode(id: "/root/target-visible.txt", name: "target-visible.txt", size: 10)

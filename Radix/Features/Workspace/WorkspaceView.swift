@@ -62,6 +62,7 @@ struct BulkFileActions {
     let revealInFinder: ([FileNodeRecord]) -> Void
     let copyPaths: ([FileNodeRecord]) -> Void
     let addToDiscardPile: ([FileNodeRecord]) -> Void
+    let directTrashOverlapsProtectedNodes: ([FileNodeRecord]) -> Bool
     let moveToTrash: ([FileNodeRecord]) -> Void
 }
 
@@ -76,7 +77,6 @@ struct WorkspaceView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInDiskMaps: Bool
-    let workspaceHiddenNodeIDs: Set<FileNodeRecord.ID>
     let discardPileRootNodeIDs: Set<FileNodeRecord.ID>
     let movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
@@ -97,7 +97,6 @@ struct WorkspaceView: View {
                     visualizationMode: visualizationMode,
                     maxRenderedDepth: maxRenderedDepth,
                     showFreeSpaceInDiskMaps: showFreeSpaceInDiskMaps,
-                    workspaceHiddenNodeIDs: workspaceHiddenNodeIDs,
                     discardPileRootNodeIDs: discardPileRootNodeIDs,
                     movingToTrashRootNodeIDs: movingToTrashRootNodeIDs,
                     fullDiskAccessStatus: fullDiskAccessStatus,
