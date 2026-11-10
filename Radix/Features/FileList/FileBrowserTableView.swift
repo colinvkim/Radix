@@ -454,7 +454,7 @@ struct FileBrowserTableView: View {
 
         Divider()
 
-        Button("Add \(selection.nodes.count) Items to Discard Pile", systemImage: "checklist") {
+        Button("Add to Discard Pile", systemImage: "checklist") {
             actions.selectNodes(selection.ids, selection.primaryID)
             actions.bulkFileActions.addToDiscardPile(selection.nodes)
         }

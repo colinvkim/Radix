@@ -13,6 +13,9 @@ struct RadixCommands: Commands {
 
     var body: some Commands {
         let selectionIsInDiscardPile = appModel.selectionIsInDiscardPile
+        let discardPileSelectionTitle: LocalizedStringKey = selectionIsInDiscardPile
+            ? "Review Discard Pile"
+            : "Add to Discard Pile"
         let selectedActionAvailability = FileNodeActionAvailability(
             nodes: navigation.selectedNodes,
             activeTarget: scanState.selectedTarget,
@@ -175,7 +178,7 @@ struct RadixCommands: Commands {
 
             Divider()
 
-            Button(discardPileSelectionTitle(isInDiscardPile: selectionIsInDiscardPile), systemImage: "checklist") {
+            Button(discardPileSelectionTitle, systemImage: "checklist") {
                 if selectionIsInDiscardPile {
                     appModel.presentDiscardPileReview()
                 } else {
@@ -267,20 +270,6 @@ struct RadixCommands: Commands {
     private var canUseWorkspaceCommands: Bool {
         isWorkspaceWindowFocused == true && appModel.canUseWorkspaceCommands
             && appModel.presentationCoordinator.activeDestination == nil
-    }
-
-    private func discardPileSelectionTitle(isInDiscardPile: Bool) -> String {
-        if isInDiscardPile {
-            return String(
-                localized: "Review Discard Pile",
-                comment: "Command for reviewing the Discard Pile when the selection is already included."
-            )
-        }
-        let count = navigation.selectedNodeIDs.count
-        guard count > 1 else {
-            return String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion.")
-        }
-        return String(localized: "Add \(count) Items to Discard Pile", comment: "Action for marking multiple selected items for possible deletion.")
     }
 
     private var commandSelectedFileActions: SelectedFileActions {

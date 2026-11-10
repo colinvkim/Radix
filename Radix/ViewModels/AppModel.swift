@@ -2375,17 +2375,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addNodesToDiscardPile(_ nodes: [FileNodeRecord]) -> Bool {
         do {
-            try validateDiscardPileAddition(nodes)
-            let discardNodes = topLevelTrashNodes(from: nodes)
-            if let cloudImpact = cloudStorageImpact(of: discardNodes.map(\.url)) {
-                pendingCloudFileAction = PendingCloudFileAction(
-                    kind: .addToDiscardPile,
-                    nodes: discardNodes,
-                    cloudImpact: cloudImpact
-                )
-                return true
-            }
-            try commitDiscardPileAddition(discardNodes)
+            try addDiscardPileNodes(nodes)
             return true
         } catch {
             presentError(error)
@@ -2527,8 +2517,7 @@ final class AppModel: ObservableObject {
         do {
             switch action.kind {
             case .addToDiscardPile:
-                try validateDiscardPileAddition(action.nodes)
-                try commitDiscardPileAddition(topLevelTrashNodes(from: action.nodes))
+                try addDiscardPileNodes(action.nodes, cloudWarningAccepted: true)
             case .moveToTrash:
                 let nodes: [FileNodeRecord]
                 if action.discardPileBatch == nil {
@@ -2548,13 +2537,32 @@ final class AppModel: ObservableObject {
         pendingCloudFileAction = nil
     }
 
-    private func commitDiscardPileAddition(_ nodes: [FileNodeRecord]) throws {
-        try validateSnapshotAllowsMutation()
+    private func addDiscardPileNodes(
+        _ requestedNodes: [FileNodeRecord],
+        cloudWarningAccepted: Bool = false
+    ) throws {
+        try validateDiscardPileAddition(requestedNodes)
         guard let snapshot = scanCoordinator.snapshot else {
             throw FileActionError.unsupported
         }
+        let nodes = topLevelTrashNodes(from: requestedNodes)
+        let (updatedPile, matchingNodeIDs, addedNodeIDs) = trashFlow.discardPileAdding(nodes, in: snapshot)
+        if !cloudWarningAccepted,
+           let cloudImpact = cloudStorageImpact(of: nodes.filter { addedNodeIDs.contains($0.id) }.map(\.url)) {
+            pendingCloudFileAction = PendingCloudFileAction(
+                kind: .addToDiscardPile,
+                nodes: nodes,
+                cloudImpact: cloudImpact
+            )
+            return
+        }
+
         let previousIDs = Set(discardPile.nodeIDs)
-        addDiscardPileNodes(nodes, snapshot: snapshot)
+        trashFlow.changeDiscardPile(
+            updatedPile,
+            actionName: String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion."),
+            matchingNodeIDs: matchingNodeIDs
+        )
         workspaceTour.didAddMarks(
             Set(discardPile.nodeIDs).subtracting(previousIDs),
             snapshotID: snapshot.id
@@ -3027,18 +3035,6 @@ final class AppModel: ObservableObject {
         TrashFlowController.topLevelTrashNodes(
             from: nodes,
             fileTreeStore: scanCoordinator.fileTreeStore
-        )
-    }
-
-    private func addDiscardPileNodes(
-        _ nodes: [FileNodeRecord],
-        snapshot: ScanSnapshot
-    ) {
-        let (updatedPile, matchingNodeIDs) = trashFlow.discardPileAdding(nodes, in: snapshot)
-        trashFlow.changeDiscardPile(
-            updatedPile,
-            actionName: String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion."),
-            matchingNodeIDs: matchingNodeIDs
         )
     }
 

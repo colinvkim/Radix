@@ -58,7 +58,7 @@ struct InspectorMultiSelectionView: View {
                     discardPileAction: canAddSelectionToDiscardPile
                         ? { actions.addToDiscardPile(summary.topLevelSelectedNodes) }
                         : nil,
-                    discardPileTitle: addToDiscardPileTitle,
+                    discardPileTitle: String(localized: "Add to Discard Pile"),
                     discardPileSystemImageName: "checklist"
                 )
             }
@@ -176,13 +176,6 @@ struct InspectorMultiSelectionView: View {
         return String(
             localized: "\(summary.selectedStorageCategoryCount) storage categories",
             comment: "Inspector multiple-selection synthetic storage category count."
-        )
-    }
-
-    private var addToDiscardPileTitle: String {
-        String(
-            localized: "Add \(summary.topLevelSelectedCount) Items to Discard Pile",
-            comment: "Action for marking one or more effective top-level selected items for possible deletion."
         )
     }
 

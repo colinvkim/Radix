@@ -350,18 +350,21 @@ final class TrashFlowController {
     func discardPileAdding(
         _ validatedNodes: [FileNodeRecord],
         in snapshot: ScanSnapshot
-    ) -> (pile: DiscardPileState, matchingNodeIDs: Set<FileNodeRecord.ID>) {
+    ) -> (pile: DiscardPileState, matchingNodeIDs: Set<FileNodeRecord.ID>, addedNodeIDs: Set<FileNodeRecord.ID>) {
         let tree = snapshot.treeStore
         var updated = discardPile.marks
         var offsets = Dictionary(uniqueKeysWithValues: updated.enumerated().map { ($0.element.node.id, $0.offset) })
+        var addedNodeIDs: Set<FileNodeRecord.ID> = []
         for node in validatedNodes {
             let mark = DiscardPileState.Mark(node: node, treeID: tree.contentID)
             if let offset = offsets[node.id] {
-                if !updated[offset].matches(node, treeID: tree.contentID) { updated[offset] = mark }
+                guard !updated[offset].matches(node, treeID: tree.contentID) else { continue }
+                updated[offset] = mark
             } else {
                 offsets[node.id] = updated.count
                 updated.append(mark)
             }
+            addedNodeIDs.insert(node.id)
         }
 
         let incomingIDs = Set(validatedNodes.map(\.id))
@@ -377,13 +380,14 @@ final class TrashFlowController {
                    incomingIDs.contains(ancestor.id) || incomingIDs.contains(mark.node.id),
                    updated[offset].node.fileIdentity != nil || mark.node.fileIdentity == nil {
                     retainedIDs.remove(mark.node.id)
+                    addedNodeIDs.remove(mark.node.id)
                     return false
                 }
                 parent = tree.parent(of: ancestor.id)
             }
             return true
         }
-        return (DiscardPileState(marks: retainedMarks), retainedIDs)
+        return (DiscardPileState(marks: retainedMarks), retainedIDs, addedNodeIDs)
     }
 
     func removeMovedDiscardPileNodes(
