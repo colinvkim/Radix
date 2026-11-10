@@ -5,35 +5,185 @@ import Testing
 
 @MainActor
 struct TrashFlowControllerTests {
+    @Test(arguments: [false, true])
+    func testDiscardPileProjectsAcrossEnumeratorsOnlyForTheOriginalFile(replaced: Bool) throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let fileURL = fixture.appending(path: "marked.txt")
+        try Data([1]).write(to: fileURL)
+        let loader = ScanMetadataLoader()
+        let bulkResult = try BulkDirectoryEnumerator.directoryEntries(
+            at: fixture, includeHiddenFiles: false, metadataLoader: loader, cancellationCheck: {}
+        )
+        let bulk = try #require(bulkResult)
+        let nativeIdentity = try #require(bulk.entries.first?.metadata?.fileIdentity)
+        if replaced {
+            try FileManager.default.moveItem(at: fileURL, to: fixture.appending(path: "original.txt"))
+            try Data([2]).write(to: fileURL)
+        }
+        let metadata = try loader.metadata(for: fileURL)
+        let foundationIdentity = try #require(metadata.fileIdentity)
+        let nativeNode = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: nativeIdentity)
+        let foundationNode = makeTestFileNode(id: fileURL.path, name: "marked.txt", fileIdentity: foundationIdentity)
+        #expect(SystemIntegration.verifyTrashIdentity(nativeNode) == (replaced ? .mismatch : .matches))
+        #expect(SystemIntegration.verifyTrashIdentity(foundationNode) == .matches)
+
+        func snapshot(_ node: FileNodeRecord) -> ScanSnapshot {
+            let root = makeTestDirectoryNode(id: fixture.path, name: "fixture", children: [node])
+            return makeTestSnapshot(root: root, store: FileTreeStore(root: root, childrenByID: [root.id: [node]]))
+        }
+        let initial = snapshot(nativeNode)
+        let controller = TrashFlowController()
+        controller.changeDiscardPile(controller.discardPileAdding([nativeNode], in: initial).pile, actionName: "Add")
+        let refreshed = snapshot(foundationNode)
+
+        #expect(controller.discardPile.matchingNodeIDs(in: refreshed) == (replaced ? [] : [nativeNode.id]))
+        #expect(controller.discardPile.nodes == [nativeNode])
+        let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
+            nodes: controller.discardPile.nodes, trashSafetyPolicy: .live(),
+            verifyIdentity: SystemIntegration.verifyTrashIdentity
+        )
+        #expect(preview.nodes == (replaced ? [] : [nativeNode]))
+        #expect(preview.discardPileBatch?.unavailable.map(\.node) == (replaced ? [nativeNode] : []))
+
+        try FileManager.default.moveItem(at: fileURL, to: fixture.appending(path: "after-scan.txt"))
+        #expect(controller.discardPile.matchingNodeIDs(in: refreshed) == (replaced ? [] : [nativeNode.id]))
+    }
+
+    @Test
+    func testDiscardPileBatchDeduplicatesAliasesAndKeepsDistinctDirectoryEntries() throws {
+        let fixture = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: fixture) }
+        let folder = fixture.appending(path: "folder", directoryHint: .isDirectory)
+        let aliasFolder = fixture.appending(path: "alias", directoryHint: .isDirectory)
+        try manager.createDirectory(at: folder, withIntermediateDirectories: false)
+        try manager.createSymbolicLink(at: aliasFolder, withDestinationURL: folder)
+        let file = folder.appending(path: "marked.txt")
+        let hardLink = folder.appending(path: "hard-link.txt")
+        let symlink = folder.appending(path: "symlink.txt")
+        try Data([1]).write(to: file)
+        try manager.linkItem(at: file, to: hardLink)
+        try manager.createSymbolicLink(at: symlink, withDestinationURL: file)
+
+        let loader = ScanMetadataLoader()
+        func node(at url: URL, isSymbolicLink: Bool = false) throws -> FileNodeRecord {
+            makeTestFileNode(
+                id: url.path,
+                name: url.lastPathComponent,
+                fileIdentity: try loader.fileSystemIdentity(at: url),
+                isSymbolicLink: isSymbolicLink
+            )
+        }
+        let original = try node(at: file)
+        let alias = try node(at: aliasFolder.appending(path: file.lastPathComponent))
+        let distinctEntries = try [node(at: hardLink), node(at: symlink, isSymbolicLink: true)]
+        try #require(original.fileIdentity == alias.fileIdentity)
+        try #require(original.fileIdentity == distinctEntries[0].fileIdentity)
+        let marks = [original, alias] + distinctEntries
+        let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
+            nodes: marks, trashSafetyPolicy: .live(), verifyIdentity: SystemIntegration.verifyTrashIdentity
+        )
+        #expect(preview.nodes == [original] + distinctEntries)
+        let batch = try #require(preview.discardPileBatch)
+        #expect(batch.unavailable.isEmpty)
+        #expect(batch.plannedNodes(for: [original]) == [original, alias])
+    }
+
+    @Test
+    func testDiscardPileBatchOnlyMovesOneEntryAfterCaseOnlyRename() throws {
+        let fixture = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: fixture) }
+        let originalURL = fixture.appending(path: "Marked.txt")
+        let renamedURL = fixture.appending(path: "marked.txt")
+        let intermediateURL = fixture.appending(path: "rename-tmp")
+        let loader = ScanMetadataLoader()
+        try Data([1]).write(to: originalURL)
+        let original = makeTestFileNode(
+            id: originalURL.path, name: originalURL.lastPathComponent, fileIdentity: try loader.fileSystemIdentity(at: originalURL)
+        )
+        try manager.moveItem(at: originalURL, to: intermediateURL)
+        try manager.moveItem(at: intermediateURL, to: renamedURL)
+        let renamed = makeTestFileNode(
+            id: renamedURL.path, name: renamedURL.lastPathComponent, fileIdentity: try loader.fileSystemIdentity(at: renamedURL)
+        )
+        try #require(original.fileIdentity == renamed.fileIdentity)
+        let originalStillResolves = manager.fileExists(atPath: originalURL.path)
+
+        let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
+            nodes: [original, renamed], trashSafetyPolicy: .live(), verifyIdentity: SystemIntegration.verifyTrashIdentity
+        )
+
+        #expect(preview.nodes == [originalStillResolves ? original : renamed])
+        #expect(preview.discardPileBatch?.unavailable.map(\.node) == (originalStillResolves ? [] : [original]))
+    }
+
+    @Test
+    func testDiscardPileBatchCollapsesVerifiedDescendantsAndRetainsUnavailableMarks() throws {
+        let identity = FileIdentity(device: 1, inode: 1)
+        let folder = makeTestDirectoryNode(id: "/scope/folder", name: "folder", children: [], fileIdentity: identity)
+        let child = makeTestFileNode(
+            id: "/scope/folder/deep/file", name: "file", fileIdentity: FileIdentity(device: 1, inode: 2)
+        )
+        let unavailable = makeTestFileNode(
+            id: "/scope/folder/deep/missing", name: "missing", fileIdentity: FileIdentity(device: 1, inode: 3)
+        )
+        let sibling = makeTestFileNode(
+            id: "/scope/folder-other/file", name: "file", fileIdentity: FileIdentity(device: 1, inode: 4)
+        )
+        let preview = try TrashFlowController.prepareDiscardPileTrashRequest(
+            nodes: [child, folder, unavailable, sibling], trashSafetyPolicy: .live()
+        ) {
+            $0 == unavailable ? .missingCurrentItem : .matches
+        }
+        #expect(preview.nodes == [folder, sibling])
+        let batch = try #require(preview.discardPileBatch)
+        #expect(batch.unavailable.map(\.node) == [unavailable])
+        #expect(batch.plannedNodes(for: [folder]) == [folder, child])
+    }
+
     @Test
     func testDiscardPileRemovalAndClearRestoreExactOrderedBatches() {
-        let snapshotID = UUID()
-        let original = DiscardPileState(nodeIDs: ["first", "second", "third"], snapshotID: snapshotID)
+        let original = makePile(["first", "second", "third"])
         let controller = TrashFlowController(discardPile: original)
-        controller.removeDiscardPileNodes(ids: ["first", "third"])
-        #expect(controller.discardPile.nodeIDs == ["second"])
+        controller.removeDiscardPileNodes(ids: ["/first", "/third"])
+        #expect(controller.discardPile == makePile(["second"]))
         controller.discardPileUndoManager.undo()
         #expect(controller.discardPile == original)
         controller.discardPileUndoManager.redo()
-        #expect(controller.discardPile.nodeIDs == ["second"])
+        #expect(controller.discardPile == makePile(["second"]))
         controller.clearDiscardPile()
         #expect(controller.discardPile.isEmpty)
-        #expect(controller.discardPile.snapshotID == nil)
         controller.discardPileUndoManager.undo()
-        #expect(controller.discardPile == DiscardPileState(nodeIDs: ["second"], snapshotID: snapshotID))
+        #expect(controller.discardPile == makePile(["second"]))
         controller.discardPileUndoManager.redo()
         #expect(controller.discardPile.isEmpty)
     }
 
     @Test
-    func testNoOpEditsKeepRedoAndNewEditReplacesIt() {
-        let snapshotID = UUID()
+    func testCompletedDirectTrashMovePrunesOnlyMovedItems() {
+        let child = makeTestFileNode(id: "/selection/folder/child", name: "child")
+        let folder = makeTestDirectoryNode(id: "/selection/folder", name: "folder", children: [child])
+        let kept = makeTestFileNode(id: "/selection/kept", name: "kept")
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [folder, kept])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [folder, kept], folder.id: [child]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
         let controller = TrashFlowController()
-        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: UUID())
-        let first = DiscardPileState(nodeIDs: ["first"], snapshotID: snapshotID)
+        controller.changeDiscardPile(controller.discardPileAdding([child, kept], in: snapshot).pile, actionName: "Add")
+
+        controller.removeMovedDiscardPileNodes([folder], from: snapshot, includeSnapshotDescendants: true)
+
+        #expect(controller.discardPile.nodeIDs == [kept.id])
+    }
+
+    @Test
+    func testNoOpEditsKeepRedoAndNewEditReplacesIt() {
+        let controller = TrashFlowController()
+        let first = makePile(["first"])
         controller.changeDiscardPile(first, actionName: "Add")
         controller.changeDiscardPile(first, actionName: "Duplicate")
-        controller.removeDiscardPileNodes(ids: ["unknown"])
+        controller.removeDiscardPileNodes(ids: ["/unknown"])
         controller.discardPileUndoManager.undo()
         #expect(controller.discardPile.isEmpty)
         #expect(!(controller.discardPileUndoManager.canUndo))
@@ -41,9 +191,7 @@ struct TrashFlowControllerTests {
         controller.clearDiscardPile()
         controller.removeDiscardPileNodes(ids: [])
         #expect(controller.discardPileUndoManager.canRedo)
-        controller.changeDiscardPile(
-            DiscardPileState(nodeIDs: ["second"], snapshotID: snapshotID), actionName: "Add"
-        )
+        controller.changeDiscardPile(makePile(["second"]), actionName: "Add")
         #expect(!(controller.discardPileUndoManager.canRedo))
         controller.discardPileUndoManager.undo()
         #expect(controller.discardPile.isEmpty)
@@ -51,14 +199,9 @@ struct TrashFlowControllerTests {
 
     @Test
     func testDiscardPileHistoryIsBoundedToFiftyUserEdits() {
-        let snapshotID = UUID()
         let controller = TrashFlowController()
-        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: UUID())
         for count in 1...60 {
-            controller.changeDiscardPile(
-                DiscardPileState(nodeIDs: (1...count).map(String.init), snapshotID: snapshotID),
-                actionName: "Add"
-            )
+            controller.changeDiscardPile(makePile((1...count).map(String.init)), actionName: "Add")
         }
         var undoCount = 0
         while controller.discardPileUndoManager.canUndo {
@@ -72,25 +215,19 @@ struct TrashFlowControllerTests {
     }
 
     @Test
-    func testProgrammaticAndEmptyPileContextReplacementsInvalidateHistory() {
-        let snapshotID = UUID()
-        let contentID = UUID()
-        let original = DiscardPileState(nodeIDs: ["first"], snapshotID: snapshotID)
+    func testProgrammaticPileReplacementInvalidatesHistory() {
         let controller = TrashFlowController()
-        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: contentID)
-        controller.changeDiscardPile(original, actionName: "Add")
-        controller.clearDiscardPile()
-        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: contentID)
-        #expect(controller.discardPileUndoManager.canUndo)
-        controller.synchronizeDiscardPileContext(snapshotID: UUID(), treeContentID: UUID())
-        #expect(!(controller.discardPileUndoManager.canUndo))
-        #expect(!(controller.discardPileUndoManager.canRedo))
-        controller.synchronizeDiscardPileContext(snapshotID: snapshotID, treeContentID: contentID)
-        controller.changeDiscardPile(original, actionName: "Add")
+        controller.changeDiscardPile(makePile(["first"]), actionName: "Add")
         controller.discardPileUndoManager.undo()
         #expect(controller.discardPileUndoManager.canRedo)
         controller.replaceDiscardPile(DiscardPileState())
         #expect(!(controller.discardPileUndoManager.canRedo))
+    }
+
+    private func makePile(_ names: [String]) -> DiscardPileState {
+        DiscardPileState(marks: names.map {
+            .init(node: makeTestFileNode(id: "/" + $0, name: $0))
+        })
     }
 
     @Test
@@ -106,11 +243,11 @@ struct TrashFlowControllerTests {
         var didFinish = false
         controller.startConfirmedMove([node], moveToTrash: { _ in
             Issue.record("Read-only mode must prevent filesystem moves")
-            return .matches
+            return TrashMoveOutcome(.matches)
         }, beginMove: {
             Issue.record("Rejected moves must not hide scan results")
         }, onFinish: { _, moved, error, wasCancelled in
-            #expect(moved.isEmpty)
+            #expect(moved.operations.isEmpty)
             #expect(!wasCancelled)
             if case .readOnlyMode? = error as? FileActionError {} else {
                 Issue.record("Expected the read-only mode error")
@@ -129,7 +266,7 @@ struct TrashFlowControllerTests {
         var didFinish = false
         controller.startConfirmedMove([node], moveToTrash: { _ in
             await withCheckedContinuation { continuation = $0 }
-            return .matches
+            return TrashMoveOutcome(.matches)
         }, beginMove: {}, onFinish: { _, _, _, _ in didFinish = true })
         #expect(!controller.setReadOnlyMode(true))
         try await waitUntil("move starts") { continuation != nil }
@@ -156,12 +293,12 @@ struct TrashFlowControllerTests {
                 moveToTrash: { node in
                     attemptedIDs.append(node.id)
                     await withCheckedContinuation { continuations.append($0) }
-                    return .matches
+                    return TrashMoveOutcome(.matches)
                 },
                 beginMove: {},
                 onFinish: { requested, moved, error, wasCancelled in
                     #expect(requested == [first, second])
-                    #expect(moved == [first])
+                    #expect(moved.operations == [first])
                     #expect(error == nil)
                     #expect(wasCancelled)
                     finishedCount += 1
@@ -185,11 +322,11 @@ struct TrashFlowControllerTests {
             [node],
             moveToTrash: { _ in
                 Issue.record("A cancelled batch must not start a filesystem move")
-                return .matches
+                return TrashMoveOutcome(.matches)
             },
             beginMove: { controller.cancelConfirmedTrashMoves() },
             onFinish: { _, moved, error, wasCancelled in
-                #expect(moved.isEmpty)
+                #expect(moved.operations.isEmpty)
                 #expect(error == nil)
                 #expect(wasCancelled)
                 didFinish = true

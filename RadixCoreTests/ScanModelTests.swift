@@ -617,17 +617,6 @@ struct ScanModelTests {
     }
 
     @Test
-    func testPostTrashActionMatchesCurrentSelectionPolicy() {
-        #expect(
-            ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root")
-                == .clearActiveScan)
-        #expect(
-            ScanPostTrashAction.afterRemovingNode(activeTargetID: "/scan/root", removedNodeID: "/scan/root/file.txt")
-                == .removeFromActiveScan)
-        #expect(ScanPostTrashAction.afterRemovingNode(activeTargetID: nil, removedNodeID: "/scan/root") == .none)
-    }
-
-    @Test
     func testSnapshotReplacingNodeDeduplicatesWarningsByContent() throws {
         let child = makeNode(id: "/root/folder", isDirectory: true, isSynthetic: false, isAccessible: true)
         let root = FileNodeRecord.directory(

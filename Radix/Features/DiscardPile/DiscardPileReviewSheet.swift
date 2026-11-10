@@ -8,21 +8,29 @@ struct DiscardPileReviewActions {
 }
 
 struct DiscardPileReviewSheet: View {
-    @Environment(\.isReadOnlyMode) private var isReadOnlyMode
     @EnvironmentObject private var tour: WorkspaceTourController
     private let rows: [DiscardPileReviewRow]
     private let rowIDs: Set<FileNodeRecord.ID>
     private let summary: DiscardPileSummary
+    private let canMoveToTrash: Bool
+    private let isPreparingTrash: Bool
     private let actions: DiscardPileReviewActions
 
     @State private var selection: Set<FileNodeRecord.ID> = []
     @State private var isConfirmingClear = false
 
-    init(snapshot: DiscardPileSnapshot, actions: DiscardPileReviewActions) {
+    init(
+        snapshot: DiscardPileSnapshot,
+        canMoveToTrash: Bool,
+        isPreparingTrash: Bool,
+        actions: DiscardPileReviewActions
+    ) {
         let rows = snapshot.nodes.map(DiscardPileReviewRow.init)
         self.rows = rows
         self.rowIDs = Set(rows.map(\.id))
         self.summary = snapshot.summary
+        self.canMoveToTrash = canMoveToTrash
+        self.isPreparingTrash = isPreparingTrash
         self.actions = actions
     }
 
@@ -53,7 +61,7 @@ struct DiscardPileReviewSheet: View {
                 Button("Clear All…") {
                     isConfirmingClear = true
                 }
-                .disabled(rows.isEmpty)
+                .disabled(summary.isEmpty)
 
                 Spacer()
 
@@ -62,11 +70,17 @@ struct DiscardPileReviewSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button(moveButtonTitle, role: .destructive) {
+                if isPreparingTrash {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(Text("Checking Marked Items"))
+                }
+
+                Button("Move to Trash…") {
                     actions.moveToTrash()
                 }
                 .keyboardShortcut(showsTourGuidance ? nil : .defaultAction)
-                .disabled(rows.isEmpty || isReadOnlyMode)
+                .disabled(!canMoveToTrash)
             }
         }
         .padding(20)
@@ -122,7 +136,7 @@ struct DiscardPileReviewSheet: View {
             Divider()
 
             HStack(spacing: 4) {
-                Text(summaryText)
+                Text(summary.markedItemsText)
 
                 if selectedRowCount > 0 {
                     Text(verbatim: "•")
@@ -186,11 +200,6 @@ struct DiscardPileReviewSheet: View {
         .padding(.vertical, 4)
     }
 
-    private var summaryText: String {
-        let size = RadixFormatters.size(summary.totalAllocatedSize)
-        return String(localized: "\(summary.itemCount) items • \(size)", comment: "Discard Pile status showing the marked item count and total allocated size. The item count controls pluralization.")
-    }
-
     private var showsTourGuidance: Bool {
         tour.step == .removeMark || tour.step == .finished
     }
@@ -210,9 +219,67 @@ struct DiscardPileReviewSheet: View {
         selection.subtract(removedIDs)
         actions.removeNodes(removedIDs)
     }
+}
 
-    private var moveButtonTitle: String {
-        String(localized: "Move \(summary.itemCount) Items to Trash", comment: "Destructive action for moving marked items to the Trash.")
+struct DiscardPileTrashConfirmationSheet: View {
+    let selection: TrashFlowController.PendingTrashSelection
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        let hasItemsToMove = !selection.nodes.isEmpty
+        let title: LocalizedStringKey = hasItemsToMove ? "Move to Trash?" : "No Items Can Be Moved"
+        let cancelTitle: LocalizedStringKey = hasItemsToMove ? "Cancel" : "Close"
+
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+
+            List {
+                if hasItemsToMove {
+                    Section("Items to Move") {
+                        ForEach(selection.nodes) { node in
+                            Text(verbatim: node.url.path)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                if let unavailable = selection.discardPileBatch?.unavailable, !unavailable.isEmpty {
+                    Section("Items That Will Stay Marked") {
+                        ForEach(unavailable, id: \.node.id) { item in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(verbatim: item.node.url.path)
+                                Text(verbatim: item.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .listStyle(.inset)
+            .textSelection(.enabled)
+
+            HStack {
+                Spacer()
+
+                Button(cancelTitle, role: .cancel, action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+
+                if hasItemsToMove {
+                    Button(
+                        String(localized: "Move \(selection.nodes.count) Items to Trash", comment: "Destructive action for moving marked items to the Trash."),
+                        role: .destructive,
+                        action: onConfirm
+                    )
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 640, height: 360)
     }
 }
 

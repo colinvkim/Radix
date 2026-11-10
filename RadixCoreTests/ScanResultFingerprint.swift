@@ -31,10 +31,10 @@ func scanResultFingerprint(_ store: FileTreeStore) -> String {
         if let fileIdentity = node.fileIdentity {
             fingerprint.append(true)
             switch fileIdentity {
-            case .resourceIdentifier(let data):
+            case .resourceIdentifier(let data, _, _):
                 fingerprint.append(UInt64(0))
                 fingerprint.append(data)
-            case .fileSystem(let device, let inode, _):
+            case .fileSystem(let device, let inode, _, _):
                 fingerprint.append(UInt64(1))
                 fingerprint.append(device)
                 fingerprint.append(inode)

@@ -188,6 +188,8 @@ struct ContentView: View {
             case .discardPileReview:
                 DiscardPileReviewSheet(
                     snapshot: discardPileSnapshot,
+                    canMoveToTrash: appModel.canMoveDiscardPileToTrash,
+                    isPreparingTrash: appModel.isPreparingDiscardPileTrash,
                     actions: DiscardPileReviewActions(
                         removeNodes: { nodeIDs in
                             appModel.removeDiscardPileNodes(ids: nodeIDs)
@@ -199,13 +201,23 @@ struct ContentView: View {
                             appModel.dismissDiscardPileReview()
                         },
                         moveToTrash: {
-                            if appModel.requestMoveDiscardPileToTrash() {
-                                appModel.dismissDiscardPileReview()
+                            Task { @MainActor in
+                                if await appModel.requestMoveDiscardPileToTrash() {
+                                    appModel.dismissDiscardPileReview()
+                                }
                             }
                         }
                     )
                 )
                 .environmentObject(appModel.workspaceTour)
+            case .discardPileTrashConfirmation:
+                if let selection = appModel.pendingTrashSelection {
+                    DiscardPileTrashConfirmationSheet(
+                        selection: selection,
+                        onCancel: { appModel.cancelPendingTrash() },
+                        onConfirm: { appModel.confirmMovePendingSelectionToTrash() }
+                    )
+                }
             case .importPreview:
                 if let preview = appModel.pendingImportPreview {
                     ImportSnapshotPreviewSheet(

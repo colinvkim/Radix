@@ -61,13 +61,13 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
 
-            if scanState.snapshot != nil {
+            if scanState.snapshot != nil || !discardPileSummary.isEmpty {
                 Divider()
 
                 DiscardPileSidebarButton(
                     summary: discardPileSummary,
                     isDropHintActive: discardPileDragIsActive && !isReadOnlyMode,
-                    allowsDrop: !isReadOnlyMode,
+                    allowsDrop: scanState.snapshot != nil && !isReadOnlyMode,
                     isDropTargeted: $discardPileDropIsTargeted,
                     addDroppedPayloads: addDroppedPayloadsToDiscardPile
                 ) {
@@ -263,8 +263,7 @@ private struct DiscardPileSidebarButton: View {
             return String(localized: "No items marked", comment: "Discard Pile subtitle when it is empty.")
         }
 
-        let size = RadixFormatters.size(summary.totalAllocatedSize)
-        return String(localized: "\(summary.itemCount) items • \(size)", comment: "Discard Pile subtitle showing the marked item count and total allocated size. The item count controls pluralization.")
+        return summary.markedItemsText
     }
 }
 

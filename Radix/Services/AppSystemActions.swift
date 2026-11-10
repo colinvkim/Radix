@@ -10,6 +10,16 @@ nonisolated enum TrashIdentityVerificationResult: Equatable, Sendable {
     case metadataUnavailable(String)
 }
 
+nonisolated struct TrashMoveOutcome: Sendable {
+    let verification: TrashIdentityVerificationResult
+    let destination: URL?
+
+    init(_ verification: TrashIdentityVerificationResult, destination: URL? = nil) {
+        self.verification = verification
+        self.destination = destination
+    }
+}
+
 @MainActor
 struct AppSystemActions {
     var open: (URL) throws -> Void
@@ -18,7 +28,7 @@ struct AppSystemActions {
     var revealMany: ([URL]) -> Void
     var copyPath: (URL) throws -> Void
     var copyPaths: ([URL]) throws -> Void
-    var moveToTrash: @MainActor (FileNodeRecord) async throws -> TrashIdentityVerificationResult
+    var moveToTrash: @MainActor (FileNodeRecord) async throws -> TrashMoveOutcome
     var validateQuickLookSelection: ([FileNodeRecord], ScanSnapshotSource) async throws -> Void
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
     var fullDiskAccessStatus: @MainActor () async -> FullDiskAccessStatus
@@ -31,7 +41,7 @@ struct AppSystemActions {
     var presentImportScanPanel: () -> URL?
     var presentComparisonSnapshotPanel: () async -> URL?
     var fileExists: (URL) -> Bool
-    var verifyTrashIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
+    var verifyTrashIdentity: @Sendable (FileNodeRecord) -> TrashIdentityVerificationResult
     var isExistingDirectory: (URL) -> Bool
     var preferredSmartTargetIDs: () -> [String]
     var mountedVolumeEvents: () -> AnyPublisher<Void, Never>
@@ -130,7 +140,7 @@ struct AppSystemActions {
         revealMany: { _ in },
         copyPath: { _ in },
         copyPaths: { _ in },
-        moveToTrash: { _ in .matches },
+        moveToTrash: { _ in TrashMoveOutcome(.matches) },
         validateQuickLookSelection: { _, _ in },
         prepareAndOpenFullDiskAccessSettings: { true },
         fullDiskAccessStatus: { .unknown },

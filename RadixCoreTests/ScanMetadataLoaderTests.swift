@@ -111,6 +111,64 @@ struct ScanMetadataLoaderTests {
         #expect(try loader.metadata(for: directory).fileIdentity != original)
     }
 
+    enum PrefetchedEntryKind: CaseIterable {
+        case file, hardLink, symbolicLink
+    }
+
+    @Test(arguments: PrefetchedEntryKind.allCases)
+    func testPrefetchedFileMetadataDoesNotAdoptReplacementIdentity(kind: PrefetchedEntryKind) throws {
+        let root = try makeTemporaryDirectory()
+        let manager = FileManager.default
+        defer { try? manager.removeItem(at: root) }
+        let file = root.appending(path: "file.bin")
+        let originalFile = root.appending(path: "original.bin")
+        let target = root.appending(path: "target.bin")
+        let loader = ScanMetadataLoader()
+        func node(for metadata: NodeMetadata) -> FileNodeRecord {
+            makeTestFileNode(
+                id: file.path, name: file.lastPathComponent, fileIdentity: metadata.fileIdentity,
+                isSymbolicLink: metadata.isSymbolicLink
+            )
+        }
+        if kind == .symbolicLink {
+            try manager.createSymbolicLink(at: file, withDestinationURL: target)
+        } else {
+            try Data([1]).write(to: file)
+            if kind == .hardLink {
+                try manager.linkItem(at: file, to: root.appending(path: "alias.bin"))
+            }
+        }
+        let values = try file.resourceValues(forKeys: ScanMetadataLoader.scanResourceKeys)
+        let original = FileIdentity(resourceIdentifier: try #require(values.fileResourceIdentifier as? Data))
+        if kind == .hardLink {
+            try #require(values.linkCount == 2)
+        }
+        #expect(SystemIntegration.verifyTrashIdentity(node(for: loader.metadata(for: file, prefetchedResourceValues: values))) == .matches)
+        if kind != .file {
+            let keysWithoutBirthTime = ScanMetadataLoader.scanResourceKeys.subtracting([.creationDateKey])
+            let valuesWithoutBirthTime = try URL(filePath: file.path).resourceValues(forKeys: keysWithoutBirthTime)
+            try #require(valuesWithoutBirthTime.creationDate == nil)
+            let metadataWithoutBirthTime = loader.metadata(for: file, prefetchedResourceValues: valuesWithoutBirthTime)
+            #expect(SystemIntegration.verifyTrashIdentity(node(for: metadataWithoutBirthTime)) == .missingScannedIdentity)
+        }
+        try manager.moveItem(at: file, to: originalFile)
+        if kind == .symbolicLink {
+            try manager.createSymbolicLink(at: file, withDestinationURL: target)
+        } else {
+            try Data([2, 3]).write(to: file)
+        }
+
+        let metadata = loader.metadata(for: file, prefetchedResourceValues: values)
+
+        #expect(metadata.fileIdentity == original)
+        #expect(metadata.fileIdentity?.scanFileSystemIdentity == nil)
+        #expect(try SystemIntegration.moveToTrash(
+            node(for: metadata),
+            identityVerifier: SystemIntegration.verifyTrashIdentity,
+            trashItem: { _ in Issue.record("Moved the replacement") }
+        ) == .mismatch)
+    }
+
     @Test
     func testFileSystemIdentityValidationUsesTheDedicatedProvider() throws {
         let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
@@ -592,14 +650,14 @@ struct ScanMetadataLoaderTests {
         let data = [UInt64(42).littleEndian, UInt64(123).littleEndian].withUnsafeBytes { Data($0) }
         let resource = FileIdentity(resourceIdentifier: data)
         #expect(
-            native.preservingVolumeIdentity(from: resource).darwinIdentity
+            native.preservingResourceIdentity(from: resource, isDirectory: false).darwinIdentity
                 == FileIdentity.DarwinIdentity(fileID: 42, volumeToken: 123))
-        #expect(FileIdentity(device: 7, inode: 43).preservingVolumeIdentity(from: resource).darwinIdentity == nil)
-        #expect(native.preservingVolumeIdentity(from: nil).darwinIdentity == nil)
+        #expect(FileIdentity(device: 7, inode: 43).preservingResourceIdentity(from: resource, isDirectory: false) == resource)
+        #expect(native.preservingResourceIdentity(from: nil, isDirectory: false).darwinIdentity == nil)
         for length in [0, 8, 15, 17, 32] {
             let unfamiliar = FileIdentity(resourceIdentifier: Data(repeating: 0, count: length))
             #expect(unfamiliar.darwinIdentity == nil)
-            #expect(native.preservingVolumeIdentity(from: unfamiliar).darwinIdentity == nil)
+            #expect(native.preservingResourceIdentity(from: unfamiliar, isDirectory: false).darwinIdentity == nil)
         }
     }
 

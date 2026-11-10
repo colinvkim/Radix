@@ -847,6 +847,104 @@ struct SidebarScanCacheControllerTests {
     }
 
     @Test
+    func testScopeRequiresFreshScanWhileDisplayedTreeStillContainsMovedFile() throws {
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
+        let tree = makeParentAndChildSnapshot()
+        let options = ScanOptions()
+        controller.prepareForScanStart(target: tree.snapshot.target, options: options)
+        controller.handleCompletedScanSnapshot(tree.snapshot)
+        let removed = try #require(tree.snapshot.treeStore.node(id: "/cache/root/child/file.txt"))
+        controller.clearCache()
+        controller.invalidateDisplayedNodes([removed], in: tree.snapshot)
+
+        let requiresScan = controller.applyCachedOrContainedSidebarTarget(
+            tree.childTarget,
+            options: options,
+            currentSnapshot: tree.snapshot,
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { _, _ in Issue.record("A stale tree cannot be restored") },
+            startScan: { _ in Issue.record("The caller starts the fresh scan") }
+        )
+        #expect(requiresScan)
+    }
+
+    @Test(arguments: [1, 2, nil] as [UInt64?])
+    func testSidebarReuseRejectsMovedRowsAcrossIdentityFormats(resourceInode: UInt64?) {
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100)
+        let options = ScanOptions()
+        let snapshotID = UUID()
+        let moved = makeTestFileNode(
+            id: "/cache/root/file.txt", name: "file.txt",
+            fileIdentity: FileIdentity(device: 1, inode: 1, volumeToken: 3)
+        )
+        let resourceData = resourceInode.map { inode in
+            [inode.littleEndian, UInt64(3).littleEndian].withUnsafeBytes { Data($0) }
+        } ?? Data([1])
+        let current = makeTestFileNode(
+            id: moved.id, name: moved.name, fileIdentity: FileIdentity(resourceIdentifier: resourceData)
+        )
+        func snapshot(containing node: FileNodeRecord) -> ScanSnapshot {
+            let root = makeTestDirectoryNode(id: "/cache/root", name: "root", children: [node])
+            return ScanSnapshot(
+                id: snapshotID,
+                target: ScanTarget(url: root.url),
+                treeStore: FileTreeStore(root: root, childrenByID: [root.id: [node]]),
+                startedAt: Date(),
+                finishedAt: Date(),
+                scanWarnings: [],
+                isComplete: true
+            )
+        }
+        let original = snapshot(containing: moved)
+        controller.prepareForScanStart(target: original.target, options: options)
+        controller.handleCompletedScanSnapshot(original)
+        controller.clearCache()
+        controller.invalidateDisplayedNodes([moved], in: original)
+
+        let requiresScan = controller.applyCachedOrContainedSidebarTarget(
+            original.target,
+            options: options,
+            currentSnapshot: snapshot(containing: current),
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { _, _ in Issue.record("An exact current snapshot does not need restoration") },
+            startScan: { _ in Issue.record("The caller starts the fresh scan") }
+        )
+
+        #expect(requiresScan == (resourceInode != 2))
+    }
+
+    @Test
+    func testScopePendingWhenCacheIsInvalidatedStartsFreshScan() async throws {
+        let transform = PausingCacheScopeTransform()
+        let controller = SidebarScanCacheController(maxTotalNodeCount: 100, snapshotTransformService: transform)
+        let tree = makeParentAndChildSnapshot()
+        let options = ScanOptions()
+        controller.prepareForScanStart(target: tree.snapshot.target, options: options)
+        controller.handleCompletedScanSnapshot(tree.snapshot)
+        let recorder = SidebarScanCacheRecorder()
+        controller.applyCachedOrContainedSidebarTarget(
+            tree.childTarget,
+            options: options,
+            currentSnapshot: tree.snapshot,
+            isTargetActive: { _ in true },
+            cancelDeferredScanStart: {},
+            restoreSnapshot: { snapshot, _ in recorder.restoredSnapshots.append(snapshot) },
+            startScan: { target in recorder.startedTargets.append(target) }
+        )
+
+        try await waitUntil("cache scope transform paused") { await transform.isPaused }
+        controller.clearCache()
+        await transform.resume()
+        try await waitUntil("sidebar target resolves") {
+            !recorder.restoredSnapshots.isEmpty || !recorder.startedTargets.isEmpty
+        }
+        #expect(recorder.restoredSnapshots.isEmpty)
+        #expect(recorder.startedTargets == [tree.childTarget])
+    }
+
+    @Test
     func testPendingGrandchildScopeUsesCanonicalParentAfterChildCacheIsRemoved() async throws {
         let firstFile = makeTestFileNode(id: "/cache/root/child/grandchild/first.txt", name: "first.txt")
         let movedFile = makeTestFileNode(id: "/cache/root/child/grandchild/moved.txt", name: "moved.txt")

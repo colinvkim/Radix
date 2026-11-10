@@ -69,6 +69,9 @@ nonisolated struct TrashSafetyPolicy: Sendable {
     private nonisolated static let defaultFirmlinkRootPaths = Set(
         defaultFirmlinkEntries.map { standardizedPath(forPath: $0.visiblePath) }
     )
+    private nonisolated static let startupVolumePathPairs = defaultFirmlinkEntries.compactMap { entry in
+        dataVolumePath(forRelativePath: entry.dataRelativePath).map { (visible: entry.visiblePath, data: $0) }
+    }
 
     private let protectedRootPaths: Set<String>
 
@@ -129,6 +132,18 @@ nonisolated struct TrashSafetyPolicy: Sendable {
     /// identity, so scanners cannot compare those identities directly.
     nonisolated static func isStartupVolumeFirmlinkRoot(_ url: URL) -> Bool {
         defaultFirmlinkRootPaths.contains(standardizedPath(for: url))
+    }
+
+    nonisolated static func alternateStartupVolumePath(for path: String) -> String? {
+        for (visible, data) in startupVolumePathPairs {
+            if path == visible || path.hasPrefix(visible + "/") {
+                return data + path.dropFirst(visible.count)
+            }
+            if path == data || path.hasPrefix(data + "/") {
+                return visible + path.dropFirst(data.count)
+            }
+        }
+        return nil
     }
 
     nonisolated static func blockReason(for url: URL) -> TrashSafetyBlockReason? {

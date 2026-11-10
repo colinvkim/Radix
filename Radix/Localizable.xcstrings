@@ -5320,6 +5320,53 @@
         }
       }
     },
+    "Checking Marked Items" : {
+      "comment" : "Accessibility label while Radix checks which Discard Pile items can move to Trash.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markierte Objekte werden überprüft"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking Marked Items"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobando los elementos marcados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification des éléments marqués"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifica degli elementi contrassegnati"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверка отмеченных объектов"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查已标记的项目"
+          }
+        }
+      }
+    },
     "Checking for changes in %@" : {
       "comment" : "Progress title while Radix prepares an incremental rescan.",
       "localizations" : {
@@ -7243,6 +7290,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "点击“待处理列表”，查看你添加的项目。"
+          }
+        }
+      }
+    },
+    "Close" : {
+      "comment" : "Closes the Discard Pile confirmation when no items can be moved.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiudi"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрыть"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
           }
         }
       }
@@ -13516,6 +13610,100 @@
         }
       }
     },
+    "Items to Move" : {
+      "comment" : "Section listing the exact items that can be moved to the Trash.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu verschiebende Elemente"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Items to Move"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elementos que se moverán"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Éléments à déplacer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elementi da spostare"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Объекты для перемещения"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要移动的项目"
+          }
+        }
+      }
+    },
+    "Items That Will Stay Marked" : {
+      "comment" : "Section for items that will remain marked in the Discard Pile because they cannot be moved.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weiterhin markierte Elemente"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Items That Will Stay Marked"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elementos que seguirán marcados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Éléments qui resteront marqués"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elementi che resteranno contrassegnati"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Объекты, которые останутся отмеченными"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将保留标记的项目"
+          }
+        }
+      }
+    },
     "Items present in both scans whose tracked size changed" : {
       "localizations" : {
         "de" : {
@@ -15439,6 +15627,53 @@
         }
       }
     },
+    "Move to Trash…" : {
+      "comment" : "Opens the Discard Pile confirmation where the user can inspect the Trash batch.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In den Papierkorb bewegen…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to Trash…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover a la papelera…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Placer dans la corbeille…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta nel Cestino…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переместить в Корзину…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移到废纸篓…"
+          }
+        }
+      }
+    },
     "Moved" : {
       "comment" : "Comparison change type for an item whose location changed.",
       "localizations" : {
@@ -16099,6 +16334,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "没有标记的项目"
+          }
+        }
+      }
+    },
+    "No Items Can Be Moved" : {
+      "comment" : "Title of the Discard Pile confirmation when every marked item is unavailable.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Elemente können verschoben werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Items Can Be Moved"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se puede mover ningún elemento"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun élément ne peut être déplacé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun elemento può essere spostato"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удаётся переместить ни одного объекта"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可移动的项目"
           }
         }
       }
@@ -18927,6 +19209,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Radix 目前无法导入快照。"
+          }
+        }
+      }
+    },
+    "Radix can’t verify this mark. Scan the item and mark it again." : {
+      "comment" : "Reason a Discard Pile item stays marked when its original identity cannot be verified.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix kann diese Markierung nicht überprüfen. Scannen Sie das Objekt und markieren Sie es erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix can’t verify this mark. Scan the item and mark it again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix no puede verificar esta marca. Analiza el elemento y vuelve a marcarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix ne peut pas vérifier ce marquage. Analysez l’élément et marquez-le à nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix non può verificare questo contrassegno. Scansiona l’elemento e contrassegnalo di nuovo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix не может проверить эту отметку. Просканируйте объект и отметьте его снова."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix 无法验证此标记。请扫描该项目并重新标记。"
           }
         }
       }
@@ -27313,43 +27642,43 @@
         }
       }
     },
-    "The item at %@ changed since this scan. Rescan before moving it to Trash." : {
+    "The item at %@ changed since this scan. Rescan and select it again." : {
       "comment" : "Safety error shown when a selected item changed after scanning.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das Element unter %@ wurde seit diesem Scan geändert. Scannen Sie es erneut, bevor Sie es in den Papierkorb bewegen."
+            "value" : "Das Element unter %@ wurde seit diesem Scan geändert. Führen Sie den Scan erneut aus und wählen Sie das Element erneut aus."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El elemento de %@ cambió desde este análisis. Vuelve a analizarlo antes de moverlo a la papelera."
+            "value" : "El elemento de %@ cambió desde este análisis. Vuelve a escanearlo y selecciónalo de nuevo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’élément situé à %@ a changé depuis cette analyse. Réanalysez-le avant de le placer dans la corbeille."
+            "value" : "L’élément situé à %@ a changé depuis cette analyse. Relancez l’analyse, puis sélectionnez-le à nouveau."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'elemento in %@ è cambiato dopo questa scansione. Esegui nuovamente la scansione prima di spostarlo nel Cestino."
+            "value" : "L'elemento in %@ è cambiato dopo questa scansione. Ripeti la scansione e selezionalo di nuovo."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Объект по адресу %@ изменился после сканирования. Выполните повторное сканирование перед перемещением в Корзину."
+            "value" : "Объект по адресу %@ изменился после сканирования. Выполните сканирование ещё раз и снова выберите объект."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ 处的项目自本次扫描后已更改。移到废纸篓前请重新扫描。"
+            "value" : "%@ 处的项目自本次扫描后已更改。请重新扫描并再次选择该项目。"
           }
         }
       }

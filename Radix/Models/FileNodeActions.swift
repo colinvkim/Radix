@@ -156,17 +156,6 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
     }
 }
 
-nonisolated enum ScanPostTrashAction: Equatable {
-    case clearActiveScan
-    case removeFromActiveScan
-    case none
-
-    static func afterRemovingNode(activeTargetID: String?, removedNodeID: String) -> ScanPostTrashAction {
-        guard let activeTargetID else { return .none }
-        return activeTargetID == removedNodeID ? .clearActiveScan : .removeFromActiveScan
-    }
-}
-
 extension FileNodeRecord {
     nonisolated var supportsMoveToTrash: Bool {
         supportsMoveToTrash(trashSafetyPolicy: .live())

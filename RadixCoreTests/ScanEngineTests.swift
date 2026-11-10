@@ -1276,6 +1276,7 @@ struct ScanEngineTests {
         var returned = attribute_set_t()
         returned.commonattr = .max
         returned.fileattr = .max
+        returned.commonattr &= ~attrgroup_t(ATTR_CMN_CRTIME)
 
         #expect(BulkDirectoryEnumerator.hasRequiredMetadataAttributes(returned, objectType: VREG.rawValue))
 
