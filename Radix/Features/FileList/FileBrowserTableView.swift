@@ -22,6 +22,7 @@ struct FileBrowserTableView: View {
     @ObservedObject var navigation: WorkspaceNavigationModel
     @FocusState.Binding var focusedWorkspaceTarget: WorkspaceFocusTarget?
     let hiddenNodeIDs: Set<FileNodeRecord.ID>
+    let discardPileRootNodeIDs: Set<FileNodeRecord.ID>
     let fileDragController: FileDragController
     let actions: FileBrowserActions
 
@@ -34,6 +35,7 @@ struct FileBrowserTableView: View {
         navigation: WorkspaceNavigationModel,
         focusedWorkspaceTarget: FocusState<WorkspaceFocusTarget?>.Binding,
         hiddenNodeIDs: Set<FileNodeRecord.ID>,
+        discardPileRootNodeIDs: Set<FileNodeRecord.ID>,
         fileDragController: FileDragController,
         actions: FileBrowserActions,
         model: @autoclosure @escaping () -> FileBrowserModel = FileBrowserModel()
@@ -42,6 +44,7 @@ struct FileBrowserTableView: View {
         self.navigation = navigation
         self._focusedWorkspaceTarget = focusedWorkspaceTarget
         self.hiddenNodeIDs = hiddenNodeIDs
+        self.discardPileRootNodeIDs = discardPileRootNodeIDs
         self.fileDragController = fileDragController
         self.actions = actions
         _model = StateObject(wrappedValue: model())
@@ -176,12 +179,19 @@ struct FileBrowserTableView: View {
         let tourFolderID = tourFolder?.id
         let tour = self.tour
         let tourPresentation = self.tourPresentation
+        let tree = scanState.fileTreeStore
+        let markedNodes = discardPileRootNodeIDs.isEmpty ? nil : tree?.preparedNodeSet(for: discardPileRootNodeIDs)
+        func isInDiscardPile(_ id: FileNodeRecord.ID) -> Bool {
+            guard let markedNodes, let tree else { return false }
+            return tree.isNodeOrDescendant(id, of: markedNodes)
+        }
 
         return Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                 FileBrowserNameCell(
                     node: node,
                     subtitleOverride: subtitle(for: node),
+                    isInDiscardPile: isInDiscardPile(node.id),
                     isExpanding: isExpanding(node),
                     expandAction: { expandSummarizedNode(node) },
                     presentedSharedStorageNodeID: $presentedSharedStorageNodeID
@@ -243,7 +253,7 @@ struct FileBrowserTableView: View {
         .accessibilityLabel("Contents table")
         .accessibilityHint("Select a row to inspect it. Double-click a folder to zoom in, or a summarized folder to expand it. Press Space for Quick Look.")
         .contextMenu(forSelectionType: FileNodeRecord.ID.self) { selectedIDs in
-            fileContextMenu(for: selectedIDs)
+            fileContextMenu(for: selectedIDs, isInDiscardPile: isInDiscardPile)
         } primaryAction: { selectedIDs in
             performPrimaryAction(for: selectedIDs)
         }
@@ -336,18 +346,26 @@ struct FileBrowserTableView: View {
     }
 
     @ViewBuilder
-    private func fileContextMenu(for selectedIDs: Set<FileNodeRecord.ID>) -> some View {
+    private func fileContextMenu(
+        for selectedIDs: Set<FileNodeRecord.ID>,
+        isInDiscardPile: (FileNodeRecord.ID) -> Bool
+    ) -> some View {
         if let selection = selectionContext(for: selectedIDs) {
+            let canAddToDiscardPile = selection.actionAvailability.canMoveToTrash
+                && !selection.ids.allSatisfy(isInDiscardPile)
             if selection.nodes.count > 1 {
-                bulkFileContextMenu(for: selection)
+                bulkFileContextMenu(for: selection, canAddToDiscardPile: canAddToDiscardPile)
             } else {
-                singleFileContextMenu(for: selection)
+                singleFileContextMenu(for: selection, canAddToDiscardPile: canAddToDiscardPile)
             }
         }
     }
 
     @ViewBuilder
-    private func singleFileContextMenu(for selection: FileBrowserSelectionContext) -> some View {
+    private func singleFileContextMenu(
+        for selection: FileBrowserSelectionContext,
+        canAddToDiscardPile: Bool
+    ) -> some View {
         if let node = selection.primaryNode,
            let id = selection.primaryID {
             fileActionButton(.quickLook, availability: selection.actionAvailability, selectedID: selection.id)
@@ -391,7 +409,7 @@ struct FileBrowserTableView: View {
                 actions.selectNode(id)
                 actions.bulkFileActions.addToDiscardPile([node])
             }
-            .disabled(!selection.actionAvailability.canMoveToTrash)
+            .disabled(!canAddToDiscardPile)
 
             Button(
                 FileNodeAction.moveToTrash.title,
@@ -401,7 +419,10 @@ struct FileBrowserTableView: View {
                 actions.selectNode(id)
                 actions.bulkFileActions.moveToTrash([node])
             }
-            .disabled(!FileNodeAction.moveToTrash.isEnabled(in: selection.actionAvailability))
+            .disabled(
+                !selection.actionAvailability.canMoveToTrash
+                    || actions.bulkFileActions.directTrashOverlapsProtectedNodes(selection.nodes)
+            )
 
             fileActionButton(.copyPath, availability: selection.actionAvailability, selectedID: selection.id)
                 .labelStyle(.titleOnly)
@@ -409,7 +430,10 @@ struct FileBrowserTableView: View {
     }
 
     @ViewBuilder
-    private func bulkFileContextMenu(for selection: FileBrowserSelectionContext) -> some View {
+    private func bulkFileContextMenu(
+        for selection: FileBrowserSelectionContext,
+        canAddToDiscardPile: Bool
+    ) -> some View {
         Button(FileNodeAction.quickLook.title, systemImage: FileNodeAction.quickLook.systemImageName) {
             actions.selectNodes(selection.ids, selection.primaryID)
             actions.selectedFileActions.quickLook()
@@ -434,13 +458,16 @@ struct FileBrowserTableView: View {
             actions.selectNodes(selection.ids, selection.primaryID)
             actions.bulkFileActions.addToDiscardPile(selection.nodes)
         }
-        .disabled(!selection.actionAvailability.canMoveToTrash)
+        .disabled(!canAddToDiscardPile)
 
         Button("Move \(selection.nodes.count) Items to Trash", systemImage: FileNodeAction.moveToTrash.systemImageName, role: .destructive) {
             actions.selectNodes(selection.ids, selection.primaryID)
             actions.bulkFileActions.moveToTrash(selection.nodes)
         }
-        .disabled(!selection.actionAvailability.canMoveToTrash)
+        .disabled(
+            !selection.actionAvailability.canMoveToTrash
+                || actions.bulkFileActions.directTrashOverlapsProtectedNodes(selection.nodes)
+        )
     }
 
     private func performPrimaryAction(for selectedIDs: Set<FileNodeRecord.ID>) {

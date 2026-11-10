@@ -184,7 +184,6 @@ final class AppModel: ObservableObject {
         guard canChangeReadOnlyMode, isEnabled != isReadOnlyMode,
               trashFlow.setReadOnlyMode(isEnabled) else { return }
         if isEnabled {
-            cancelDeferredDiscardPileAdd()
             cancelDiscardPilePreparation()
         }
         dependencies.preferences.saveReadOnlyMode(isEnabled)
@@ -296,7 +295,6 @@ final class AppModel: ObservableObject {
         case sidebarSelection
         case navigationAction
         case visualizationMode
-        case discardPileAdd
         case navigationContext
     }
 
@@ -418,13 +416,6 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             projectedDiscardPileIDs = matchingNodeIDs ?? pile.matchingNodeIDs(in: scanCoordinator.snapshot)
         }
-        trashFlow.onDiscardPileHistoryReplay = { [weak self] _ in
-            guard let self, let fileTreeStore = self.scanCoordinator.fileTreeStore else { return }
-            self.reconcileNavigationForHiddenNodes(
-                hiddenNodeIDs: self.workspaceHiddenNodeIDs,
-                fileTreeStore: fileTreeStore
-            )
-        }
         comparisonFlow.onChange = { [weak self] in
             guard let self else { return }
             self.synchronizeComparisonSetupPresentation()
@@ -467,7 +458,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelDeferredVisualizationModeUpdate()
-        cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         trashFlow.cancelPostTrashSnapshotRemoval()
         trashFlow.cancelConfirmedTrashMoves()
@@ -505,7 +495,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelDeferredVisualizationModeUpdate()
-        cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         trashFlow.cancelPostTrashSnapshotRemoval()
         trashFlow.cancelConfirmedTrashMoves()
@@ -616,10 +605,6 @@ final class AppModel: ObservableObject {
             && canUseWorkspaceCommands && !trashFlow.isMovingFiles && !isPreparingDiscardPileTrash
     }
 
-    var workspaceHiddenNodeIDs: Set<FileNodeRecord.ID> {
-        hiddenNodeIDs(for: scanCoordinator.snapshot?.id)
-    }
-
     var discardPileRootNodeIDs: Set<FileNodeRecord.ID> {
         projectedDiscardPileIDs
     }
@@ -634,10 +619,12 @@ final class AppModel: ObservableObject {
         return navigationModel.canZoomIntoSelection && isVisibleNavigationNode(selectedNodeID)
     }
 
-    var selectionIncludesHiddenNodes: Bool {
+    var selectionIsInDiscardPile: Bool {
         let selectedNodeIDs = navigationModel.selectedNodeIDs
-        return !selectedNodeIDs.isEmpty
-            && visibleNavigationNodeIDs(from: selectedNodeIDs) != selectedNodeIDs
+        guard !selectedNodeIDs.isEmpty, !discardPileRootNodeIDs.isEmpty,
+              let tree = scanCoordinator.fileTreeStore else { return false }
+        let markedNodes = tree.preparedNodeSet(for: discardPileRootNodeIDs)
+        return selectedNodeIDs.allSatisfy { tree.isNodeOrDescendant($0, of: markedNodes) }
     }
 
     var startupDiskTarget: ScanTarget? {
@@ -705,7 +692,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelDeferredNavigationContextUpdate()
-        cancelDeferredDiscardPileAdd()
         cancelDeferredVisualizationModeUpdate()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
         quickLookController.closePreview()
@@ -734,7 +720,6 @@ final class AppModel: ObservableObject {
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
         cancelDeferredNavigationContextUpdate()
-        cancelDeferredDiscardPileAdd()
         cancelDeferredVisualizationModeUpdate()
         trashFlow.cancelConfirmedTrashMoves()
         trashFlow.cancelPostTrashSnapshotRemoval()
@@ -1719,7 +1704,6 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationContextUpdate()
-        cancelDeferredDiscardPileAdd()
         trashFlow.cancelPostTrashSnapshotRemoval()
         sidebarScanCacheController.cancelPendingSidebarTargetRestore()
 
@@ -1754,10 +1738,6 @@ final class AppModel: ObservableObject {
 
     private func cancelDeferredVisualizationModeUpdate() {
         cancelDeferrals(.visualizationMode)
-    }
-
-    private func cancelDeferredDiscardPileAdd() {
-        cancelDeferrals(.discardPileAdd)
     }
 
     private func cancelDeferredNavigationContextUpdate() {
@@ -1931,7 +1911,6 @@ final class AppModel: ObservableObject {
         cancelDeferredScanStart()
         cancelDeferredSidebarSelection()
         cancelDeferredNavigationAction()
-        cancelDeferredDiscardPileAdd()
         cancelDeferredNavigationContextUpdate()
         trashFlow.cancelPostTrashSnapshotRemoval()
         clearOptimisticTrashVisibility()
@@ -2010,7 +1989,7 @@ final class AppModel: ObservableObject {
               snapshot.id == request.snapshotID, snapshot.treeStore.contentID == request.treeContentID else { return false }
         let resolver = ScanPathResolver(
             treeStore: snapshot.treeStore,
-            hiddenNodeIDs: workspaceHiddenNodeIDs,
+            hiddenNodeIDs: movingToTrashRootNodeIDs,
             baseDirectoryID: request.directoryID
         )
         let resolution = Task.detached(priority: .userInitiated) {
@@ -2131,13 +2110,8 @@ final class AppModel: ObservableObject {
     }
 
     private func visibleNavigationNodeIDs(from nodeIDs: Set<FileNodeRecord.ID>) -> Set<FileNodeRecord.ID> {
-        guard let snapshotID = scanCoordinator.snapshot?.id,
-              let fileTreeStore = scanCoordinator.fileTreeStore else {
-            return nodeIDs
-        }
-
-        let hiddenIDs = hiddenNodeIDs(for: snapshotID)
-        guard !hiddenIDs.isEmpty else { return nodeIDs }
+        let hiddenIDs = movingToTrashRootNodeIDs
+        guard !hiddenIDs.isEmpty, let fileTreeStore = scanCoordinator.fileTreeStore else { return nodeIDs }
         let hiddenNodes = fileTreeStore.preparedNodeSet(for: hiddenIDs)
         return nodeIDs.filter { !fileTreeStore.isNodeOrDescendant($0, of: hiddenNodes) }
     }
@@ -2318,7 +2292,7 @@ final class AppModel: ObservableObject {
 
     func requestMoveSelectedToTrash() {
         do {
-            try requestTrashMove(for: validatedSelectedNodesForMutation())
+            try requestTrashMove(for: validatedNodesForMutation(navigationModel.selectedNodes))
         } catch {
             presentError(error)
         }
@@ -2363,15 +2337,6 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addSelectedNodesToDiscardPile() -> Bool {
         addNodesToDiscardPile(navigationModel.selectedNodes)
-    }
-
-    func addPrimarySelectionToDiscardPileAfterViewUpdate() {
-        guard let node = navigationModel.selectedNode else {
-            presentError(FileActionError.noSelection)
-            return
-        }
-
-        scheduleDeferredDiscardPileAdd([node])
     }
 
     @discardableResult
@@ -2425,16 +2390,6 @@ final class AppModel: ObservableObject {
         } catch {
             presentError(error)
             return false
-        }
-    }
-
-    private func scheduleDeferredDiscardPileAdd(_ nodes: [FileNodeRecord]) {
-        cancelDeferredDiscardPileAdd()
-
-        scheduleDeferredViewUpdate(
-            .discardPileAdd
-        ) { model in
-            model.addNodesToDiscardPile(nodes)
         }
     }
 
@@ -2544,7 +2499,7 @@ final class AppModel: ObservableObject {
         do {
             try validateSnapshotAllowsMutation()
             if selection.discardPileBatch == nil {
-                try validateMutationDoesNotIncludeHiddenNodes(selection.nodes)
+                try validateDirectTrash(selection.nodes)
             }
 
             let resolvedURLs = selection.discardPileBatch?.resolvedURLsByOperationID ?? [:]
@@ -2656,7 +2611,7 @@ final class AppModel: ObservableObject {
                 )
                 if didHide, let statsFileTreeStore {
                     reconcileNavigationForHiddenNodes(
-                        hiddenNodeIDs: hiddenNodeIDs(for: originalSnapshotID),
+                        hiddenNodeIDs: movingToTrashRootNodeIDs,
                         fileTreeStore: statsFileTreeStore
                     )
                 }
@@ -2999,24 +2954,15 @@ final class AppModel: ObservableObject {
     private func validatedSelectionForMutation() throws -> FileNodeRecord {
         try validateSnapshotAllowsMutation()
         let node = try validatedSelection(requiresLivePath: true)
-        try validateMutationDoesNotIncludeHiddenNodes([node])
+        try validateDirectTrash([node])
         return node
     }
 
     private func validatedNodesForMutation(_ nodes: [FileNodeRecord]) throws -> [FileNodeRecord] {
         try validateSnapshotAllowsMutation()
         let nodes = try validatedNodes(nodes, requiresLivePath: true)
-        try validateMutationDoesNotIncludeHiddenNodes(nodes)
+        try validateDirectTrash(nodes)
         return nodes
-    }
-
-    private func validatedSelectedNodesForMutation() throws -> [FileNodeRecord] {
-        try validateSnapshotAllowsMutation()
-        let visibleNodeIDs = visibleNavigationNodeIDs(from: navigationModel.selectedNodeIDs)
-        let visibleNodes = navigationModel.selectedNodes.filter {
-            visibleNodeIDs.contains($0.id)
-        }
-        return try validatedNodes(visibleNodes, requiresLivePath: true)
     }
 
     private func validateDiscardPileAddition(_ nodes: [FileNodeRecord]) throws {
@@ -3061,28 +3007,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func validateMutationDoesNotIncludeHiddenNodes(_ nodes: [FileNodeRecord]) throws {
-        guard let snapshotID = scanCoordinator.snapshot?.id,
-              let fileTreeStore = scanCoordinator.fileTreeStore else {
-            return
-        }
-
-        let hiddenIDs = hiddenNodeIDs(for: snapshotID)
-        guard !hiddenIDs.isEmpty else { return }
+    func directTrashOverlapsProtectedNodes(_ nodes: [FileNodeRecord]) -> Bool {
+        let protectedIDs = discardPileRootNodeIDs.union(movingToTrashRootNodeIDs)
+        guard !nodes.isEmpty, !protectedIDs.isEmpty,
+              let tree = scanCoordinator.fileTreeStore else { return false }
 
         let requestedIDs = Set(nodes.map(\.id))
-        let hiddenNodes = fileTreeStore.preparedNodeSet(for: hiddenIDs)
-        let requestedNodes = fileTreeStore.preparedNodeSet(for: requestedIDs)
-        let requestedNodeIsHidden = requestedIDs.contains(where: { requestedID in
-            fileTreeStore.isNodeOrDescendant(requestedID, of: hiddenNodes)
-        })
-        let requestedNodeContainsHiddenNode = hiddenIDs.contains(where: { hiddenID in
-            fileTreeStore.isNodeOrDescendant(hiddenID, of: requestedNodes)
-        })
+        let protectedNodes = tree.preparedNodeSet(for: protectedIDs)
+        if requestedIDs.contains(where: { tree.isNodeOrDescendant($0, of: protectedNodes) }) { return true }
+        let requestedNodes = tree.preparedNodeSet(for: requestedIDs)
+        return protectedIDs.contains { tree.isNodeOrDescendant($0, of: requestedNodes) }
+    }
 
-        guard !requestedNodeIsHidden && !requestedNodeContainsHiddenNode else {
-            throw FileActionError.unsupported
-        }
+    private func validateDirectTrash(_ nodes: [FileNodeRecord]) throws {
+        guard !directTrashOverlapsProtectedNodes(nodes) else { throw FileActionError.unsupported }
     }
 
     private func topLevelTrashNodes(from nodes: [FileNodeRecord]) -> [FileNodeRecord] {
@@ -3092,29 +3030,11 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func hiddenNodeIDs(for snapshotID: UUID?) -> Set<FileNodeRecord.ID> {
-        guard let snapshotID else { return [] }
-
-        var nodeIDs = Set<FileNodeRecord.ID>()
-        if scanCoordinator.snapshot?.id == snapshotID {
-            nodeIDs.formUnion(projectedDiscardPileIDs)
-        }
-        if optimisticTrashVisibility.snapshotID == snapshotID {
-            nodeIDs.formUnion(optimisticTrashVisibility.nodeIDs)
-        }
-        return nodeIDs
-    }
-
     private func addDiscardPileNodes(
         _ nodes: [FileNodeRecord],
         snapshot: ScanSnapshot
     ) {
         let (updatedPile, matchingNodeIDs) = trashFlow.discardPileAdding(nodes, in: snapshot)
-        reconcileNavigationForHiddenNodes(
-            hiddenNodeIDs: hiddenNodeIDs(for: snapshot.id).union(matchingNodeIDs),
-            fileTreeStore: snapshot.treeStore,
-            preservingSelection: navigationModel.selectedNodeIDs.count == 1
-        )
         trashFlow.changeDiscardPile(
             updatedPile,
             actionName: String(localized: "Add to Discard Pile", comment: "Action for marking one selected item for possible deletion."),
@@ -3124,8 +3044,7 @@ final class AppModel: ObservableObject {
 
     private func reconcileNavigationForHiddenNodes(
         hiddenNodeIDs: Set<FileNodeRecord.ID>,
-        fileTreeStore: FileTreeStore,
-        preservingSelection: Bool = false
+        fileTreeStore: FileTreeStore
     ) {
         guard !hiddenNodeIDs.isEmpty else { return }
         let hiddenNodes = fileTreeStore.preparedNodeSet(for: hiddenNodeIDs)
@@ -3141,8 +3060,7 @@ final class AppModel: ObservableObject {
             )
         }
 
-        if !preservingSelection,
-           navigationModel.selectedNodeIDs.contains(where: { selectedNodeID in
+        if navigationModel.selectedNodeIDs.contains(where: { selectedNodeID in
                fileTreeStore.isNodeOrDescendant(selectedNodeID, of: hiddenNodes)
            }) {
             navigationModel.clearSelection()

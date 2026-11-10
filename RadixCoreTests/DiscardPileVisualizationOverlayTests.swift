@@ -19,8 +19,8 @@ struct DiscardPileVisualizationOverlayTests {
         #expect(overlay.role(for: fixture.folder.id) == .queuedRoot)
         #expect(overlay.role(for: fixture.child.id) == .queuedDescendant)
         #expect(overlay.role(for: fixture.sibling.id) == nil)
-        #expect(!(overlay.allowsChartNodeAction(for: fixture.folder.id)))
-        #expect(!(overlay.allowsChartNodeAction(for: fixture.child.id)))
+        #expect(overlay.allowsChartNodeAction(for: fixture.folder.id))
+        #expect(overlay.allowsChartNodeAction(for: fixture.child.id))
         #expect(overlay.allowsChartNodeAction(for: fixture.sibling.id))
         #expect(fixture.store.node(id: fixture.folder.id) != nil)
         #expect(fixture.store.node(id: fixture.child.id) != nil)
@@ -154,7 +154,6 @@ struct DiscardPileVisualizationOverlayTests {
         #expect(overlay.role(for: fixture.folder.id)?.statusText == "Moving to Trash")
         #expect(overlay.role(for: fixture.sibling.id)?.statusText == "In Discard Pile")
         #expect(overlay.isMovingToTrash(fixture.child.id))
-        #expect(!(overlay.isQueued(fixture.child.id)))
         #expect(!(overlay.allowsChartNodeAction(for: fixture.child.id)))
     }
 

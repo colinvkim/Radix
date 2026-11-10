@@ -4,6 +4,7 @@ struct InspectorMultiSelectionView: View {
     let summary: InspectorSelectionSummary
     let percentOfScan: String
     let availability: FileNodeActionAvailability
+    let canAddSelectionToDiscardPile: Bool
     let canMoveSelectionToTrash: Bool
     let availabilityNotice: InspectorAvailabilityNoticeKind?
     let warnings: [ScanWarning]
@@ -49,12 +50,12 @@ struct InspectorMultiSelectionView: View {
             .formStyle(.grouped)
             .contentMargins(.horizontal, 0, for: .scrollContent)
 
-            if availability.canRevealInFinder || canMoveSelectionToTrash {
+            if availability.canRevealInFinder || canAddSelectionToDiscardPile {
                 InspectorActionBar(
                     revealAction: availability.canRevealInFinder
                         ? { actions.revealInFinder(summary.selectedNodes) }
                         : nil,
-                    discardPileAction: canMoveSelectionToTrash
+                    discardPileAction: canAddSelectionToDiscardPile
                         ? { actions.addToDiscardPile(summary.topLevelSelectedNodes) }
                         : nil,
                     discardPileTitle: addToDiscardPileTitle,

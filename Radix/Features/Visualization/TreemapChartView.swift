@@ -446,11 +446,6 @@ struct TreemapChartView: View {
             return
         }
 
-        if discardPileOverlay.isQueued(nodeID) {
-            onSelect(nodeID)
-            return
-        }
-
         if clickCount >= 2,
            treeStore.node(id: nodeID)?.isDirectory == true {
             onZoom(nodeID)

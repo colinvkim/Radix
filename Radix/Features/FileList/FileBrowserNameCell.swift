@@ -3,6 +3,7 @@ import SwiftUI
 struct FileBrowserNameCell: View {
     let node: FileNodeRecord
     let subtitleOverride: String?
+    let isInDiscardPile: Bool
     let isExpanding: Bool
     let expandAction: () -> Void
     @Binding var presentedSharedStorageNodeID: FileNodeRecord.ID?
@@ -25,8 +26,15 @@ struct FileBrowserNameCell: View {
                     .foregroundStyle(node.isDirectory || node.isSynthetic ? Color.accentColor : Color.secondary)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(node.displayName)
-                        .lineLimit(1)
+                    if isInDiscardPile {
+                        ViewThatFits(in: .horizontal) {
+                            nameWithDiscardPileBadge(style: TitleAndIconLabelStyle())
+                            nameWithDiscardPileBadge(style: IconOnlyLabelStyle())
+                        }
+                    } else {
+                        Text(node.displayName)
+                            .lineLimit(1)
+                    }
 
                     if let statusText = subtitleOverride ?? node.secondaryStatusText {
                         Text(statusText)
@@ -57,6 +65,19 @@ struct FileBrowserNameCell: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private func nameWithDiscardPileBadge(style: some LabelStyle) -> some View {
+        HStack(spacing: 6) {
+            Text(node.displayName)
+                .lineLimit(1)
+            Label("In Discard Pile", systemImage: "checklist")
+                .labelStyle(style)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .help("In Discard Pile")
+        }
     }
 
     private var fileBrowserSystemImageName: String {

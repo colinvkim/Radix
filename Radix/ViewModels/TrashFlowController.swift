@@ -172,7 +172,6 @@ final class TrashFlowController {
     var onDiscardPileChange: ((DiscardPileState, Set<FileNodeRecord.ID>?) -> Void)?
 
     let discardPileUndoManager = UndoManager()
-    var onDiscardPileHistoryReplay: ((DiscardPileState) -> Void)?
 
     private var historyNotifications = Set<AnyCancellable>()
 
@@ -434,7 +433,6 @@ final class TrashFlowController {
         discardPileUndoManager.setActionName(actionName)
         if !isReplaying { discardPileUndoManager.endUndoGrouping() }
         publishDiscardPile(state, matchingNodeIDs: matchingNodeIDs)
-        if isReplaying { onDiscardPileHistoryReplay?(state) }
     }
 
     private func publishDiscardPile(

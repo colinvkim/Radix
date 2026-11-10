@@ -10,7 +10,6 @@ struct ActiveWorkspaceView: View {
     let visualizationMode: ScanVisualizationMode
     let maxRenderedDepth: Int
     let showFreeSpaceInDiskMaps: Bool
-    let workspaceHiddenNodeIDs: Set<FileNodeRecord.ID>
     let discardPileRootNodeIDs: Set<FileNodeRecord.ID>
     let movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>
     let fullDiskAccessStatus: FullDiskAccessStatus
@@ -114,7 +113,8 @@ struct ActiveWorkspaceView: View {
             scanState: scanState,
             navigation: navigation,
             focusedWorkspaceTarget: $focusedWorkspaceTarget,
-            hiddenNodeIDs: workspaceHiddenNodeIDs,
+            hiddenNodeIDs: movingToTrashRootNodeIDs,
+            discardPileRootNodeIDs: discardPileRootNodeIDs,
             fileDragController: actions.fileDragController,
             actions: fileBrowserActions,
             model: actions.makeFileBrowserModel()

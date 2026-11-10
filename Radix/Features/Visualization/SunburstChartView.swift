@@ -435,12 +435,6 @@ struct SunburstChartView: View {
             return
         }
 
-        if discardPileOverlay.isQueued(nodeID) {
-            onSegmentClick()
-            onSelect(nodeID)
-            return
-        }
-
         if clickCount >= 2,
            treeStore.node(id: nodeID)?.isDirectory == true {
             onSegmentClick()

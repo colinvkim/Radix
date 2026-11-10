@@ -42,7 +42,6 @@ struct ContentView: View {
                 ),
                 maxRenderedDepth: appModel.maxRenderedDepth,
                 showFreeSpaceInDiskMaps: appModel.showFreeSpaceInDiskMaps,
-                workspaceHiddenNodeIDs: appModel.workspaceHiddenNodeIDs,
                 discardPileRootNodeIDs: appModel.discardPileRootNodeIDs,
                 movingToTrashRootNodeIDs: appModel.movingToTrashRootNodeIDs,
                 startupDiskTarget: appModel.startupDiskTarget,
@@ -172,7 +171,7 @@ struct ContentView: View {
                     GoToPathSheet(
                         resolver: ScanPathResolver(
                             treeStore: snapshot.treeStore,
-                            hiddenNodeIDs: appModel.workspaceHiddenNodeIDs,
+                            hiddenNodeIDs: appModel.movingToTrashRootNodeIDs,
                             baseDirectoryID: request.directoryID
                         ),
                         onCancel: { appModel.dismissGoToPath() },
@@ -660,7 +659,6 @@ private struct WorkspaceDetailView: View {
 
     let maxRenderedDepth: Int
     let showFreeSpaceInDiskMaps: Bool
-    let workspaceHiddenNodeIDs: Set<FileNodeRecord.ID>
     let discardPileRootNodeIDs: Set<FileNodeRecord.ID>
     let movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
@@ -686,7 +684,6 @@ private struct WorkspaceDetailView: View {
                 visualizationMode: $visualizationMode,
                 maxRenderedDepth: maxRenderedDepth,
                 showFreeSpaceInDiskMaps: showFreeSpaceInDiskMaps,
-                workspaceHiddenNodeIDs: workspaceHiddenNodeIDs,
                 discardPileRootNodeIDs: discardPileRootNodeIDs,
                 movingToTrashRootNodeIDs: movingToTrashRootNodeIDs,
                 startupDiskTarget: startupDiskTarget,
@@ -814,7 +811,6 @@ private extension ContentView {
             selectAndFocusNodeAfterViewUpdate: { appModel.selectAndFocusAfterViewUpdate(nodeID: $0) },
             expandSummarizedNode: { appModel.expandSummarizedNode($0) {} },
             selectedFileActions: primarySelectedFileActions,
-            addPrimarySelectionToDiscardPile: { appModel.addPrimarySelectionToDiscardPileAfterViewUpdate() },
             removeDiscardPileNode: { appModel.removeDiscardPileNode(id: $0) },
             presentDiscardPileReview: { appModel.presentDiscardPileReview() },
             bulkFileActions: bulkFileActions,
@@ -849,6 +845,7 @@ private extension ContentView {
             revealInFinder: { appModel.revealNodesInFinder($0) },
             copyPaths: { appModel.copyPaths(for: $0) },
             addToDiscardPile: { appModel.addNodesToDiscardPile($0) },
+            directTrashOverlapsProtectedNodes: { appModel.directTrashOverlapsProtectedNodes($0) },
             moveToTrash: { appModel.requestMoveNodesToTrash($0) }
         )
     }

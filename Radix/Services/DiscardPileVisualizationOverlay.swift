@@ -166,18 +166,13 @@ nonisolated struct DiscardPileVisualizationOverlay: Equatable, Sendable {
         role(for: nodeID) ?? role(for: aggregateContainerNodeID)
     }
 
-    func isQueued(_ nodeID: FileNodeRecord.ID?) -> Bool {
-        guard let nodeID else { return false }
-        return queuedNodeIDs.contains(nodeID)
-    }
-
     func isMovingToTrash(_ nodeID: FileNodeRecord.ID?) -> Bool {
         guard let nodeID else { return false }
         return movingToTrashNodeIDs.contains(nodeID)
     }
 
     func allowsChartNodeAction(for nodeID: FileNodeRecord.ID?) -> Bool {
-        !isQueued(nodeID) && !isMovingToTrash(nodeID)
+        !isMovingToTrash(nodeID)
     }
 
     private static func renderedMemberships(

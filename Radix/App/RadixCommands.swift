@@ -12,6 +12,7 @@ struct RadixCommands: Commands {
     @FocusedValue(\.chartViewportAction) private var chartViewportAction
 
     var body: some Commands {
+        let selectionIsInDiscardPile = appModel.selectionIsInDiscardPile
         let selectedActionAvailability = FileNodeActionAvailability(
             nodes: navigation.selectedNodes,
             activeTarget: scanState.selectedTarget,
@@ -174,8 +175,8 @@ struct RadixCommands: Commands {
 
             Divider()
 
-            Button(addSelectionToDiscardPileTitle, systemImage: "checklist") {
-                if appModel.selectionIncludesHiddenNodes {
+            Button(discardPileSelectionTitle(isInDiscardPile: selectionIsInDiscardPile), systemImage: "checklist") {
+                if selectionIsInDiscardPile {
                     appModel.presentDiscardPileReview()
                 } else {
                     appModel.addSelectedNodesToDiscardPile()
@@ -184,7 +185,7 @@ struct RadixCommands: Commands {
             .keyboardShortcut("l", modifiers: [.command, .shift])
             .disabled(
                 !canUseWorkspaceCommands ||
-                    (!appModel.selectionIncludesHiddenNodes
+                    (!selectionIsInDiscardPile
                         && !selectedActionAvailability.canMoveToTrash)
             )
 
@@ -268,8 +269,8 @@ struct RadixCommands: Commands {
             && appModel.presentationCoordinator.activeDestination == nil
     }
 
-    private var addSelectionToDiscardPileTitle: String {
-        if appModel.selectionIncludesHiddenNodes {
+    private func discardPileSelectionTitle(isInDiscardPile: Bool) -> String {
+        if isInDiscardPile {
             return String(
                 localized: "Review Discard Pile",
                 comment: "Command for reviewing the Discard Pile when the selection is already included."
@@ -307,7 +308,7 @@ struct RadixCommands: Commands {
             !canUseWorkspaceCommands ||
                 !action.isEnabled(in: availability) ||
                 (action == .moveToTrash &&
-                    (appModel.selectionIncludesHiddenNodes || isFileListSearchActive == true))
+                    (appModel.directTrashOverlapsProtectedNodes(navigation.selectedNodes) || isFileListSearchActive == true))
         )
     }
 }

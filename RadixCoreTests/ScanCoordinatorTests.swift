@@ -1804,7 +1804,7 @@ struct ScanCoordinatorTests {
         service.finish(scanIndex: 1)
         try await waitUntil("second sidebar scan finished") { model.scanState.snapshot?.target == secondTarget }
         #expect(model.discardPileSnapshot.nodes == [kept, replaced])
-        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+        #expect(model.discardPileRootNodeIDs.isEmpty)
 
         model.selectSidebarTarget(id: firstTarget.id)
         if rescansOnReturn {
@@ -1816,7 +1816,7 @@ struct ScanCoordinatorTests {
 
         let expectedIDs = rescansOnReturn ? [kept.id] : [kept.id, replaced.id]
         #expect(model.discardPileSnapshot.nodes == [kept, replaced])
-        #expect(model.workspaceHiddenNodeIDs == Set(expectedIDs))
+        #expect(model.discardPileRootNodeIDs == Set(expectedIDs))
     }
 
     @Test(arguments: [false, true])
@@ -2115,7 +2115,7 @@ struct ScanCoordinatorTests {
         model.selectSidebarTarget(id: scope.id)
         try await waitUntil("scope displays again") { model.scanState.snapshot?.target == scope }
         try #require(model.discardPileSnapshot.nodes.map(\.id) == [marked.id])
-        try #require(model.workspaceHiddenNodeIDs.contains(marked.id))
+        try #require(model.discardPileRootNodeIDs.contains(marked.id))
 
         move.finish()
         try await waitUntil("confirmed move finishes") { model.usageStats.bytesMovedToTrash > 0 }
@@ -2123,7 +2123,7 @@ struct ScanCoordinatorTests {
         try #require(model.discardPileSnapshot.nodes.isEmpty)
 
         if model.scanState.fileTreeStore?.node(id: marked.id) != nil {
-            #expect(model.workspaceHiddenNodeIDs.contains(marked.id))
+            #expect(model.movingToTrashRootNodeIDs.contains(marked.id))
         }
         try await waitUntil("moved file is removed from the overlapping scan") {
             model.scanState.fileTreeStore?.node(id: marked.id) == nil
@@ -2195,7 +2195,7 @@ struct ScanCoordinatorTests {
         }
         try #require(model.scanState.snapshot?.id == initial.id)
         #expect(model.discardPileSnapshot.nodes == [marked])
-        #expect(model.workspaceHiddenNodeIDs.isEmpty)
+        #expect(model.discardPileRootNodeIDs.isEmpty)
         #expect(await model.requestMoveDiscardPileToTrash())
         #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
         #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [marked])
@@ -2255,7 +2255,7 @@ struct ScanCoordinatorTests {
         try #require(model.scanState.fileTreeStore?.node(id: summarized.id)?.isAutoSummarized == true)
         try #require(model.scanState.fileTreeStore?.node(id: marked.id) == nil)
         #expect(model.discardPileSnapshot.nodes == [marked])
-        #expect(!model.workspaceHiddenNodeIDs.contains(marked.id))
+        #expect(!model.discardPileRootNodeIDs.contains(marked.id))
 
         model.expandSummarizedNode(summarized) {}
         try await waitUntil("second expansion request") { service.requests.count == 5 }
