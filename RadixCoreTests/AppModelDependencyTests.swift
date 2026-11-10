@@ -1594,6 +1594,33 @@ struct AppModelDependencyTests {
     }
 
     @Test
+    func testMarkingLocalFileWithAlreadyMarkedCloudFileSkipsCloudConfirmation() throws {
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let cloudFile = makeTestFileNode(
+            id: "/Users/alex/Library/CloudStorage/Dropbox/cloud.bin", name: "cloud.bin"
+        )
+        let localFile = makeTestFileNode(id: "/Users/alex/local.bin", name: "local.bin")
+        let root = makeTestDirectoryNode(id: "/Users/alex", name: "alex", children: [cloudFile, localFile])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [cloudFile, localFile]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.selectedTarget = snapshot.target
+        model.navigation.reconcileAfterSnapshotApplied(snapshot)
+
+        try #require(model.addNodesToDiscardPile([cloudFile]))
+        try #require(model.pendingCloudFileAction?.kind == .addToDiscardPile)
+        model.confirmPendingCloudFileAction()
+        try #require(model.discardPile.nodeIDs == [cloudFile.id])
+
+        model.navigation.select(nodeIDs: [cloudFile.id, localFile.id], primaryNodeID: localFile.id)
+        #expect(model.addSelectedNodesToDiscardPile())
+        #expect(model.pendingCloudFileAction == nil)
+        #expect(Set(model.discardPile.nodeIDs) == [cloudFile.id, localFile.id])
+    }
+
+    @Test
     func testMovingResidentCloudFileToTrashRequiresSecondConfirmation() async throws {
         let recorder = AppModelActionRecorder()
         var actions = AppSystemActions.inert
