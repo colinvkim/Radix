@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct ChartSummary {
-    let status: String
+    let status: String?
     let title: String
     let value: String
     let detail: String
 
     var accessibilityDescription: String {
-        [title, value, status, detail].joined(separator: ", ")
+        [title, value, status, detail].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
@@ -16,9 +16,11 @@ struct FloatingSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(summary.status)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+            if let status = summary.status {
+                Text(status)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
 
             Text(summary.title)
                 .font(.headline.weight(.semibold))

@@ -34,7 +34,6 @@ struct AppSystemActions {
     var fullDiskAccessStatus: @MainActor () async -> FullDiskAccessStatus
     var defaultTargets: () -> [ScanTarget]
     var targetCapacityDescriptions: @MainActor () async -> [String: String]
-    var volumeAvailableCapacityForImportantUsage: @MainActor (URL) async -> Int64?
     var trashSafetyPolicy: () -> TrashSafetyPolicy
     var presentOpenPanel: () -> ScanTarget?
     var presentExportScanPanel: (String) async -> URL?
@@ -91,11 +90,6 @@ struct AppSystemActions {
                 SystemIntegration.targetCapacityDescriptions()
             }.value
         },
-        volumeAvailableCapacityForImportantUsage: { url in
-            await Task.detached(priority: .utility) {
-                SystemIntegration.volumeAvailableCapacityForImportantUsage(for: url)
-            }.value
-        },
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },
@@ -146,7 +140,6 @@ struct AppSystemActions {
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         targetCapacityDescriptions: { [:] },
-        volumeAvailableCapacityForImportantUsage: { _ in nil },
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },

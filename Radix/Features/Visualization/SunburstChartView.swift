@@ -452,7 +452,7 @@ struct SunburstChartView: View {
 
         let node = displayedNode ?? rootNode
         let status = discardPileOverlay.role(for: node.id)?.statusText
-            ?? summaryStatus(for: node)
+            ?? node.itemKind(activeTarget: activeTarget)
         return String(localized: "\(node.displayName), \(RadixFormatters.size(node.allocatedSize)), \(status)", comment: "Accessibility value describing the selected sunburst segment.")
     }
 
@@ -543,10 +543,10 @@ struct SunburstChartView: View {
     private func summary(for node: FileNodeRecord, status: String? = nil) -> ChartSummary {
         if DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
             return ChartSummary(
-                status: summaryStatus(for: node),
+                status: nil,
                 title: node.displayName,
                 value: RadixFormatters.size(node.allocatedSize),
-                detail: String(localized: "APFS available capacity", comment: "Chart detail describing free space on an APFS volume.")
+                detail: String(localized: "Free space at scan time", comment: "Disk map detail for free space recorded in a volume scan.")
             )
         }
 
@@ -564,13 +564,6 @@ struct SunburstChartView: View {
             value: RadixFormatters.size(node.allocatedSize),
             detail: detail
         )
-    }
-
-    private func summaryStatus(for node: FileNodeRecord) -> String {
-        if DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
-            return String(localized: "Available Space", comment: "Chart status for free capacity on a volume.")
-        }
-        return node.itemKind(activeTarget: activeTarget)
     }
 
     @discardableResult
