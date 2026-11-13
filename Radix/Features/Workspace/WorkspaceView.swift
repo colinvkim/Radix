@@ -81,7 +81,6 @@ struct WorkspaceView: View {
     let movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
-    let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
 
     var body: some View {
@@ -100,7 +99,6 @@ struct WorkspaceView: View {
                     discardPileRootNodeIDs: discardPileRootNodeIDs,
                     movingToTrashRootNodeIDs: movingToTrashRootNodeIDs,
                     fullDiskAccessStatus: fullDiskAccessStatus,
-                    freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
                     actions: actions
                 )
             } else if scanState.isScanning {

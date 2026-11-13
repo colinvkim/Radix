@@ -145,14 +145,14 @@ enum DiskMapFreeSpaceVisualization {
     nonisolated static func input(
         snapshot: ScanSnapshot,
         focusNode: FileNodeRecord,
-        showFreeSpace: Bool,
-        availableCapacity: Int64?
+        showFreeSpace: Bool
     ) -> DiskMapVisualizationInput {
         guard showFreeSpace,
               snapshot.target.kind == .volume,
               focusNode.id == snapshot.root.id,
-              let availableCapacity,
-              availableCapacity > 0 else {
+              let freeSpace = snapshot.volumeCapacity?.availableCapacity,
+              freeSpace > 0,
+              snapshot.overlappingAllocatedBytes == nil else {
             return DiskMapVisualizationInput(
                 rootNode: focusNode,
                 treeStore: DiskMapTreeStore(snapshot.treeStore),
@@ -170,8 +170,8 @@ enum DiskMapFreeSpaceVisualization {
             name: String(localized: "Free Space", comment: "Disk map category for available volume capacity."),
             isDirectory: false,
             isSymbolicLink: false,
-            allocatedSize: availableCapacity,
-            logicalSize: availableCapacity,
+            allocatedSize: freeSpace,
+            logicalSize: freeSpace,
             descendantFileCount: 0,
             lastModified: nil,
             isPackage: false,
@@ -190,7 +190,7 @@ enum DiskMapFreeSpaceVisualization {
             rootNode: treeStore.root,
             treeStore: treeStore,
             treeContentID: snapshot.treeStore.contentID,
-            layoutIDComponent: "free-space:\(availableCapacity)"
+            layoutIDComponent: "free-space:\(freeSpace)"
         )
     }
 

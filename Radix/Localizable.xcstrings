@@ -4233,47 +4233,6 @@
         }
       }
     },
-    "APFS available capacity" : {
-      "comment" : "Chart detail describing free space on an APFS volume.\nTooltip metadata describing free space on an APFS volume.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verfügbare APFS-Kapazität"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capacidad disponible de APFS"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capacité disponible APFS"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Capacità disponibile APFS"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Доступное место APFS"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "APFS 可用容量"
-          }
-        }
-      }
-    },
     "APFS clone · shared storage" : {
       "comment" : "Secondary status for a full APFS clone whose data storage is shared with another file.",
       "localizations" : {
@@ -4870,47 +4829,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动检查更新"
-          }
-        }
-      }
-    },
-    "Available Space" : {
-      "comment" : "Chart status for free capacity on a volume.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verfügbarer Speicherplatz"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espacio disponible"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espace disponible"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Spazio disponibile"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Свободное место"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可用空间"
           }
         }
       }
@@ -11969,6 +11887,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前进"
+          }
+        }
+      }
+    },
+    "Free space at scan time" : {
+      "comment" : "Disk map detail for free space recorded in a volume scan.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Freier Speicherplatz zum Zeitpunkt des Scans"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Free space at scan time"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espacio libre en el momento del análisis"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espace libre au moment de l’analyse"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spazio libero al momento della scansione"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свободное место на момент сканирования"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扫描时的剩余空间"
           }
         }
       }
@@ -29693,48 +29658,48 @@
         }
       }
     },
-    "Uses macOS available capacity, which may include purgeable space." : {
+    "Uses the free space recorded when the volume was scanned." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verwendet die von macOS gemeldete verfügbare Kapazität, die löschbaren Speicher enthalten kann."
+            "value" : "Zeigt den freien Speicherplatz zum Zeitpunkt des Volume-Scans."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Uses macOS available capacity, which may include purgeable space."
+            "value" : "Uses the free space recorded when the volume was scanned."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Usa la capacidad disponible de macOS, que puede incluir espacio purgable."
+            "value" : "Usa el espacio libre registrado al analizar el volumen."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Utilise la capacité disponible de macOS, qui peut inclure de l’espace purgeable."
+            "value" : "Utilise l’espace libre relevé lors de l’analyse du volume."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Usa la capacità disponibile di macOS, che può includere spazio eliminabile."
+            "value" : "Usa lo spazio libero rilevato durante la scansione del volume."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Используется показатель доступного места macOS, который может включать очищаемое пространство."
+            "value" : "Использует объём свободного места на момент сканирования тома."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用 macOS 报告的可用容量，其中可能包含可清除空间。"
+            "value" : "使用扫描宗卷时记录的剩余空间。"
           }
         }
       }

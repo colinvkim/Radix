@@ -1,16 +1,6 @@
 import Combine
 import Foundation
 
-private nonisolated struct DiskFreeSpaceCapacityKey: Equatable, Sendable {
-    let snapshotID: UUID
-    let volumePath: String
-}
-
-private nonisolated struct DiskFreeSpaceCapacityCache: Equatable, Sendable {
-    let key: DiskFreeSpaceCapacityKey
-    let availableCapacity: Int64?
-}
-
 struct ExportConfirmationState: Identifiable, Equatable, Sendable {
     let id: UUID
     let archiveURL: URL
@@ -122,12 +112,7 @@ final class AppModel: ObservableObject {
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
     @Published var automaticallyRefreshFocusedFolder = true
-    @Published var showFreeSpaceInDiskMaps = false {
-        didSet {
-            guard showFreeSpaceInDiskMaps != oldValue else { return }
-            refreshDiskFreeSpaceCapacity(for: scanCoordinator.snapshot)
-        }
-    }
+    @Published var showFreeSpaceInDiskMaps = false
     @Published var scanVisualizationMode = ScanVisualizationMode.sunburst
     @Published var useScanExclusions = false
     @Published var exclusionPatterns = AppScanPreferences.defaults.exclusionPatterns
@@ -236,7 +221,6 @@ final class AppModel: ObservableObject {
     }
 
     @Published private(set) var usageStats = AppUsageStats.empty
-    @Published private var diskFreeSpaceCapacityCache: DiskFreeSpaceCapacityCache?
 
     private let dependencies: AppDependencies
     let presentationCoordinator: AppPresentationCoordinator
@@ -321,8 +305,6 @@ final class AppModel: ObservableObject {
     private var exportConfirmationDismissTask: Task<Void, Never>?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private(set) var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
-    private var diskFreeSpaceCapacityRefreshTask: Task<Void, Never>?
-    private var diskFreeSpaceCapacityRefreshGeneration = 0
 
     init(
         dependencies: AppDependencies = .live,
@@ -466,7 +448,6 @@ final class AppModel: ObservableObject {
         fullDiskAccessRefreshTask = nil
         targetCapacityDescriptionsRefreshTask?.cancel()
         targetCapacityDescriptionsRefreshTask = nil
-        cancelDiskFreeSpaceCapacityRefresh(clearCache: true)
         exportPanelTask?.cancel()
         exportPanelTask = nil
         exportPanelRequestID = nil
@@ -1890,18 +1871,6 @@ final class AppModel: ObservableObject {
         scanCoordinator.rescanFolder(id: nodeID)
     }
 
-    func cachedFreeSpaceAvailableCapacity(for snapshot: ScanSnapshot, focusNode: FileNodeRecord) -> Int64? {
-        guard showFreeSpaceInDiskMaps,
-              snapshot.target.kind == .volume,
-              snapshot.overlappingAllocatedBytes == nil,
-              focusNode.id == snapshot.root.id,
-              diskFreeSpaceCapacityCache?.key == diskFreeSpaceCapacityKey(for: snapshot) else {
-            return nil
-        }
-
-        return diskFreeSpaceCapacityCache?.availableCapacity
-    }
-
     func stopScan(resetState: Bool = true) {
         if tourSession.isActive {
             workspaceTour.stop()
@@ -3254,7 +3223,6 @@ final class AppModel: ObservableObject {
                     dismissGoToPath()
                 }
                 quickLookController.closePreview()
-                refreshDiskFreeSpaceCapacity(for: snapshot)
                 syncOptimisticTrashVisibility(with: snapshot)
                 let matchingNodeIDs = discardPile.matchingNodeIDs(in: snapshot)
                 if matchingNodeIDs != projectedDiscardPileIDs {
@@ -3347,77 +3315,8 @@ final class AppModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 refreshAvailableTargets()
-                refreshDiskFreeSpaceCapacity(for: scanCoordinator.snapshot, force: true)
             }
             .store(in: &cancellables)
-    }
-
-    private func refreshDiskFreeSpaceCapacity(
-        for snapshot: ScanSnapshot?,
-        force: Bool = false
-    ) {
-        guard showFreeSpaceInDiskMaps,
-              let snapshot,
-              snapshot.target.kind == .volume,
-              snapshot.overlappingAllocatedBytes == nil else {
-            cancelDiskFreeSpaceCapacityRefresh(clearCache: true)
-            return
-        }
-
-        let key = diskFreeSpaceCapacityKey(for: snapshot)
-        if !force,
-           diskFreeSpaceCapacityCache?.key == key {
-            return
-        }
-
-        diskFreeSpaceCapacityRefreshGeneration += 1
-        let generation = diskFreeSpaceCapacityRefreshGeneration
-        diskFreeSpaceCapacityRefreshTask?.cancel()
-        if let availableCapacity = snapshot.volumeCapacity?.availableCapacity {
-            diskFreeSpaceCapacityCache = DiskFreeSpaceCapacityCache(
-                key: key,
-                availableCapacity: availableCapacity
-            )
-            diskFreeSpaceCapacityRefreshTask = nil
-            return
-        }
-        diskFreeSpaceCapacityCache = DiskFreeSpaceCapacityCache(
-            key: key,
-            availableCapacity: nil
-        )
-
-        let systemActions = dependencies.systemActions
-        diskFreeSpaceCapacityRefreshTask = Task { [weak self] in
-            let availableCapacity = await systemActions.volumeAvailableCapacityForImportantUsage(snapshot.target.url)
-            guard let self,
-                  !Task.isCancelled,
-                  diskFreeSpaceCapacityRefreshGeneration == generation,
-                  diskFreeSpaceCapacityCache?.key == key else {
-                return
-            }
-
-            diskFreeSpaceCapacityCache = DiskFreeSpaceCapacityCache(
-                key: key,
-                availableCapacity: availableCapacity
-            )
-            diskFreeSpaceCapacityRefreshTask = nil
-        }
-    }
-
-    private func cancelDiskFreeSpaceCapacityRefresh(clearCache: Bool) {
-        diskFreeSpaceCapacityRefreshGeneration += 1
-        diskFreeSpaceCapacityRefreshTask?.cancel()
-        diskFreeSpaceCapacityRefreshTask = nil
-        if clearCache {
-            diskFreeSpaceCapacityCache = nil
-        }
-    }
-
-    private func diskFreeSpaceCapacityKey(for snapshot: ScanSnapshot) -> DiskFreeSpaceCapacityKey {
-        DiskFreeSpaceCapacityKey(
-            snapshotID: snapshot.id,
-            volumePath: snapshot.target.url.standardizedFileURL.path
-        )
     }
 
     private func observePreferences() {

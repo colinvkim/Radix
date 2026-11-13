@@ -228,16 +228,16 @@ struct SystemIntegrationTests {
     }
 
     @Test
-    func testCapacityDescriptionPrefersGeneralAvailableCapacityWhenImportantUsageIsZero() {
+    func testCapacityDescriptionRequiresFreeSpace() {
         let description = SystemIntegration.capacityDescription(
             totalCapacity: 2_000_000_000_000,
-            availableCapacity: 512_000_000_000,
-            availableCapacityForImportantUsage: 0
+            freeCapacity: 512_000_000_000
         )
 
-        let available = ByteCountFormatter.string(fromByteCount: 512_000_000_000, countStyle: .file)
+        let free = ByteCountFormatter.string(fromByteCount: 512_000_000_000, countStyle: .file)
         let total = ByteCountFormatter.string(fromByteCount: 2_000_000_000_000, countStyle: .file)
-        #expect(description == String(localized: "\(available) free of \(total)"))
+        #expect(description == String(localized: "\(free) free of \(total)"))
+        #expect(SystemIntegration.capacityDescription(totalCapacity: 2_000_000_000_000, freeCapacity: nil) == nil)
     }
 
     @Test
