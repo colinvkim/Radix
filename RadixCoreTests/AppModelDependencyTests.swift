@@ -182,7 +182,7 @@ struct AppModelDependencyTests {
         model.requestMoveSelectedToTrash()
         #expect(model.pendingTrashSelection != nil)
         model.trashFlow.pendingCloudFileAction = .init(
-            kind: .moveToTrash, nodes: [file], cloudImpact: .storedInCloud)
+            request: .cleanup(.init(nodes: [file])), cloudImpact: .storedInCloud)
 
         model.setReadOnlyMode(true)
         #expect(model.pendingTrashSelection == nil)
@@ -2496,6 +2496,136 @@ struct AppModelDependencyTests {
         #expect(manager.fileExists(atPath: rescuedURL.path))
         #expect(manager.fileExists(atPath: destination.appending(path: children[1].name).path))
         #expect(model.discardPile.nodes == (hasDestination ? [children[0]] : children))
+    }
+
+    @Test
+    func testPermanentDeletionConfirmsMarkedBatchAndKeepsUnfinishedMarks() async throws {
+        let birthTime = Date(timeIntervalSince1970: 1)
+        let rootPath = "/cleanup"
+        let first = makeTestFileNode(
+            id: rootPath + "/first", name: "first", fileIdentity: FileIdentity(device: 1, inode: 1, birthTime: birthTime)
+        )
+        let failed = makeTestFileNode(
+            id: rootPath + "/failed", name: "failed", fileIdentity: FileIdentity(device: 1, inode: 2, birthTime: birthTime)
+        )
+        let unattempted = makeTestFileNode(
+            id: rootPath + "/unattempted", name: "unattempted", fileIdentity: FileIdentity(device: 1, inode: 3, birthTime: birthTime)
+        )
+        let nodes = [first, failed, unattempted]
+        let root = makeTestDirectoryNode(id: rootPath, name: "cleanup", children: nodes)
+        let tree = FileTreeStore(root: root, childrenByID: [root.id: nodes])
+        var deleted: [FileNodeRecord.ID] = []
+        var actions = AppSystemActions.inert
+        actions.moveToTrash = { _ in
+            Issue.record("Permanent deletion used the Trash operation.")
+            return TrashMoveOutcome(.matches)
+        }
+        actions.deletePermanently = { node, _, _ in
+            if node.id == failed.id { return .incomplete(error: FileActionError.unsupported) }
+            deleted.append(node.id)
+            return .removed(coveredMarks: [])
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+        model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: tree))
+        try #require(model.addNodesToDiscardPile(nodes))
+
+        try #require(await model.requestDeleteDiscardPilePermanently())
+        #expect(model.pendingTrashSelection?.nodes == nodes)
+        model.cancelPendingTrash()
+        model.confirmPermanentDeletion()
+        #expect(deleted.isEmpty)
+        #expect(model.discardPileSnapshot.nodes == nodes)
+
+        try #require(await model.requestDeleteDiscardPilePermanently())
+        model.confirmMovePendingSelectionToTrash()
+        #expect(model.pendingTrashSelection?.nodes == nodes)
+        #expect(deleted.isEmpty)
+
+        model.confirmPermanentDeletion()
+        try await waitUntil("permanent deletion reports the incomplete item") { model.lastErrorMessage != nil }
+        #expect(deleted == [first.id])
+        #expect(model.discardPileSnapshot.nodes == [failed, unattempted])
+        #expect(model.usageStats.bytesMovedToTrash == 0)
+    }
+
+    @Test
+    func testPermanentDeletionRequiresCloudConfirmation() async throws {
+        let birthTime = Date(timeIntervalSince1970: 1)
+        let rootPath = "/Users/alex/Library/CloudStorage/Dropbox"
+        let node = makeTestFileNode(
+            id: rootPath + "/file.bin", name: "file.bin", fileIdentity: FileIdentity(device: 1, inode: 1, birthTime: birthTime)
+        )
+        let root = makeTestDirectoryNode(id: rootPath, name: "Dropbox", children: [node])
+        let tree = FileTreeStore(root: root, childrenByID: [root.id: [node]])
+        var deleted: [FileNodeRecord.ID] = []
+        var actions = AppSystemActions.inert
+        actions.fileExists = { _ in true }
+        actions.deletePermanently = { item, _, _ in
+            deleted.append(item.id)
+            return .removed(coveredMarks: [])
+        }
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        defer { model.cleanup() }
+        model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: tree))
+        try #require(model.addNodesToDiscardPile([node]))
+        model.confirmPendingCloudFileAction()
+
+        try #require(await model.requestDeleteDiscardPilePermanently())
+        model.confirmPermanentDeletion()
+        #expect(model.pendingCloudFileAction?.kind == .deletePermanently)
+        #expect(deleted.isEmpty)
+
+        model.confirmPendingCloudFileAction()
+        try await waitUntil("cloud file was permanently deleted") { model.discardPile.isEmpty }
+        #expect(deleted == [node.id])
+    }
+
+    @Test
+    func testPartialPermanentDeletionRefreshesSurvivingFolderContents() async throws {
+        let target = makeTestTarget("/partial-cleanup")
+        let folderPath = target.id + "/folder"
+        let removed = makeTestFileNode(id: folderPath + "/removed", name: "removed")
+        let remaining = makeTestFileNode(id: folderPath + "/remaining", name: "remaining")
+        let folderIdentity = FileIdentity(device: 1, inode: 1, birthTime: Date(timeIntervalSince1970: 1))
+
+        func snapshot(children: [FileNodeRecord]) -> ScanSnapshot {
+            let folder = makeTestDirectoryNode(
+                id: folderPath, name: "folder", children: children, fileIdentity: folderIdentity
+            )
+            let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [folder])
+            let store = FileTreeStore(root: root, childrenByID: [root.id: [folder], folder.id: children])
+            return makeTestSnapshot(target: target, root: root, store: store)
+        }
+
+        let scanService = ControlledAppModelScanService()
+        var actions = AppSystemActions.inert
+        actions.deletePermanently = { _, _, _ in .incomplete(error: FileActionError.unsupported) }
+        let model = AppModel(dependencies: makeDependencies(
+            availableRecentIDs: [target.id], systemActions: actions, scanService: scanService
+        ))
+        defer { model.cleanup() }
+
+        model.startScan(target)
+        try await waitUntil("initial scan can publish") { !scanService.requests.isEmpty }
+        scanService.yield(.finished(snapshot(children: [removed, remaining])), scanIndex: 0)
+        scanService.finish(scanIndex: 0)
+        try await waitUntil("folder is visible with both children") {
+            model.scanState.fileTreeStore?.children(of: folderPath).count == 2
+        }
+        try #require(model.sidebar.activeTargetID == target.id)
+        let folder = try #require(model.scanState.fileTreeStore?.node(id: folderPath))
+        try #require(model.addNodesToDiscardPile([folder]))
+        try #require(await model.requestDeleteDiscardPilePermanently())
+
+        model.confirmPermanentDeletion()
+
+        try await waitUntil("refresh can publish after partial deletion") { scanService.requests.count >= 2 }
+        scanService.yield(.finished(snapshot(children: [remaining])), scanIndex: 1)
+        scanService.finish(scanIndex: 1)
+        try await waitUntil("folder is visible with only its surviving child") {
+            model.scanState.fileTreeStore?.children(of: folderPath).map(\.id) == [remaining.id]
+        }
     }
 
     @Test(arguments: [false, true])

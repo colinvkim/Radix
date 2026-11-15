@@ -848,7 +848,7 @@ final class AppModel: ObservableObject {
 
     private func resumeDeferredArchiveImport(_ sourceURL: URL?) {
         guard let sourceURL else { return }
-        guard !isArchiveOperationInProgress else {
+        guard !isArchiveOperationInProgress, !trashFlow.isDeletingPermanently else {
             readyDeferredArchiveImportURL = sourceURL
             return
         }
@@ -856,7 +856,7 @@ final class AppModel: ObservableObject {
     }
 
     private func resumeReadyDeferredArchiveImportIfPossible() {
-        guard !isArchiveOperationInProgress,
+        guard !isArchiveOperationInProgress, !trashFlow.isDeletingPermanently,
               let sourceURL = readyDeferredArchiveImportURL else {
             return
         }
@@ -954,13 +954,13 @@ final class AppModel: ObservableObject {
         !tourSession.isActive && scanCoordinator.snapshot?.isComplete == true &&
             !scanCoordinator.isForegroundScanOperationInProgress &&
             !isExportPanelPresented &&
-            !isArchiveOperationInProgress
+            !isArchiveOperationInProgress && !trashFlow.isDeletingPermanently
     }
 
     private var canPresentScanSnapshotPanel: Bool {
         !tourSession.isActive && !scanCoordinator.isForegroundScanOperationInProgress &&
             !isExportPanelPresented &&
-            !isArchiveOperationInProgress &&
+            !isArchiveOperationInProgress && !trashFlow.isDeletingPermanently &&
             pendingComparisonSetup == nil &&
             pendingImportPreview == nil
     }
@@ -1113,7 +1113,11 @@ final class AppModel: ObservableObject {
         guard presentationCoordinator.requestArchiveImport(sourceURL) == .startNow else {
             return
         }
-        beginImportScanSnapshot(from: sourceURL)
+        if trashFlow.isDeletingPermanently {
+            readyDeferredArchiveImportURL = sourceURL
+        } else {
+            beginImportScanSnapshot(from: sourceURL)
+        }
     }
 
     private func beginImportScanSnapshot(from sourceURL: URL) {
@@ -2431,6 +2435,15 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func requestMoveDiscardPileToTrash() async -> Bool {
+        await requestDiscardPileCleanup(.moveToTrash)
+    }
+
+    func requestDeleteDiscardPilePermanently() async -> Bool {
+        guard !workspaceTour.isActive else { return false }
+        return await requestDiscardPileCleanup(.deletePermanently)
+    }
+
+    private func requestDiscardPileCleanup(_ action: TrashFlowController.DiscardPileCleanupAction) async -> Bool {
         guard !isPreparingDiscardPileTrash else { return false }
         do {
             try validateSnapshotAllowsMutation()
@@ -2443,7 +2456,7 @@ final class AppModel: ObservableObject {
             let id = UUID()
             let task = Task.detached(priority: .userInitiated) {
                 try TrashFlowController.prepareDiscardPileTrashRequest(
-                    nodes: nodes, trashSafetyPolicy: policy, verifyIdentity: verifyIdentity
+                    nodes: nodes, action: action, trashSafetyPolicy: policy, verifyIdentity: verifyIdentity
                 )
             }
             discardPilePreparation = (id, task)
@@ -2483,8 +2496,20 @@ final class AppModel: ObservableObject {
     }
 
     func confirmMovePendingSelectionToTrash() {
-        guard let selection = pendingTrashSelection, !selection.nodes.isEmpty else { return }
-        pendingTrashSelection = nil
+        guard let selection = pendingTrashSelection, selection.action == .moveToTrash else { return }
+        confirmPendingCleanup(selection)
+    }
+
+    func confirmPermanentDeletion() {
+        guard let selection = pendingTrashSelection, selection.action == .deletePermanently else { return }
+        confirmPendingCleanup(selection)
+    }
+
+    private func confirmPendingCleanup(_ selection: PendingTrashSelection) {
+        guard !selection.nodes.isEmpty else { return }
+        let deletesPermanently = selection.action == .deletePermanently
+        if !deletesPermanently { pendingTrashSelection = nil }
+        defer { if deletesPermanently { pendingTrashSelection = nil } }
 
         do {
             try validateSnapshotAllowsMutation()
@@ -2496,15 +2521,13 @@ final class AppModel: ObservableObject {
             let urls = selection.nodes.map(\.url) + Array(resolvedURLs.values)
             if let cloudImpact = cloudStorageImpact(of: urls) {
                 pendingCloudFileAction = PendingCloudFileAction(
-                    kind: .moveToTrash,
-                    nodes: selection.nodes,
-                    cloudImpact: cloudImpact,
-                    discardPileBatch: selection.discardPileBatch
+                    request: .cleanup(selection),
+                    cloudImpact: cloudImpact
                 )
                 return
             }
 
-            performConfirmedTrashMove(selection.nodes, discardPileBatch: selection.discardPileBatch)
+            performConfirmedCleanup(selection)
         } catch {
             presentError(error)
         }
@@ -2512,21 +2535,22 @@ final class AppModel: ObservableObject {
 
     func confirmPendingCloudFileAction() {
         guard let action = pendingCloudFileAction else { return }
-        pendingCloudFileAction = nil
+        let deletesPermanently = action.kind == .deletePermanently
+        if !deletesPermanently { pendingCloudFileAction = nil }
+        defer { if deletesPermanently { pendingCloudFileAction = nil } }
 
         do {
-            switch action.kind {
-            case .addToDiscardPile:
-                try addDiscardPileNodes(action.nodes, cloudWarningAccepted: true)
-            case .moveToTrash:
-                let nodes: [FileNodeRecord]
-                if action.discardPileBatch == nil {
-                    nodes = try validatedNodesForMutation(action.nodes)
+            switch action.request {
+            case .addToDiscardPile(let nodes):
+                try addDiscardPileNodes(nodes, cloudWarningAccepted: true)
+            case .cleanup(let selection):
+                if selection.discardPileBatch == nil {
+                    let nodes = try validatedNodesForMutation(selection.nodes)
+                    performConfirmedCleanup(PendingTrashSelection(nodes: nodes))
                 } else {
                     try validateSnapshotAllowsMutation()
-                    nodes = action.nodes
+                    performConfirmedCleanup(selection)
                 }
-                performConfirmedTrashMove(nodes, discardPileBatch: action.discardPileBatch)
             }
         } catch {
             presentError(error)
@@ -2550,8 +2574,7 @@ final class AppModel: ObservableObject {
         if !cloudWarningAccepted,
            let cloudImpact = cloudStorageImpact(of: nodes.filter { addedNodeIDs.contains($0.id) }.map(\.url)) {
             pendingCloudFileAction = PendingCloudFileAction(
-                kind: .addToDiscardPile,
-                nodes: nodes,
+                request: .addToDiscardPile(nodes),
                 cloudImpact: cloudImpact
             )
             return
@@ -2596,6 +2619,25 @@ final class AppModel: ObservableObject {
             }
         }
         return containsCloudStorage ? .containsCloudStorage : nil
+    }
+
+    private func performConfirmedCleanup(_ selection: PendingTrashSelection) {
+        switch selection.scope {
+        case .directMove, .discardPile(.moveToTrash, _):
+            performConfirmedTrashMove(selection.nodes, discardPileBatch: selection.discardPileBatch)
+        case .discardPile(.deletePermanently, let batch):
+            guard !workspaceTour.isActive, !isArchiveOperationInProgress, !isExportPanelPresented else {
+                presentError(FileActionError.unsupported)
+                return
+            }
+            preemptAutomaticFolderRefresh()
+            let originalSnapshot = scanCoordinator.snapshot
+            trashFlow.startPermanentDeletion(
+                selection.nodes, batch: batch, delete: dependencies.systemActions.deletePermanently
+            ) { [weak self] completed in
+                self?.finishPermanentDeletion(completed, batch: batch, originalSnapshot: originalSnapshot)
+            }
+        }
     }
 
     private func performConfirmedTrashMove(
@@ -2668,10 +2710,37 @@ final class AppModel: ObservableObject {
         if let actionError { presentError(actionError) }
     }
 
+    private func finishPermanentDeletion(
+        _ completed: TrashFlowController.CompletedPermanentDeletion,
+        batch: TrashFlowController.DiscardPileTrashBatch,
+        originalSnapshot: ScanSnapshot?
+    ) {
+        let removedNodes = completed.removedNodes
+        if !removedNodes.isEmpty || completed.incompleteNode != nil {
+            trashFlow.invalidateDiscardPileHistory()
+            sidebarScanCacheController.clearCache()
+            reconcileScanAfterTrash(
+                removedNodes,
+                resolvedURLs: batch.resolvedURLsByOperationID,
+                originalSnapshotID: originalSnapshot?.id,
+                incompleteNode: completed.incompleteNode
+            )
+            if !removedNodes.isEmpty {
+                trashFlow.removeMovedDiscardPileNodes(
+                    removedNodes, from: originalSnapshot, includeSnapshotDescendants: false
+                )
+            }
+            refreshAvailableTargets()
+        }
+        if let error = completed.error { presentError(error) }
+        resumeReadyDeferredArchiveImportIfPossible()
+    }
+
     private func reconcileScanAfterTrash(
         _ movedNodes: [FileNodeRecord],
         resolvedURLs: [FileNodeRecord.ID: URL],
-        originalSnapshotID: UUID?
+        originalSnapshotID: UUID?,
+        incompleteNode: FileNodeRecord? = nil
     ) {
         guard let target = scanCoordinator.selectedTarget else { return }
         let snapshot = scanCoordinator.snapshot
@@ -2679,7 +2748,7 @@ final class AppModel: ObservableObject {
         guard snapshot?.source.allowsFileMutation ?? isFullScanInProgress else { return }
 
         let resolvedTargetPath = resolvedURLs.isEmpty ? target.id : Self.resolvedScanPath(target.url)
-        let alternatePaths = movedNodes.flatMap { node -> [(id: String, node: FileNodeRecord)] in
+        func alternatePathEntries(for node: FileNodeRecord) -> [(id: String, node: FileNodeRecord)] {
             guard let resolvedPath = resolvedURLs[node.id]?.path else { return [] }
             var paths = [resolvedPath]
             if let alternate = TrashSafetyPolicy.alternateStartupVolumePath(for: resolvedPath) {
@@ -2690,9 +2759,10 @@ final class AppModel: ObservableObject {
             }
             return paths.filter { $0 != node.id }.map { (id: $0, node: node) }
         }
-        let paths = movedNodes.map { (id: $0.id, node: $0) } + alternatePaths
+        let paths = movedNodes.map { (id: $0.id, node: $0) } + movedNodes.flatMap { alternatePathEntries(for: $0) }
+        let incompletePaths = incompleteNode.map { [(id: $0.id, node: $0)] + alternatePathEntries(for: $0) } ?? []
         let targetPaths = [target.id, resolvedTargetPath]
-        let rootMayHaveMoved = paths.contains { id, node in
+        let rootMayHaveMoved = (paths + incompletePaths).contains { id, node in
             targetPaths.contains { targetPath in
                 id == targetPath || (node.isDirectory && !node.isSymbolicLink && Self.path(targetPath, isWithin: id))
             }
@@ -2705,6 +2775,14 @@ final class AppModel: ObservableObject {
                 clearScanAfterTrash(target)
                 return
             }
+        }
+
+        if incompletePaths.contains(where: { entry in
+            targetPaths.contains { path in
+                Self.path(entry.id, isWithin: path) || Self.path(path, isWithin: entry.id)
+            }
+        }), restartCurrentScanAfterTrash(target, snapshot: snapshot) {
+            return
         }
 
         if isFullScanInProgress,

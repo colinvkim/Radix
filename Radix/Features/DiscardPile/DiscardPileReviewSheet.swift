@@ -4,7 +4,7 @@ struct DiscardPileReviewActions {
     let removeNodes: (Set<FileNodeRecord.ID>) -> Void
     let clear: () -> Void
     let dismiss: () -> Void
-    let moveToTrash: () -> Void
+    let cleanup: (TrashFlowController.DiscardPileCleanupAction) -> Void
 }
 
 struct DiscardPileReviewSheet: View {
@@ -40,7 +40,7 @@ struct DiscardPileReviewSheet: View {
                 Text("Discard Pile")
                     .font(.title3.weight(.semibold))
 
-                Text("Review items before moving them to Trash.")
+                Text("Review items marked for cleanup.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -76,11 +76,7 @@ struct DiscardPileReviewSheet: View {
                         .accessibilityLabel(Text("Checking Marked Items"))
                 }
 
-                Button("Move to Trash…") {
-                    actions.moveToTrash()
-                }
-                .keyboardShortcut(showsTourGuidance ? nil : .defaultAction)
-                .disabled(!canMoveToTrash)
+                cleanupButton
             }
         }
         .padding(20)
@@ -103,6 +99,28 @@ struct DiscardPileReviewSheet: View {
         .onChange(of: rowIDs) { previousRowIDs, currentRowIDs in
             let restoredIDs = currentRowIDs.subtracting(previousRowIDs)
             selection = restoredIDs.isEmpty ? selection.intersection(currentRowIDs) : restoredIDs
+        }
+    }
+
+    @ViewBuilder
+    private var cleanupButton: some View {
+        if tour.isActive {
+            Button("Move to Trash…") { actions.cleanup(.moveToTrash) }
+                .keyboardShortcut(showsTourGuidance ? nil : .defaultAction)
+                .disabled(!canMoveToTrash)
+        } else {
+            Menu {
+                Button("Delete Permanently…", role: .destructive) {
+                    actions.cleanup(.deletePermanently)
+                }
+            } label: {
+                Text("Move to Trash…")
+            } primaryAction: {
+                actions.cleanup(.moveToTrash)
+            }
+            .fixedSize()
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canMoveToTrash)
         }
     }
 
@@ -227,20 +245,36 @@ struct DiscardPileTrashConfirmationSheet: View {
     let onConfirm: () -> Void
 
     var body: some View {
-        let hasItemsToMove = !selection.nodes.isEmpty
-        let title: LocalizedStringKey = hasItemsToMove ? "Move to Trash?" : "No Items Can Be Moved"
-        let cancelTitle: LocalizedStringKey = hasItemsToMove ? "Cancel" : "Close"
+        let hasItems = !selection.nodes.isEmpty
+        let deletesPermanently = selection.action == .deletePermanently
+        let title: LocalizedStringKey = switch (selection.action, hasItems) {
+        case (.moveToTrash, true): "Move to Trash?"
+        case (.moveToTrash, false): "No Items Can Be Moved"
+        case (.deletePermanently, true): "Delete Permanently?"
+        case (.deletePermanently, false): "No Items Can Be Deleted"
+        }
+        let cancelTitle: LocalizedStringKey = hasItems ? "Cancel" : "Close"
+        let itemsTitle: LocalizedStringKey = deletesPermanently ? "Items to Delete" : "Items to Move"
 
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.title3.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
 
+            if deletesPermanently && hasItems {
+                if selection.nodes.contains(where: { $0.isDirectory && !$0.isSymbolicLink }) {
+                    Text("This action can’t be undone. All contents of listed folders will also be deleted.")
+                } else {
+                    Text("This action can’t be undone.")
+                }
+            }
+
             List {
-                if hasItemsToMove {
-                    Section("Items to Move") {
+                if hasItems {
+                    Section(itemsTitle) {
                         ForEach(selection.nodes) { node in
-                            Text(verbatim: node.url.path)
+                            let resolvedURL = selection.discardPileBatch?.resolvedURLsByOperationID[node.id]
+                            Text(verbatim: (deletesPermanently ? resolvedURL ?? node.url : node.url).path)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -269,17 +303,22 @@ struct DiscardPileTrashConfirmationSheet: View {
                 Button(cancelTitle, role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
 
-                if hasItemsToMove {
-                    Button(
-                        String(localized: "Move \(selection.nodes.count) Items to Trash", comment: "Destructive action for moving marked items to the Trash."),
-                        role: .destructive,
-                        action: onConfirm
-                    )
+                if hasItems {
+                    Button(confirmTitle, role: .destructive, action: onConfirm)
                 }
             }
         }
         .padding(20)
         .frame(width: 640, height: 360)
+    }
+
+    private var confirmTitle: String {
+        switch selection.action {
+        case .moveToTrash:
+            String(localized: "Move \(selection.nodes.count) Items to Trash", comment: "Destructive action for moving marked items to the Trash.")
+        case .deletePermanently:
+            String(localized: "Delete \(selection.nodes.count) Items Permanently", comment: "Destructive action for permanently deleting the listed items. The count controls pluralization.")
+        }
     }
 }
 

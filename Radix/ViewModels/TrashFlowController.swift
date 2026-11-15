@@ -139,21 +139,70 @@ final class TrashFlowController {
         var affectedNodes: [FileNodeRecord] { operations + coveredMarks }
     }
 
+    nonisolated enum DiscardPileCleanupAction: Sendable {
+        case moveToTrash
+        case deletePermanently
+    }
+
     nonisolated struct PendingTrashSelection: Sendable {
+        enum Scope: Sendable {
+            case directMove
+            case discardPile(DiscardPileCleanupAction, DiscardPileTrashBatch)
+        }
+
         let nodes: [FileNodeRecord]
-        var discardPileBatch: DiscardPileTrashBatch? = nil
+        let scope: Scope
+
+        init(nodes: [FileNodeRecord], scope: Scope = .directMove) {
+            self.nodes = nodes
+            self.scope = scope
+        }
+
+        var action: DiscardPileCleanupAction {
+            guard case .discardPile(let action, _) = scope else { return .moveToTrash }
+            return action
+        }
+
+        var discardPileBatch: DiscardPileTrashBatch? {
+            guard case .discardPile(_, let batch) = scope else { return nil }
+            return batch
+        }
     }
 
     struct PendingCloudFileAction {
         enum Kind: Equatable {
             case addToDiscardPile
             case moveToTrash
+            case deletePermanently
         }
 
-        let kind: Kind
-        let nodes: [FileNodeRecord]
+        enum Request {
+            case addToDiscardPile([FileNodeRecord])
+            case cleanup(PendingTrashSelection)
+        }
+
+        let request: Request
         let cloudImpact: CloudStorageLocation.Impact
-        var discardPileBatch: DiscardPileTrashBatch? = nil
+
+        var nodes: [FileNodeRecord] {
+            switch request {
+            case .addToDiscardPile(let nodes): nodes
+            case .cleanup(let selection): selection.nodes
+            }
+        }
+
+        var kind: Kind {
+            switch request {
+            case .addToDiscardPile: .addToDiscardPile
+            case .cleanup(let selection): selection.action == .moveToTrash ? .moveToTrash : .deletePermanently
+            }
+        }
+    }
+
+    struct CompletedPermanentDeletion {
+        var removedNodes: [FileNodeRecord] = []
+        var incompleteNode: FileNodeRecord?
+        var error: (any Error)?
     }
 
     var onChange: (() -> Void)?
@@ -178,6 +227,7 @@ final class TrashFlowController {
     private(set) var optimisticTrashVisibility = OptimisticTrashVisibilityState()
 
     private var confirmedTrashMoveTasks: [UUID: Task<Void, Never>] = [:]
+    private var confirmedPermanentDeletion: Task<Void, Never>?
     private var postTrashRemovalTask: Task<Void, Never>?
     private var postTrashRemovalRequests: [@MainActor () async -> Void] = []
 
@@ -196,7 +246,11 @@ final class TrashFlowController {
         return true
     }
 
-    var isMovingFiles: Bool { !confirmedTrashMoveTasks.isEmpty || postTrashRemovalTask != nil }
+    var isDeletingPermanently: Bool { confirmedPermanentDeletion != nil }
+
+    var isMovingFiles: Bool {
+        !confirmedTrashMoveTasks.isEmpty || isDeletingPermanently || postTrashRemovalTask != nil
+    }
 
     init(
         pendingTrashSelection: PendingTrashSelection? = nil,
@@ -228,6 +282,7 @@ final class TrashFlowController {
     func cancelConfirmedTrashMoves() {
         for task in confirmedTrashMoveTasks.values { task.cancel() }
         confirmedTrashMoveTasks.removeAll()
+        confirmedPermanentDeletion?.cancel()
     }
 
     func cancelPostTrashSnapshotRemoval() {
@@ -272,6 +327,7 @@ final class TrashFlowController {
 
     nonisolated static func prepareDiscardPileTrashRequest(
         nodes: [FileNodeRecord],
+        action: DiscardPileCleanupAction = .moveToTrash,
         trashSafetyPolicy: TrashSafetyPolicy,
         verifyIdentity: (FileNodeRecord) -> TrashIdentityVerificationResult
     ) throws -> PendingTrashSelection {
@@ -282,10 +338,17 @@ final class TrashFlowController {
         for node in nodes {
             try Task.checkCancellation()
             let message: String?
-            if !node.supportsMoveToTrash(trashSafetyPolicy: trashSafetyPolicy) {
+            let isDirectory = node.isDirectory && !node.isSymbolicLink
+            if !node.supportsMoveToTrash(trashSafetyPolicy: trashSafetyPolicy) ||
+                (action == .deletePermanently &&
+                    trashSafetyPolicy.blocksPermanentDeletion(at: node.url, isDirectory: isDirectory)) {
                 message = FileActionError.unsupported.localizedDescription
             } else {
-                let result = node.fileIdentity == nil ? .missingScannedIdentity : verifyIdentity(node)
+                let hasIdentity = switch action {
+                case .moveToTrash: node.fileIdentity != nil
+                case .deletePermanently: node.fileIdentity?.scanFileSystemIdentity?.birthTime != nil
+                }
+                let result = hasIdentity ? verifyIdentity(node) : .missingScannedIdentity
                 switch result {
                 case .mismatch, .missingScannedIdentity:
                     message = String(localized: "Radix can’t verify this mark. Scan the item and mark it again.")
@@ -300,7 +363,13 @@ final class TrashFlowController {
                 // Canonical paths recover the on-disk spelling without following
                 // a final symlink or treating distinct hard links as one entry.
                 let path = (try? url.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath) ?? url.path
-                eligible.append((node, URL(filePath: path)))
+                let resolvedURL = URL(filePath: path)
+                if action == .deletePermanently,
+                   trashSafetyPolicy.blocksPermanentDeletion(at: resolvedURL, isDirectory: isDirectory) {
+                    unavailable.append(.init(node: node, message: FileActionError.unsupported.localizedDescription))
+                } else {
+                    eligible.append((node, resolvedURL))
+                }
             }
         }
 
@@ -327,11 +396,11 @@ final class TrashFlowController {
         }
         return PendingTrashSelection(
             nodes: operations.map(\.node),
-            discardPileBatch: DiscardPileTrashBatch(
+            scope: .discardPile(action, DiscardPileTrashBatch(
                 unavailable: unavailable,
                 resolvedURLsByOperationID: Dictionary(uniqueKeysWithValues: operations.map { ($0.node.id, $0.resolvedURL) }),
                 coveredMarks: coveredMarks
-            )
+            ))
         )
     }
 
@@ -551,6 +620,10 @@ final class TrashFlowController {
             onFinish(nodes, CompletedTrashMoves(), FileActionError.readOnlyMode, false)
             return
         }
+        guard !isDeletingPermanently else {
+            onFinish(nodes, CompletedTrashMoves(), FileActionError.unsupported, false)
+            return
+        }
         let requestID = UUID()
         confirmedTrashMoveTasks[requestID] = Task { [weak self] in
             var moved = CompletedTrashMoves()
@@ -584,6 +657,51 @@ final class TrashFlowController {
             onFinish(nodes, moved, actionError, wasCancelled)
         }
         beginMove()
+    }
+
+    func startPermanentDeletion(
+        _ nodes: [FileNodeRecord],
+        batch: DiscardPileTrashBatch,
+        delete: @escaping AppSystemActions.DeletePermanently,
+        onFinish: @escaping @MainActor (CompletedPermanentDeletion) -> Void
+    ) {
+        guard !isReadOnlyMode, !isMovingFiles else {
+            let error: FileActionError = isReadOnlyMode ? .readOnlyMode : .unsupported
+            onFinish(CompletedPermanentDeletion(error: error))
+            return
+        }
+
+        confirmedPermanentDeletion = Task { [weak self] in
+            var completed = CompletedPermanentDeletion()
+            for node in nodes {
+                do {
+                    try Task.checkCancellation()
+                    guard let url = batch.resolvedURLsByOperationID[node.id] else {
+                        throw FileActionError.unsupported
+                    }
+                    switch try await delete(node, url, { batch.verifyCoveredMarks(for: node, at: $0) }) {
+                    case .removed(let coveredMarks):
+                        completed.removedNodes.append(node)
+                        completed.removedNodes.append(contentsOf: coveredMarks)
+                        continue
+                    case .unchanged(let verification):
+                        completed.error = Self.fileActionError(for: verification, node: node)
+                    case .incomplete(let error):
+                        completed.incompleteNode = node
+                        completed.error = error
+                    }
+                } catch is CancellationError {
+                    break
+                } catch {
+                    completed.error = error
+                }
+                break
+            }
+            self?.confirmedPermanentDeletion = nil
+            onFinish(completed)
+            self?.notifyChanged()
+        }
+        notifyChanged()
     }
 
     func enqueuePostTrashSnapshotRemoval(_ removal: @escaping @MainActor () async -> Void) {

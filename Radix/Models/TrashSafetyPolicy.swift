@@ -156,6 +156,12 @@ nonisolated struct TrashSafetyPolicy: Sendable {
         return .protectedRoot(path: path)
     }
 
+    nonisolated func blocksPermanentDeletion(at url: URL, isDirectory: Bool) -> Bool {
+        let path = Self.standardizedPath(for: url)
+        return protectedRootPaths.contains(path) ||
+            (isDirectory && protectedRootPaths.contains { $0.hasPrefix(path + "/") })
+    }
+
     nonisolated static func parseFirmlinkEntries(_ contents: String) -> [FirmlinkEntry] {
         contents
             .split(whereSeparator: \.isNewline)
