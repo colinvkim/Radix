@@ -22912,47 +22912,6 @@
         }
       }
     },
-    "Review items before moving them to Trash." : {
-      "comment" : "Discard Pile review sheet subtitle.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elemente vor dem Bewegen in den Papierkorb überprüfen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Revisa los elementos antes de trasladarlos a la Papelera."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vérifiez les éléments avant de les placer dans la Corbeille."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Controlla gli elementi prima di spostarli nel Cestino."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Проверьте объекты перед перемещением в Корзину."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移到废纸篓前请检查这些项目。"
-          }
-        }
-      }
-    },
     "Review the Discard Pile" : {
       "extractionState" : "manual",
       "localizations" : {

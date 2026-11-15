@@ -97,7 +97,7 @@ nonisolated enum PermanentDeletion {
             guard renameatx_np(parent, name, staging, name, UInt32(RENAME_EXCL)) == 0 else {
                 throw posixError(errno, path: confirmedURL.path)
             }
-            var beganRemoval = false
+            let retained: Outcome
             do {
                 let captured = try entryStatus(in: staging, name: name)
                 let capturedVerification: TrashIdentityVerificationResult = sameEntry(captured, original)
@@ -105,20 +105,22 @@ nonisolated enum PermanentDeletion {
                     : .mismatch
                 if capturedVerification == .matches {
                     let coveredMarks = verifiedCoveredMarks(stagedURL)
-                    beganRemoval = true
-                    try removeEntry(in: staging, name: name, expected: captured, device: original.st_dev)
+                    do {
+                        try removeEntry(in: staging, name: name, expected: captured, device: original.st_dev)
+                    } catch {
+                        throw Failure.partialDeletion(path: confirmedURL.path)
+                    }
                     return .removed(coveredMarks: coveredMarks)
                 }
-                guard renameatx_np(staging, name, parent, name, UInt32(RENAME_EXCL)) == 0 else {
-                    return recoveryFailure(path: confirmedURL.path, staging: staging, stagedURL: stagedURL)
-                }
-                return .unchanged(capturedVerification)
+                retained = .unchanged(capturedVerification)
             } catch {
-                guard renameatx_np(staging, name, parent, name, UInt32(RENAME_EXCL)) == 0 else {
-                    return recoveryFailure(path: confirmedURL.path, staging: staging, stagedURL: stagedURL)
-                }
-                return .incomplete(error: beganRemoval ? Failure.partialDeletion(path: confirmedURL.path) : error)
+                retained = .incomplete(error: error)
             }
+
+            guard renameatx_np(staging, name, parent, name, UInt32(RENAME_EXCL)) == 0 else {
+                return recoveryFailure(path: confirmedURL.path, staging: staging, stagedURL: stagedURL)
+            }
+            return retained
         }
     }
 

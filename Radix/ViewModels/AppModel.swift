@@ -2434,17 +2434,10 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    func requestMoveDiscardPileToTrash() async -> Bool {
-        await requestDiscardPileCleanup(.moveToTrash)
-    }
-
-    func requestDeleteDiscardPilePermanently() async -> Bool {
-        guard !workspaceTour.isActive else { return false }
-        return await requestDiscardPileCleanup(.deletePermanently)
-    }
-
-    private func requestDiscardPileCleanup(_ action: TrashFlowController.DiscardPileCleanupAction) async -> Bool {
-        guard !isPreparingDiscardPileTrash else { return false }
+    func requestDiscardPileCleanup(_ action: TrashFlowController.DiscardPileCleanupAction) async -> Bool {
+        guard !isPreparingDiscardPileTrash, action != .deletePermanently || !workspaceTour.isActive else {
+            return false
+        }
         do {
             try validateSnapshotAllowsMutation()
             guard canUseWorkspaceCommands, !trashFlow.isMovingFiles else { throw FileActionError.unsupported }
@@ -2495,19 +2488,10 @@ final class AppModel: ObservableObject {
         objectWillChange.send()
     }
 
-    func confirmMovePendingSelectionToTrash() {
-        guard let selection = pendingTrashSelection, selection.action == .moveToTrash else { return }
-        confirmPendingCleanup(selection)
-    }
-
-    func confirmPermanentDeletion() {
-        guard let selection = pendingTrashSelection, selection.action == .deletePermanently else { return }
-        confirmPendingCleanup(selection)
-    }
-
-    private func confirmPendingCleanup(_ selection: PendingTrashSelection) {
-        guard !selection.nodes.isEmpty else { return }
-        let deletesPermanently = selection.action == .deletePermanently
+    func confirmPendingCleanup(_ expectedAction: TrashFlowController.DiscardPileCleanupAction) {
+        guard let selection = pendingTrashSelection, selection.action == expectedAction,
+              !selection.nodes.isEmpty else { return }
+        let deletesPermanently = expectedAction == .deletePermanently
         if !deletesPermanently { pendingTrashSelection = nil }
         defer { if deletesPermanently { pendingTrashSelection = nil } }
 
@@ -2688,15 +2672,8 @@ final class AppModel: ObservableObject {
         let originalSnapshotID = originalSnapshot?.id
         let affectedMovedNodes = moved.affectedNodes
         if !moved.operations.isEmpty {
-            trashFlow.invalidateDiscardPileHistory()
-            sidebarScanCacheController.clearCache()
-            reconcileScanAfterTrash(
-                affectedMovedNodes,
-                resolvedURLs: discardPileBatch?.resolvedURLsByOperationID ?? [:],
-                originalSnapshotID: originalSnapshotID
-            )
-            trashFlow.removeMovedDiscardPileNodes(
-                affectedMovedNodes, from: originalSnapshot, includeSnapshotDescendants: discardPileBatch == nil
+            reconcileRemovedFiles(
+                affectedMovedNodes, originalSnapshot: originalSnapshot, discardPileBatch: discardPileBatch
             )
             recordTrashMove(moved.operations, fileTreeStore: originalSnapshot?.treeStore)
             refreshAvailableTargets()
@@ -2715,32 +2692,45 @@ final class AppModel: ObservableObject {
         batch: TrashFlowController.DiscardPileTrashBatch,
         originalSnapshot: ScanSnapshot?
     ) {
-        let removedNodes = completed.removedNodes
-        if !removedNodes.isEmpty || completed.incompleteNode != nil {
-            trashFlow.invalidateDiscardPileHistory()
-            sidebarScanCacheController.clearCache()
-            reconcileScanAfterTrash(
-                removedNodes,
-                resolvedURLs: batch.resolvedURLsByOperationID,
-                originalSnapshotID: originalSnapshot?.id,
+        if !completed.removedNodes.isEmpty || completed.incompleteNode != nil {
+            reconcileRemovedFiles(
+                completed.removedNodes,
+                originalSnapshot: originalSnapshot,
+                discardPileBatch: batch,
                 incompleteNode: completed.incompleteNode
             )
-            if !removedNodes.isEmpty {
-                trashFlow.removeMovedDiscardPileNodes(
-                    removedNodes, from: originalSnapshot, includeSnapshotDescendants: false
-                )
-            }
             refreshAvailableTargets()
         }
         if let error = completed.error { presentError(error) }
         resumeReadyDeferredArchiveImportIfPossible()
     }
 
+    private func reconcileRemovedFiles(
+        _ removedNodes: [FileNodeRecord],
+        originalSnapshot: ScanSnapshot?,
+        discardPileBatch: TrashFlowController.DiscardPileTrashBatch?,
+        incompleteNode: FileNodeRecord? = nil
+    ) {
+        trashFlow.invalidateDiscardPileHistory()
+        sidebarScanCacheController.clearCache()
+        reconcileScanAfterTrash(
+            removedNodes,
+            resolvedURLs: discardPileBatch?.resolvedURLsByOperationID ?? [:],
+            originalSnapshotID: originalSnapshot?.id,
+            incompleteNode: incompleteNode
+        )
+        if !removedNodes.isEmpty {
+            trashFlow.removeMovedDiscardPileNodes(
+                removedNodes, from: originalSnapshot, includeSnapshotDescendants: discardPileBatch == nil
+            )
+        }
+    }
+
     private func reconcileScanAfterTrash(
         _ movedNodes: [FileNodeRecord],
         resolvedURLs: [FileNodeRecord.ID: URL],
         originalSnapshotID: UUID?,
-        incompleteNode: FileNodeRecord? = nil
+        incompleteNode: FileNodeRecord?
     ) {
         guard let target = scanCoordinator.selectedTarget else { return }
         let snapshot = scanCoordinator.snapshot

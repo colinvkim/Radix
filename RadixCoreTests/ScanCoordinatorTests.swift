@@ -1872,7 +1872,7 @@ struct ScanCoordinatorTests {
         service.finish(scanIndex: 0)
         try await waitUntil("parent scan publishes") { model.scanState.snapshot?.id == parentSnapshot.id }
         try #require(model.requestMoveNodesToTrash([summarized]))
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
         model.selectSidebarTarget(id: child.id)
@@ -1911,7 +1911,7 @@ struct ScanCoordinatorTests {
         try await waitUntil("parent scan publishes") { model.scanState.snapshot?.id == initial.id }
 
         try #require(model.requestMoveNodesToTrash([removed]))
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("tree no longer contains moved node") {
             model.scanState.snapshot?.id == initial.id && model.scanState.fileTreeStore?.node(id: removed.id) == nil
         }
@@ -1958,8 +1958,8 @@ struct ScanCoordinatorTests {
         service.finish(scanIndex: 0)
         try await waitUntil("child scan publishes") { model.scanState.snapshot?.id == childSnapshot.id }
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(await model.requestMoveDiscardPileToTrash())
-        model.confirmMovePendingSelectionToTrash()
+        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
         model.selectSidebarTarget(id: parent.id)
@@ -2033,7 +2033,7 @@ struct ScanCoordinatorTests {
         try await waitUntil("initial scan publishes") { model.scanState.snapshot?.id == baseline.id }
         try #require(model.addNodesToDiscardPile([kept]))
         try #require(model.requestMoveNodesToTrash([moved]))
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
         try #require(model.scanState.rescanFolder(id: child.id))
         let changed = makeTestFileNode(
@@ -2108,8 +2108,8 @@ struct ScanCoordinatorTests {
         model.selectSidebarTarget(id: parent.id)
         try await waitUntil("parent displays") { model.scanState.snapshot?.id == initial.id }
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(await model.requestMoveDiscardPileToTrash())
-        model.confirmMovePendingSelectionToTrash()
+        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
         model.selectSidebarTarget(id: scope.id)
@@ -2196,7 +2196,7 @@ struct ScanCoordinatorTests {
         try #require(model.scanState.snapshot?.id == initial.id)
         #expect(model.discardPileSnapshot.nodes == [marked])
         #expect(model.discardPileRootNodeIDs.isEmpty)
-        #expect(await model.requestMoveDiscardPileToTrash())
+        #expect(await model.requestDiscardPileCleanup(.moveToTrash))
         #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
         #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [marked])
     }
@@ -2700,7 +2700,7 @@ struct ScanCoordinatorTests {
         model.select(nodeID: child.id)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [child])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
 
         try await waitUntil("trashed child removed from current snapshot") {
             model.scanState.snapshot?.treeStore.node(id: child.id) == nil
@@ -2734,13 +2734,13 @@ struct ScanCoordinatorTests {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("first trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
         }
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [second])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("second trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: second.id) == nil
         }
@@ -2772,7 +2772,7 @@ struct ScanCoordinatorTests {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.requestMoveNodesToTrash([first, second])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
 
         try await waitUntil("bulk trashed children removed") {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
@@ -2805,7 +2805,7 @@ struct ScanCoordinatorTests {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [root])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("trashed active root clears snapshot") {
             model.scanState.snapshot == nil
         }
@@ -2870,7 +2870,7 @@ struct ScanCoordinatorTests {
         }
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [secondChild])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("trashed child removed from second snapshot") {
             model.scanState.snapshot?.treeStore.node(id: secondChild.id) == nil
         }

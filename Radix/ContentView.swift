@@ -201,11 +201,7 @@ struct ContentView: View {
                         },
                         cleanup: { action in
                             Task { @MainActor in
-                                let prepared = switch action {
-                                case .moveToTrash: await appModel.requestMoveDiscardPileToTrash()
-                                case .deletePermanently: await appModel.requestDeleteDiscardPilePermanently()
-                                }
-                                if prepared {
+                                if await appModel.requestDiscardPileCleanup(action) {
                                     appModel.dismissDiscardPileReview()
                                 }
                             }
@@ -218,12 +214,7 @@ struct ContentView: View {
                     DiscardPileTrashConfirmationSheet(
                         selection: selection,
                         onCancel: { appModel.cancelPendingTrash() },
-                        onConfirm: {
-                            switch selection.action {
-                            case .moveToTrash: appModel.confirmMovePendingSelectionToTrash()
-                            case .deletePermanently: appModel.confirmPermanentDeletion()
-                            }
-                        }
+                        onConfirm: { appModel.confirmPendingCleanup(selection.action) }
                     )
                 }
             case .importPreview:
@@ -307,7 +298,7 @@ struct ContentView: View {
             titleVisibility: .visible
         ) {
             Button("Move to Trash", role: .destructive) {
-                appModel.confirmMovePendingSelectionToTrash()
+                appModel.confirmPendingCleanup(.moveToTrash)
             }
 
             Button("Cancel", role: .cancel) {

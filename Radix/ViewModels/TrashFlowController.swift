@@ -339,9 +339,11 @@ final class TrashFlowController {
             try Task.checkCancellation()
             let message: String?
             let isDirectory = node.isDirectory && !node.isSymbolicLink
-            if !node.supportsMoveToTrash(trashSafetyPolicy: trashSafetyPolicy) ||
-                (action == .deletePermanently &&
-                    trashSafetyPolicy.blocksPermanentDeletion(at: node.url, isDirectory: isDirectory)) {
+            let isProtected = switch action {
+            case .moveToTrash: trashSafetyPolicy.blockReason(for: node.url) != nil
+            case .deletePermanently: trashSafetyPolicy.blocksPermanentDeletion(at: node.url, isDirectory: isDirectory)
+            }
+            if !node.supportsFileActions || isProtected {
                 message = FileActionError.unsupported.localizedDescription
             } else {
                 let hasIdentity = switch action {
