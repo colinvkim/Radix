@@ -245,7 +245,10 @@ struct FileBrowserTableView: View {
             FileBrowserTableAdapter(
                 presentation: model.presentation,
                 controller: fileDragController,
-                onDragActiveChange: actions.setDiscardPileDragActive
+                onDragActiveChange: actions.setDiscardPileDragActive,
+                makeContextMenu: { selectedIDs in
+                    AnyView(fileContextMenu(for: selectedIDs, isInDiscardPile: isInDiscardPile))
+                }
             )
         }
         .tableStyle(.inset)
