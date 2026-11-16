@@ -218,6 +218,11 @@ final class AppModel: ObservableObject {
         set { trashFlow.pendingTrashSelection = newValue }
     }
 
+    var pendingDiscardPileCleanup: PendingTrashSelection? {
+        guard let selection = pendingTrashSelection, selection.discardPileBatch != nil else { return nil }
+        return selection
+    }
+
     private(set) var pendingCloudFileAction: PendingCloudFileAction? {
         get { trashFlow.pendingCloudFileAction }
         set { trashFlow.pendingCloudFileAction = newValue }
@@ -740,6 +745,10 @@ final class AppModel: ObservableObject {
 
     func dismissDiscardPileReview() {
         cancelDiscardPilePreparation()
+        if pendingDiscardPileCleanup != nil {
+            cancelPendingTrash()
+        }
+        guard showsDiscardPileReview else { return }
         workspaceTour.reviewClosed()
         showsDiscardPileReview = false
     }
@@ -752,8 +761,6 @@ final class AppModel: ObservableObject {
             dismissOnboarding()
         case .discardPileReview:
             dismissDiscardPileReview()
-        case .discardPileTrashConfirmation:
-            cancelPendingTrash()
         case .importPreview:
             cancelImportPreview()
         case .comparisonSetup:
@@ -808,15 +815,10 @@ final class AppModel: ObservableObject {
     }
 
     private func synchronizeTrashConfirmationPresentation() {
-        if let selection = pendingTrashSelection {
-            if selection.discardPileBatch != nil {
-                presentationCoordinator.present(.sheet(.discardPileTrashConfirmation))
-            } else {
-                presentationCoordinator.present(.dialog(.trashConfirmation))
-            }
+        if let selection = pendingTrashSelection, selection.discardPileBatch == nil {
+            presentationCoordinator.present(.dialog(.trashConfirmation))
         } else {
             dismissPresentation(.trashConfirmation)
-            dismissPresentation(.discardPileTrashConfirmation)
         }
     }
 
@@ -2466,13 +2468,13 @@ final class AppModel: ObservableObject {
     func confirmPendingCleanup(_ expectedAction: TrashFlowController.DiscardPileCleanupAction) {
         guard let selection = pendingTrashSelection, selection.action == expectedAction,
               !selection.nodes.isEmpty else { return }
-        let deletesPermanently = expectedAction == .deletePermanently
-        if !deletesPermanently { pendingTrashSelection = nil }
-        defer { if deletesPermanently { pendingTrashSelection = nil } }
+        let isDiscardPileCleanup = selection.discardPileBatch != nil
+        if !isDiscardPileCleanup { pendingTrashSelection = nil }
+        defer { if isDiscardPileCleanup { dismissDiscardPileReview() } }
 
         do {
             try validateSnapshotAllowsMutation()
-            if selection.discardPileBatch == nil {
+            if !isDiscardPileCleanup {
                 try validateDirectTrash(selection.nodes)
             }
 

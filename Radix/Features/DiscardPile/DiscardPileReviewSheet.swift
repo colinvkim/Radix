@@ -5,6 +5,8 @@ struct DiscardPileReviewActions {
     let clear: () -> Void
     let dismiss: () -> Void
     let cleanup: (TrashFlowController.DiscardPileCleanupAction) -> Void
+    let cancelCleanup: () -> Void
+    let confirmCleanup: (TrashFlowController.DiscardPileCleanupAction) -> Void
 }
 
 struct DiscardPileReviewSheet: View {
@@ -14,6 +16,7 @@ struct DiscardPileReviewSheet: View {
     private let summary: DiscardPileSummary
     private let canMoveToTrash: Bool
     private let isPreparingTrash: Bool
+    private let pendingCleanup: TrashFlowController.PendingTrashSelection?
     private let actions: DiscardPileReviewActions
 
     @State private var selection: Set<FileNodeRecord.ID> = []
@@ -23,6 +26,7 @@ struct DiscardPileReviewSheet: View {
         snapshot: DiscardPileSnapshot,
         canMoveToTrash: Bool,
         isPreparingTrash: Bool,
+        pendingCleanup: TrashFlowController.PendingTrashSelection?,
         actions: DiscardPileReviewActions
     ) {
         let rows = snapshot.nodes.map(DiscardPileReviewRow.init)
@@ -31,10 +35,30 @@ struct DiscardPileReviewSheet: View {
         self.summary = snapshot.summary
         self.canMoveToTrash = canMoveToTrash
         self.isPreparingTrash = isPreparingTrash
+        self.pendingCleanup = pendingCleanup
         self.actions = actions
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let pendingCleanup {
+                DiscardPileTrashConfirmationSheet(
+                    selection: pendingCleanup,
+                    onCancel: actions.cancelCleanup,
+                    onConfirm: { actions.confirmCleanup(pendingCleanup.action) }
+                )
+            } else {
+                review
+            }
+        }
+        .onAppear { tour.reviewOpened() }
+        .onChange(of: rowIDs) { previousRowIDs, currentRowIDs in
+            let restoredIDs = currentRowIDs.subtracting(previousRowIDs)
+            selection = restoredIDs.isEmpty ? selection.intersection(currentRowIDs) : restoredIDs
+        }
+    }
+
+    private var review: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Discard Pile")
@@ -81,7 +105,6 @@ struct DiscardPileReviewSheet: View {
         }
         .padding(20)
         .frame(width: 720, height: showsTourGuidance ? 560 : 420)
-        .onAppear { tour.reviewOpened() }
         .confirmationDialog(
             "Clear Discard Pile?",
             isPresented: $isConfirmingClear,
@@ -95,10 +118,6 @@ struct DiscardPileReviewSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes all marked items from the Discard Pile. Files on disk are unchanged.")
-        }
-        .onChange(of: rowIDs) { previousRowIDs, currentRowIDs in
-            let restoredIDs = currentRowIDs.subtracting(previousRowIDs)
-            selection = restoredIDs.isEmpty ? selection.intersection(currentRowIDs) : restoredIDs
         }
     }
 
