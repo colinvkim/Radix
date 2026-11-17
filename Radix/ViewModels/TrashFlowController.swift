@@ -673,7 +673,7 @@ final class TrashFlowController {
             return
         }
 
-        confirmedPermanentDeletion = Task { [weak self] in
+        confirmedPermanentDeletion = Task(priority: .userInitiated) { [weak self] in
             var completed = CompletedPermanentDeletion()
             for node in nodes {
                 do {

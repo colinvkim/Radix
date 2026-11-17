@@ -6,7 +6,7 @@ import Testing
 
 struct PermanentDeletionTests {
     @Test
-    func deletesFolderAndCoveredMarkWithoutFollowingNestedLink() throws {
+    func deletesFolderAndCoveredMarkWithoutFollowingNestedLink() async throws {
         let root = try makeCanonicalTemporaryDirectory()
         let fileManager = FileManager.default
         defer { try? fileManager.removeItem(at: root) }
@@ -24,7 +24,7 @@ struct PermanentDeletionTests {
         let childNode = try scannedNode(at: child)
         let folderNode = try scannedNode(at: folder)
 
-        let outcome = try PermanentDeletion.remove(folderNode, at: folder) { staged in
+        let outcome = try await PermanentDeletion.remove(folderNode, at: folder) { staged in
             let stagedChild = staged.appending(path: "Nested/child")
             return SystemIntegration.verifyTrashIdentity(childNode, at: stagedChild) == .matches ? [childNode] : []
         }
@@ -40,7 +40,7 @@ struct PermanentDeletionTests {
     }
 
     @Test
-    func deletesFinalLinkWithoutTouchingTarget() throws {
+    func deletesFinalLinkWithoutTouchingTarget() async throws {
         let root = try makeCanonicalTemporaryDirectory()
         let fileManager = FileManager.default
         defer { try? fileManager.removeItem(at: root) }
@@ -50,7 +50,7 @@ struct PermanentDeletionTests {
         try contents.write(to: target)
         try fileManager.createSymbolicLink(atPath: link.path, withDestinationPath: target.lastPathComponent)
 
-        let outcome = try PermanentDeletion.remove(scannedNode(at: link), at: link) { _ in [] }
+        let outcome = try await PermanentDeletion.remove(scannedNode(at: link), at: link) { _ in [] }
 
         guard case .removed = outcome else {
             Issue.record("The confirmed symbolic link was not removed.")
@@ -61,7 +61,7 @@ struct PermanentDeletionTests {
     }
 
     @Test
-    func leavesReplacementAtScannedPath() throws {
+    func leavesReplacementAtScannedPath() async throws {
         let root = try makeCanonicalTemporaryDirectory()
         let fileManager = FileManager.default
         defer { try? fileManager.removeItem(at: root) }
@@ -74,7 +74,7 @@ struct PermanentDeletionTests {
         try fileManager.moveItem(at: target, to: moved)
         try replacement.write(to: target)
 
-        let outcome = try PermanentDeletion.remove(node, at: target) { _ in [] }
+        let outcome = try await PermanentDeletion.remove(node, at: target) { _ in [] }
 
         guard case .unchanged(.mismatch) = outcome else {
             Issue.record("Deletion must reject the replacement and report a changed identity.")
@@ -85,7 +85,7 @@ struct PermanentDeletionTests {
     }
 
     @Test
-    func leavesItemWithOnlyUnboundResourceIdentity() throws {
+    func leavesItemWithOnlyUnboundResourceIdentity() async throws {
         let root = try makeCanonicalTemporaryDirectory()
         let fileManager = FileManager.default
         defer { try? fileManager.removeItem(at: root) }
@@ -101,7 +101,7 @@ struct PermanentDeletionTests {
             fileIdentity: FileIdentity(resourceIdentifier: identifier, birthTime: birthTime)
         )
 
-        let outcome = try PermanentDeletion.remove(node, at: target) { _ in [] }
+        let outcome = try await PermanentDeletion.remove(node, at: target) { _ in [] }
 
         guard case .unchanged(.missingScannedIdentity) = outcome else {
             Issue.record("Permanent deletion requires scan evidence tied to a native file identity.")
@@ -111,7 +111,7 @@ struct PermanentDeletionTests {
     }
 
     @Test
-    func leavesOtherHardLinkToSameFile() throws {
+    func leavesOtherHardLinkToSameFile() async throws {
         let root = try makeCanonicalTemporaryDirectory()
         let fileManager = FileManager.default
         defer { try? fileManager.removeItem(at: root) }
@@ -121,7 +121,7 @@ struct PermanentDeletionTests {
         try contents.write(to: target)
         try fileManager.linkItem(at: target, to: retained)
 
-        let outcome = try PermanentDeletion.remove(scannedNode(at: target), at: target) { _ in [] }
+        let outcome = try await PermanentDeletion.remove(scannedNode(at: target), at: target) { _ in [] }
 
         guard case .removed = outcome else {
             Issue.record("The selected hard link was not removed.")
@@ -132,7 +132,7 @@ struct PermanentDeletionTests {
     }
 
     @Test(.enabled(if: geteuid() != 0))
-    func restoresSurvivingFolderAtOriginalPathAfterPartialDeletion() throws {
+    func restoresSurvivingFolderAtOriginalPathAfterPartialDeletion() async throws {
         let root = try makeCanonicalTemporaryDirectory()
         let fileManager = FileManager.default
         let target = root.appending(path: "selected", directoryHint: .isDirectory)
@@ -147,7 +147,7 @@ struct PermanentDeletionTests {
         try Data().write(to: child)
         try #require(chmod(locked.path, 0o500) == 0)
 
-        let outcome = try PermanentDeletion.remove(scannedNode(at: target), at: target) { _ in [] }
+        let outcome = try await PermanentDeletion.remove(scannedNode(at: target), at: target) { _ in [] }
 
         guard case .incomplete = outcome else {
             Issue.record("The partially removed folder must be reported as incomplete.")
@@ -169,7 +169,7 @@ struct PermanentDeletionTests {
 
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try PermanentDeletion.remove(node, at: target) { _ in [] }
+            return try await PermanentDeletion.remove(node, at: target) { _ in [] }
         }
 
         await #expect(throws: CancellationError.self) { try await task.value }

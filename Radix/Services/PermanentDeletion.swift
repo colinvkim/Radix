@@ -24,11 +24,12 @@ nonisolated enum PermanentDeletion {
 
     private static let directoryFlags = O_RDONLY | O_DIRECTORY | O_CLOEXEC
 
+    @concurrent
     static func remove(
         _ node: FileNodeRecord,
         at confirmedURL: URL,
-        verifiedCoveredMarks: (URL) -> [FileNodeRecord]
-    ) throws -> Outcome {
+        verifiedCoveredMarks: @Sendable (URL) -> [FileNodeRecord]
+    ) async throws -> Outcome {
         try Task.checkCancellation()
         let policy = TrashSafetyPolicy.live()
         let isDirectory = node.isDirectory && !node.isSymbolicLink
@@ -63,15 +64,12 @@ nonisolated enum PermanentDeletion {
             let verification = SystemIntegration.verifyTrashIdentity(node, at: actualURL)
             guard verification == .matches else { return .unchanged(verification) }
 
-            var parentStatus = stat()
-            guard fstat(parent, &parentStatus) == 0 else { throw posixError(errno) }
-            guard original.st_dev == parentStatus.st_dev else { throw FileActionError.unsupported }
+            guard original.st_dev == (try descriptorStatus(parent)).st_dev else { throw FileActionError.unsupported }
 
             let stagingName = ".radix-delete-\(UUID().uuidString)"
             guard mkdirat(parent, stagingName, 0o700) == 0 else { throw posixError(errno, path: confirmedURL.path) }
             let stagingStatus = try stagingName.withCString { try entryStatus(in: parent, name: $0) }
-            guard stagingStatus.st_uid == geteuid(),
-                  stagingStatus.st_mode & (S_IFMT | 0o777) == S_IFDIR | 0o700 else {
+            guard stagingStatus.st_uid == geteuid(), stagingStatus.st_mode & S_IFMT == S_IFDIR else {
                 throw FileActionError.unsupported
             }
             defer {
@@ -82,13 +80,12 @@ nonisolated enum PermanentDeletion {
                     }
                 }
             }
+            guard stagingStatus.st_mode & 0o777 == 0o700 else { throw FileActionError.unsupported }
             let staging = openat(parent, stagingName, directoryFlags | O_NOFOLLOW)
             guard staging != -1 else { throw posixError(errno, path: confirmedURL.path) }
             defer { close(staging) }
 
-            var openedStaging = stat()
-            guard fstat(staging, &openedStaging) == 0 else { throw posixError(errno) }
-            guard sameEntry(openedStaging, stagingStatus) else { throw posixError(ESTALE) }
+            guard sameEntry(try descriptorStatus(staging), stagingStatus) else { throw posixError(ESTALE) }
             try clearInheritedAccess(from: staging)
 
             let stagedURL = try directoryURL(for: staging).appending(path: leaf)
@@ -161,9 +158,7 @@ nonisolated enum PermanentDeletion {
             }
             defer { closedir(directory) }
 
-            var openedStatus = stat()
-            guard fstat(descriptor, &openedStatus) == 0 else { throw posixError(errno) }
-            guard sameEntry(openedStatus, status) else { throw posixError(ESTALE) }
+            guard sameEntry(try descriptorStatus(descriptor), status) else { throw posixError(ESTALE) }
 
             while true {
                 errno = 0
@@ -183,6 +178,12 @@ nonisolated enum PermanentDeletion {
         }
 
         guard unlinkat(parent, name, isDirectory ? AT_REMOVEDIR : 0) == 0 else { throw posixError(errno) }
+    }
+
+    private static func descriptorStatus(_ descriptor: Int32) throws -> stat {
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else { throw posixError(errno) }
+        return status
     }
 
     private static func entryStatus(in parent: Int32, name: UnsafePointer<CChar>) throws -> stat {

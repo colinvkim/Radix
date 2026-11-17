@@ -63,16 +63,7 @@ struct AppSystemActions {
                 try SystemIntegration.moveToTrash(node)
             }.value
         },
-        deletePermanently: { node, url, verifiedCoveredMarks in
-            let task = Task.detached(priority: .userInitiated) {
-                try PermanentDeletion.remove(node, at: url, verifiedCoveredMarks: verifiedCoveredMarks)
-            }
-            return try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                task.cancel()
-            }
-        },
+        deletePermanently: PermanentDeletion.remove,
         validateQuickLookSelection: { nodes, source in
             let validation = Task.detached(priority: .userInitiated) {
                 for node in nodes {
