@@ -3486,6 +3486,55 @@ struct AppModelDependencyTests {
     }
 
     @Test
+    func testDocumentOpensDuringPermanentDeletionPreviewInOrder() async throws {
+        let firstURL = URL(filePath: "/tmp/first-during-delete.radixscan", directoryHint: .isDirectory)
+        let secondURL = URL(filePath: "/tmp/second-during-delete.radixscan", directoryHint: .isDirectory)
+        let deletion = AsyncStream<Void>.makeStream()
+        var deletionStarted = false
+        var actions = AppSystemActions.inert
+        actions.deletePermanently = { _, _, _ in
+            deletionStarted = true
+            for await _ in deletion.stream { break }
+            return .removed(coveredMarks: [])
+        }
+        let file = makeTestFileNode(
+            id: "/selection/file.txt", name: "file.txt",
+            fileIdentity: FileIdentity(device: 1, inode: 1, birthTime: Date(timeIntervalSince1970: 1))
+        )
+        let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [file])
+        let store = FileTreeStore(root: root, childrenByID: [root.id: [file]])
+        let snapshot = makeTestSnapshot(root: root, store: store)
+        let archiveService = SpyScanArchiveService(previewResultsByURL: [
+            firstURL: try makeArchivePreview(archiveURL: firstURL, snapshot: snapshot),
+            secondURL: try makeArchivePreview(archiveURL: secondURL, snapshot: snapshot),
+        ])
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
+        defer {
+            deletion.continuation.finish()
+            model.cleanup()
+        }
+        model.dismissOnboarding()
+        model.scanState.restoreCompletedSnapshot(snapshot)
+        try #require(model.addNodesToDiscardPile([file]))
+        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        model.confirmPendingCleanup(.deletePermanently)
+        try await waitUntil("permanent deletion starts") { deletionStarted }
+
+        model.openScanSnapshotArchive(firstURL)
+        model.openScanSnapshotArchive(secondURL)
+        #expect(await archiveService.previewedURLsSnapshot().isEmpty)
+        deletion.continuation.finish()
+
+        try await waitUntil("an archive preview appears after deletion") { model.pendingImportPreview != nil }
+        try #require(model.pendingImportPreview?.archiveURL == firstURL)
+        #expect(await archiveService.previewedURLsSnapshot() == [firstURL])
+        model.cancelImportPreview()
+
+        try await waitUntil("the second archive preview appears") { model.pendingImportPreview?.archiveURL == secondURL }
+        #expect(await archiveService.previewedURLsSnapshot() == [firstURL, secondURL])
+    }
+
+    @Test
     func testCancelArchiveOperationCancelsImportWork() async throws {
         let archiveURL = URL(filePath: "/tmp/import-cancelled.radixscan", directoryHint: .isDirectory)
         let file = makeTestFileNode(id: "/import-cancelled/file.txt", name: "file.txt")

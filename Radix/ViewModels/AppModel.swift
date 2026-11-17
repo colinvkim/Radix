@@ -317,7 +317,6 @@ final class AppModel: ObservableObject {
     private var exportPanelRequestID: UUID?
     private(set) var comparisonPanelTask: Task<Void, Never>?
     private var comparisonPanelRequestID: UUID?
-    private var readyDeferredArchiveImportURL: URL?
     private var exportConfirmationDismissTask: Task<Void, Never>?
     private var fullDiskAccessRefreshTask: Task<Void, Never>?
     private(set) var targetCapacityDescriptionsRefreshTask: Task<Void, Never>?
@@ -402,7 +401,7 @@ final class AppModel: ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
         archiveWorkflow.onBecameIdle = { [weak self] in
-            self?.resumeReadyDeferredArchiveImportIfPossible()
+            self?.resumeDeferredArchiveImportIfPossible()
             self?.fileTransferReconciliation.resumeIfPossible()
         }
         trashFlow.onChange = { [weak self] in
@@ -474,10 +473,9 @@ final class AppModel: ObservableObject {
         comparisonPanelTask = nil
         comparisonPanelRequestID = nil
         isExportPanelPresented = false
-        readyDeferredArchiveImportURL = nil
+        presentationCoordinator.reset()
         cancelArchiveOperation()
         dismissExportConfirmation()
-        presentationCoordinator.reset()
         showsDiscardPileReview = false
         pendingComparisonSetup = nil
         pendingImportPreview = nil
@@ -773,9 +771,7 @@ final class AppModel: ObservableObject {
         if showsOnboarding {
             presentationCoordinator.present(.sheet(.onboarding))
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .onboarding)
-            )
+            dismissPresentation(.onboarding)
         }
     }
 
@@ -783,9 +779,7 @@ final class AppModel: ObservableObject {
         if showsDiscardPileReview {
             presentationCoordinator.present(.sheet(.discardPileReview))
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .discardPileReview)
-            )
+            dismissPresentation(.discardPileReview)
         }
     }
 
@@ -793,9 +787,7 @@ final class AppModel: ObservableObject {
         if let pendingImportPreview {
             presentationCoordinator.present(.sheet(.importPreview(pendingImportPreview.id)))
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .importPreview)
-            )
+            dismissPresentation(.importPreview)
         }
     }
 
@@ -803,9 +795,7 @@ final class AppModel: ObservableObject {
         if let pendingComparisonSetup {
             presentationCoordinator.present(.sheet(.comparisonSetup(pendingComparisonSetup.id)))
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .comparisonSetup)
-            )
+            dismissPresentation(.comparisonSetup)
         }
     }
 
@@ -813,9 +803,7 @@ final class AppModel: ObservableObject {
         if lastErrorMessage != nil {
             presentationCoordinator.present(.dialog(.error))
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .error)
-            )
+            dismissPresentation(.error)
         }
     }
 
@@ -827,12 +815,8 @@ final class AppModel: ObservableObject {
                 presentationCoordinator.present(.dialog(.trashConfirmation))
             }
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .trashConfirmation)
-            )
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .discardPileTrashConfirmation)
-            )
+            dismissPresentation(.trashConfirmation)
+            dismissPresentation(.discardPileTrashConfirmation)
         }
     }
 
@@ -840,28 +824,24 @@ final class AppModel: ObservableObject {
         if pendingCloudFileAction != nil {
             presentationCoordinator.present(.dialog(.cloudFileConfirmation))
         } else {
-            resumeDeferredArchiveImport(
-                presentationCoordinator.cancel(kind: .cloudFileConfirmation)
-            )
+            dismissPresentation(.cloudFileConfirmation)
         }
     }
 
-    private func resumeDeferredArchiveImport(_ sourceURL: URL?) {
-        guard let sourceURL else { return }
-        guard !isArchiveOperationInProgress, !trashFlow.isDeletingPermanently else {
-            readyDeferredArchiveImportURL = sourceURL
-            return
-        }
-        beginImportScanSnapshot(from: sourceURL)
+    private var canStartDeferredArchiveImport: Bool {
+        !isArchiveOperationInProgress && !trashFlow.isDeletingPermanently
     }
 
-    private func resumeReadyDeferredArchiveImportIfPossible() {
-        guard !isArchiveOperationInProgress, !trashFlow.isDeletingPermanently,
-              let sourceURL = readyDeferredArchiveImportURL else {
-            return
+    private func dismissPresentation(_ kind: AppPresentationCoordinator.DestinationKind) {
+        if let sourceURL = presentationCoordinator.cancel(kind: kind, canStartArchiveImport: canStartDeferredArchiveImport) {
+            beginImportScanSnapshot(from: sourceURL)
         }
-        readyDeferredArchiveImportURL = nil
-        beginImportScanSnapshot(from: sourceURL)
+    }
+
+    private func resumeDeferredArchiveImportIfPossible() {
+        if let sourceURL = presentationCoordinator.advance(canStartArchiveImport: canStartDeferredArchiveImport) {
+            beginImportScanSnapshot(from: sourceURL)
+        }
     }
 
     func refreshFullDiskAccessStatus() {
@@ -1110,12 +1090,7 @@ final class AppModel: ObservableObject {
     /// macOS can deliver this while another modal flow (notably onboarding) is
     /// active, so document opens are serialized instead of rejected or overlaid.
     func openScanSnapshotArchive(_ sourceURL: URL) {
-        guard presentationCoordinator.requestArchiveImport(sourceURL) == .startNow else {
-            return
-        }
-        if trashFlow.isDeletingPermanently {
-            readyDeferredArchiveImportURL = sourceURL
-        } else {
+        if presentationCoordinator.requestArchiveImport(sourceURL, canStartArchiveImport: canStartDeferredArchiveImport) == .startNow {
             beginImportScanSnapshot(from: sourceURL)
         }
     }
@@ -1980,7 +1955,7 @@ final class AppModel: ObservableObject {
     }
 
     func dismissGoToPath() {
-        resumeDeferredArchiveImport(presentationCoordinator.cancel(kind: .goToPath))
+        dismissPresentation(.goToPath)
     }
 
     func goToPath(
@@ -2702,7 +2677,7 @@ final class AppModel: ObservableObject {
             refreshAvailableTargets()
         }
         if let error = completed.error { presentError(error) }
-        resumeReadyDeferredArchiveImportIfPossible()
+        resumeDeferredArchiveImportIfPossible()
     }
 
     private func reconcileRemovedFiles(
