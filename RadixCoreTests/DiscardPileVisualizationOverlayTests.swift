@@ -283,7 +283,6 @@ struct DiscardPileVisualizationOverlayTests {
                 snapshot: snapshot,
                 focusNode: fixture.root,
                 showFreeSpace: false,
-                availableCapacity: nil,
                 maxRenderedDepth: 6,
                 discardPileRootNodeIDs: queuedNodeIDs
             )
@@ -292,7 +291,6 @@ struct DiscardPileVisualizationOverlayTests {
             snapshot: snapshot,
             focusNode: fixture.root,
             showFreeSpace: false,
-            availableCapacity: nil,
             maxRenderedDepth: 7,
             discardPileRootNodeIDs: queuedNodeIDSets.last ?? []
         )
@@ -300,7 +298,6 @@ struct DiscardPileVisualizationOverlayTests {
             snapshot: snapshot,
             focusNode: fixture.root,
             showFreeSpace: false,
-            availableCapacity: nil,
             maxRenderedDepth: 6,
             discardPileRootNodeIDs: queuedNodeIDSets.last ?? [],
             movingToTrashRootNodeIDs: [fixture.folder.id]

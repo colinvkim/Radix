@@ -10,8 +10,7 @@ struct SettingsDiskMapPreview: View {
         let input = DiskMapFreeSpaceVisualization.input(
             snapshot: Self.snapshot,
             focusNode: Self.snapshot.root,
-            showFreeSpace: showFreeSpace,
-            availableCapacity: 48_000_000_000
+            showFreeSpace: showFreeSpace
         )
 
         Canvas { context, size in
@@ -105,7 +104,11 @@ struct SettingsDiskMapPreview: View {
             target: ScanTarget(id: rootID, url: root.url, displayName: rootID, kind: .volume),
             treeStore: FileTreeStore(root: root, childrenByID: childrenByID),
             startedAt: .distantPast, finishedAt: .distantPast,
-            scanWarnings: [], isComplete: true
+            scanWarnings: [], isComplete: true,
+            volumeCapacity: VolumeCapacitySnapshot(
+                totalCapacity: 160_000_000_000,
+                availableCapacity: 48_000_000_000
+            )
         )
     }()
 }

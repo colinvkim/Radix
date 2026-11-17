@@ -13,7 +13,6 @@ struct ActiveWorkspaceView: View {
     let discardPileRootNodeIDs: Set<FileNodeRecord.ID>
     let movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>
     let fullDiskAccessStatus: FullDiskAccessStatus
-    let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let actions: WorkspaceActions
 
     var body: some View {
@@ -56,7 +55,6 @@ struct ActiveWorkspaceView: View {
             snapshot: snapshot,
             focusNode: focusNode,
             showFreeSpace: showFreeSpaceInDiskMaps,
-            availableCapacity: freeSpaceAvailableCapacity(snapshot, focusNode),
             maxRenderedDepth: maxRenderedDepth,
             discardPileRootNodeIDs: discardPileRootNodeIDs,
             movingToTrashRootNodeIDs: movingToTrashRootNodeIDs

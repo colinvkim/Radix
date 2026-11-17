@@ -347,7 +347,7 @@ struct TreemapChartView: View {
         }
 
         let status = discardPileOverlay.role(for: displayedNode.id)?.statusText
-            ?? summaryStatus(for: displayedNode)
+            ?? displayedNode.itemKind(activeTarget: activeTarget)
         return String(localized: "\(displayedNode.displayName), \(RadixFormatters.size(displayedNode.allocatedSize)), \(status)", comment: "Accessibility value describing the selected treemap tile.")
     }
 
@@ -492,12 +492,6 @@ struct TreemapChartView: View {
               let nodeID = segment.nodeID,
               let session = fileDragController.prepare(nodeIDs: [nodeID]) else { return nil }
         return TreemapFileDragItem(session: session, segment: segment)
-    }
-
-    private func summaryStatus(for node: FileNodeRecord) -> String {
-        DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id)
-            ? String(localized: "Available Space", comment: "Chart status for free capacity on a volume.")
-            : node.itemKind(activeTarget: activeTarget)
     }
 
     private func zoomViewport(

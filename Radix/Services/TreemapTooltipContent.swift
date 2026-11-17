@@ -32,7 +32,7 @@ nonisolated struct TreemapTooltipContent: Equatable, Sendable {
 
         let metadata: String
         if DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
-            metadata = String(localized: "APFS available capacity", comment: "Tooltip metadata describing free space on an APFS volume.")
+            metadata = String(localized: "Free space at scan time", comment: "Disk map detail for free space recorded in a volume scan.")
         } else if node.isDirectory {
             metadata = fileCountDescription(node.descendantFileCount)
         } else if let lastModified = node.lastModified {
