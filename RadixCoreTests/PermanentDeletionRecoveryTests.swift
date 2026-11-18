@@ -13,18 +13,16 @@ struct PermanentDeletionRecoveryTests {
         let parent = root.appending(path: "folder")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: false)
         let target = parent.appending(path: "selected")
-        let stage = parent.appending(path: ".radix-delete-\(UUID().uuidString)")
-        let captured = stage.appending(path: target.lastPathComponent)
         let survivor = Data("surviving contents".utf8)
         let replacement = Data("replacement".utf8)
         try survivor.write(to: target)
-        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
 
+        let stage = try registerStagingDirectory(for: target, journal: journal)
+        let captured = stage.appending(path: target.lastPathComponent)
         let owner = open(stage.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         try #require(owner != -1)
         defer { close(owner) }
         try #require(flock(owner, LOCK_EX | LOCK_NB) == 0)
-        _ = try register(stage: stage, target: target, journal: journal)
         try FileManager.default.moveItem(at: target, to: captured)
         #expect(await PermanentDeletionRecovery.restoreInterrupted(in: journal).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: target.path))
@@ -55,11 +53,9 @@ struct PermanentDeletionRecoveryTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = root.appending(path: "receipts")
         let target = root.appending(path: "selection")
-        let stage = root.appending(path: ".radix-delete-\(UUID().uuidString)")
         let contents = Data("original".utf8)
         try contents.write(to: target)
-        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
-        _ = try register(stage: stage, target: target, journal: journal)
+        let stage = try registerStagingDirectory(for: target, journal: journal)
 
         #expect(await PermanentDeletionRecovery.restoreInterrupted(in: journal).isEmpty)
         #expect(try Data(contentsOf: target) == contents)
@@ -67,15 +63,19 @@ struct PermanentDeletionRecoveryTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: journal.path).isEmpty)
     }
 
-    private func register(stage: URL, target: URL, journal: URL) throws -> PermanentDeletionRecovery.Receipt {
+    private func registerStagingDirectory(for target: URL, journal: URL) throws -> URL {
         let parent = target.deletingLastPathComponent()
+        let stagingID = UUID()
+        let stage = parent.appending(path: ".radix-delete-\(stagingID.uuidString)")
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
         var parentStatus = stat()
         var stagingStatus = stat()
         try #require(lstat(parent.path, &parentStatus) == 0)
         try #require(lstat(stage.path, &stagingStatus) == 0)
-        return try PermanentDeletionRecovery.register(
-            parentURL: parent, stagingName: stage.lastPathComponent, leaf: target.lastPathComponent,
+        _ = try PermanentDeletionRecovery.register(
+            parentURL: parent, stagingID: stagingID, leaf: target.lastPathComponent,
             parentStatus: parentStatus, stagingStatus: stagingStatus, in: journal
         )
+        return stage
     }
 }

@@ -64,7 +64,8 @@ nonisolated enum PermanentDeletion {
             let parentStatus = try descriptorStatus(parent)
             guard original.st_dev == parentStatus.st_dev else { throw FileActionError.unsupported }
 
-            let stagingName = ".radix-delete-\(UUID().uuidString)"
+            let stagingID = UUID()
+            let stagingName = PermanentDeletionRecovery.stagingName(for: stagingID.uuidString)
             guard mkdirat(parent, stagingName, 0o700) == 0 else { throw posixError(errno, path: confirmedURL.path) }
             let stagingStatus = try stagingName.withCString { try entryStatus(in: parent, name: $0) }
             guard stagingStatus.st_uid == geteuid(), stagingStatus.st_mode & S_IFMT == S_IFDIR else {
@@ -90,7 +91,7 @@ nonisolated enum PermanentDeletion {
 
             try Task.checkCancellation()
             receipt = try PermanentDeletionRecovery.register(
-                parentURL: actualParent, stagingName: stagingName, leaf: leaf,
+                parentURL: actualParent, stagingID: stagingID, leaf: leaf,
                 parentStatus: parentStatus, stagingStatus: stagingStatus
             )
             guard renameatx_np(parent, name, staging, name, UInt32(RENAME_EXCL)) == 0 else {
