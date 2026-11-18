@@ -161,10 +161,11 @@ final class AppPresentationCoordinator: ObservableObject {
     }
 
     func advance(canStartArchiveImport: Bool) -> URL? {
-        guard activeDestination == nil, let next = queue.first else { return nil }
-        if case .archiveImport = next, !canStartArchiveImport { return nil }
-        queue.removeFirst()
-        switch next {
+        guard activeDestination == nil, let index = queue.firstIndex(where: { entry in
+            if case .archiveImport = entry { return canStartArchiveImport }
+            return true
+        }) else { return nil }
+        switch queue.remove(at: index) {
         case .destination(let destination):
             activeDestination = destination
             return nil

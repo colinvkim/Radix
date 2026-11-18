@@ -24,9 +24,8 @@ struct PermanentDeletionTests {
         let childNode = try scannedNode(at: child)
         let folderNode = try scannedNode(at: folder)
 
-        let outcome = try await PermanentDeletion.remove(folderNode, at: folder) { staged in
-            let stagedChild = staged.appending(path: "Nested/child")
-            return SystemIntegration.verifyTrashIdentity(childNode, at: stagedChild) == .matches ? [childNode] : []
+        let outcome = try await PermanentDeletion.remove(folderNode, at: folder) { matches in
+            matches(childNode, "Nested/child") ? [childNode] : []
         }
 
         guard case .removed(let coveredMarks) = outcome else {
@@ -175,6 +174,71 @@ struct PermanentDeletionTests {
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(try Data(contentsOf: target) == contents)
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["selected"])
+    }
+
+    @Test
+    func cancellationAfterCaptureRestoresSurvivingContents() async throws {
+        let root = try makeCanonicalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appending(path: "selected", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let sentinel = folder.appending(path: "sentinel")
+        let contents = Data("keep".utf8)
+        try contents.write(to: sentinel)
+        let node = try scannedNode(at: folder)
+
+        let task = Task {
+            try await PermanentDeletion.remove(node, at: folder) { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+                return []
+            }
+        }
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(try Data(contentsOf: sentinel) == contents)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["selected"])
+    }
+
+    @Test
+    func deletesDeeplyNestedFolder() async throws {
+        let root = try makeCanonicalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root.appending(path: "selected", directoryHint: .isDirectory)
+        let deepest = target.appending(path: Array(repeating: "d", count: 256).joined(separator: "/"))
+        try FileManager.default.createDirectory(at: deepest, withIntermediateDirectories: true)
+        try Data().write(to: deepest.appending(path: "sentinel"))
+
+        let outcome = try await PermanentDeletion.remove(scannedNode(at: target), at: target) { _ in [] }
+
+        guard case .removed = outcome else {
+            Issue.record("The deeply nested folder was not removed.")
+            return
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+    }
+
+    @Test
+    func deletesLongOriginalPathWithCoveredChild() async throws {
+        let root = try makeCanonicalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var parent = root
+        while parent.path.utf8.count < 900 { parent.append(path: String(repeating: "p", count: 90)) }
+        let target = parent.appending(path: String(repeating: "f", count: 993 - parent.path.utf8.count))
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let child = target.appending(path: "covered")
+        try Data().write(to: child)
+        let childNode = try scannedNode(at: child)
+
+        let outcome = try await PermanentDeletion.remove(scannedNode(at: target), at: target) { matches in
+            matches(childNode, "covered") ? [childNode] : []
+        }
+
+        guard case .removed(let marks) = outcome else {
+            Issue.record("The original folder could be opened but was not removed.")
+            return
+        }
+        #expect(marks.map(\.id) == [childNode.id])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: parent.path).isEmpty)
     }
 
     private func makeCanonicalTemporaryDirectory() throws -> URL {
