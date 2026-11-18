@@ -2569,23 +2569,28 @@ struct AppModelDependencyTests {
             deleted.append(item.id)
             return .removed(coveredMarks: [])
         }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        let snapshot = makeTestSnapshot(root: root, store: tree)
+        let archiveURL = URL(filePath: "/tmp/queued-during-cloud-cleanup.radixscan")
+        let archive = SpyScanArchiveService(previewResult: try makeArchivePreview(archiveURL: archiveURL, snapshot: snapshot))
+        let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archive))
         defer { model.cleanup() }
         model.dismissOnboarding()
-        model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: tree))
+        model.scanState.restoreCompletedSnapshot(snapshot)
         try #require(model.addNodesToDiscardPile([node]))
         model.confirmPendingCloudFileAction()
         model.presentDiscardPileReview()
 
         try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        model.openScanSnapshotArchive(archiveURL)
         model.confirmPendingCleanup(.deletePermanently)
         #expect(model.pendingCloudFileAction?.kind == .deletePermanently)
-        #expect(model.presentationCoordinator.activeDialog == .cloudFileConfirmation)
+        try #require(model.presentationCoordinator.activeDialog == .cloudFileConfirmation)
         #expect(deleted.isEmpty)
 
         model.confirmPendingCloudFileAction()
         try await waitUntil("cloud file was permanently deleted") { model.discardPile.isEmpty }
         #expect(deleted == [node.id])
+        try await waitUntil("queued archive opens after cloud cleanup") { model.pendingImportPreview?.archiveURL == archiveURL }
     }
 
     @Test
@@ -2605,17 +2610,21 @@ struct AppModelDependencyTests {
             return makeTestSnapshot(target: target, root: root, store: store)
         }
 
+        let archiveURL = URL(filePath: "/tmp/queued-during-recovery.radixscan")
+        let initialSnapshot = snapshot(children: [removed, remaining])
+        let archive = SpyScanArchiveService(previewResult: try makeArchivePreview(archiveURL: archiveURL, snapshot: initialSnapshot))
         let scanService = ControlledAppModelScanService()
         var actions = AppSystemActions.inert
         actions.deletePermanently = { _, _, _ in .incomplete(error: FileActionError.unsupported) }
         let model = AppModel(dependencies: makeDependencies(
-            availableRecentIDs: [target.id], systemActions: actions, scanService: scanService
+            availableRecentIDs: [target.id], systemActions: actions, scanService: scanService, scanArchiveService: archive
         ))
         defer { model.cleanup() }
 
+        model.dismissOnboarding()
         model.startScan(target)
         try await waitUntil("initial scan can publish") { !scanService.requests.isEmpty }
-        scanService.yield(.finished(snapshot(children: [removed, remaining])), scanIndex: 0)
+        scanService.yield(.finished(initialSnapshot), scanIndex: 0)
         scanService.finish(scanIndex: 0)
         try await waitUntil("folder is visible with both children") {
             model.scanState.fileTreeStore?.children(of: folderPath).count == 2
@@ -2626,13 +2635,73 @@ struct AppModelDependencyTests {
         try #require(await model.requestDiscardPileCleanup(.deletePermanently))
 
         model.confirmPendingCleanup(.deletePermanently)
+        model.openScanSnapshotArchive(archiveURL)
 
         try await waitUntil("refresh can publish after partial deletion") { scanService.requests.count >= 2 }
+        try #require(model.presentationCoordinator.activeDialog == .error)
+        model.dismissErrorPresentation()
+        #expect(model.lastErrorMessage == nil)
         scanService.yield(.finished(snapshot(children: [remaining])), scanIndex: 1)
         scanService.finish(scanIndex: 1)
         try await waitUntil("folder is visible with only its surviving child") {
             model.scanState.fileTreeStore?.children(of: folderPath).map(\.id) == [remaining.id]
         }
+        try await waitUntil("queued archive opens after recovery") { model.pendingImportPreview?.archiveURL == archiveURL }
+    }
+
+    @Test
+    func testRescanThatObservedDeletionStagingIsRefreshed() async throws {
+        let target = makeTestTarget("/staged-cleanup")
+        let file = makeTestFileNode(
+            id: target.id + "/selected", name: "selected", size: 899,
+            fileIdentity: FileIdentity(device: 1, inode: 1, birthTime: Date(timeIntervalSince1970: 1))
+        )
+        let staged = makeTestSummarizedDirectoryNode(id: target.id + "/.radix-delete-temporary", name: ".radix-delete-temporary", size: 899)
+        let retained = makeTestFileNode(id: target.id + "/keep", name: "keep", size: 10)
+        func snapshot(_ children: [FileNodeRecord]) -> ScanSnapshot {
+            let root = makeTestDirectoryNode(id: target.id, name: target.displayName, children: children)
+            return makeTestSnapshot(target: target, root: root, store: FileTreeStore(root: root, childrenByID: [root.id: children]))
+        }
+
+        let scan = ControlledAppModelScanService()
+        let deletion = AsyncStream<Void>.makeStream()
+        var actions = AppSystemActions.inert
+        actions.deletePermanently = { _, _, _ in
+            for await _ in deletion.stream { break }
+            return .removed(coveredMarks: [])
+        }
+        let model = AppModel(dependencies: makeDependencies(
+            availableRecentIDs: [target.id], systemActions: actions, scanService: scan
+        ))
+        defer {
+            deletion.continuation.finish()
+            model.cleanup()
+        }
+        model.dismissOnboarding()
+        model.startScan(target)
+        try await waitUntil { scan.requests.count == 1 }
+        scan.yield(.finished(snapshot([file, retained])), scanIndex: 0)
+        scan.finish(scanIndex: 0)
+        try await waitUntil { model.scanState.fileTreeStore?.node(id: file.id) != nil }
+        try #require(model.sidebar.activeTargetID == target.id)
+        try #require(model.addNodesToDiscardPile([file]))
+        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        model.confirmPendingCleanup(.deletePermanently)
+
+        model.rescanEntireScan()
+        try await waitUntil { scan.requests.count == 2 }
+        scan.yield(.finished(snapshot([staged, retained])), scanIndex: 1)
+        scan.finish(scanIndex: 1)
+        try await waitUntil { model.scanState.fileTreeStore?.node(id: staged.id) != nil }
+        model.removeRecentTarget(target)
+        try #require(model.sidebar.activeTargetID == nil)
+        deletion.continuation.finish()
+        try await waitUntil("deletion has reconciled the displayed scan") { model.discardPile.isEmpty }
+        try #require(scan.requests.count == 3)
+        scan.yield(.finished(snapshot([retained])), scanIndex: 2)
+        scan.finish(scanIndex: 2)
+        try await waitUntil { model.scanState.snapshot?.root.allocatedSize == retained.allocatedSize }
+        #expect(model.scanState.fileTreeStore?.children(of: target.id) == [retained])
     }
 
     @Test(arguments: [false, true])

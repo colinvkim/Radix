@@ -737,6 +737,7 @@ final class AppModel: ObservableObject {
         sidebarModel.setActiveTargetID(saved.sidebarTargetID)
         scanVisualizationMode = saved.visualization
         tourSession.finish()
+        resumeDeferredArchiveImportIfPossible()
     }
 
     func presentDiscardPileReview() {
@@ -831,7 +832,7 @@ final class AppModel: ObservableObject {
     }
 
     private var canStartDeferredArchiveImport: Bool {
-        !isArchiveOperationInProgress && !trashFlow.isDeletingPermanently
+        canImportScanSnapshot && pendingTrashSelection == nil && pendingCloudFileAction == nil
     }
 
     private func dismissPresentation(_ kind: AppPresentationCoordinator.DestinationKind) {
@@ -992,6 +993,7 @@ final class AppModel: ObservableObject {
                     self.isExportPanelPresented = false
                     self.exportPanelTask = nil
                     self.exportPanelRequestID = nil
+                    self.resumeDeferredArchiveImportIfPossible()
                 }
             }
 
@@ -2469,8 +2471,10 @@ final class AppModel: ObservableObject {
         guard let selection = pendingTrashSelection, selection.action == expectedAction,
               !selection.nodes.isEmpty else { return }
         let isDiscardPileCleanup = selection.discardPileBatch != nil
-        if !isDiscardPileCleanup { pendingTrashSelection = nil }
-        defer { if isDiscardPileCleanup { dismissDiscardPileReview() } }
+        defer {
+            pendingTrashSelection = nil
+            if isDiscardPileCleanup { dismissDiscardPileReview() }
+        }
 
         do {
             try validateSnapshotAllowsMutation()
@@ -2496,9 +2500,7 @@ final class AppModel: ObservableObject {
 
     func confirmPendingCloudFileAction() {
         guard let action = pendingCloudFileAction else { return }
-        let deletesPermanently = action.kind == .deletePermanently
-        if !deletesPermanently { pendingCloudFileAction = nil }
-        defer { if deletesPermanently { pendingCloudFileAction = nil } }
+        defer { pendingCloudFileAction = nil }
 
         do {
             switch action.request {
@@ -2596,7 +2598,9 @@ final class AppModel: ObservableObject {
             trashFlow.startPermanentDeletion(
                 selection.nodes, batch: batch, delete: dependencies.systemActions.deletePermanently
             ) { [weak self] completed in
-                self?.finishPermanentDeletion(completed, batch: batch, originalSnapshot: originalSnapshot)
+                self?.finishPermanentDeletion(
+                    completed, requestedNodes: selection.nodes, batch: batch, originalSnapshot: originalSnapshot
+                )
             }
         }
     }
@@ -2653,7 +2657,6 @@ final class AppModel: ObservableObject {
                 affectedMovedNodes, originalSnapshot: originalSnapshot, discardPileBatch: discardPileBatch
             )
             recordTrashMove(moved.operations, fileTreeStore: originalSnapshot?.treeStore)
-            refreshAvailableTargets()
         }
 
         trashFlow.unhideUnmovedTrashNodes(
@@ -2666,18 +2669,19 @@ final class AppModel: ObservableObject {
 
     private func finishPermanentDeletion(
         _ completed: TrashFlowController.CompletedPermanentDeletion,
+        requestedNodes: [FileNodeRecord],
         batch: TrashFlowController.DiscardPileTrashBatch,
         originalSnapshot: ScanSnapshot?
     ) {
-        if !completed.removedNodes.isEmpty || completed.incompleteNode != nil {
-            reconcileRemovedFiles(
-                completed.removedNodes,
-                originalSnapshot: originalSnapshot,
-                discardPileBatch: batch,
-                incompleteNode: completed.incompleteNode
-            )
-            refreshAvailableTargets()
-        }
+        let scanOverlappedDeletion = scanCoordinator.isScanOperationInProgress || scanCoordinator.expandingNodeID != nil ||
+            scanCoordinator.snapshot?.treeStore.contentID != originalSnapshot?.treeStore.contentID
+        reconcileRemovedFiles(
+            completed.removedNodes,
+            originalSnapshot: originalSnapshot,
+            discardPileBatch: batch,
+            incompleteNode: completed.incompleteNode,
+            possiblyStagedNodes: scanOverlappedDeletion ? requestedNodes : []
+        )
         if let error = completed.error { presentError(error) }
         resumeDeferredArchiveImportIfPossible()
     }
@@ -2686,28 +2690,32 @@ final class AppModel: ObservableObject {
         _ removedNodes: [FileNodeRecord],
         originalSnapshot: ScanSnapshot?,
         discardPileBatch: TrashFlowController.DiscardPileTrashBatch?,
-        incompleteNode: FileNodeRecord? = nil
+        incompleteNode: FileNodeRecord? = nil,
+        possiblyStagedNodes: [FileNodeRecord] = []
     ) {
-        trashFlow.invalidateDiscardPileHistory()
+        let changedFiles = !removedNodes.isEmpty || incompleteNode != nil
+        guard changedFiles || !possiblyStagedNodes.isEmpty else { return }
+        if changedFiles { trashFlow.invalidateDiscardPileHistory() }
         sidebarScanCacheController.clearCache()
         reconcileScanAfterTrash(
             removedNodes,
             resolvedURLs: discardPileBatch?.resolvedURLsByOperationID ?? [:],
             originalSnapshotID: originalSnapshot?.id,
-            incompleteNode: incompleteNode
+            nodesNeedingRescan: possiblyStagedNodes.isEmpty ? [incompleteNode].compactMap { $0 } : possiblyStagedNodes
         )
         if !removedNodes.isEmpty {
             trashFlow.removeMovedDiscardPileNodes(
                 removedNodes, from: originalSnapshot, includeSnapshotDescendants: discardPileBatch == nil
             )
         }
+        if changedFiles { refreshAvailableTargets() }
     }
 
     private func reconcileScanAfterTrash(
         _ movedNodes: [FileNodeRecord],
         resolvedURLs: [FileNodeRecord.ID: URL],
         originalSnapshotID: UUID?,
-        incompleteNode: FileNodeRecord?
+        nodesNeedingRescan: [FileNodeRecord]
     ) {
         guard let target = scanCoordinator.selectedTarget else { return }
         let snapshot = scanCoordinator.snapshot
@@ -2726,10 +2734,13 @@ final class AppModel: ObservableObject {
             }
             return paths.filter { $0 != node.id }.map { (id: $0, node: node) }
         }
-        let paths = movedNodes.map { (id: $0.id, node: $0) } + movedNodes.flatMap { alternatePathEntries(for: $0) }
-        let incompletePaths = incompleteNode.map { [(id: $0.id, node: $0)] + alternatePathEntries(for: $0) } ?? []
+        func pathEntries(for nodes: [FileNodeRecord]) -> [(id: String, node: FileNodeRecord)] {
+            nodes.map { (id: $0.id, node: $0) } + nodes.flatMap { alternatePathEntries(for: $0) }
+        }
+        let paths = pathEntries(for: movedNodes)
+        let rescanPaths = pathEntries(for: nodesNeedingRescan)
         let targetPaths = [target.id, resolvedTargetPath]
-        let rootMayHaveMoved = (paths + incompletePaths).contains { id, node in
+        let rootMayHaveMoved = (paths + rescanPaths).contains { id, node in
             targetPaths.contains { targetPath in
                 id == targetPath || (node.isDirectory && !node.isSymbolicLink && Self.path(targetPath, isWithin: id))
             }
@@ -2744,11 +2755,12 @@ final class AppModel: ObservableObject {
             }
         }
 
-        if incompletePaths.contains(where: { entry in
+        if rescanPaths.contains(where: { entry in
             targetPaths.contains { path in
                 Self.path(entry.id, isWithin: path) || Self.path(path, isWithin: entry.id)
             }
-        }), restartCurrentScanAfterTrash(target, snapshot: snapshot) {
+        }) {
+            if !restartCurrentScanAfterTrash(target, snapshot: snapshot) { clearScanAfterTrash(target) }
             return
         }
 
@@ -2844,7 +2856,7 @@ final class AppModel: ObservableObject {
     }
 
     private func restartCurrentScanAfterTrash(_ target: ScanTarget, snapshot: ScanSnapshot?) -> Bool {
-        guard sidebarModel.activeTargetID == target.id,
+        guard sidebarModel.activeTargetID == nil || sidebarModel.activeTargetID == target.id,
               deferredWorkBoxes[.scanStart] == nil, deferredWorkBoxes[.sidebarSelection] == nil else { return false }
         let options = snapshot?.scanOptions ?? scanOptions(for: target)
         sidebarScanCacheController.prepareForScanStart(target: target, options: options)
@@ -3286,6 +3298,7 @@ final class AppModel: ObservableObject {
 
         scanCoordinator.onBecameIdle = { [weak self] in
             self?.fileTransferReconciliation.resumeIfPossible()
+            Task { @MainActor [weak self] in self?.resumeDeferredArchiveImportIfPossible() }
         }
         scanCoordinator.onScanFinished = { [weak self] snapshot in
             self?.recordCompletedScan(snapshot)

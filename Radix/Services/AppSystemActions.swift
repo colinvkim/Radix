@@ -23,7 +23,7 @@ nonisolated struct TrashMoveOutcome: Sendable {
 @MainActor
 struct AppSystemActions {
     typealias DeletePermanently = @MainActor (
-        FileNodeRecord, URL, @escaping @Sendable (URL) -> [FileNodeRecord]
+        FileNodeRecord, URL, @escaping PermanentDeletion.VerifyCoveredMarks
     ) async throws -> PermanentDeletion.Outcome
 
     var open: (URL) throws -> Void

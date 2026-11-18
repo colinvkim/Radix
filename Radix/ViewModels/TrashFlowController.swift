@@ -112,22 +112,29 @@ final class TrashFlowController {
         }
 
         func verifyCoveredMarks(for operation: FileNodeRecord, at destination: URL) -> [FileNodeRecord] {
-            guard let marks = coveredMarks[operation.id] else { return [] }
-            let canonicalDestination = try? destination.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
-            return marks.compactMap { mark in
-                let movedURL: URL
-                if mark.relativePath.isEmpty {
-                    let original = SystemIntegration.verifyTrashIdentity(mark.node)
-                    guard original == .missingCurrentItem || original == .mismatch else { return nil }
-                    movedURL = destination
-                } else {
-                    movedURL = destination.appending(path: mark.relativePath)
+            lazy var canonicalDestination = try? destination.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
+            return verifyCoveredMarks(for: operation) { node, relativePath in
+                let movedURL = relativePath.isEmpty ? destination : destination.appending(path: relativePath)
+                if !relativePath.isEmpty {
                     // A replaced intermediate directory could redirect this path outside Trash.
                     guard let canonicalDestination,
                           let path = try? movedURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath,
-                          path.hasPrefix(canonicalDestination + "/") else { return nil }
+                          path.hasPrefix(canonicalDestination + "/") else { return false }
                 }
-                return SystemIntegration.verifyTrashIdentity(mark.node, at: movedURL) == .matches ? mark.node : nil
+                return SystemIntegration.verifyTrashIdentity(node, at: movedURL) == .matches
+            }
+        }
+
+        func verifyCoveredMarks(
+            for operation: FileNodeRecord, matches: (FileNodeRecord, String) -> Bool
+        ) -> [FileNodeRecord] {
+            guard let marks = coveredMarks[operation.id] else { return [] }
+            return marks.compactMap { mark in
+                if mark.relativePath.isEmpty {
+                    let original = SystemIntegration.verifyTrashIdentity(mark.node)
+                    guard original == .missingCurrentItem || original == .mismatch else { return nil }
+                }
+                return matches(mark.node, mark.relativePath) ? mark.node : nil
             }
         }
     }
@@ -282,7 +289,13 @@ final class TrashFlowController {
     func cancelConfirmedTrashMoves() {
         for task in confirmedTrashMoveTasks.values { task.cancel() }
         confirmedTrashMoveTasks.removeAll()
+        cancelPermanentDeletion()
+    }
+
+    @discardableResult
+    func cancelPermanentDeletion() -> Task<Void, Never>? {
         confirmedPermanentDeletion?.cancel()
+        return confirmedPermanentDeletion
     }
 
     func cancelPostTrashSnapshotRemoval() {
@@ -681,7 +694,7 @@ final class TrashFlowController {
                     guard let url = batch.resolvedURLsByOperationID[node.id] else {
                         throw FileActionError.unsupported
                     }
-                    switch try await delete(node, url, { batch.verifyCoveredMarks(for: node, at: $0) }) {
+                    switch try await delete(node, url, { batch.verifyCoveredMarks(for: node, matches: $0) }) {
                     case .removed(let coveredMarks):
                         completed.removedNodes.append(node)
                         completed.removedNodes.append(contentsOf: coveredMarks)

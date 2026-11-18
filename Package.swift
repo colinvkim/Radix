@@ -68,6 +68,7 @@ let package = Package(
                 "Services/IncrementalScanService.swift",
                 "Services/PackageClassifier.swift",
                 "Services/PermanentDeletion.swift",
+                "Services/PermanentDeletionRecovery.swift",
                 "Services/FileActionValidation.swift",
                 "Services/FileDragController.swift",
                 "Services/RecentTargetStore.swift",
