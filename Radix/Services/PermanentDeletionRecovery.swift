@@ -40,16 +40,16 @@ nonisolated enum PermanentDeletionRecovery {
     }
 
     private static let liveDirectory = URL.applicationSupportDirectory.appending(path: "com.colinkim.Radix/Deletion Recovery")
-    private static let stagingPrefix = ".radix-delete-"
+
+    static func stagingName(for uuidString: String) -> String {
+        ".radix-delete-\(uuidString)"
+    }
 
     static func register(
-        parentURL: URL, stagingName: String, leaf: String, parentStatus: stat, stagingStatus: stat,
+        parentURL: URL, stagingID: UUID, leaf: String, parentStatus: stat, stagingStatus: stat,
         in directory: URL = liveDirectory
     ) throws -> Receipt {
-        let id = String(stagingName.dropFirst(stagingPrefix.count))
-        guard stagingName == stagingPrefix + id, UUID(uuidString: id) != nil, validLeaf(leaf) else {
-            throw CocoaError(.fileWriteInvalidFileName)
-        }
+        guard validLeaf(leaf) else { throw CocoaError(.fileWriteInvalidFileName) }
         let selected = parentURL.appending(path: leaf).path
         let storage = directory.resolvingSymlinksInPath().path
         let storagePaths = [storage, TrashSafetyPolicy.alternateStartupVolumePath(for: storage)].compactMap { $0 }
@@ -67,7 +67,7 @@ nonisolated enum PermanentDeletionRecovery {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
         )
-        let receipt = Receipt(url: directory.appending(path: id + ".json"))
+        let receipt = Receipt(url: directory.appending(path: stagingID.uuidString + ".json"))
         try JSONEncoder().encode(record).write(to: receipt.url, options: .atomic)
         return receipt
     }
@@ -90,7 +90,7 @@ nonisolated enum PermanentDeletionRecovery {
             do {
                 let record = try JSONDecoder().decode(Record.self, from: Data(contentsOf: url))
                 guard validParent(record.parentURL), validLeaf(record.leaf) else { throw CocoaError(.fileReadCorruptFile) }
-                try restore(record, stagingName: stagingPrefix + id, receipt: Receipt(url: url))
+                try restore(record, stagingName: stagingName(for: id), receipt: Receipt(url: url))
             } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
                 // Another instance may have finished this receipt after we listed it.
                 continue
