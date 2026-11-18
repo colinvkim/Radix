@@ -5,6 +5,19 @@ import Testing
 
 struct TrashSafetyPolicyTests {
     @Test
+    func testPermanentDeletionProtectsRootsInsideMarkedFolders() {
+        let parent = URL(filePath: "/Volumes/External/Homes")
+        let home = parent.appending(path: "alex")
+        let policy = TrashSafetyPolicy(homeDirectory: home, mountedVolumeURLs: [], firmlinkEntries: [])
+
+        #expect(policy.blocksPermanentDeletion(at: parent, isDirectory: true))
+        #expect(!policy.blocksPermanentDeletion(at: parent, isDirectory: false))
+        #expect(policy.blocksPermanentDeletion(at: home, isDirectory: true))
+        #expect(!policy.blocksPermanentDeletion(at: home.appending(path: "Downloads"), isDirectory: true))
+        #expect(policy.blockReason(for: parent) == nil)
+    }
+
+    @Test
     func testFirmlinkParserHandlesCommentsWhitespaceAndDefaultDataPaths() {
         let entries = TrashSafetyPolicy.parseFirmlinkEntries("""
             # startup-volume boundaries

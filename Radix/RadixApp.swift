@@ -4,7 +4,8 @@ import SwiftUI
 
 @main
 struct RadixApp: App {
-    @StateObject private var appModel = AppModel()
+    @NSApplicationDelegateAdaptor(RadixAppDelegate.self) private var delegate
+    private var appModel: AppModel { delegate.appModel }
     @StateObject private var softwareUpdates: SoftwareUpdateModel
     private let updaterController: SPUStandardUpdaterController
     private let issueReportURL = URL(string: "https://github.com/colinvkim/Radix/issues/new/choose")
@@ -52,5 +53,28 @@ struct RadixApp: App {
             SettingsView(softwareUpdates: softwareUpdates)
                 .environmentObject(appModel)
         }
+    }
+}
+
+@MainActor
+private final class RadixAppDelegate: NSObject, NSApplicationDelegate {
+    let appModel = AppModel()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task {
+            let errors = await PermanentDeletionRecovery.restoreInterrupted()
+            if !errors.isEmpty {
+                appModel.lastErrorMessage = errors.map(\.localizedDescription).joined(separator: "\n")
+            }
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let deletion = appModel.trashFlow.cancelPermanentDeletion() else { return .terminateNow }
+        Task {
+            await deletion.value
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }

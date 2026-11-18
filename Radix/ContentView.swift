@@ -199,9 +199,9 @@ struct ContentView: View {
                         dismiss: {
                             appModel.dismissDiscardPileReview()
                         },
-                        moveToTrash: {
+                        cleanup: { action in
                             Task { @MainActor in
-                                if await appModel.requestMoveDiscardPileToTrash() {
+                                if await appModel.requestDiscardPileCleanup(action) {
                                     appModel.dismissDiscardPileReview()
                                 }
                             }
@@ -214,7 +214,7 @@ struct ContentView: View {
                     DiscardPileTrashConfirmationSheet(
                         selection: selection,
                         onCancel: { appModel.cancelPendingTrash() },
-                        onConfirm: { appModel.confirmMovePendingSelectionToTrash() }
+                        onConfirm: { appModel.confirmPendingCleanup(selection.action) }
                     )
                 }
             case .importPreview:
@@ -298,7 +298,7 @@ struct ContentView: View {
             titleVisibility: .visible
         ) {
             Button("Move to Trash", role: .destructive) {
-                appModel.confirmMovePendingSelectionToTrash()
+                appModel.confirmPendingCleanup(.moveToTrash)
             }
 
             Button("Cancel", role: .cancel) {
@@ -329,6 +329,7 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {
                 appModel.cancelPendingCloudFileAction()
             }
+            .keyboardShortcut(appModel.pendingCloudFileAction?.kind == .deletePermanently ? .defaultAction : nil)
         } message: {
             Text(cloudFileConfirmationMessage)
         }
@@ -876,6 +877,10 @@ private extension ContentView {
             return String(localized: "Move Cloud Item to Trash?", comment: "Second confirmation title before moving one cloud-stored item to the Trash.")
         case (.moveToTrash, false):
             return String(localized: "Move Cloud Items to Trash?", comment: "Second confirmation title before moving multiple cloud-stored items to the Trash.")
+        case (.deletePermanently, true):
+            return String(localized: "Delete Cloud Item Permanently?", comment: "Second confirmation title before permanently deleting one cloud-stored item.")
+        case (.deletePermanently, false):
+            return String(localized: "Delete Cloud Items Permanently?", comment: "Second confirmation title before permanently deleting multiple cloud-stored items.")
         }
     }
 
@@ -885,16 +890,18 @@ private extension ContentView {
             String(localized: "Add to Discard Pile", comment: "Confirmation button for adding a cloud-stored item to the Discard Pile.")
         case .moveToTrash:
             String(localized: "Move to Trash", comment: "Confirmation button for moving a cloud-stored item to the Trash.")
+        case .deletePermanently:
+            String(localized: "Delete Permanently", comment: "Confirmation button for permanently deleting cloud-stored items.")
         case nil:
             String(localized: "Continue", comment: "Fallback action title for a cloud-file confirmation dialog.")
         }
     }
 
     var cloudFileConfirmationButtonRole: ButtonRole? {
-        guard case .moveToTrash = appModel.pendingCloudFileAction?.kind else {
-            return nil
+        switch appModel.pendingCloudFileAction?.kind {
+        case .moveToTrash, .deletePermanently: .destructive
+        case .addToDiscardPile, nil: nil
         }
-        return .destructive
     }
 
     var cloudFileConfirmationMessage: String {
@@ -910,6 +917,10 @@ private extension ContentView {
             return String(localized: "This selection contains a cloud storage folder. If you later move it to the Trash, cloud files inside it may also be deleted from the cloud and other synced devices.", comment: "Warning shown before adding an ancestor of a cloud storage folder to the Discard Pile.")
         case (.moveToTrash, .containsCloudStorage):
             return String(localized: "This selection contains a cloud storage folder. Moving it to the Trash may also delete cloud files inside it from the cloud and other synced devices.", comment: "Second warning shown before moving an ancestor of a cloud storage folder to the Trash.")
+        case (.deletePermanently, .storedInCloud):
+            return String(localized: "This selection is stored in cloud storage. Permanently deleting it may also delete it from the cloud and other synced devices.", comment: "Second warning shown before permanently deleting cloud-stored items.")
+        case (.deletePermanently, .containsCloudStorage):
+            return String(localized: "This selection contains a cloud storage folder. Permanently deleting it may also delete cloud files inside it from the cloud and other synced devices.", comment: "Second warning shown before permanently deleting an ancestor of a cloud storage folder.")
         }
     }
 }
