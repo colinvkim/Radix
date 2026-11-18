@@ -2527,13 +2527,16 @@ struct AppModelDependencyTests {
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         defer { model.cleanup() }
+        model.dismissOnboarding()
         model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: tree))
         try #require(model.addNodesToDiscardPile(nodes))
+        model.presentDiscardPileReview()
 
         try #require(await model.requestDiscardPileCleanup(.deletePermanently))
         #expect(model.pendingTrashSelection?.nodes == nodes)
         model.cancelPendingTrash()
         model.confirmPendingCleanup(.deletePermanently)
+        #expect(model.presentationCoordinator.activeSheet == .discardPileReview)
         #expect(deleted.isEmpty)
         #expect(model.discardPileSnapshot.nodes == nodes)
 
@@ -2543,6 +2546,7 @@ struct AppModelDependencyTests {
         #expect(deleted.isEmpty)
 
         model.confirmPendingCleanup(.deletePermanently)
+        #expect(model.presentationCoordinator.activeSheet == nil)
         try await waitUntil("permanent deletion reports the incomplete item") { model.lastErrorMessage != nil }
         #expect(deleted == [first.id])
         #expect(model.discardPileSnapshot.nodes == [failed, unattempted])
@@ -2574,6 +2578,7 @@ struct AppModelDependencyTests {
         model.scanState.restoreCompletedSnapshot(snapshot)
         try #require(model.addNodesToDiscardPile([node]))
         model.confirmPendingCloudFileAction()
+        model.presentDiscardPileReview()
 
         try #require(await model.requestDiscardPileCleanup(.deletePermanently))
         model.openScanSnapshotArchive(archiveURL)
