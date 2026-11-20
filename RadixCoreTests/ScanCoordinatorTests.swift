@@ -1029,11 +1029,12 @@ struct ScanCoordinatorTests {
     }
 
     @Test(arguments: [false, true])
-    func testBackgroundRefreshWaitsToApplyAndRejectsReplacedContext(replaceContext: Bool) async throws {
+    func testBackgroundRefreshWaitsToApplyAndPreservesConcurrentRemoval(removeFile: Bool) async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service)
         let target = makeCoordinatorTarget("/scan/deferred")
         let baseline = makeCoordinatorSnapshot(target: target, scanOptions: ScanOptions())
+        let originalFile = try #require(baseline.treeStore.children(of: target.id).first)
         coordinator.restoreCompletedSnapshot(baseline)
         var canApply = false
         var applicationCheckCount = 0
@@ -1045,25 +1046,26 @@ struct ScanCoordinatorTests {
         coordinator.onFolderRescanFinished = { _, success in completion = success }
         #expect(coordinator.refreshFolderInBackground(id: target.id))
         let changedFile = makeTestFileNode(id: target.id + "/changed.dat", name: "changed.dat", size: 40)
-        let changedRoot = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [changedFile])
+        let refreshedFiles = [originalFile, changedFile]
+        let changedRoot = makeTestDirectoryNode(id: target.id, name: target.displayName, children: refreshedFiles)
         service.yield(.finished(makeCoordinatorSnapshot(
             target: target,
             root: changedRoot,
-            store: FileTreeStore(root: changedRoot, childrenByID: [target.id: [changedFile]])
+            store: FileTreeStore(root: changedRoot, childrenByID: [target.id: refreshedFiles])
         )), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("refresh waits for safe application") { applicationCheckCount > 0 }
         #expect(completion == nil)
         #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
-        let newerSnapshot = makeCoordinatorSnapshot(target: target, scanOptions: ScanOptions())
-        if replaceContext {
-            coordinator.restoreCompletedSnapshot(newerSnapshot)
+        if removeFile {
+            let didRemove = await coordinator.removeNodesFromCurrentSnapshot([originalFile])
+            try #require(didRemove)
         }
         canApply = true
         try await waitUntil("deferred refresh completed") { completion != nil }
-        #expect(completion == (replaceContext ? .cancelled : .updated))
-        if replaceContext {
-            #expect(coordinator.snapshot?.treeStore.contentID == newerSnapshot.treeStore.contentID)
+        #expect(completion == (removeFile ? .cancelled : .updated))
+        if removeFile {
+            #expect(coordinator.snapshot?.treeStore.children(of: target.id).isEmpty == true)
         } else {
             #expect(coordinator.snapshot?.treeStore.node(id: changedFile.id) == changedFile)
         }

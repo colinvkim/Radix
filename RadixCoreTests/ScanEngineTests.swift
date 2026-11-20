@@ -4897,7 +4897,7 @@ struct ScanEngineTests {
         for index in 0..<12 {
             let shardURL = cacheURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: shardURL, withIntermediateDirectories: true)
-            try Data(repeating: UInt8(index), count: 8_192)
+            try Data(repeating: UInt8(index), count: 8_192 + index)
                 .write(to: shardURL.appending(path: "payload.bin"))
             try Data([0xFF]).write(to: shardURL.appending(path: "ignored.tmp"))
         }
@@ -4925,8 +4925,12 @@ struct ScanEngineTests {
             #expect(profile.reusedEntryCount > 0)
         #endif
         #expect(enabledSnapshot.scanWarnings.isEmpty)
-        #expect(enabledSnapshot.aggregateStats.fileCount == 12)
-        #expect(enabledSnapshot.aggregateStats.totalLogicalSize == 98_304)
+        for index in 0..<12 {
+            let shardURL = cacheURL.appending(path: "shard-\(index)", directoryHint: .isDirectory)
+            let files = enabledSnapshot.treeStore.children(of: shardURL.path)
+            #expect(files.map(\.id) == [shardURL.appending(path: "payload.bin").path])
+            #expect(files.first?.logicalSize == Int64(8_192 + index))
+        }
     }
 
     #if DEBUG
