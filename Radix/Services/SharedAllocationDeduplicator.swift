@@ -26,63 +26,6 @@ nonisolated struct SharedAllocationDeduplicator {
         )
     }
 
-    nonisolated static func deduplicatedStore(
-        rootID: String,
-        nodesByID inputNodesByID: [String: FileNodeRecord],
-        childIDsByID inputChildIDsByID: [String: [String]],
-        parentIDByID: [String: String],
-        aggregateStats: ScanAggregateStats,
-        sharedAllocationAccumulator: SharedAllocationOwnerAccumulator,
-        minimumAllocatedSizeByNodeID: [String: Int64]
-    ) -> FileTreeStore {
-        let duplicateAllocatedSizeByOwner = sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
-        guard !duplicateAllocatedSizeByOwner.isEmpty else {
-            return FileTreeStore(
-                verifiedRootID: rootID,
-                nodesByID: inputNodesByID,
-                childIDsByID: inputChildIDsByID,
-                aggregateStats: aggregateStats
-            )
-        }
-
-        var nodesByID = inputNodesByID
-        var childIDsByID = inputChildIDsByID
-        var changedNodeIDs: Set<String> = []
-
-        for (nodeID, duplicateAllocatedSize) in duplicateAllocatedSizeByOwner {
-            guard let node = nodesByID[nodeID] else { continue }
-            let minimumAllocatedSize = minimumAllocatedSizeByNodeID[nodeID] ?? 0
-            let allocatedSize = max(minimumAllocatedSize, node.allocatedSize - duplicateAllocatedSize)
-            nodesByID[nodeID] = node.replacingAllocatedSize(allocatedSize)
-            changedNodeIDs.insert(nodeID)
-        }
-
-        rebuildAffectedAncestorDirectories(
-            for: changedNodeIDs,
-            nodesByID: &nodesByID,
-            childIDsByID: &childIDsByID,
-            parentIDByID: parentIDByID,
-            cancellationCheck: {}
-        )
-
-        let root = nodesByID[rootID] ?? inputNodesByID[rootID]
-        let deduplicatedStats = ScanAggregateStats(
-            totalAllocatedSize: root?.allocatedSize ?? aggregateStats.totalAllocatedSize,
-            totalLogicalSize: root?.logicalSize ?? aggregateStats.totalLogicalSize,
-            fileCount: aggregateStats.fileCount,
-            directoryCount: aggregateStats.directoryCount,
-            accessibleItemCount: aggregateStats.accessibleItemCount,
-            inaccessibleItemCount: aggregateStats.inaccessibleItemCount
-        )
-
-        return FileTreeStore(
-            verifiedRootID: rootID,
-            nodesByID: nodesByID,
-            childIDsByID: childIDsByID,
-            aggregateStats: deduplicatedStats
-        )
-    }
-
     nonisolated static func deduplicatedNode(
         _ node: FileNodeRecord,
         duplicateAllocatedSize: Int64,
@@ -98,7 +41,7 @@ nonisolated struct SharedAllocationDeduplicator {
 
     nonisolated static func rebalancedStore(
         _ store: FileTreeStore,
-        cancellationCheck: () throws -> Void = {}
+        cancellationCheck: () throws -> Void
     ) throws -> FileTreeStore {
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
         var claimNodeIndices: [FileTreeNodeIndex] = []
@@ -176,38 +119,6 @@ nonisolated struct SharedAllocationDeduplicator {
         return replacements
     }
 
-    private nonisolated static func rebuildAffectedAncestorDirectories(
-        for changedNodeIDs: Set<String>,
-        nodesByID: inout [String: FileNodeRecord],
-        childIDsByID: inout [String: [String]],
-        parentIDByID: [String: String],
-        cancellationCheck: () throws -> Void = {}
-    ) rethrows {
-        let affectedDirectoryIDs = affectedAncestorDirectoryIDs(
-            for: changedNodeIDs,
-            nodesByID: nodesByID,
-            parentIDByID: parentIDByID
-        )
-        for nodeID in affectedDirectoryIDs {
-            try cancellationCheck()
-            guard let node = nodesByID[nodeID], node.isDirectory else { continue }
-            let children = (childIDsByID[nodeID] ?? []).compactMap { nodesByID[$0] }
-            let sortedChildren = FileTreeStore.sortedChildren(children)
-            nodesByID[nodeID] = FileNodeRecord.directory(
-                id: node.id,
-                url: node.url,
-                name: node.name,
-                children: sortedChildren,
-                lastModified: node.lastModified,
-                fileIdentity: node.fileIdentity,
-                linkCount: node.linkCount,
-                isPackage: node.isPackage,
-                isAccessible: node.isSelfAccessible
-            )
-            childIDsByID[nodeID] = sortedChildren.map(\.id)
-        }
-    }
-
     nonisolated static func claim(for node: FileNodeRecord) -> SharedAllocationClaim? {
         guard !node.isDirectory,
               !node.isSymbolicLink,
@@ -230,56 +141,6 @@ nonisolated struct SharedAllocationDeduplicator {
         )
     }
 
-    private nonisolated static func affectedAncestorDirectoryIDs(
-        for changedNodeIDs: Set<String>,
-        nodesByID: [String: FileNodeRecord],
-        parentIDByID: [String: String]
-    ) -> [String] {
-        guard !changedNodeIDs.isEmpty else { return [] }
-
-        var affectedDirectoryIDs = Set<String>()
-        var visitedAncestorIDs = Set<String>()
-        for changedNodeID in changedNodeIDs {
-            var cursor = parentIDByID[changedNodeID]
-            while let currentID = cursor {
-                guard visitedAncestorIDs.insert(currentID).inserted else { break }
-                if nodesByID[currentID]?.isDirectory == true {
-                    affectedDirectoryIDs.insert(currentID)
-                }
-                cursor = parentIDByID[currentID]
-            }
-        }
-
-        var depthByDirectoryID: [String: Int] = [:]
-        depthByDirectoryID.reserveCapacity(affectedDirectoryIDs.count)
-        for directoryID in affectedDirectoryIDs {
-            depthByDirectoryID[directoryID] = treeDepth(of: directoryID, parentIDByID: parentIDByID)
-        }
-
-        return affectedDirectoryIDs.sorted { lhs, rhs in
-            let lhsDepth = depthByDirectoryID[lhs] ?? 0
-            let rhsDepth = depthByDirectoryID[rhs] ?? 0
-            if lhsDepth == rhsDepth {
-                return lhs < rhs
-            }
-            return lhsDepth > rhsDepth
-        }
-    }
-
-    private nonisolated static func treeDepth(
-        of nodeID: String,
-        parentIDByID: [String: String]
-    ) -> Int {
-        var depth = 0
-        var cursor = nodeID
-
-        while let parentID = parentIDByID[cursor] {
-            depth += 1
-            cursor = parentID
-        }
-
-        return depth
-    }
 }
 
 nonisolated struct SharedAllocationClaim: Sendable {
@@ -289,22 +150,6 @@ nonisolated struct SharedAllocationClaim: Sendable {
     let path: String
     let allocatedSize: Int64
     let cloneAllocatedSize: Int64
-
-    init(
-        identity: FileIdentity,
-        ownerNodeID: String,
-        path: String,
-        allocatedSize: Int64
-    ) {
-        self.init(
-            hardLinkIdentity: identity,
-            cloneIdentity: nil,
-            ownerNodeID: ownerNodeID,
-            path: path,
-            allocatedSize: allocatedSize,
-            cloneAllocatedSize: 0
-        )
-    }
 
     init(
         hardLinkIdentity: FileIdentity?,

@@ -325,31 +325,19 @@ struct AtomicProbeReplayTests {
         #expect(outcome.reusableDirectoryListings[childURL.path] == nil)
     }
 
-    #if DEBUG
     @Test
-    func testProbePreservesFirmlinkIdentityException() throws {
+    func testProbeReadsChildrenOfStartupFirmlinkDespiteDifferentDirectoryIdentity() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
-        let firmlinkURL = URL(filePath: "/Users", directoryHint: .isDirectory)
-        #expect(!ScanEngine.verifiesDirectoryIdentity(at: firmlinkURL))
-        let discovered = DirectoryEntry(
-            url: firmlinkURL,
-            metadata: try ScanMetadataLoader().metadata(for: rootURL)
+        let firmlinkURL = URL(filePath: "/private", directoryHint: .isDirectory)
+        let discovered = DirectoryEntry(url: firmlinkURL, metadata: try ScanMetadataLoader().metadata(for: rootURL))
+        let outcome = try probe(
+            at: rootURL, minFileCount: 1, rootEntries: [discovered],
+            exclusionMatcher: ScanExclusionMatcher(patterns: ["private/*"], rootPath: "/")
         )
-        let diagnostics = ScanDiagnostics()
-        let cancellation = CancellationProbe(throwOnCheck: 5)
-        #expect(throws: CancellationError.self) {
-            try probe(
-                at: rootURL,
-                minFileCount: 3,
-                cancellationCheck: cancellation.check,
-                rootEntries: [discovered],
-                diagnostics: diagnostics
-            )
-        }
-        #expect(try nativeCursorOpenCount(diagnostics, rootURL: rootURL) == 2)
+        #expect(outcome.visitedItemCount > 1)
+        #expect(outcome.fullyExhausted)
     }
-    #endif
 
     @Test
     func testEagerListingValidatesDiscoveredIdentity() throws {
@@ -470,6 +458,7 @@ private func probe(
     cancellationCheck: CancellationCheck = {},
     orderedChildNames: [String]? = nil,
     rootEntries suppliedRootEntries: [DirectoryEntry]? = nil,
+    exclusionMatcher: ScanExclusionMatcher? = nil,
     maxAverageFileSize: Int64 = 1,
     isNodeDependencyLayout: Bool = true,
     diagnostics: ScanDiagnosticsContext? = nil
@@ -504,7 +493,7 @@ private func probe(
         isNodeDependencyLayout: isNodeDependencyLayout,
         minFileCount: minFileCount,
         maxAverageFileSize: maxAverageFileSize,
-        exclusionMatcher: ScanExclusionMatcher(patterns: [], rootURL: rootURL),
+        exclusionMatcher: exclusionMatcher ?? ScanExclusionMatcher(patterns: [], rootURL: rootURL),
         cancellationCheck: cancellationCheck,
         metrics: &metrics,
         continuation: continuation,
@@ -512,15 +501,6 @@ private func probe(
         replayEntryLimit: replayEntryLimit,
         forcedBulkFailure: forcedBulkFailure
     )
-}
-
-private func fixtureDescriptorCount(at directoryURL: URL) throws -> Int {
-    let expected = try ScanMetadataLoader().fileSystemIdentity(at: directoryURL)
-    return try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").reduce(0) { count, name in
-        guard let descriptor = Int32(name) else { return count }
-        var status = stat()
-        return count + (fstat(descriptor, &status) == 0 && FileIdentity(fileSystemStatus: status) == expected ? 1 : 0)
-    }
 }
 
 private func replaySnapshot(

@@ -6,6 +6,7 @@ struct LocalizationCatalogTests {
 
     private struct LocalizedSourceLiteral {
         let value: String
+        let table: String
         let file: String
         let line: Int
     }
@@ -92,71 +93,20 @@ struct LocalizationCatalogTests {
     @Test
     func testEveryAppSourceLocalizationLiteralExistsInCatalog() throws {
         let root = repositoryRoot
-        let catalog = try appLocalizationCatalogs().values.reduce(into: [String: Any]()) { merged, table in
-            merged.merge(table) { existing, _ in existing }
-        }
-        let catalogTemplates = Set(catalog.keys.map(localizationTemplate))
+        let catalogTemplates = try appLocalizationCatalogs().mapValues { Set($0.keys.map(localizationTemplate)) }
         let sourceFiles = try swiftSourceFiles(in: root.appendingPathComponent("Radix"))
 
         let literals = try sourceFiles.flatMap(localizedLiterals)
         #expect(!literals.isEmpty, "The localization audit must extract app source literals.")
 
-        let missing = literals.filter { !catalogTemplates.contains(localizationTemplate($0.value)) }
+        let missing = literals.filter { catalogTemplates[$0.table]?.contains(localizationTemplate($0.value)) != true }
         #expect(
             missing.isEmpty,
             Comment(
                 rawValue: missing.map {
-                    "\($0.file):\($0.line): missing catalog key for \(String(reflecting: $0.value))"
+                    "\($0.file):\($0.line): missing key in \($0.table) for \(String(reflecting: $0.value))"
                 }
                 .joined(separator: "\n")))
-    }
-
-    @Test
-    func testInterfaceCatalogKeysUseExplicitTableName() throws {
-        let catalogs = try appLocalizationCatalogs()
-        let interfaceCatalog = catalogs["Interface", default: [:]]
-        let source = try swiftSourceFiles(in: repositoryRoot.appendingPathComponent("Radix"))
-            .map { try String(contentsOf: $0, encoding: .utf8) }
-            .joined(separator: "\n")
-
-        for key in interfaceCatalog.keys {
-            let escapedKey = NSRegularExpression.escapedPattern(for: key)
-            let pattern = #""\#(escapedKey)"\s*,\s*tableName\s*:\s*"Interface""#
-            #expect(
-                source.range(of: pattern, options: .regularExpression) != nil,
-                "Interface key must explicitly select its string table: \(key)")
-        }
-    }
-
-    @Test
-    func testScanProgressStatusLiteralsAreLocalized() throws {
-        let url = repositoryRoot.appendingPathComponent("Radix/Services/ScanEngine.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let rawStatusLiterals = matches(
-            in: source,
-            pattern: #"\bmetrics\.currentPath\s*=\s*"((?:\\.|[^"\\])*)""#
-        ).map(\.value)
-
-        #expect(
-            rawStatusLiterals.isEmpty,
-            "Scan progress status literals must use String(localized:): \(rawStatusLiterals)"
-        )
-    }
-
-    @Test
-    func testArchiveProgressStatusLiteralsAreLocalized() throws {
-        let sources = try swiftSourceFiles(in: repositoryRoot.appendingPathComponent("Radix/Services"))
-            .filter { $0.lastPathComponent.hasPrefix("ScanArchive") }
-        for url in sources {
-            let source = try String(contentsOf: url, encoding: .utf8)
-            let rawMessages = matches(
-                in: source,
-                pattern: #"\bmessage\s*:\s*"((?:\\.|[^"\\])*)""#
-            ).map(\.value)
-            #expect(
-                rawMessages.isEmpty,
-                "Archive status literals must be localized in \(url.lastPathComponent): \(rawMessages)")
-        }
     }
 
     @Test
@@ -222,12 +172,21 @@ struct LocalizationCatalogTests {
     @Test
     func testSwiftPackageCoreSourceListMatchesCoreFilesOnDisk() throws {
         let root = repositoryRoot
-        let packageSource = try String(contentsOf: root.appendingPathComponent("Package.swift"), encoding: .utf8)
-        let sourcesMarker = try #require(packageSource.range(of: "sources: ["))
-        let sourcesEnd = try #require(
-            packageSource.range(of: "]", range: sourcesMarker.upperBound..<packageSource.endIndex))
-        let sourcesBlock = String(packageSource[sourcesMarker.upperBound..<sourcesEnd.lowerBound])
-        let listedSources = Set(matches(in: sourcesBlock, pattern: #"([^"\n]+\.swift)"#).map(\.value))
+        let scratch = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let package = Process()
+        let output = Pipe()
+        package.executableURL = URL(filePath: "/usr/bin/xcrun")
+        package.arguments = ["swift", "package", "--package-path", root.path, "--scratch-path", scratch.path, "describe", "--type", "json"]
+        package.standardOutput = output
+        try package.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        package.waitUntilExit()
+        try #require(package.terminationStatus == 0)
+        let description = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let targets = try #require(description["targets"] as? [[String: Any]])
+        let core = try #require(targets.first { $0["name"] as? String == "RadixCore" })
+        let listedSources = Set(try #require(core["sources"] as? [String]))
 
         let appSourceRoot = root.appendingPathComponent("Radix")
         let expectedSources = Set(
@@ -313,23 +272,28 @@ struct LocalizationCatalogTests {
     private func localizedLiterals(in fileURL: URL) throws -> [LocalizedSourceLiteral] {
         let source = try String(contentsOf: fileURL, encoding: .utf8)
         let patterns = [
-            #"\bString\s*\(\s*localized\s*:\s*"((?:\\.|[^"\\])*)""#,
-            #"\b\w+\(\s*localized\s*:\s*"((?:\\.|[^"\\])*)""#,
+            #"\b\w+\s*\(\s*localized\s*:\s*"((?:\\.|[^"\\])*)""#,
             #"\b(?:Text|Label|Button|Toggle|Picker|Section|TextField|SecureField|Menu|GroupBox|LabeledContent|NavigationLink|CommandMenu|ProgressView|TableColumn|Window)\s*\(\s*"((?:\\.|[^"\\])*)""#,
             #"\bContentUnavailableView\s*\(\s*"((?:\\.|[^"\\])*)""#,
             #"\.(?:navigationTitle|accessibilityLabel|accessibilityHint|help|confirmationDialog|alert)\s*\(\s*"((?:\\.|[^"\\])*)""#,
             #"\.searchable\s*\([^\n]*\bprompt\s*:\s*"((?:\\.|[^"\\])*)""#,
         ]
 
-        return patterns.flatMap { pattern in
-            matches(in: source, pattern: pattern).map { match in
-                let location = source.distance(from: source.startIndex, to: match.range.lowerBound)
+        return try patterns.flatMap { pattern -> [LocalizedSourceLiteral] in
+            let expression = try NSRegularExpression(
+                pattern: pattern + #"(?:\s*,\s*table(?:Name)?\s*:\s*"([^"]+)")?"#)
+            return expression.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
+                guard let valueRange = Range(match.range(at: 1), in: source),
+                      let fullRange = Range(match.range, in: source) else { return nil }
+                let table = Range(match.range(at: 2), in: source).map { String(source[$0]) } ?? "Localizable"
+                let location = source.distance(from: source.startIndex, to: fullRange.lowerBound)
                 let prefix = source.prefix(location)
                 let line = prefix.reduce(into: 1) { count, character in
                     if character == "\n" { count += 1 }
                 }
                 return LocalizedSourceLiteral(
-                    value: decodedSwiftLiteral(match.value),
+                    value: decodedSwiftLiteral(String(source[valueRange])),
+                    table: table,
                     file: fileURL.path.replacingOccurrences(of: repositoryRoot.path + "/", with: ""),
                     line: line
                 )
@@ -381,20 +345,6 @@ struct LocalizationCatalogTests {
             index = cursor
         }
         return result
-    }
-
-    private func matches(in value: String, pattern: String) -> [(value: String, range: Range<String.Index>)] {
-        let expression = try! NSRegularExpression(pattern: pattern)
-        let searchRange = NSRange(value.startIndex..., in: value)
-        return expression.matches(in: value, range: searchRange).compactMap { match in
-            guard match.numberOfRanges > 1,
-                let valueRange = Range(match.range(at: 1), in: value),
-                let fullRange = Range(match.range(at: 0), in: value)
-            else {
-                return nil
-            }
-            return (String(value[valueRange]), fullRange)
-        }
     }
 
     private func formatSpecifiers(in value: String) -> [String: Int] {

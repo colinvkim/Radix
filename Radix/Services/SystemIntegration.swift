@@ -671,16 +671,6 @@ enum SystemIntegration {
         )
     }
 
-    nonisolated static func fullDiskAccessStatus(
-        userTCCDatabaseProbe: FullDiskAccessProbe?,
-        protectedDataVaultProbes: [FullDiskAccessProbe]
-    ) -> FullDiskAccessStatus {
-        legacyFullDiskAccessStatus(
-            userTCCDatabaseProbe: userTCCDatabaseProbe,
-            protectedDataVaultProbes: protectedDataVaultProbes
-        )
-    }
-
     private nonisolated static func legacyFullDiskAccessStatus(
         userTCCDatabaseProbe: FullDiskAccessProbe?,
         protectedDataVaultProbes: [FullDiskAccessProbe]

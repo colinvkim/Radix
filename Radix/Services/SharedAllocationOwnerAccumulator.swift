@@ -23,12 +23,6 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
     private var hardLinkDuplicateAllocatedSizeByOwner: [String: Int64] = [:]
     private var standaloneCloneDuplicateAllocatedSizeByOwner: [String: Int64] = [:]
 
-    nonisolated init() {}
-
-    nonisolated init<S: Sequence>(_ claims: S) where S.Element == SharedAllocationClaim {
-        record(contentsOf: claims)
-    }
-
     nonisolated var duplicateAllocatedSizeByOwner: [String: Int64] {
         duplicateAllocatedSizeByOwner(cancellationCheck: {})
     }
@@ -75,24 +69,8 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
         return corrections
     }
 
-    nonisolated var identityCount: Int {
-        var cloneIdentities = Set<CloneIdentity>()
-        for claim in hardLinkWinnerByIdentity.values {
-            if let cloneIdentity = claim.cloneIdentity,
-               claim.cloneAllocatedSize > 0 {
-                cloneIdentities.insert(cloneIdentity)
-            }
-        }
-        cloneIdentities.formUnion(standaloneCloneWinnerByIdentity.keys)
-        return hardLinkWinnerByIdentity.count + cloneIdentities.count
-    }
-
     nonisolated var isEmpty: Bool {
         hardLinkWinnerByIdentity.isEmpty && standaloneCloneWinnerByIdentity.isEmpty
-    }
-
-    nonisolated func winner(for identity: FileIdentity) -> SharedAllocationClaim? {
-        hardLinkWinnerByIdentity[identity]
     }
 
     nonisolated mutating func record(_ claim: SharedAllocationClaim) {
@@ -112,12 +90,6 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
                 winnerByIdentity: &standaloneCloneWinnerByIdentity,
                 corrections: &standaloneCloneDuplicateAllocatedSizeByOwner
             )
-        }
-    }
-
-    nonisolated mutating func record<S: Sequence>(contentsOf claims: S) where S.Element == SharedAllocationClaim {
-        for claim in claims {
-            record(claim)
         }
     }
 

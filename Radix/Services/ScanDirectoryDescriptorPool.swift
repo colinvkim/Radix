@@ -2,15 +2,6 @@ import Darwin
 import Foundation
 
 nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
-    struct DebugCounters: Sendable {
-        let currentOpenDescriptorCount: Int
-        let peakOpenDescriptorCount: Int
-        let openCallCount: Int
-        let openatCallCount: Int
-        let fallbackCount: Int
-        let retryCount: Int
-    }
-
     struct SystemCalls: @unchecked Sendable {
         let openRoot: @Sendable (URL) -> (descriptor: Int32, errorCode: Int32)
         let openChild: @Sendable (
@@ -112,11 +103,6 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
     private let maxOpenDescriptorCount: Int
     private let systemCalls: SystemCalls
     private var currentOpenDescriptorCount = 0
-    private var peakOpenDescriptorCount = 0
-    private var openCallCount = 0
-    private var openatCallCount = 0
-    private var fallbackCount = 0
-    private var retryCount = 0
     private var isInvalidated = false
     private var activeLeases: [ObjectIdentifier: WeakLease] = [:]
 
@@ -129,37 +115,22 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
         invalidate()
     }
 
-    var debugCounters: DebugCounters {
-        lock.lock()
-        defer { lock.unlock() }
-        return DebugCounters(
-            currentOpenDescriptorCount: currentOpenDescriptorCount,
-            peakOpenDescriptorCount: peakOpenDescriptorCount,
-            openCallCount: openCallCount,
-            openatCallCount: openatCallCount,
-            fallbackCount: fallbackCount,
-            retryCount: retryCount
-        )
-    }
-
     func openRoot(
         at url: URL,
         expectedIdentity: FileIdentity? = nil,
         cancellationCheck: CancellationCheck = {}
     ) throws -> OpenOutcome {
         try cancellationCheck()
-        guard reserveDescriptor(isOpenat: false) else { return .fallback }
+        guard reserveDescriptor() else { return .fallback }
         var result = systemCalls.openRoot(url)
         if result.descriptor < 0,
            Self.isFallbackError(result.errorCode),
            evictOneLease(excluding: nil) {
-            recordRetry()
             result = systemCalls.openRoot(url)
         }
         guard result.descriptor >= 0 else {
             releaseReservation()
             if Self.isFallbackError(result.errorCode) {
-                recordFallback()
                 return .fallback
             }
             throw Self.posixError(result.errorCode, url: url)
@@ -188,12 +159,11 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
         cancellationCheck: CancellationCheck = {}
     ) throws -> OpenOutcome {
         try cancellationCheck()
-        guard reserveDescriptor(isOpenat: true) else { return .fallback }
+        guard reserveDescriptor() else { return .fallback }
         guard var result = parent.withDescriptor({ descriptor in
             systemCalls.openChild(descriptor, name)
         }) else {
             releaseReservation()
-            recordFallback()
             return .fallback
         }
         if result.descriptor < 0,
@@ -202,13 +172,11 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
            let retriedResult = parent.withDescriptor({ descriptor in
                systemCalls.openChild(descriptor, name)
            }) {
-            recordRetry()
             result = retriedResult
         }
         guard result.descriptor >= 0 else {
             releaseReservation()
             if Self.isFallbackError(result.errorCode) {
-                recordFallback()
                 return .fallback
             }
             throw Self.posixError(result.errorCode, url: childURL)
@@ -241,20 +209,13 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
         invalidate()
     }
 
-    private func reserveDescriptor(isOpenat: Bool) -> Bool {
+    private func reserveDescriptor() -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard !isInvalidated, currentOpenDescriptorCount < maxOpenDescriptorCount else {
-            fallbackCount += 1
             return false
         }
         currentOpenDescriptorCount += 1
-        peakOpenDescriptorCount = max(peakOpenDescriptorCount, currentOpenDescriptorCount)
-        if isOpenat {
-            openatCallCount += 1
-        } else {
-            openCallCount += 1
-        }
         return true
     }
 
@@ -281,18 +242,6 @@ nonisolated final class ScanDirectoryDescriptorPool: @unchecked Sendable {
     private func releaseReservation() {
         lock.lock()
         currentOpenDescriptorCount = max(currentOpenDescriptorCount - 1, 0)
-        lock.unlock()
-    }
-
-    private func recordFallback() {
-        lock.lock()
-        fallbackCount += 1
-        lock.unlock()
-    }
-
-    private func recordRetry() {
-        lock.lock()
-        retryCount += 1
         lock.unlock()
     }
 

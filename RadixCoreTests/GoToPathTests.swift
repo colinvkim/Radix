@@ -303,7 +303,7 @@ struct GoToPathTests {
         #expect(!model.navigation.canNavigateBack)
         #expect(browser.activeQuery.text == "notes")
         let replacement = PathFixture()
-        model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: replacement.root, store: replacement.store))
+        model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: replacement.root, store: replacement.store))
         #expect(model.presentationCoordinator.activeSheet == nil)
         #expect(await !model.goToPath(fixture.file.url.path, request: reopenedRequest))
         #expect(model.navigation.currentFocusNode?.id == replacement.root.id)
@@ -352,7 +352,7 @@ struct GoToPathTests {
         #expect(replacement.id == request.snapshotID)
         #expect(replacement.treeStore.contentID != request.treeContentID)
 
-        model.scanState.replaceCurrentSnapshot(replacement)
+        model.scanState.restoreCompletedSnapshot(replacement)
 
         #expect(model.presentationCoordinator.activeSheet == nil)
         #expect(await !model.goToPath(fixture.file.url.path, request: request))
@@ -404,7 +404,8 @@ private func makePathApp(
     let model = AppModel(dependencies: AppDependencies(
         preferences: TestAppPreferencesStore(preferences: AppPreferences(scan: .defaults, didCompleteOnboarding: true)),
         recentTargets: RecentTargetStore(persistence: TestRecentTargetPersistence(), isAvailable: { _ in false }),
-        systemActions: .inert
+        systemActions: .inert,
+        usageStats: TestAppUsageStatsStore()
     ))
     let snapshot = ScanSnapshot(
         target: ScanTarget(url: fixture.root.url), treeStore: store ?? fixture.store,
@@ -414,7 +415,7 @@ private func makePathApp(
             liveActionCapability: .pathValidation
         )) : .live
     )
-    model.scanState.replaceCurrentSnapshot(snapshot)
+    model.scanState.restoreCompletedSnapshot(snapshot)
     model.navigation.reconcileAfterSnapshotApplied(snapshot)
     return model
 }

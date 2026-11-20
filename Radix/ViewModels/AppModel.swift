@@ -631,18 +631,6 @@ final class AppModel: ObservableObject {
         availableTargets.first(where: { $0.kind == .volume && $0.url.path == "/" })
     }
 
-    var smartTargets: [ScanTarget] {
-        sidebarModel.smartTargets
-    }
-
-    var recentScanTargets: [ScanTarget] {
-        sidebarModel.recentScanTargets
-    }
-
-    var targetCapacityDescriptions: [String: String] {
-        sidebarModel.targetCapacityDescriptions
-    }
-
     private func refreshSidebarTargetSections() {
         sidebarModel.refreshTargetSections(
             availableTargets: availableTargets,
@@ -2118,11 +2106,6 @@ final class AppModel: ObservableObject {
 
     private func isVisibleNavigationNode(_ nodeID: FileNodeRecord.ID) -> Bool {
         visibleNavigationNodeIDs(from: [nodeID]).contains(nodeID)
-    }
-
-    func selectSidebarTarget(id: String?) {
-        cancelDeferredSidebarSelection()
-        selectSidebarTargetNow(id: id)
     }
 
     func selectSidebarTargetAfterViewUpdate(id: String?) {

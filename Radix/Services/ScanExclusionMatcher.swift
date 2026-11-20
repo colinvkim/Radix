@@ -17,18 +17,6 @@ nonisolated struct ScanExclusionMatcher: Sendable {
 
     init(
         patterns: [String],
-        rootURL: URL,
-        volumeSupportsCaseSensitiveNames: Bool? = nil
-    ) {
-        self.init(
-            patterns: patterns,
-            rootPath: rootURL.standardizedFileURL.path,
-            volumeSupportsCaseSensitiveNames: volumeSupportsCaseSensitiveNames
-        )
-    }
-
-    init(
-        patterns: [String],
         rootPath: String,
         volumeSupportsCaseSensitiveNames: Bool? = nil
     ) {

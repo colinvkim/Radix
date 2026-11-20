@@ -133,34 +133,6 @@ struct AppSystemActions {
         }
     )
 
-    static let inert = AppSystemActions(
-        open: { _ in },
-        openInTerminal: { _ in },
-        reveal: { _ in },
-        revealMany: { _ in },
-        copyPath: { _ in },
-        copyPaths: { _ in },
-        moveToTrash: { _ in TrashMoveOutcome(.matches) },
-        validateQuickLookSelection: { _, _ in },
-        prepareAndOpenFullDiskAccessSettings: { true },
-        fullDiskAccessStatus: { .unknown },
-        defaultTargets: { [] },
-        targetCapacityDescriptions: { [:] },
-        volumeAvailableCapacityForImportantUsage: { _ in nil },
-        trashSafetyPolicy: {
-            TrashSafetyPolicy.live()
-        },
-        presentOpenPanel: { nil },
-        presentExportScanPanel: { _ in nil },
-        presentImportScanPanel: { nil },
-        presentComparisonSnapshotPanel: { nil },
-        fileExists: { _ in false },
-        verifyTrashIdentity: { _ in .matches },
-        isExistingDirectory: { _ in false },
-        preferredSmartTargetIDs: { [] },
-        mountedVolumeEvents: { Empty().eraseToAnyPublisher() }
-    )
-
     private static func defaultPreferredSmartTargetIDs() -> [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         return [

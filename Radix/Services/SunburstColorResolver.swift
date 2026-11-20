@@ -11,7 +11,6 @@ nonisolated struct SunburstColorToken: Hashable, Sendable {
     let branchID: String
     let localID: String
     let branchIndex: Int
-    let branchCount: Int
     let siblingIndex: Int
     let siblingCount: Int
     let depth: Int
@@ -20,7 +19,6 @@ nonisolated struct SunburstColorToken: Hashable, Sendable {
         branchID: String,
         localID: String,
         branchIndex: Int,
-        branchCount: Int,
         siblingIndex: Int,
         siblingCount: Int,
         depth: Int,
@@ -30,7 +28,6 @@ nonisolated struct SunburstColorToken: Hashable, Sendable {
         self.branchID = branchID
         self.localID = localID
         self.branchIndex = max(branchIndex, 0)
-        self.branchCount = max(branchCount, 1)
         self.siblingIndex = max(siblingIndex, 0)
         self.siblingCount = max(siblingCount, 1)
         self.depth = max(depth, 0)
@@ -45,7 +42,6 @@ nonisolated struct SunburstColorToken: Hashable, Sendable {
             branchID: id,
             localID: id,
             branchIndex: 0,
-            branchCount: 1,
             siblingIndex: 0,
             siblingCount: 1,
             depth: depth,

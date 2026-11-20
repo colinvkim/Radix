@@ -64,9 +64,9 @@ struct ChartLayoutPresentationState: Equatable, Sendable {
 }
 
 struct ChartLayoutRequest<Output: Sendable> {
-    let generation: Int
-    let layoutID: String
-    let task: Task<Output, any Error>
+    fileprivate let generation: Int
+    fileprivate let layoutID: String
+    fileprivate let task: Task<Output, any Error>
 }
 
 enum ChartLayoutRequestOutcome<Output: Sendable> {

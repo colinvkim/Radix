@@ -24,3 +24,8 @@ func makeBrowserTestNavigation(
     let store = FileTreeStore(root: root, childrenByID: [root.id: children])
     return makeBrowserTestNavigation(snapshot: makeTestSnapshot(root: root, store: store))
 }
+
+extension WorkspaceNavigationModel {
+    var tableNodes: [FileNodeRecord] { state.tableNodes }
+    var isLoadingTableNodes: Bool { browserContent().isLoading }
+}

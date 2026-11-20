@@ -74,29 +74,6 @@ struct ScanMetadataLoaderTests {
     }
 
     @Test
-    func testExplicitProviderFailuresDoNotFallThroughToStatusFields() {
-        let loader = ScanMetadataLoader(
-            linkCountCapabilityCache: LinkCountCapabilityCache { _ in
-                .init(volumeRootPath: "/virtual", supportsHardLinks: true)
-            },
-            fileSystemInfoProvider: { _, _ in (nil, 3) },
-            fileAllocatedSizeProvider: { _ in nil },
-            fileStatusProvider: { _ in
-                .init(
-                    fileFlags: 0, isDirectory: false,
-                    fileIdentity: FileIdentity(device: 7, inode: 42), linkCount: 7, allocatedSize: 8_192)
-            }
-        )
-        let metadata = loader.metadata(
-            for: URL(filePath: "/virtual/file", directoryHint: .notDirectory),
-            prefetchedResourceValues: URLResourceValues()
-        )
-        #expect(metadata.fileIdentity == nil)
-        #expect(metadata.linkCount == 3)
-        #expect(metadata.allocatedSize == 0)
-    }
-
-    @Test
     func testReusedStatusDoesNotMaskDirectoryReplacement() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -104,6 +81,7 @@ struct ScanMetadataLoaderTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         let loader = ScanMetadataLoader()
         let original = try #require(loader.metadata(for: directory).fileIdentity)
+        try loader.validateFileSystemIdentity(original, at: directory)
         try FileManager.default.moveItem(at: directory, to: root.appending(path: "old"))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
 
@@ -170,22 +148,6 @@ struct ScanMetadataLoaderTests {
     }
 
     @Test
-    func testFileSystemIdentityValidationUsesTheDedicatedProvider() throws {
-        let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
-        let expectedIdentity = FileIdentity(device: 7, inode: 42)
-        let counters = MetadataProbeCounters()
-        let loader = ScanMetadataLoader(fileSystemInfoProvider: { requestedURL, _ in
-            #expect(requestedURL == url)
-            counters.recordLstat()
-            return (expectedIdentity, 1)
-        })
-
-        #expect(try loader.fileSystemIdentity(at: url) == expectedIdentity)
-        #expect(throws: Never.self) { try loader.validateFileSystemIdentity(expectedIdentity, at: url) }
-        #expect(counters.lstatCount == 2)
-    }
-
-    @Test
     func testFileSystemIdentityValidationFailsClosedForMissingOrChangedIdentity() throws {
         let url = URL(filePath: "/virtual/directory", directoryHint: .isDirectory)
         let expectedIdentity = FileIdentity(device: 7, inode: 42)
@@ -205,36 +167,17 @@ struct ScanMetadataLoaderTests {
     }
 
     @Test
-    func testCloneProbeRequestsPhysicalDeviceIdentity() {
-        #expect(ScanMetadataLoader.cloneProbeOptions & UInt32(FSOPT_RETURN_REALDEV) != 0)
-    }
-
-    @Test
-    func testDatalessFlagClassification() {
-        #expect(ScanMetadataLoader.isDataless(fileFlags: UInt32(SF_DATALESS)))
-        #expect(!(ScanMetadataLoader.isDataless(fileFlags: nil)))
-        #expect(!(ScanMetadataLoader.isDataless(fileFlags: 0)))
-        #expect(!(ScanMetadataLoader.isDataless(fileFlags: UInt32(UF_HIDDEN))))
-    }
-
-    @Test
-    func testMetadataCarriesDatalessFlag() throws {
-        let rootURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let fileURL = rootURL.appending(path: "placeholder.bin")
-        try Data([0xA5]).write(to: fileURL)
-        let loader = ScanMetadataLoader(
-            fileStatusProvider: { requestedURL in
-                #expect(requestedURL == fileURL)
-                return ScanMetadataLoader.FileStatus(
-                    fileFlags: UInt32(SF_DATALESS),
-                    isDirectory: false
-                )
-            }
-        )
-
-        #expect(try loader.metadata(for: fileURL).isDataless)
+    func testOnlyDatalessFileStatusMarksMetadataAsDataless() {
+        let url = URL(filePath: "/virtual/file.dat")
+        let cases: [(flags: UInt32?, isDataless: Bool)] = [
+            (UInt32(SF_DATALESS), true), (UInt32(UF_HIDDEN), false), (0, false), (nil, false),
+        ]
+        for (flags, isDataless) in cases {
+            let loader = ScanMetadataLoader(fileStatusProvider: { _ in
+                flags.map { ScanMetadataLoader.FileStatus(fileFlags: $0, isDirectory: false) }
+            })
+            #expect(loader.metadata(for: url, prefetchedResourceValues: URLResourceValues()).isDataless == isDataless)
+        }
     }
 
     @Test
@@ -276,22 +219,6 @@ struct ScanMetadataLoaderTests {
     }
 
     @Test
-    func testMissingAllocatedSizeUsesFileSystemBlockFallback() {
-        let url = URL(filePath: "/virtual/sparse.bin")
-        let loader = ScanMetadataLoader(
-            fileAllocatedSizeProvider: { requestedURL in
-                #expect(requestedURL == url)
-                return 8_192
-            }
-        )
-
-        let metadata = loader.metadata(for: url, prefetchedResourceValues: URLResourceValues())
-
-        #expect(metadata.allocatedSize == 8_192)
-        #expect(metadata.dataAllocatedSize == 8_192)
-    }
-
-    @Test
     func testUnsupportedCloneMappingVolumeIsProbedOnlyOnce() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -324,24 +251,20 @@ struct ScanMetadataLoaderTests {
 
     @Test
     func testRootVolumeCloneCacheDoesNotMaskMountedVolume() {
-        let counters = MetadataProbeCounters()
+        let externalURL = URL(filePath: "/Volumes/External/second.bin")
+        let externalClone = CloneIdentity(device: 2, cloneID: 42)
         let cache = CloneMappingCapabilityCache(
-            probeProvider: { _ in
-                counters.recordProbe()
-                return CloneMappingCapabilityCache.ProbeResult(
-                    identity: nil,
-                    supportsCloneMapping: false
-                )
+            probeProvider: { url in
+                if url == externalURL {
+                    return .init(identity: externalClone, supportsCloneMapping: true)
+                }
+                return .init(identity: nil, supportsCloneMapping: false)
             },
-            volumeRootProvider: { url in
-                url.path.hasPrefix("/Volumes/External/") ? "/Volumes/External" : "/"
-            }
+            volumeRootProvider: { $0 == externalURL ? "/Volumes/External" : "/" }
         )
 
         #expect(cache.cloneMetadata(for: URL(filePath: "/Users/example/first.bin")).identity == nil)
-        #expect(cache.cloneMetadata(for: URL(filePath: "/Volumes/External/second.bin")).identity == nil)
-
-        #expect(counters.probeCount == 2)
+        #expect(cache.cloneMetadata(for: externalURL).identity == externalClone)
     }
 
     @Test

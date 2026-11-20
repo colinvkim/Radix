@@ -151,13 +151,6 @@ nonisolated struct ScanComparisonSummary: Equatable, Sendable {
         grewCount + shrankCount
     }
 
-    /// Net allocated change that can be attributed to final comparison rows.
-    ///
-    /// This can differ from `allocatedDelta` when incomplete scan coverage suppresses uncertain
-    /// additions, removals, or size changes.
-    var attributedAllocatedDelta: Int64 {
-        grossIncreasedAllocatedSize - grossReclaimedAllocatedSize
-    }
 }
 
 nonisolated struct ScanComparisonRow: Identifiable, Equatable, Sendable {

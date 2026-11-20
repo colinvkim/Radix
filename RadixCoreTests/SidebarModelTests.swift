@@ -23,9 +23,7 @@ struct SidebarModelTests {
         model.refreshTargetSections(availableTargets: [], recentTargets: [recent])
         let checksAfterRefresh = availabilityCheckCount
 
-        #expect(model.recentScanTargets == [recent])
         #expect(model.recentScanTargetRows.map(\.target) == [recent])
-        #expect(model.recentScanTargets == [recent])
         #expect(availabilityCheckCount == checksAfterRefresh)
     }
 
@@ -51,7 +49,6 @@ struct SidebarModelTests {
             ]
         )
 
-        #expect(model.smartTargets == [startupDisk, externalVolume, home, desktop])
         #expect(model.smartTargetRows.map(\.target) == [startupDisk, externalVolume, home, desktop])
 
         let subtitlesByID = Dictionary(uniqueKeysWithValues: model.smartTargetRows.map { ($0.id, $0.subtitle) })
@@ -78,8 +75,7 @@ struct SidebarModelTests {
             recentTargets: [project, home, unavailable, downloads]
         )
 
-        #expect(model.smartTargets == [home])
-        #expect(model.recentScanTargets == [project, downloads])
+        #expect(model.smartTargetRows.map(\.target) == [home])
         #expect(model.recentScanTargetRows.map(\.target) == [project, downloads])
         #expect(model.target(id: home.id) == home)
         #expect(model.target(id: project.id) == project)

@@ -1275,10 +1275,6 @@ nonisolated final class ScanEngine: Sendable {
                     0
                 )
             }
-            sharedAllocationAccumulator.merge(leafResult.sharedAllocationAccumulator)
-            if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
-                minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
-            }
             applyLeafMetrics(
                 leafResult.node,
                 weight: 1,
@@ -1297,18 +1293,17 @@ nonisolated final class ScanEngine: Sendable {
                 continuation: continuation,
                 force: true
             )
-            let rawStore = FileTreeStore(root: leafResult.node)
-            let store = SharedAllocationDeduplicator.deduplicatedStore(
-                rootID: leafResult.node.id,
-                nodesByID: [leafResult.node.id: leafResult.node],
-                childIDsByID: [:],
-                parentIDByID: [:],
-                aggregateStats: rawStore.aggregateStats,
-                sharedAllocationAccumulator: sharedAllocationAccumulator,
-                minimumAllocatedSizeByNodeID: minimumAllocatedSizeByNodeID
-            )
+            let corrections = leafResult.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
+            var root = leafResult.node
+            if let duplicateSize = corrections[root.id] {
+                root = SharedAllocationDeduplicator.deduplicatedNode(
+                    root,
+                    duplicateAllocatedSize: duplicateSize,
+                    minimumAllocatedSize: leafResult.minimumAllocatedSize ?? 0
+                )
+            }
             await atomicSummaryPool.finish()
-            return store
+            return FileTreeStore(root: root)
         }
 
         metrics.discoveredDirectoryCount = 1

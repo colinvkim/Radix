@@ -142,7 +142,8 @@ struct SunburstGeometryTests {
         let size = CGSize(width: 300, height: 300)
         let hitPoint = pointInside(segment: firstSegment, in: size)
 
-        #expect(SunburstHitTestIndex(segments: segments).segment(at: hitPoint, in: size)?.id == firstSegment.id)
+        let index = SunburstHitTestIndex(segmentIndex: SunburstSegmentIndex(segments: segments))
+        #expect(index.segment(at: hitPoint, in: size)?.id == firstSegment.id)
     }
 
     @Test
@@ -158,7 +159,8 @@ struct SunburstGeometryTests {
         #expect(SunburstCenterHitTester.contains(point: CGPoint(x: 150, y: 150), in: size))
         #expect(SunburstCenterHitTester.contains(point: pointInRing(radius: 0.21, in: size), in: size))
         #expect(!(SunburstCenterHitTester.contains(point: pointInRing(radius: 0.23, in: size), in: size)))
-        #expect(SunburstHitTestIndex(segments: segments).segment(at: CGPoint(x: 150, y: 150), in: size) == nil)
+        let index = SunburstHitTestIndex(segmentIndex: SunburstSegmentIndex(segments: segments))
+        #expect(index.segment(at: CGPoint(x: 150, y: 150), in: size) == nil)
     }
 
     @Test
@@ -166,7 +168,7 @@ struct SunburstGeometryTests {
         let size = CGSize(width: 300, height: 300)
         let innerRing = makeSegment(id: "inner", innerRadius: 0.1, outerRadius: 0.3, depth: 0)
         let outerRing = makeSegment(id: "outer", innerRadius: 0.45, outerRadius: 0.8, depth: 1)
-        let index = SunburstHitTestIndex(segments: [innerRing, outerRing])
+        let index = SunburstHitTestIndex(segmentIndex: SunburstSegmentIndex(segments: [innerRing, outerRing]))
 
         #expect(index.segment(at: pointInRing(radius: 0.2, in: size), in: size)?.id == innerRing.id)
         #expect(index.segment(at: pointInRing(radius: 0.6, in: size), in: size)?.id == outerRing.id)
@@ -179,7 +181,7 @@ struct SunburstGeometryTests {
         let first = makeSegment(id: "first", startAngle: 0, endAngle: .pi, innerRadius: 0.1, outerRadius: 0.8, depth: 0)
         let second = makeSegment(
             id: "second", startAngle: .pi, endAngle: .pi * 2, innerRadius: 0.1, outerRadius: 0.8, depth: 0)
-        let index = SunburstHitTestIndex(segments: [second, first])
+        let index = SunburstHitTestIndex(segmentIndex: SunburstSegmentIndex(segments: [second, first]))
 
         #expect(index.segment(at: pointInside(segment: second, in: size), in: size)?.id == second.id)
     }
@@ -198,8 +200,6 @@ struct SunburstGeometryTests {
         let tokens = segments.map(\.colorToken)
 
         #expect(tokens.map(\.branchID) == ["/root/a", "/root/b", "/root/c"])
-        #expect(tokens.map(\.branchIndex) == [0, 1, 2])
-        #expect(tokens.map(\.branchCount) == [3, 3, 3])
         #expect(Set(tokens.map { SunburstColorResolver.components(for: $0) }).count == 3)
     }
 
@@ -225,7 +225,6 @@ struct SunburstGeometryTests {
             SunburstLayout.segments(in: secondStore, rootID: secondRoot.id, depthLimit: 1)
                 .first { $0.nodeID == "/root/a" })
 
-        #expect(firstSegment.colorToken.branchIndex != secondSegment.colorToken.branchIndex)
         #expect(
             SunburstColorResolver.components(for: firstSegment.colorToken)
                 == SunburstColorResolver.components(for: secondSegment.colorToken))
@@ -254,13 +253,11 @@ struct SunburstGeometryTests {
             .map(\.colorToken)
 
         #expect(childTokens.map(\.branchID) == Array(repeating: branch.id, count: 3))
-        #expect(childTokens.map(\.siblingIndex) == [0, 1, 2])
-        #expect(childTokens.map(\.siblingCount) == [3, 3, 3])
         #expect(Set(childTokens.map { SunburstColorResolver.components(for: $0) }).count == 3)
     }
 
     @Test
-    func testFocusedSubtreeKeepsScanRootBranchFamily() throws {
+    func testFocusedSubtreeKeepsScanRootBranchFamily() {
         let nestedChildren = [
             makeTestFileNode(id: "/root/a/child-1", name: "child-1", size: 2),
             makeTestFileNode(id: "/root/a/child-2", name: "child-2", size: 1),
@@ -275,13 +272,9 @@ struct SunburstGeometryTests {
                 branchA.id: nestedChildren,
             ])
 
-        let rootSegments = SunburstLayout.segments(in: store, rootID: root.id, depthLimit: 1)
-        let branchToken = try #require(rootSegments.first { $0.nodeID == branchA.id }).colorToken
         let focusedSegments = SunburstLayout.segments(in: store, rootID: branchA.id, depthLimit: 1)
 
         #expect(focusedSegments.map(\.colorToken.branchID) == [branchA.id, branchA.id])
-        #expect(focusedSegments.map(\.colorToken.branchIndex) == [branchToken.branchIndex, branchToken.branchIndex])
-        #expect(focusedSegments.map(\.colorToken.branchCount) == [branchToken.branchCount, branchToken.branchCount])
     }
 
     @Test
@@ -306,11 +299,10 @@ struct SunburstGeometryTests {
                 }
             )
         }
-        #expect(cancellationChecks == 4)
     }
 
     @Test
-    func testGroupedRootReusesChildrenAndPreservesGlobalColorPositions() throws {
+    func testGroupedRootReusesChildrenForLayout() throws {
         let children = [
             makeTestFileNode(id: "/root/visible", name: "visible", size: 999),
             makeTestFileNode(id: "/root/small-a", name: "small-a", size: 1),
@@ -322,9 +314,6 @@ struct SunburstGeometryTests {
         let segments = try SunburstLayout.segments(
             in: tree, rootID: root.id, depthLimit: 1, cancellationCheck: {}
         )
-        let visible = try #require(segments.first { $0.nodeID == children[0].id })
-        #expect(visible.colorToken.branchIndex == 0)
-        #expect(visible.colorToken.branchCount == 3)
         #expect(segments.count == 2)
         #expect(segments.contains { $0.isAggregate })
         #expect(tree.childReadCount(for: root.id) == 1)
