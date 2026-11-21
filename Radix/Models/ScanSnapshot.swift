@@ -74,6 +74,14 @@ nonisolated struct ScanAggregateStats: Sendable {
 nonisolated struct VolumeCapacitySnapshot: Codable, Hashable, Sendable {
     let totalCapacity: Int64
     let availableCapacity: Int64
+    var availableCapacityForImportantUsage: Int64?
+
+    var estimatedReclaimableCapacity: Int64? {
+        guard availableCapacity >= 0,
+              let availableCapacityForImportantUsage,
+              availableCapacityForImportantUsage > availableCapacity else { return nil }
+        return availableCapacityForImportantUsage - availableCapacity
+    }
 
     nonisolated var usedCapacity: Int64 {
         max(totalCapacity - availableCapacity, 0)

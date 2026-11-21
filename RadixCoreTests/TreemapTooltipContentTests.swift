@@ -32,7 +32,7 @@ struct TreemapTooltipContentTests {
         let content = TreemapTooltipContent.content(
             for: segment,
             rootNode: root,
-            treeStore: store
+            treeStore: DiskMapTreeStore(store)
         )
 
         #expect(content.title == "Documents")
@@ -44,7 +44,7 @@ struct TreemapTooltipContentTests {
         let queuedContent = TreemapTooltipContent.content(
             for: segment,
             rootNode: root,
-            treeStore: store,
+            treeStore: DiskMapTreeStore(store),
             discardPileRole: .queuedRoot
         )
         #expect(queuedContent.status == "In Discard Pile")
@@ -89,7 +89,7 @@ struct TreemapTooltipContentTests {
         let content = TreemapTooltipContent.content(
             for: segment,
             rootNode: root,
-            treeStore: store
+            treeStore: DiskMapTreeStore(store)
         )
 
         #expect(content.title == "annual.pdf")
@@ -120,7 +120,7 @@ struct TreemapTooltipContentTests {
         let content = TreemapTooltipContent.content(
             for: segment,
             rootNode: root,
-            treeStore: store
+            treeStore: DiskMapTreeStore(store)
         )
 
         #expect(content.title == "Smaller Items")
@@ -130,7 +130,7 @@ struct TreemapTooltipContentTests {
         let containingContent = TreemapTooltipContent.content(
             for: segment,
             rootNode: root,
-            treeStore: store,
+            treeStore: DiskMapTreeStore(store),
             discardPileRole: .containsQueuedItem
         )
         #expect(containingContent.status == "Contains Items in Discard Pile")

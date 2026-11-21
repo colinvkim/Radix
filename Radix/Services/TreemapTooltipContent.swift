@@ -17,7 +17,7 @@ nonisolated struct TreemapTooltipContent: Equatable, Sendable {
     static func content(
         for segment: TreemapSegment,
         rootNode: FileNodeRecord,
-        treeStore: some DiskMapTreeReading,
+        treeStore: DiskMapTreeStore,
         discardPileRole: DiscardPileVisualizationOverlayRole? = nil
     ) -> TreemapTooltipContent {
         guard let nodeID = segment.nodeID,
@@ -31,8 +31,8 @@ nonisolated struct TreemapTooltipContent: Equatable, Sendable {
         }
 
         let metadata: String
-        if DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
-            metadata = String(localized: "Free space at scan time", comment: "Disk map detail for free space recorded in a volume scan.")
+        if let freeSpaceDetail = treeStore.freeSpaceDetail(for: node.id) {
+            metadata = freeSpaceDetail
         } else if node.isDirectory {
             metadata = fileCountDescription(node.descendantFileCount)
         } else if let lastModified = node.lastModified {

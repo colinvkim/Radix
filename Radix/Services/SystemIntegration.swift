@@ -740,42 +740,40 @@ enum SystemIntegration {
     }
 
     private nonisolated static func capacityDescription(for url: URL) -> String? {
-        let values: URLResourceValues
-        do {
-            values = try url.resourceValues(forKeys: [
-                .volumeTotalCapacityKey,
-                .volumeAvailableCapacityKey
-            ])
-        } catch {
-            return nil
-        }
-
+        let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
+        let free = values?.volumeAvailableCapacity
+        let available = free == nil
+            ? try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+                .volumeAvailableCapacityForImportantUsage
+            : nil
         return capacityDescription(
-            totalCapacity: values.volumeTotalCapacity,
-            freeCapacity: values.volumeAvailableCapacity
+            totalCapacity: values?.volumeTotalCapacity,
+            freeCapacity: free,
+            availableCapacityForImportantUsage: available
         )
     }
 
     nonisolated static func capacityDescription(
         totalCapacity: Int?,
-        freeCapacity: Int?
+        freeCapacity: Int?,
+        availableCapacityForImportantUsage: Int64?
     ) -> String? {
-        guard let totalCapacity, let freeCapacity else {
-            return nil
+        let total = totalCapacity.map { RadixFormatters.size(Int64($0)) }
+        if let freeCapacity {
+            let free = RadixFormatters.size(Int64(freeCapacity))
+            if let total {
+                return String(localized: "\(free) free of \(total)", comment: "Free disk space followed by total disk capacity.")
+            }
+            return String(localized: "\(free) free", comment: "Free disk space when total capacity is unavailable.")
         }
-
-        let totalText = capacityText(Int64(totalCapacity))
-        let freeText = capacityText(Int64(freeCapacity))
-        return String(localized: "\(freeText) free of \(totalText)", comment: "Free disk space followed by total disk capacity.")
-    }
-
-    private nonisolated static func capacityText(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB, .useTB]
-        formatter.countStyle = .file
-        formatter.includesActualByteCount = false
-        formatter.isAdaptive = true
-        return formatter.string(fromByteCount: bytes)
+        if let availableCapacityForImportantUsage {
+            let available = RadixFormatters.size(availableCapacityForImportantUsage)
+            if let total {
+                return String(localized: "\(available) available of \(total)", comment: "Space available for an important write, followed by total capacity.")
+            }
+            return String(localized: "\(available) available", comment: "Space available for an important write when total capacity is unavailable.")
+        }
+        return total.map { String(localized: "\($0) total", comment: "Total disk capacity when free space is unavailable.") }
     }
 }
 

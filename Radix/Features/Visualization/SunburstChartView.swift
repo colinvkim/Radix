@@ -541,12 +541,12 @@ struct SunburstChartView: View {
     }
 
     private func summary(for node: FileNodeRecord, status: String? = nil) -> ChartSummary {
-        if DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id) {
+        if let detail = treeStore.freeSpaceDetail(for: node.id) {
             return ChartSummary(
                 status: nil,
                 title: node.displayName,
                 value: RadixFormatters.size(node.allocatedSize),
-                detail: String(localized: "Free space at scan time", comment: "Disk map detail for free space recorded in a volume scan.")
+                detail: detail
             )
         }
 

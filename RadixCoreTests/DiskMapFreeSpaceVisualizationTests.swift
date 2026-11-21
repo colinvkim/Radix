@@ -12,7 +12,7 @@ struct DiskMapFreeSpaceVisualizationTests {
         let store = FileTreeStore(root: root, childrenByID: [root.id: [used]])
         let snapshot = makeSnapshot(
             store: store,
-            capacity: VolumeCapacitySnapshot(totalCapacity: 100, availableCapacity: 40)
+            capacity: VolumeCapacitySnapshot(totalCapacity: 100, availableCapacity: 40, availableCapacityForImportantUsage: 70)
         )
         let largerFreeSpaceSnapshot = makeSnapshot(
             store: store,
@@ -49,6 +49,9 @@ struct DiskMapFreeSpaceVisualizationTests {
             SunburstColorResolver.components(for: usedSegment.colorToken)
                 == SunburstColorResolver.components(for: largerFreeSpaceUsedSegment.colorToken))
         #expect(freeSegment.label == "Free Space")
+        let freeNodeID = try #require(freeSegment.nodeID)
+        #expect(input.treeStore.freeSpaceDetail(for: freeNodeID) == "Free space at scan time\nAbout 30 bytes reclaimable")
+        #expect(largerFreeSpaceInput.treeStore.freeSpaceDetail(for: freeNodeID) == "Free space at scan time")
         #expect(freeSegment.totalSize == 40)
         #expect(freeSegment.colorToken.role == .freeSpace)
         #expect(abs((segmentFraction(freeSegment)) - (0.4)) <= 0.0001)

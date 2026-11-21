@@ -33,7 +33,7 @@ struct FloatingSummaryCard: View {
             Text(summary.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(3)
         }
         .padding(12)
         .frame(width: 220, alignment: .leading)

@@ -604,6 +604,7 @@ private struct TreemapHoverTooltip: View {
 
                 tooltipTextRow {
                     Text(content.metadata)
+                        .lineLimit(2)
                 }
             }
             .font(.caption)
