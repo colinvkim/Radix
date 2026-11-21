@@ -134,7 +134,7 @@ struct SharedAllocationDeduplicatorTests {
         let root = makeDirectory(id: "/root", children: [winner, loser])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [winner, loser]])
 
-        let rebalancedStore = try #require(FileTreeStore(root: root).replacingSubtrees(
+        let rebalancedStore = try #require(try FileTreeStore(root: root).replacingSubtrees(
             [root.id: store], cancellationCheck: {}
         ))
 
@@ -192,7 +192,7 @@ struct SharedAllocationDeduplicatorTests {
                 replacementRoot.id: [replacementFile]
             ])
 
-        let updatedStore = try #require(store.replacingSubtrees([summarized.id: replacementStore], cancellationCheck: {}))
+        let updatedStore = try #require(try store.replacingSubtrees([summarized.id: replacementStore], cancellationCheck: {}))
 
         #expect(updatedStore.node(id: replacementFile.id)?.allocatedSize == 100)
         #expect(updatedStore.node(id: siblingFile.id)?.allocatedSize == 0)
