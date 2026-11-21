@@ -110,6 +110,21 @@ struct LocalizationCatalogTests {
     }
 
     @Test
+    func testScanAndArchiveProgressDoNotDisplayUnlocalizedStringLiterals() throws {
+        let services = repositoryRoot.appendingPathComponent("Radix/Services")
+        let scanEngine = services.appendingPathComponent("ScanEngine.swift")
+        let scanSource = try String(contentsOf: scanEngine, encoding: .utf8)
+        #expect(scanSource.range(of: #"\bmetrics\.currentPath\s*=\s*""#, options: .regularExpression) == nil,
+                "Scan progress must localize status text.")
+
+        for url in try swiftSourceFiles(in: services) where url.lastPathComponent.hasPrefix("ScanArchive") {
+            let source = try String(contentsOf: url, encoding: .utf8)
+            #expect(source.range(of: #"\bmessage\s*:\s*""#, options: .regularExpression) == nil,
+                    "Archive status messages must be localized in \(url.lastPathComponent).")
+        }
+    }
+
+    @Test
     func testRussianCountsRenderUsingCompiledCatalog() throws {
         let output = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: output) }

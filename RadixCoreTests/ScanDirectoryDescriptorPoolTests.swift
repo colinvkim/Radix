@@ -16,7 +16,7 @@ struct ScanDirectoryDescriptorPoolTests {
         let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
 
-        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 4)
+        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 2)
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
         try FileManager.default.removeItem(at: childURL)
         try FileManager.default.createSymbolicLink(at: childURL, withDestinationURL: outsideURL)
@@ -27,7 +27,10 @@ struct ScanDirectoryDescriptorPoolTests {
             #expect(code == Int(ELOOP) || code == Int(ENOTDIR), "Unexpected error: \(error)")
             return true
         }
-        #expect(try fixtureDescriptorCount(at: rootURL) == 1)
+        try FileManager.default.removeItem(at: childURL)
+        try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: false)
+        let childLease = try lease(from: pool.openChild(named: name, at: childURL, relativeTo: rootLease))
+        childLease.close()
         rootLease.close()
         #expect(try fixtureDescriptorCount(at: rootURL) == 0)
     }
@@ -39,7 +42,7 @@ struct ScanDirectoryDescriptorPoolTests {
         let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
 
-        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 4)
+        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 2)
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
         let name = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
 
@@ -55,7 +58,8 @@ struct ScanDirectoryDescriptorPoolTests {
             return true
         }
         #expect(try fixtureDescriptorCount(at: childURL) == 0)
-        #expect(try fixtureDescriptorCount(at: rootURL) == 1)
+        let childLease = try lease(from: pool.openChild(named: name, at: childURL, relativeTo: rootLease))
+        childLease.close()
         rootLease.close()
         #expect(try fixtureDescriptorCount(at: rootURL) == 0)
     }

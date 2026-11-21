@@ -614,29 +614,37 @@ struct FileTreeStoreTests {
                 == updatedStore.nodeCount)
     }
 
-    @Test
-    func testRemovingSubtreeHonorsCancellationDuringCompaction() throws {
-        let children = (0..<1_024).map { index in
-            makeFileNode(
-                id: "/root/folder/item-\(index).bin",
-                name: "item-\(index).bin",
-                size: 1
-            )
+    private enum SubtreeOperation: CaseIterable {
+        case remove, materialize, scope
+    }
+
+    @Test(arguments: SubtreeOperation.allCases)
+    private func testWideSubtreeWorkRemainsCancellable(operation: SubtreeOperation) throws {
+        let folderID = "/root/folder"
+        func store(childCount: Int) -> FileTreeStore {
+            let children = (0..<childCount).map { index in
+                makeFileNode(id: "\(folderID)/item-\(index).bin", name: "item-\(index).bin", size: 1)
+            }
+            let folder = makeDirectoryNode(id: folderID, name: "folder", children: children)
+            let root = makeDirectoryNode(id: "/root", name: "root", children: [folder])
+            return FileTreeStore(root: root, childrenByID: [root.id: [folder], folderID: children])
         }
-        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: children)
-        let root = makeDirectoryNode(id: "/root", name: "root", children: [folder])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [folder],
-                folder.id: children,
-            ])
-        let cancellation = CancellationProbe(throwOnCheck: 2)
+        func perform(on tree: FileTreeStore, probe: CancellationProbe) throws -> FileTreeStore? {
+            switch operation {
+            case .remove: try tree.removingSubtree(id: folderID, cancellationCheck: probe.check)
+            case .materialize: try tree.subtree(rootedAt: folderID, cancellationCheck: probe.check)
+            case .scope: try tree.logicalScope(rootedAt: folderID, cancellationCheck: probe.check)
+            }
+        }
+
+        let baseline = CancellationProbe(throwOnCheck: .max)
+        _ = try #require(try perform(on: store(childCount: 1), probe: baseline))
+        let wide = store(childCount: 1_024)
+        let cancellation = CancellationProbe(throwOnCheck: baseline.checkCount + 1)
         #expect(throws: CancellationError.self) {
-            try store.removingSubtree(id: folder.id, cancellationCheck: cancellation.check)
+            try perform(on: wide, probe: cancellation)
         }
-        #expect(store.nodeCount == children.count + 2)
-        #expect(store.node(id: folder.id) != nil)
+        #expect(wide.childIDs(of: folderID).count == 1_024)
     }
 
     @Test(arguments: [false, true])
@@ -1482,27 +1490,6 @@ struct FileTreeStoreTests {
         #expect(updatedStore.root.allocatedSize == 0)
         #expect(updatedStore.aggregateStats.directoryCount == depth + 1)
         #expect(updatedStore.aggregateStats.fileCount == 0)
-    }
-
-    @Test
-    func testSubtreeProjectionHonorsCancellationAcrossWideDirectories() throws {
-        let children = (0..<1_024).map { offset in
-            makeFileNode(
-                id: "/root/file-\(offset).bin",
-                name: "file-\(offset).bin",
-                size: 1
-            )
-        }
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
-        let store = FileTreeStore(root: root, childrenByID: [root.id: children])
-        let materializationCancellation = CancellationProbe(throwOnCheck: 2)
-        #expect(throws: CancellationError.self) {
-            try store.subtree(rootedAt: root.id, cancellationCheck: materializationCancellation.check)
-        }
-        let scopeCancellation = CancellationProbe(throwOnCheck: 2)
-        #expect(throws: CancellationError.self) {
-            try store.logicalScope(rootedAt: root.id, cancellationCheck: scopeCancellation.check)
-        }
     }
 
     @Test

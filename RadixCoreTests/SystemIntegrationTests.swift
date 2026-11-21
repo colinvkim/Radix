@@ -244,13 +244,14 @@ struct SystemIntegrationTests {
             (successfulProbe, [successfulProbe, successfulProbe], .granted),
         ]
         for (userTCC, vaults, expected) in cases {
+            let modernProbe = expected == .granted ? nil : successfulProbe
             #expect(SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 26,
                 userTCCDatabaseProbe: userTCC,
                 protectedDataVaultProbes: vaults,
-                timeMachinePreferencesProbe: successfulProbe,
-                stocksContainerProbe: failedProbe,
-                systemTCCDatabaseProbe: successfulProbe
+                timeMachinePreferencesProbe: modernProbe,
+                stocksContainerProbe: modernProbe,
+                systemTCCDatabaseProbe: modernProbe
             ) == expected)
         }
     }

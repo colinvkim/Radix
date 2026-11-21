@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -55,8 +56,13 @@ struct FileBrowserModelTests {
         let replacementStore = FileTreeStore(root: replacementRoot, childrenByID: [root.id: [resizedSmall, large]])
         let updatedSnapshot = try #require(snapshot.replacingNode(id: root.id, with: replacementStore))
         navigation.updateScanContext(snapshot: updatedSnapshot)
-        model.updateContent(navigation.browserContent())
+        var publishedChange = false
+        let subscription = model.objectWillChange.sink { _ in publishedChange = true }
+        withExtendedLifetime(subscription) {
+            model.updateContent(navigation.browserContent())
+        }
 
+        #expect(publishedChange)
         #expect(model.displayedNodes.map(\.id) == [small.id, large.id])
         #expect(model.displayedNode(id: small.id)?.allocatedSize == 100)
     }
@@ -1195,7 +1201,7 @@ struct FileBrowserModelTests {
                 sortOrder: []
             )
 
-            #expect(Set(results.map(\.id)) == expectedIDs, "Query: \(queryText)")
+            #expect(results.map(\.id).sorted() == expectedIDs.sorted(), "Query: \(queryText)")
         }
     }
 
