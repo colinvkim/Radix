@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct FileBrowserActions {
     let quickLook: () -> Bool
@@ -186,7 +185,7 @@ struct FileBrowserTableView: View {
             return tree.isNodeOrDescendant(id, of: markedNodes)
         }
 
-        return Table(of: FileNodeRecord.self, selection: tableSelection, sortOrder: sortOrderBinding) {
+        return Table(model.displayedNodes, selection: tableSelection, sortOrder: sortOrderBinding) {
             TableColumn("Name", sortUsing: FileNodeTableComparator(field: .name)) { node in
                 FileBrowserNameCell(
                     node: node,
@@ -228,27 +227,12 @@ struct FileBrowserTableView: View {
                 Text(model.displayValues(for: node).modifiedDate)
             }
             .width(min: 150, ideal: 180)
-        } rows: {
-            ForEach(model.displayedNodes) { node in
-                TableRow(node)
-                    // SwiftUI requires a registered type to enable row dragging.
-                    // The native adapter supplies the validated pasteboard items.
-                    .itemProvider {
-                        NSItemProvider(
-                            item: Data() as NSData,
-                            typeIdentifier: DiscardPileDragPayload.contentType.identifier
-                        )
-                    }
-            }
         }
         .background {
             FileBrowserTableAdapter(
                 presentation: model.presentation,
                 controller: fileDragController,
-                onDragActiveChange: actions.setDiscardPileDragActive,
-                makeContextMenu: { selectedIDs in
-                    AnyView(fileContextMenu(for: selectedIDs, isInDiscardPile: isInDiscardPile))
-                }
+                onDragActiveChange: actions.setDiscardPileDragActive
             )
         }
         .tableStyle(.inset)

@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FileBrowserTableAdapter: NSViewRepresentable {
     let presentation: BrowserPresentation
     let controller: FileDragController
     let onDragActiveChange: (Bool) -> Void
-    let makeContextMenu: (Set<FileNodeRecord.ID>) -> AnyView
 
-    func makeCoordinator() -> Coordinator { Coordinator(presentation: presentation) }
+    func makeCoordinator() -> Coordinator { Coordinator(adapter: self) }
 
     func makeNSView(context: Context) -> AttachmentView {
         let view = AttachmentView()
@@ -19,11 +19,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
     }
 
     func updateNSView(_ view: AttachmentView, context: Context) {
-        context.coordinator.presentation = presentation
-        context.coordinator.controller = controller
-        context.coordinator.onDragActiveChange = onDragActiveChange
-        context.coordinator.makeContextMenu = makeContextMenu
-        // SwiftUI may replace its data source when it updates table contents.
+        context.coordinator.adapter = self
         DispatchQueue.main.async { view.attach?() }
     }
 
@@ -41,21 +37,21 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 
-    final class Coordinator: NSObject, NSTableViewDataSource, NSOutlineViewDataSource {
-        var presentation: BrowserPresentation
-        private var nodes: [FileNodeRecord] { presentation.nodes }
+    final class Coordinator: NSObject, NSGestureRecognizerDelegate, NSDraggingSource {
+        var adapter: FileBrowserTableAdapter
         private var laidOutContentContext: FileBrowserDisplayContext?
-        var controller: FileDragController?
-        var onDragActiveChange: (Bool) -> Void = { _ in }
-        var makeContextMenu: (Set<FileNodeRecord.ID>) -> AnyView = { _ in AnyView(EmptyView()) }
         private weak var table: NSTableView?
-        private var contextMenuMonitor: Any?
-        // Objective-C forwarding is synchronous on AppKit’s main thread.
-        private nonisolated(unsafe) weak var original: (any NSTableViewDataSource)?
+        private lazy var pan: NSPanGestureRecognizer = {
+            let pan = NSPanGestureRecognizer(target: self, action: #selector(beginDrag(_:)))
+            pan.delaysPrimaryMouseButtonEvents = true
+            pan.delegate = self
+            return pan
+        }()
+        private var press: (event: NSEvent, row: Int, context: FileBrowserDisplayContext)?
         private var session: FileDragSession?
 
-        init(presentation: BrowserPresentation) {
-            self.presentation = presentation
+        init(adapter: FileBrowserTableAdapter) {
+            self.adapter = adapter
             super.init()
         }
 
@@ -63,12 +59,11 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
             var ancestor = view.superview
             while let container = ancestor {
                 if let candidate = Self.table(in: container) {
-                    if table !== candidate { detach(); table = candidate }
-                    if candidate.dataSource !== self {
-                        original = candidate.dataSource
-                        candidate.dataSource = self
+                    if table !== candidate {
+                        detach()
+                        table = candidate
+                        candidate.addGestureRecognizer(pan)
                     }
-                    installContextMenuMonitor()
                     refreshRowHeights(in: candidate)
                     return
                 }
@@ -77,7 +72,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         }
 
         private func refreshRowHeights(in table: NSTableView) {
-            let contentContext = presentation.context
+            let contentContext = adapter.presentation.context
             guard laidOutContentContext != contentContext else { return }
             let visibleRows = table.rows(in: table.visibleRect)
             guard visibleRows.location != NSNotFound, visibleRows.length > 0 else { return }
@@ -103,123 +98,97 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         }
 
         func detach() {
-            if let table, table.dataSource === self { table.dataSource = original }
-            if let contextMenuMonitor { NSEvent.removeMonitor(contextMenuMonitor) }
+            table?.removeGestureRecognizer(pan)
             table = nil
-            original = nil
-            contextMenuMonitor = nil
+            press = nil
             laidOutContentContext = nil
         }
 
-        // SwiftUI's selection menu depends on the data source that the drag adapter replaces.
-        private func installContextMenuMonitor() {
-            guard #available(macOS 14.4, *), contextMenuMonitor == nil else { return }
-            contextMenuMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
-                self?.showContextMenu(for: event) == true ? nil : event
-            }
-        }
-
-        @available(macOS 14.4, *)
-        private func showContextMenu(for event: NSEvent) -> Bool {
-            guard event.type == .rightMouseDown || event.modifierFlags.contains(.control),
-                  let table, let window = table.window, event.window === window,
-                  let contentView = window.contentView else { return false }
-            let point = table.convert(event.locationInWindow, from: nil)
-            let hitPoint = contentView.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            guard table.visibleRect.contains(point), let hit = contentView.hitTest(hitPoint),
-                  hit === table || hit.isDescendant(of: table) else { return false }
-
-            let clicked = table.row(at: point)
-            let displayedNodes = nodes
-            guard displayedNodes.indices.contains(clicked), table.numberOfRows == displayedNodes.count else { return false }
-            let selected = table.selectedRowIndexes
-            let rows = selected.contains(clicked) ? selected : IndexSet(integer: clicked)
-            guard rows.allSatisfy(displayedNodes.indices.contains) else { return false }
-            let menu = NSHostingMenu(rootView: makeContextMenu(Set(rows.map { displayedNodes[$0].id })))
-            menu.update()
-            guard menu.numberOfItems > 0 else { return false }
-            NSMenu.popUpContextMenu(menu, with: event, for: table)
+        func gestureRecognizer(
+            _ gestureRecognizer: NSGestureRecognizer,
+            shouldAttemptToRecognizeWith event: NSEvent
+        ) -> Bool {
+            guard event.type == .leftMouseDown, event.clickCount == 1,
+                  !event.modifierFlags.contains(.control),
+                  let table else { return false }
+            let row = table.row(at: table.convert(event.locationInWindow, from: nil))
+            let presentation = adapter.presentation
+            guard presentation.nodes.indices.contains(row),
+                  adapter.controller.canAttemptDrag(nodeID: presentation.nodes[row].id) else { return false }
+            press = (event, row, presentation.context)
             return true
         }
 
-        // NSTableView uses Objective-C optional-method discovery. Forward every
-        // method we do not implement instead of replacing SwiftUI's data source.
-        nonisolated override func responds(to selector: Selector!) -> Bool {
-            MainActor.assumeIsolated {
-                super.responds(to: selector) || original?.responds(to: selector) == true
+        func gestureRecognizer(
+            _ gestureRecognizer: NSGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: NSGestureRecognizer
+        ) -> Bool {
+            guard let press, let table, other.view === table, other is NSPanGestureRecognizer else { return false }
+            // Let the table extend a modified selection before the drag reads it.
+            return !press.event.modifierFlags.isDisjoint(with: [.command, .shift])
+                && !table.selectedRowIndexes.contains(press.row)
+        }
+
+        @objc private func beginDrag(_ pan: NSPanGestureRecognizer) {
+            let presentation = adapter.presentation
+            guard pan.state == .began, let press, let table,
+                  press.context == presentation.context,
+                  presentation.nodes.indices.contains(press.row),
+                  table.numberOfRows == presentation.nodes.count else { return }
+            let selection = table.selectedRowIndexes
+            let rows = selection.contains(press.row) ? selection : IndexSet(integer: press.row)
+            let ids = rows.map { presentation.nodes[$0].id }
+            guard let session = adapter.controller.prepare(nodeIDs: ids) else { return }
+            let visible = table.rows(in: table.visibleRect)
+            var previewRows = IndexSet()
+            let items = rows.compactMap { row -> NSDraggingItem? in
+                guard let writer = session.pasteboardWriter(for: presentation.nodes[row].id) else { return nil }
+                if NSLocationInRange(row, visible) { previewRows.insert(row) }
+                return NSDraggingItem(pasteboardWriter: writer)
             }
-        }
+            guard let firstItem = items.first else { return }
 
-        nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
-            dispatchPrecondition(condition: .onQueue(.main))
-            return original
-        }
-
-        func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-            pasteboardWriter(forRow: row, in: tableView)
-        }
-
-        func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
-            pasteboardWriter(forRow: outlineView.row(forItem: item), in: outlineView)
-        }
-
-        private func pasteboardWriter(forRow row: Int, in tableView: NSTableView) -> (any NSPasteboardWriting)? {
-            guard nodes.indices.contains(row), let controller else { return nil }
-            if session == nil {
-                let rows = tableView.selectedRowIndexes.contains(row) ? tableView.selectedRowIndexes : IndexSet(integer: row)
-                let ids = rows.compactMap { nodes.indices.contains($0) ? nodes[$0].id : nil }
-                session = controller.prepare(nodeIDs: ids)
-                tableView.setDraggingSourceOperationMask(session?.operationMask(for: .withinApplication) ?? [], forLocal: true)
-                tableView.setDraggingSourceOperationMask(session?.operationMask(for: .outsideApplication) ?? [], forLocal: false)
+            var offset = NSPoint.zero
+            let image: NSImage
+            if previewRows.isEmpty {
+                // A selected offscreen folder can own every visible selected descendant.
+                image = NSWorkspace.shared.icon(for: session.nodes.first?.isDirectory == true ? .folder : .data)
+            } else {
+                image = table.dragImageForRows(
+                    with: previewRows, tableColumns: table.tableColumns, event: press.event, offset: &offset
+                )
             }
-            return session?.pasteboardWriter(for: nodes[row].id)
-        }
-
-        func tableView(
-            _ tableView: NSTableView, draggingSession: NSDraggingSession,
-            willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet
-        ) {
-            original?.tableView?(tableView, draggingSession: draggingSession, willBeginAt: screenPoint, forRowIndexes: rowIndexes)
-            beginDrag()
-        }
-
-        func outlineView(
-            _ outlineView: NSOutlineView, draggingSession: NSDraggingSession,
-            willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]
-        ) {
-            (original as? any NSOutlineViewDataSource)?.outlineView?(
-                outlineView, draggingSession: draggingSession, willBeginAt: screenPoint, forItems: draggedItems
+            let point = table.convert(press.event.locationInWindow, from: nil)
+            let frame = NSRect(
+                x: point.x - image.size.width / 2 + offset.x,
+                y: point.y - image.size.height / 2 + offset.y,
+                width: image.size.width,
+                height: image.size.height
             )
-            beginDrag()
+            firstItem.setDraggingFrame(frame, contents: image)
+            for item in items.dropFirst() { item.setDraggingFrame(frame, contents: nil) }
+
+            self.session = session
+            session.begin()
+            adapter.onDragActiveChange(session.canCollect)
+            table.beginDraggingSession(with: items, event: press.event, source: self)
         }
 
-        private func beginDrag() {
-            session?.begin()
-            onDragActiveChange(session?.canCollect == true)
+        func draggingSession(
+            _ session: NSDraggingSession,
+            sourceOperationMaskFor context: NSDraggingContext
+        ) -> NSDragOperation {
+            self.session?.operationMask(for: context) ?? []
         }
 
-        func tableView(
-            _ tableView: NSTableView, draggingSession: NSDraggingSession,
-            endedAt screenPoint: NSPoint, operation: NSDragOperation
+        func draggingSession(
+            _ draggingSession: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
         ) {
-            original?.tableView?(tableView, draggingSession: draggingSession, endedAt: screenPoint, operation: operation)
-            endDrag(operation: operation)
-        }
-
-        func outlineView(
-            _ outlineView: NSOutlineView, draggingSession: NSDraggingSession,
-            endedAt screenPoint: NSPoint, operation: NSDragOperation
-        ) {
-            (original as? any NSOutlineViewDataSource)?.outlineView?(
-                outlineView, draggingSession: draggingSession, endedAt: screenPoint, operation: operation
-            )
-            endDrag(operation: operation)
-        }
-
-        private func endDrag(operation: NSDragOperation) {
             let completed = session
             session = nil
-            onDragActiveChange(false)
+            adapter.onDragActiveChange(false)
             completed?.end(operation: operation)
         }
     }
