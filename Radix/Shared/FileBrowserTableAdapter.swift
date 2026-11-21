@@ -5,6 +5,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
     let presentation: BrowserPresentation
     let controller: FileDragController
     let onDragActiveChange: (Bool) -> Void
+    let makeContextMenu: (Set<FileNodeRecord.ID>) -> AnyView
 
     func makeCoordinator() -> Coordinator { Coordinator(presentation: presentation) }
 
@@ -21,6 +22,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         context.coordinator.presentation = presentation
         context.coordinator.controller = controller
         context.coordinator.onDragActiveChange = onDragActiveChange
+        context.coordinator.makeContextMenu = makeContextMenu
         // SwiftUI may replace its data source when it updates table contents.
         DispatchQueue.main.async { view.attach?() }
     }
@@ -45,7 +47,9 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
         private var laidOutContentContext: FileBrowserDisplayContext?
         var controller: FileDragController?
         var onDragActiveChange: (Bool) -> Void = { _ in }
+        var makeContextMenu: (Set<FileNodeRecord.ID>) -> AnyView = { _ in AnyView(EmptyView()) }
         private weak var table: NSTableView?
+        private var contextMenuMonitor: Any?
         // Objective-C forwarding is synchronous on AppKit’s main thread.
         private nonisolated(unsafe) weak var original: (any NSTableViewDataSource)?
         private var session: FileDragSession?
@@ -64,6 +68,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
                         original = candidate.dataSource
                         candidate.dataSource = self
                     }
+                    installContextMenuMonitor()
                     refreshRowHeights(in: candidate)
                     return
                 }
@@ -99,9 +104,42 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
 
         func detach() {
             if let table, table.dataSource === self { table.dataSource = original }
+            if let contextMenuMonitor { NSEvent.removeMonitor(contextMenuMonitor) }
             table = nil
             original = nil
+            contextMenuMonitor = nil
             laidOutContentContext = nil
+        }
+
+        // SwiftUI's selection menu depends on the data source that the drag adapter replaces.
+        private func installContextMenuMonitor() {
+            guard #available(macOS 14.4, *), contextMenuMonitor == nil else { return }
+            contextMenuMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
+                self?.showContextMenu(for: event) == true ? nil : event
+            }
+        }
+
+        @available(macOS 14.4, *)
+        private func showContextMenu(for event: NSEvent) -> Bool {
+            guard event.type == .rightMouseDown || event.modifierFlags.contains(.control),
+                  let table, let window = table.window, event.window === window,
+                  let contentView = window.contentView else { return false }
+            let point = table.convert(event.locationInWindow, from: nil)
+            let hitPoint = contentView.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+            guard table.visibleRect.contains(point), let hit = contentView.hitTest(hitPoint),
+                  hit === table || hit.isDescendant(of: table) else { return false }
+
+            let clicked = table.row(at: point)
+            let displayedNodes = nodes
+            guard displayedNodes.indices.contains(clicked), table.numberOfRows == displayedNodes.count else { return false }
+            let selected = table.selectedRowIndexes
+            let rows = selected.contains(clicked) ? selected : IndexSet(integer: clicked)
+            guard rows.allSatisfy(displayedNodes.indices.contains) else { return false }
+            let menu = NSHostingMenu(rootView: makeContextMenu(Set(rows.map { displayedNodes[$0].id })))
+            menu.update()
+            guard menu.numberOfItems > 0 else { return false }
+            NSMenu.popUpContextMenu(menu, with: event, for: table)
+            return true
         }
 
         // NSTableView uses Objective-C optional-method discovery. Forward every
