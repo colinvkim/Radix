@@ -482,3 +482,9 @@ extension SharedAllocationOwnerAccumulator {
         }
     }
 }
+
+extension SharedAllocationOwnerAccumulator {
+    nonisolated var duplicateAllocatedSizeByOwner: [String: Int64] {
+        duplicateAllocatedSizeByOwner(cancellationCheck: {})
+    }
+}

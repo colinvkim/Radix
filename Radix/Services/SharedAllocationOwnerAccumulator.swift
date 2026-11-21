@@ -23,10 +23,6 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
     private var hardLinkDuplicateAllocatedSizeByOwner: [String: Int64] = [:]
     private var standaloneCloneDuplicateAllocatedSizeByOwner: [String: Int64] = [:]
 
-    nonisolated var duplicateAllocatedSizeByOwner: [String: Int64] {
-        duplicateAllocatedSizeByOwner(cancellationCheck: {})
-    }
-
     nonisolated func duplicateAllocatedSizeByOwner(
         cancellationCheck: () throws -> Void
     ) rethrows -> [String: Int64] {

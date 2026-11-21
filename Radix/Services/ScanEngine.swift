@@ -1293,7 +1293,9 @@ nonisolated final class ScanEngine: Sendable {
                 continuation: continuation,
                 force: true
             )
-            let corrections = leafResult.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner
+            let corrections = try leafResult.sharedAllocationAccumulator.duplicateAllocatedSizeByOwner(
+                cancellationCheck: cancellationCheck
+            )
             var root = leafResult.node
             if let duplicateSize = corrections[root.id] {
                 root = SharedAllocationDeduplicator.deduplicatedNode(
