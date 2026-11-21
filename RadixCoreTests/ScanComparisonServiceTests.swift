@@ -1892,12 +1892,15 @@ struct ScanComparisonServiceTests {
         #expect(colin.reclaimedAllocatedSize == 60)
         #expect(colin.childPaths == ["Users/colin/Library", "Users/colin/Downloads"])
         #expect(comparison.changeTree.rootPaths == ["Users", "Applications"])
+        let rootChanges = try comparison.changeTree.rootPaths.map { path in
+            try #require(comparison.changeTree.nodesByPath[path])
+        }
         #expect(
-            comparison.changeTree.rootPaths.compactMap(comparison.changeTree.node).reduce(0) {
+            rootChanges.reduce(0) {
                 $0 + $1.increasedAllocatedSize
             } == comparison.summary.grossIncreasedAllocatedSize)
         #expect(
-            comparison.changeTree.rootPaths.compactMap(comparison.changeTree.node).reduce(0) {
+            rootChanges.reduce(0) {
                 $0 + $1.reclaimedAllocatedSize
             } == comparison.summary.grossReclaimedAllocatedSize)
     }

@@ -66,7 +66,8 @@ struct DiscardPileVisualizationOverlayTests {
             depthLimit: 1,
             layoutID: "layout"
         )
-        let aggregate = try #require(model.renderedSegments.first(where: \.isAggregate))
+        let aggregateSegment = model.renderedSegments.first(where: \.isAggregate)
+        let aggregate = try #require(aggregateSegment)
         let overlay = model.discardPileOverlay(
             queuedRootNodeIDs: [fixture.tiny.id],
             movingToTrashRootNodeIDs: [],
@@ -90,7 +91,8 @@ struct DiscardPileVisualizationOverlayTests {
             size: CGSize(width: 500, height: 300),
             layoutID: "layout"
         )
-        let aggregate = try #require(model.renderedSegments.first(where: \.isAggregate))
+        let aggregateSegment = model.renderedSegments.first(where: \.isAggregate)
+        let aggregate = try #require(aggregateSegment)
         let overlay = model.discardPileOverlay(
             queuedRootNodeIDs: [fixture.tiny.id],
             movingToTrashRootNodeIDs: [],
