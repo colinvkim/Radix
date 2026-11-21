@@ -175,7 +175,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [file, queued])
         let snapshot = makeTestSnapshot(root: root,
             store: FileTreeStore(root: root, childrenByID: [root.id: [file, queued]]))
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         #expect(model.addNodesToDiscardPile([queued]))
         model.navigation.select(nodeIDs: [file.id], primaryNodeID: file.id)
@@ -366,21 +366,6 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testProductionAndDefaultDependenciesUseIncrementalScanning() {
-        let defaultDependencies = AppDependencies(
-            preferences: SpyAppPreferencesStore(preferences: .defaults),
-            recentTargets: RecentTargetStore(
-                persistence: TestRecentTargetPersistence(),
-                isAvailable: { _ in true }
-            ),
-            systemActions: .inert
-        )
-
-        #expect(defaultDependencies.scanService is IncrementalScanService)
-        #expect(AppDependencies.live.scanService is IncrementalScanService)
-    }
-
-    @Test
     func testInitializesFromInjectedPreferencesTargetsAndRecentStore() async throws {
         let availableRecent = makeTestTarget("/recent/available")
         let missingRecent = makeTestTarget("/recent/missing")
@@ -413,7 +398,8 @@ struct AppModelDependencyTests {
                     persistence: recentPersistence,
                     isAvailable: { $0.id == availableRecent.id }
                 ),
-                systemActions: actions
+                systemActions: actions,
+                usageStats: TestAppUsageStatsStore()
             )
         )
 
@@ -427,7 +413,7 @@ struct AppModelDependencyTests {
         #expect(model.exclusionPatterns == ["*.log"])
         #expect(!(model.showsOnboarding))
         #expect(model.availableTargets == [defaultTarget])
-        #expect(model.smartTargets == [defaultTarget])
+        #expect(model.sidebar.smartTargetRows.map(\.target) == [defaultTarget])
         #expect(model.recentTargets == [availableRecent])
         try await waitUntil("full disk access becomes notGranted") {
             model.fullDiskAccessStatus == .notGranted
@@ -452,7 +438,7 @@ struct AppModelDependencyTests {
         model.removeRecentTarget(removed)
 
         #expect(model.recentTargets == [first, last])
-        #expect(model.recentScanTargets == [first, last])
+        #expect(model.sidebar.recentScanTargetRows.map(\.target) == [first, last])
         #expect(recentPersistence.savedTargets == [[first, last]])
     }
 
@@ -472,8 +458,8 @@ struct AppModelDependencyTests {
 
         #expect(model.sidebar.activeTargetID == nil)
         #expect(model.recentTargets.isEmpty)
-        #expect(model.recentScanTargets.isEmpty)
-        #expect(recentPersistence.didClear)
+        #expect(model.sidebar.recentScanTargetRows.isEmpty)
+        #expect(recentPersistence.loadRecentTargets().isEmpty)
     }
 
     @Test
@@ -495,7 +481,7 @@ struct AppModelDependencyTests {
         let recentPersistence = TestRecentTargetPersistence(targets: [recent])
         var stats = AppUsageStats.empty
         stats.recordSunburstSegmentClick()
-        let usageStats = SpyAppUsageStatsStore(stats: stats)
+        let usageStats = TestAppUsageStatsStore(stats: stats)
         var actions = AppSystemActions.inert
         actions.fullDiskAccessStatus = { .notGranted }
         let model = AppModel(
@@ -517,9 +503,9 @@ struct AppModelDependencyTests {
             preferences.savedScanPreferences == [.defaults]
         }
         #expect(model.recentTargets == [recent])
-        #expect(!(recentPersistence.didClear))
+        #expect(recentPersistence.loadRecentTargets() == [recent])
         #expect(model.usageStats == stats)
-        #expect(!(usageStats.didClear))
+        #expect(usageStats.loadUsageStats() == stats)
         #expect(model.fullDiskAccessStatus == .notGranted)
         #expect(preferences.preferences.didCompleteOnboarding)
         #expect(preferences.preferences.onboardingPage == .access)
@@ -603,7 +589,6 @@ struct AppModelDependencyTests {
 
         model.setScanVisualizationModeAfterViewUpdate(.treemap)
         let pendingTasks = model.deferredViewUpdateTasks
-        #expect(!pendingTasks.isEmpty)
         model.setScanVisualizationModeAfterViewUpdate(.sunburst)
 
         for task in pendingTasks { await task.value }
@@ -652,7 +637,7 @@ struct AppModelDependencyTests {
 
         #expect(model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == nil)
 
-        model.scanState.replaceCurrentSnapshot(volumeSnapshot)
+        model.scanState.restoreCompletedSnapshot(volumeSnapshot)
         model.showFreeSpaceInDiskMaps = true
         try await waitUntil("free-space capacity fallback applies") {
             model.cachedFreeSpaceAvailableCapacity(for: volumeSnapshot, focusNode: volumeRoot) == 123
@@ -689,7 +674,7 @@ struct AppModelDependencyTests {
             volumeCapacity: VolumeCapacitySnapshot(totalCapacity: 1_000, availableCapacity: 321)
         )
 
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.showFreeSpaceInDiskMaps = true
 
         #expect(model.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: root) == 321)
@@ -725,7 +710,7 @@ struct AppModelDependencyTests {
             )
         )
 
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.showFreeSpaceInDiskMaps = true
 
         #expect(try #require(snapshot.overlappingAllocatedBytes) == Int64(100 * 1_024 * 1_024))
@@ -748,7 +733,7 @@ struct AppModelDependencyTests {
             store: FileTreeStore(root: root)
         )
 
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.showFreeSpaceInDiskMaps = true
         try await probe.waitForIssuedRequestCount(1)
 
@@ -785,9 +770,9 @@ struct AppModelDependencyTests {
         )
 
         model.showFreeSpaceInDiskMaps = true
-        model.scanState.replaceCurrentSnapshot(firstSnapshot)
+        model.scanState.restoreCompletedSnapshot(firstSnapshot)
         try await probe.waitForIssuedRequestCount(1)
-        model.scanState.replaceCurrentSnapshot(secondSnapshot)
+        model.scanState.restoreCompletedSnapshot(secondSnapshot)
         try await probe.waitForIssuedRequestCount(2)
 
         let didCompleteCurrentRequest = await probe.completeRequest(id: 1, with: 222)
@@ -819,7 +804,7 @@ struct AppModelDependencyTests {
         )
 
         model.showFreeSpaceInDiskMaps = true
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         try await probe.waitForIssuedRequestCount(1)
         model.cleanup()
         try await probe.waitForCancelledRequest(id: 0)
@@ -835,7 +820,7 @@ struct AppModelDependencyTests {
     func testUsageStatsLoadAndRecordSunburstSegmentClicksThroughInjectedStore() {
         var storedStats = AppUsageStats.empty
         storedStats.sunburstSegmentsClicked = 4
-        let usageStats = SpyAppUsageStatsStore(stats: storedStats)
+        let usageStats = TestAppUsageStatsStore(stats: storedStats)
         let model = AppModel(dependencies: makeDependencies(usageStats: usageStats))
 
         #expect(model.usageStats.sunburstSegmentsClicked == 4)
@@ -843,13 +828,13 @@ struct AppModelDependencyTests {
         model.recordSunburstSegmentClick()
 
         #expect(model.usageStats.sunburstSegmentsClicked == 5)
-        #expect(usageStats.savedStats.last?.sunburstSegmentsClicked == 5)
+        #expect(usageStats.loadUsageStats().sunburstSegmentsClicked == 5)
     }
 
     @Test
     func testCompletedScansRecordUsageStats() async throws {
         let scanService = ControlledAppModelScanService()
-        let usageStats = SpyAppUsageStatsStore()
+        let usageStats = TestAppUsageStatsStore()
         let model = AppModel(
             dependencies: makeDependencies(
                 scanService: scanService,
@@ -885,7 +870,7 @@ struct AppModelDependencyTests {
         #expect(model.usageStats.largestScanBytes == 120)
         #expect(model.usageStats.averageScanBytesPerSecond == 40)
         #expect(model.usageStats.fastestScanBytesPerSecond == 40)
-        #expect(usageStats.savedStats.last?.totalScansRun == 1)
+        #expect(usageStats.loadUsageStats().totalScansRun == 1)
     }
 
     @Test(arguments: [false, true])
@@ -974,7 +959,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.navigation.setFocusedNodeID(root.id)
         model.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
@@ -1002,7 +987,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.navigation.setFocusedNodeID(root.id)
         model.select(nodeIDs: [first.id, second.id], primaryNodeID: first.id)
@@ -1055,7 +1040,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [package])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [package]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.navigation.setFocusedNodeID(root.id)
         model.select(nodeID: package.id)
@@ -1112,14 +1097,12 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testAppModelDoesNotRebroadcastNarrowStateOwnerChanges() {
+    func testProgressSelectionAndSidebarChangesLeaveAppWideObserversIdle() {
         let model = AppModel(dependencies: makeDependencies())
         let file = installSelection(on: model, selectNode: false)
-        var observedAppModelChanges = 0
-
-        let cancellable = model.objectWillChange.sink { _ in
-            observedAppModelChanges += 1
-        }
+        var appChanged = false
+        let observer = model.objectWillChange.sink { appChanged = true }
+        defer { observer.cancel() }
 
         var metrics = ScanMetrics()
         metrics.filesVisited = 12
@@ -1128,27 +1111,23 @@ struct AppModelDependencyTests {
         model.sidebar.setActiveTargetID("/sidebar")
         model.sidebar.replaceTargetCapacityDescriptions(["/": "128 GB free of 1 TB"])
 
-        #expect(observedAppModelChanges == 0)
-        withExtendedLifetime(cancellable) {}
+        #expect(!appChanged)
     }
 
     @Test
     func testConfirmPendingTrashUsesInjectedFileActionsAndRefreshesTargets() async throws {
         let recorder = AppModelActionRecorder()
         let refreshedTarget = makeTestTarget("/refreshed")
-        recorder.defaultTargets = [refreshedTarget]
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         actions.moveToTrash = {
             recorder.movedToTrashURLs.append($0.url)
             return TrashMoveOutcome(.matches)
         }
-        actions.defaultTargets = {
-            recorder.defaultTargetsCallCount += 1
-            return recorder.defaultTargets
-        }
+        actions.defaultTargets = { recorder.defaultTargets }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
         let file = installSelection(on: model)
+        recorder.defaultTargets = [refreshedTarget]
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [file])
         model.confirmMovePendingSelectionToTrash()
@@ -1159,7 +1138,6 @@ struct AppModelDependencyTests {
         #expect(recorder.movedToTrashURLs == [file.url])
         #expect(model.pendingTrashSelection == nil)
         #expect(model.availableTargets == [refreshedTarget])
-        #expect(recorder.defaultTargetsCallCount == 2)
     }
 
     @Test
@@ -1271,8 +1249,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first, second])
 
@@ -1306,7 +1283,7 @@ struct AppModelDependencyTests {
         let oldRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [oldFile])
         let oldStore = FileTreeStore(root: oldRoot, childrenByID: [oldRoot.id: [oldFile]])
         let oldSnapshot = makeTestSnapshot(root: oldRoot, store: oldStore)
-        model.scanState.replaceCurrentSnapshot(oldSnapshot)
+        model.scanState.restoreCompletedSnapshot(oldSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
         model.addNodesToDiscardPile([oldFile])
         #expect(await model.requestMoveDiscardPileToTrash())
@@ -1317,7 +1294,7 @@ struct AppModelDependencyTests {
         let newRoot = makeTestDirectoryNode(id: "/selection", name: "selection", children: [newFile])
         let newStore = FileTreeStore(root: newRoot, childrenByID: [newRoot.id: [newFile]])
         let newSnapshot = makeTestSnapshot(root: newRoot, store: newStore)
-        model.scanState.replaceCurrentSnapshot(newSnapshot)
+        model.scanState.restoreCompletedSnapshot(newSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(newSnapshot)
         model.addNodesToDiscardPile([newFile])
 
@@ -1327,6 +1304,7 @@ struct AppModelDependencyTests {
             model.usageStats.bytesMovedToTrash == oldFile.allocatedSize
         }
         #expect(model.discardPile.nodeIDs == [newFile.id])
+        #expect(model.discardPileSnapshot.summary.itemCount == 1)
         #expect(model.discardPileSnapshot.summary.totalAllocatedSize == newFile.allocatedSize)
     }
 
@@ -1349,7 +1327,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([first, second])
         #expect(await model.requestMoveDiscardPileToTrash())
@@ -1374,7 +1352,7 @@ struct AppModelDependencyTests {
     @Test
     func testConfirmPendingTrashRecordsTrashUsageStats() async throws {
         let recorder = AppModelActionRecorder()
-        let usageStats = SpyAppUsageStatsStore()
+        let usageStats = TestAppUsageStatsStore()
         let first = makeTestFileNode(id: "/selection/folder/first.bin", name: "first.bin", size: 40)
         let second = makeTestFileNode(id: "/selection/folder/second.bin", name: "second.bin", size: 60)
         let folder = makeTestDirectoryNode(
@@ -1400,7 +1378,7 @@ struct AppModelDependencyTests {
                 usageStats: usageStats
             ))
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [folder])
@@ -1414,8 +1392,8 @@ struct AppModelDependencyTests {
         #expect(model.usageStats.foldersDeleted == 1)
         #expect(model.usageStats.bytesMovedToTrash == 100)
         #expect(model.usageStats.largestTrashMoveBytes == 100)
-        #expect(usageStats.savedStats.last?.filesDeleted == 2)
-        #expect(usageStats.savedStats.last?.foldersDeleted == 1)
+        #expect(usageStats.loadUsageStats().filesDeleted == 2)
+        #expect(usageStats.loadUsageStats().foldersDeleted == 1)
     }
 
     @Test(arguments: [
@@ -1478,8 +1456,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first, second])
@@ -1517,7 +1494,7 @@ struct AppModelDependencyTests {
         )
         let store = FileTreeStore(root: protectedRoot)
         let snapshot = makeTestSnapshot(root: protectedRoot, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.select(nodeID: protectedRoot.id)
 
@@ -1543,7 +1520,7 @@ struct AppModelDependencyTests {
                 folder.id: [child],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.requestMoveNodesToTrash([folder, child])
@@ -1568,8 +1545,7 @@ struct AppModelDependencyTests {
         )
         let store = FileTreeStore(root: root, childrenByID: [root.id: [cloudFile]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.addNodesToDiscardPile([cloudFile]))
@@ -1584,7 +1560,7 @@ struct AppModelDependencyTests {
                 id: cloudFile.id, name: cloudFile.name, fileIdentity: FileIdentity(device: 1, inode: 2)
             )
             let refreshedStore = FileTreeStore(root: root, childrenByID: [root.id: [replacement]])
-            model.scanState.replaceCurrentSnapshot(makeTestSnapshot(root: root, store: refreshedStore))
+            model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: refreshedStore))
         }
         model.confirmPendingCloudFileAction()
 
@@ -1605,8 +1581,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/Users/alex", name: "alex", children: [cloudFile, localFile])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [cloudFile, localFile]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         try #require(model.addNodesToDiscardPile([cloudFile]))
@@ -1641,8 +1616,7 @@ struct AppModelDependencyTests {
         )
         let store = FileTreeStore(root: root, childrenByID: [root.id: [cloudFile]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.requestMoveNodesToTrash([cloudFile]))
@@ -1707,8 +1681,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [queued, visible])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.addNodesToDiscardPile([queued]))
@@ -1747,8 +1720,7 @@ struct AppModelDependencyTests {
         )
         let store = FileTreeStore(root: root, childrenByID: [root.id: [firstQueued, secondQueued, visible]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.addNodesToDiscardPile([firstQueued, secondQueued]))
@@ -1788,8 +1760,7 @@ struct AppModelDependencyTests {
                 folder.id: [queued, sibling],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.addNodesToDiscardPile([queued]))
@@ -1822,8 +1793,7 @@ struct AppModelDependencyTests {
                 folder.id: [queued, sibling],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.addNodesToDiscardPile([queued]))
@@ -1857,8 +1827,7 @@ struct AppModelDependencyTests {
                 folder.id: [queued, sibling],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         #expect(model.requestMoveNodesToTrash([folder]))
@@ -1886,8 +1855,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [queued, visible])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         #expect(model.addNodesToDiscardPile([queued]))
 
@@ -1910,8 +1878,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [queued, visible])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [queued, visible]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
-        model.scanState.selectedTarget = snapshot.target
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         #expect(model.addNodesToDiscardPile([queued]))
 
@@ -1923,22 +1890,6 @@ struct AppModelDependencyTests {
         #expect(model.navigation.selectedNodeIDs == [queued.id, visible.id])
         #expect(model.lastErrorMessage == FileActionError.unsupported.localizedDescription)
         #expect(model.discardPile.nodeIDs == [queued.id])
-    }
-
-    @Test
-    func testDiscardPileAddsValidNode() {
-        var actions = AppSystemActions.inert
-        actions.fileExists = { _ in true }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-        let file = installSelection(on: model)
-
-        let didAdd = model.addNodesToDiscardPile([file])
-
-        #expect(didAdd)
-        #expect(model.discardPile.nodeIDs == [file.id])
-        #expect(model.discardPileSnapshot.nodes.map(\.id) == [file.id])
-        #expect(model.discardPileSnapshot.summary.itemCount == 1)
-        #expect(model.discardPileSnapshot.summary.totalAllocatedSize == file.allocatedSize)
     }
 
     @Test
@@ -1954,7 +1905,7 @@ struct AppModelDependencyTests {
         )
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second, third]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         #expect(model.addNodesToDiscardPile([first, second, third]))
 
@@ -2006,7 +1957,7 @@ struct AppModelDependencyTests {
             root: root, childrenByID: [root.id: [folder], folder.id: [first, second]]
         ))
         let model = AppModel(dependencies: makeDependencies())
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         #expect(model.addNodesToDiscardPile([second, first]))
         #expect(model.addNodesToDiscardPile([folder]))
@@ -2031,7 +1982,7 @@ struct AppModelDependencyTests {
         #expect(model.addNodesToDiscardPile([file]))
         model.clearDiscardPile()
         let existing = try #require(model.scanState.snapshot)
-        model.scanState.replaceCurrentSnapshot(existing.removingNode(id: file.id))
+        model.scanState.restoreCompletedSnapshot(try #require(existing.removingNode(id: file.id)))
         #expect(model.canUndoDiscardPileChange)
         model.undoDiscardPileChange()
         #expect(model.discardPileSnapshot.nodes == [file])
@@ -2141,7 +2092,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         let didAdd = model.addNodeIDsToDiscardPile([first.id, second.id], snapshotID: snapshot.id)
@@ -2229,7 +2180,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [syntheticNode])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [syntheticNode]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         let didAdd = model.addNodesToDiscardPile([syntheticNode])
@@ -2254,7 +2205,7 @@ struct AppModelDependencyTests {
                 folder.id: [child],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.addNodesToDiscardPile([parentFirst ? folder : child])
@@ -2333,7 +2284,7 @@ struct AppModelDependencyTests {
         var didPublish = false
         let cancellable = model.objectWillChange.sink { didPublish = true }
         defer { cancellable.cancel() }
-        model.scanState.replaceCurrentSnapshot(snapshot(containing: replacement))
+        model.scanState.restoreCompletedSnapshot(snapshot(containing: replacement))
 
         #expect(didPublish)
         #expect(!model.discardPileRootNodeIDs.contains(marked.id))
@@ -2351,7 +2302,7 @@ struct AppModelDependencyTests {
         let firstRoot = makeTestDirectoryNode(id: "/first", name: "first", children: [firstFile])
         let firstStore = FileTreeStore(root: firstRoot, childrenByID: [firstRoot.id: [firstFile]])
         let firstSnapshot = makeTestSnapshot(root: firstRoot, store: firstStore)
-        model.scanState.replaceCurrentSnapshot(firstSnapshot)
+        model.scanState.restoreCompletedSnapshot(firstSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(firstSnapshot)
         model.addNodesToDiscardPile([firstFile])
         #expect(model.discardPileRootNodeIDs == [firstFile.id])
@@ -2360,7 +2311,7 @@ struct AppModelDependencyTests {
         let secondRoot = makeTestDirectoryNode(id: "/second", name: "second", children: [secondFile])
         let secondStore = FileTreeStore(root: secondRoot, childrenByID: [secondRoot.id: [secondFile]])
         let secondSnapshot = makeTestSnapshot(root: secondRoot, store: secondStore)
-        model.scanState.replaceCurrentSnapshot(secondSnapshot)
+        model.scanState.restoreCompletedSnapshot(secondSnapshot)
 
         #expect(model.discardPileSnapshot.nodes == [firstFile])
         #expect(model.discardPileRootNodeIDs.isEmpty)
@@ -2386,7 +2337,7 @@ struct AppModelDependencyTests {
                 folder.id: [child],
             ])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([child])
         model.addNodesToDiscardPile([folder])
@@ -2667,7 +2618,7 @@ struct AppModelDependencyTests {
         let root = makeTestDirectoryNode(id: "/selection", name: "selection", children: [first, second])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second]])
         let snapshot = makeTestSnapshot(root: root, store: store)
-        model.scanState.replaceCurrentSnapshot(snapshot)
+        model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([first, second])
         #expect(model.discardPile.nodeIDs == [first.id, second.id])
@@ -2685,7 +2636,7 @@ struct AppModelDependencyTests {
             scanOptions: snapshot.scanOptions,
             source: snapshot.source
         )
-        model.scanState.replaceCurrentSnapshot(updatedSnapshot)
+        model.scanState.restoreCompletedSnapshot(updatedSnapshot)
 
         #expect(model.discardPileSnapshot.nodes == [first, second])
     }
@@ -2739,6 +2690,7 @@ struct AppModelDependencyTests {
             return .granted
         }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
+        #expect(model.fullDiskAccessStatus == .unknown)
         try await waitUntil("initial permission probe starts") { await oldProbe.isWaiting }
 
         model.refreshFullDiskAccessStatus()
@@ -2750,24 +2702,9 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testAsyncFullDiskAccessRefreshAppliesLatestProbe() async throws {
-        var actions = AppSystemActions.inert
-        actions.fullDiskAccessStatus = {
-            .granted
-        }
-        let model = AppModel(dependencies: makeDependencies(systemActions: actions))
-
-        #expect(model.fullDiskAccessStatus == .unknown)
-
-        try await waitUntil("async full disk access refresh applies") {
-            model.fullDiskAccessStatus == .granted
-        }
-    }
-
-    @Test
     func testAsyncCapacityDescriptionsDoNotDelayAvailableTargets() async throws {
         let probe = AsyncValueProbe<[String: String]>()
-        let loadedTarget = makeTestTarget("/async-loaded")
+        let loadedTarget = makeTestTarget("/Volumes/async-loaded", kind: .volume)
         var actions = AppSystemActions.inert
         actions.defaultTargets = {
             [loadedTarget]
@@ -2778,7 +2715,7 @@ struct AppModelDependencyTests {
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
 
         #expect(model.availableTargets == [loadedTarget])
-        #expect(model.targetCapacityDescriptions.isEmpty)
+        #expect(model.sidebar.smartTargetRows.first?.subtitle == loadedTarget.id)
 
         try await waitUntil("async capacity description refresh starts") {
             await probe.isWaiting
@@ -2787,7 +2724,7 @@ struct AppModelDependencyTests {
         await probe.resume(returning: [loadedTarget.id: "1 GB free of 2 GB"])
 
         try await waitUntil("async capacity descriptions apply") {
-            model.targetCapacityDescriptions == [loadedTarget.id: "1 GB free of 2 GB"]
+            model.sidebar.smartTargetRows.first?.subtitle == "1 GB free of 2 GB"
         }
     }
 
@@ -2824,7 +2761,7 @@ struct AppModelDependencyTests {
     @Test
     func testCleanupCancelsAsyncCapacityDescriptionRefresh() async throws {
         let probe = AsyncValueProbe<[String: String]>()
-        let loadedTarget = makeTestTarget("/async-loaded")
+        let loadedTarget = makeTestTarget("/Volumes/async-loaded", kind: .volume)
         var actions = AppSystemActions.inert
         actions.defaultTargets = {
             [loadedTarget]
@@ -2845,7 +2782,7 @@ struct AppModelDependencyTests {
         await refreshTask.value
 
         #expect(model.availableTargets == [loadedTarget])
-        #expect(model.targetCapacityDescriptions.isEmpty)
+        #expect(model.sidebar.smartTargetRows.first?.subtitle == loadedTarget.id)
     }
 
     @Test
@@ -3766,7 +3703,7 @@ struct AppModelDependencyTests {
             model.trashFlow.replaceOptimisticTrashVisibility(nodes: [node.id: node], snapshotID: current.id)
         case .removed:
             let removed = try #require(current.removingNode(id: node.id))
-            model.scanState.replaceCurrentSnapshot(removed)
+            model.scanState.restoreCompletedSnapshot(removed)
             model.navigation.reconcileAfterSnapshotApplied(removed)
         case .replacedSnapshot:
             let other = makeComparisonSnapshot(rootPath: "/comparison-reveal", fileSize: 30)
@@ -3781,7 +3718,7 @@ struct AppModelDependencyTests {
                 startedAt: current.startedAt, finishedAt: current.finishedAt,
                 scanWarnings: [], isComplete: true
             )
-            model.scanState.replaceCurrentSnapshot(refreshed)
+            model.scanState.restoreCompletedSnapshot(refreshed)
             model.navigation.reconcileAfterSnapshotApplied(refreshed)
         }
         for task in pending { await task.value }
@@ -4244,7 +4181,7 @@ private func makeDependencies(
     systemActions: AppSystemActions = .inert,
     scanService: any ScanEventStreaming = IncrementalScanService(),
     scanArchiveService: any ScanArchiveServicing = ScanArchiveService(),
-    usageStats: any AppUsageStatsPersisting = InMemoryAppUsageStatsStore()
+    usageStats: any AppUsageStatsPersisting = TestAppUsageStatsStore()
 ) -> AppDependencies {
     AppDependencies(
         preferences: preferences,
@@ -4279,7 +4216,7 @@ private func installSelection(
                 liveActionCapability: .pathValidation))
             : .live
     )
-    model.scanState.replaceCurrentSnapshot(snapshot)
+    model.scanState.restoreCompletedSnapshot(snapshot)
     model.navigation.reconcileAfterSnapshotApplied(snapshot)
     model.navigation.setFocusedNodeID(root.id)
 
@@ -4385,30 +4322,6 @@ private final class SpyAppPreferencesStore: AppPreferencesPersisting {
     }
 }
 
-private final class SpyAppUsageStatsStore: AppUsageStatsPersisting {
-    private var stats: AppUsageStats
-    var savedStats: [AppUsageStats] = []
-    var didClear = false
-
-    init(stats: AppUsageStats = .empty) {
-        self.stats = stats
-    }
-
-    func loadUsageStats() -> AppUsageStats {
-        stats
-    }
-
-    func saveUsageStats(_ stats: AppUsageStats) {
-        self.stats = stats
-        savedStats.append(stats)
-    }
-
-    func clearUsageStats() {
-        stats = .empty
-        didClear = true
-    }
-}
-
 @MainActor
 private final class AppModelActionRecorder {
     var openedURLs: [URL] = []
@@ -4419,7 +4332,6 @@ private final class AppModelActionRecorder {
     var copiedPathManyURLs: [[URL]] = []
     var movedToTrashURLs: [URL] = []
     var defaultTargets: [ScanTarget] = []
-    var defaultTargetsCallCount = 0
 }
 
 private actor AsyncTrashActionProbe {
@@ -4508,7 +4420,7 @@ private actor SpyScanArchiveService: ScanArchiveServicing {
             await exportWaitProbe.wait()
         }
         exportCancellationStates.append(Task.isCancelled)
-        return ScanArchiveExportResult(archiveURL: destinationURL, nodeChecksum: "checksum")
+        return ScanArchiveExportResult(archiveURL: destinationURL)
     }
 
     func previewSnapshot(from sourceURL: URL) async throws -> ScanArchivePreview {

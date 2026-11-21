@@ -157,10 +157,6 @@ nonisolated struct FileNodeActionAvailability: Equatable, Sendable {
 }
 
 extension FileNodeRecord {
-    nonisolated var supportsMoveToTrash: Bool {
-        supportsMoveToTrash(trashSafetyPolicy: .live())
-    }
-
     nonisolated func supportsMoveToTrash(trashSafetyPolicy: TrashSafetyPolicy) -> Bool {
         supportsFileActions && trashSafetyPolicy.blockReason(for: url) == nil
     }
@@ -172,18 +168,5 @@ extension FileNodeRecord {
         guard supportsMoveToTrash(trashSafetyPolicy: trashSafetyPolicy) else { return false }
         guard let activeTarget else { return true }
         return !(activeTarget.kind == .volume && activeTarget.id == id)
-    }
-
-    nonisolated func actionAvailability(
-        activeTarget: ScanTarget?,
-        trashSafetyPolicy: TrashSafetyPolicy = .live(),
-        snapshotSource: ScanSnapshotSource = .live
-    ) -> FileNodeActionAvailability {
-        FileNodeActionAvailability(
-            node: self,
-            activeTarget: activeTarget,
-            trashSafetyPolicy: trashSafetyPolicy,
-            snapshotSource: snapshotSource
-        )
     }
 }

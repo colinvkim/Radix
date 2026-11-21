@@ -26,7 +26,7 @@ struct FolderMergeBenchmarkTests {
             timer.setEventHandler { sampler.sample() }
             timer.resume()
             let started = ContinuousClock.now
-            let updated = try #require(try baseline.replacingSubtree(id: subtreeID, with: replacement, cancellationCheck: {}))
+            let updated = try #require(try baseline.replacingSubtrees([subtreeID: replacement], cancellationCheck: {}))
             let elapsed = BenchmarkSupport.durationSeconds(started.duration(to: .now))
             sampler.sample()
             timer.cancel()

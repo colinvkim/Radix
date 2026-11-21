@@ -222,21 +222,6 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
         )
     }
 
-    nonisolated func removingNode(id targetID: String) -> ScanSnapshot? {
-        try? removingNodes(ids: [targetID], cancellationCheck: {})
-    }
-
-    nonisolated func removingNode(
-        id targetID: String,
-        cancellationCheck: () throws -> Void
-    ) throws -> ScanSnapshot? {
-        try removingNodes(ids: [targetID], cancellationCheck: cancellationCheck)
-    }
-
-    nonisolated func removingNodes(ids targetIDs: [String]) -> ScanSnapshot? {
-        try? removingNodes(ids: targetIDs, cancellationCheck: {})
-    }
-
     nonisolated func removingNodes(
         ids targetIDs: [String],
         cancellationCheck: () throws -> Void
@@ -286,30 +271,6 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             incrementalCheckpoint: incrementalCheckpoint
         )
         return updatedSnapshot.reconcilingVolumeCapacity()
-    }
-
-    nonisolated func replacingNode(
-        id targetID: String,
-        with replacement: FileTreeStore,
-        additionalWarnings: [ScanWarning] = []
-    ) -> ScanSnapshot? {
-        try? replacingNode(
-            id: targetID,
-            with: replacement,
-            additionalWarnings: additionalWarnings,
-            cancellationCheck: {}
-        )
-    }
-
-    nonisolated func replacingSubtrees(
-        _ replacements: [String: FileTreeStore],
-        additionalWarnings: [ScanWarning] = []
-    ) -> ScanSnapshot? {
-        try? replacingSubtrees(
-            replacements,
-            additionalWarnings: additionalWarnings,
-            cancellationCheck: {}
-        )
     }
 
     /// Applies disjoint subtree rescans as one snapshot update. Warnings from
@@ -404,10 +365,6 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             source: source,
             incrementalCheckpoint: incrementalCheckpoint
         )
-    }
-
-    nonisolated func scoped(to target: ScanTarget) -> ScanSnapshot? {
-        try? scoped(to: target, cancellationCheck: {})
     }
 
     nonisolated func scoped(

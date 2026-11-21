@@ -43,7 +43,6 @@ struct DiskMapFreeSpaceVisualizationTests {
         #expect(usedSegment.totalSize == 60)
         #expect(usedSegment.colorToken.role == .normal)
         #expect(usedSegment.colorToken.branchIndex == 0)
-        #expect(usedSegment.colorToken.branchCount == 1)
         #expect(
             SunburstColorResolver.components(for: usedSegment.colorToken)
                 == SunburstColorResolver.components(for: largerFreeSpaceUsedSegment.colorToken))
@@ -96,7 +95,7 @@ struct DiskMapFreeSpaceVisualizationTests {
     }
 
     @Test
-    func testVisualizationInputTracksBaseTreeContentID() {
+    func testUpdatedVolumeContentsRequestANewChartLayout() throws {
         let used = makeTestFileNode(id: "/volume/used.bin", name: "used.bin", size: 60)
         let root = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [used])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [used]])
@@ -106,45 +105,20 @@ struct DiskMapFreeSpaceVisualizationTests {
             store: store
         )
 
-        let firstInput = DiskMapFreeSpaceVisualization.input(
-            snapshot: snapshot,
-            focusNode: root,
-            showFreeSpace: true,
-            availableCapacity: 40
-        )
-        let repeatedInput = DiskMapFreeSpaceVisualization.input(
-            snapshot: snapshot,
-            focusNode: root,
-            showFreeSpace: true,
-            availableCapacity: 40
-        )
+        func layoutID(for scan: ScanSnapshot) -> String {
+            DiscardPileVisualizationPresentation(
+                snapshot: scan, focusNode: scan.root, showFreeSpace: true,
+                availableCapacity: 40, maxRenderedDepth: 6, discardPileRootNodeIDs: []
+            ).layoutID
+        }
 
-        #expect(firstInput.treeContentID == snapshot.treeStore.contentID)
-        #expect(repeatedInput.treeContentID == firstInput.treeContentID)
+        let resized = makeTestFileNode(id: used.id, name: used.name, size: 90)
+        let updatedRoot = makeTestDirectoryNode(id: root.id, name: root.name, children: [resized])
+        let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [updatedRoot.id: [resized]])
+        let updated = try #require(snapshot.replacingNode(id: root.id, with: updatedStore))
 
-        let resizedUsed = makeTestFileNode(id: used.id, name: used.name, size: 90)
-        let updatedRoot = makeTestDirectoryNode(id: root.id, name: root.name, children: [resizedUsed])
-        let updatedStore = FileTreeStore(root: updatedRoot, childrenByID: [updatedRoot.id: [resizedUsed]])
-        let updatedSnapshot = ScanSnapshot(
-            id: snapshot.id,
-            target: snapshot.target,
-            treeStore: updatedStore,
-            startedAt: snapshot.startedAt,
-            finishedAt: snapshot.finishedAt,
-            scanWarnings: snapshot.scanWarnings,
-            isComplete: snapshot.isComplete,
-            scanOptions: snapshot.scanOptions,
-            source: snapshot.source
-        )
-        let updatedInput = DiskMapFreeSpaceVisualization.input(
-            snapshot: updatedSnapshot,
-            focusNode: updatedRoot,
-            showFreeSpace: true,
-            availableCapacity: 40
-        )
-
-        #expect(updatedInput.treeContentID != firstInput.treeContentID)
-        #expect(updatedInput.treeContentID == updatedSnapshot.treeStore.contentID)
+        #expect(updated.id == snapshot.id)
+        #expect(layoutID(for: updated) != layoutID(for: snapshot))
     }
 
     @Test
@@ -170,7 +144,7 @@ struct DiskMapFreeSpaceVisualizationTests {
 
         #expect(!(freeNode.supportsFileActions))
         #expect(
-            freeNode.actionAvailability(activeTarget: snapshot.target)
+            FileNodeActionAvailability(node: freeNode, activeTarget: snapshot.target)
                 == FileNodeActionAvailability(
                     canOpen: false,
                     canPreviewWithQuickLook: false,

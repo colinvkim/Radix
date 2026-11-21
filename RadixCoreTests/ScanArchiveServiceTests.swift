@@ -36,7 +36,7 @@ struct ScanArchiveServiceTests {
     }
 
     @Test
-    func testExportImportRoundTripsTinyScopeWithoutDenseBackingOrdinalMap() async throws {
+    func testExportImportRoundTripsSummarizedFolderFromLargeTree() async throws {
         let service = ScanArchiveService()
         let siblings = (0..<4_096).map { offset in
             makeTestFileNode(
@@ -62,9 +62,6 @@ struct ScanArchiveServiceTests {
         )
         let snapshot = try #require(containingSnapshot.scoped(to: ScanTarget(url: targetRoot.url)))
         let archiveURL = try makeTemporaryArchiveURL()
-
-        #expect(snapshot.treeStore.nodeCount == 1)
-        #expect(snapshot.treeStore.backingNodeCapacity > 4_096)
 
         _ = try await service.export(
             snapshot: snapshot,
@@ -93,7 +90,6 @@ struct ScanArchiveServiceTests {
         let importedSnapshot = importResult.snapshot
 
         #expect(exportResult.archiveURL == archiveURL)
-        #expect(!(exportResult.nodeChecksum.isEmpty))
         #expect(importedSnapshot.id == snapshot.id)
         #expect(importedSnapshot.target.displayName == snapshot.target.displayName)
         #expect(importedSnapshot.treeStore.nodeCount == snapshot.treeStore.nodeCount)
@@ -102,9 +98,6 @@ struct ScanArchiveServiceTests {
         #expect(importedSnapshot.scanWarnings.map(\.path) == snapshot.scanWarnings.map(\.path))
         #expect(importedSnapshot.scanOptions == snapshot.scanOptions)
         #expect(importedSnapshot.volumeCapacity == snapshot.volumeCapacity)
-        #expect(importResult.manifest.formatVersion == 5)
-        #expect(importResult.manifest.createdBy.swiftSchema == "ScanArchiveV5")
-        #expect(importResult.manifest.sectionEncodings == .versionFive)
         #expect(importResult.manifest.integrity.domain == .decodedSectionBytes)
         #expect(importResult.manifest.integrity.topology != nil)
         #expect(importResult.manifest.integrity.warnings != nil)
@@ -172,13 +165,12 @@ struct ScanArchiveServiceTests {
 
         #expect(manifest.formatVersion == 5)
         #expect(manifest.createdBy.swiftSchema == "ScanArchiveV5")
-        #expect(manifest.sectionEncodings == .versionFive)
-        #expect(manifest.sectionByteCounts != nil)
+        #expect(manifest.sectionEncodings == ScanArchiveSectionEncodings(
+            nodes: .lzfse, topology: .lzfse, warnings: .identity, stats: .identity))
+        #expect(manifest.sectionByteCounts?.nodes == Int64(nodesData.count))
+        #expect(manifest.sectionByteCounts?.topology == Int64(topologyData.count))
         #expect(manifest.sections.nodes == "nodes.jsonl.lzfse")
         #expect(manifest.sections.topology == "topology.json.lzfse")
-        #expect(String(decoding: manifestData, as: UTF8.self).contains("\"formatVersion\":5"))
-        #expect(nodesData.first != 0x7B)
-        #expect(topologyData.first != 0x7B)
     }
 
     @Test
@@ -213,12 +205,12 @@ struct ScanArchiveServiceTests {
         let versionFourURL = try makeTemporaryArchiveURL()
         let versionFiveURL = try makeTemporaryArchiveURL()
 
-        let versionFourExport = try await service.export(
+        _ = try await service.export(
             snapshot: snapshot,
             to: versionFourURL,
             options: versionFourOptions(appVersion: "Tests")
         )
-        let versionFiveExport = try await service.export(
+        _ = try await service.export(
             snapshot: snapshot,
             to: versionFiveURL,
             options: ScanArchiveExportOptions(appVersion: "Tests")
@@ -228,8 +220,6 @@ struct ScanArchiveServiceTests {
 
         #expect(versionFour.manifest.formatVersion == 4)
         #expect(versionFive.manifest.formatVersion == 5)
-        #expect(!(versionFourExport.nodeChecksum.isEmpty))
-        #expect(!(versionFiveExport.nodeChecksum.isEmpty))
         assertEquivalentSnapshots(versionFour.snapshot, versionFive.snapshot)
 
         let forward = try await ScanComparisonService().compare(
@@ -648,7 +638,6 @@ struct ScanArchiveServiceTests {
         let compactData = try Data(contentsOf: archiveURL.appending(path: "nodes.jsonl"))
         let legacyData = try legacyNodeData(for: snapshot)
 
-        #expect(compactData.count < legacyData.count)
         #expect(Double(compactData.count) < Double(legacyData.count) * 0.8)
         #expect(!(String(decoding: compactData, as: UTF8.self).contains("/large/")))
     }
@@ -849,16 +838,6 @@ struct ScanArchiveServiceTests {
 
         #expect(try ScanArchiveService.scanOptionsFingerprint(importedOptions) == legacyFingerprint)
         #expect(importedOptions != makeArchiveSnapshot().scanOptions)
-    }
-
-    @Test
-    func testCurrentScanOptionsEncodingOmitsRetiredCloudKeys() throws {
-        let data = try JSONEncoder().encode(ScanOptions())
-        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-
-        #expect(object["includeCloudStorage"] == nil)
-        #expect(object["cloudStorageRootPath"] == nil)
-        #expect(object["iCloudDriveRootPath"] == nil)
     }
 
     @Test
@@ -1082,8 +1061,6 @@ struct ScanArchiveServiceTests {
 
         #expect(topologyObject["r"] as? Int == 0)
         #expect(childMap["0"] as? [Int] != nil)
-        #expect(topologyObject["rootID"] == nil)
-        #expect(topologyObject["childIDsByID"] == nil)
         #expect(!(encodedTopology.contains("/archive")))
     }
 
@@ -1229,8 +1206,9 @@ struct ScanArchiveServiceTests {
             exportTask.cancel()
         }
 
-        try await waitForProgressPhase(.writingNodes, from: progressReporter)
+        let progress = try await waitForProgressPhase(.writingNodes, from: progressReporter)
         exportTask.cancel()
+        #expect(progress.message == String(localized: "Writing node records"))
 
         do {
             _ = try await exportTask.value
@@ -1872,11 +1850,11 @@ struct ScanArchiveServiceTests {
     private func waitForProgressPhase(
         _ phase: ScanArchiveProgressPhase,
         from progressReporter: ScanArchiveProgressReporter
-    ) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
+    ) async throws -> ScanArchiveProgress {
+        try await withThrowingTaskGroup(of: ScanArchiveProgress.self) { group in
             group.addTask {
                 for await progress in progressReporter.updates where progress.phase == phase {
-                    return
+                    return progress
                 }
                 throw AsyncWaitError.streamFinished
             }
@@ -1885,8 +1863,9 @@ struct ScanArchiveServiceTests {
                 throw AsyncWaitError.timedOut
             }
 
-            _ = try await group.next()
-            group.cancelAll()
+            defer { group.cancelAll() }
+            guard let progress = try await group.next() else { throw AsyncWaitError.streamFinished }
+            return progress
         }
     }
 

@@ -16,7 +16,7 @@ struct ScanDirectoryDescriptorPoolTests {
         let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
 
-        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 4)
+        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 2)
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
         try FileManager.default.removeItem(at: childURL)
         try FileManager.default.createSymbolicLink(at: childURL, withDestinationURL: outsideURL)
@@ -27,9 +27,12 @@ struct ScanDirectoryDescriptorPoolTests {
             #expect(code == Int(ELOOP) || code == Int(ENOTDIR), "Unexpected error: \(error)")
             return true
         }
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 1)
+        try FileManager.default.removeItem(at: childURL)
+        try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: false)
+        let childLease = try lease(from: pool.openChild(named: name, at: childURL, relativeTo: rootLease))
+        childLease.close()
         rootLease.close()
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(try fixtureDescriptorCount(at: rootURL) == 0)
     }
 
     @Test
@@ -39,7 +42,7 @@ struct ScanDirectoryDescriptorPoolTests {
         let childURL = rootURL.appending(path: "Child", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
 
-        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 4)
+        let pool = ScanDirectoryDescriptorPool(maxOpenDescriptorCount: 2)
         let rootLease = try lease(from: pool.openRoot(at: rootURL))
         let name = try #require(BulkDirectoryEnumerator.NativeName(fileSystemBytes: Array("Child".utf8)))
 
@@ -54,14 +57,16 @@ struct ScanDirectoryDescriptorPoolTests {
             #expect((error as NSError).code == Int(ESTALE))
             return true
         }
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 1)
+        #expect(try fixtureDescriptorCount(at: childURL) == 0)
+        let childLease = try lease(from: pool.openChild(named: name, at: childURL, relativeTo: rootLease))
+        childLease.close()
         rootLease.close()
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
+        #expect(try fixtureDescriptorCount(at: rootURL) == 0)
     }
 
     @Test
     func testEMFILEEvictsAnotherLeaseAndRetriesOnce() throws {
-        let tracker = RetryingDescriptorTracker()
+        let tracker = DescriptorTracker()
         let pool = ScanDirectoryDescriptorPool(
             maxOpenDescriptorCount: 4,
             systemCalls: tracker.systemCalls
@@ -86,9 +91,7 @@ struct ScanDirectoryDescriptorPoolTests {
 
         #expect(!(disposableLease.isOpen))
         #expect(retriedLease.isOpen)
-        #expect(pool.debugCounters.retryCount == 1)
-        #expect(pool.debugCounters.fallbackCount == 0)
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 2)
+        #expect(tracker.openDescriptorCount == 2)
         retriedLease.close()
         rootLease.close()
         #expect(tracker.openDescriptorCount == 0)
@@ -122,9 +125,7 @@ struct ScanDirectoryDescriptorPoolTests {
             Issue.record("Expected descriptor-budget fallback")
             return
         }
-        #expect(pool.debugCounters.peakOpenDescriptorCount == 2)
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 2)
-        #expect(pool.debugCounters.fallbackCount == 1)
+        #expect(tracker.openDescriptorCount == 2)
 
         firstChildLease.close()
         let replacementLease = try lease(
@@ -133,12 +134,10 @@ struct ScanDirectoryDescriptorPoolTests {
                 at: childURL,
                 relativeTo: rootLease
             ))
-        #expect(pool.debugCounters.peakOpenDescriptorCount == 2)
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 2)
+        #expect(tracker.openDescriptorCount == 2)
 
         replacementLease.close()
         rootLease.close()
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
         #expect(tracker.openDescriptorCount == 0)
     }
 
@@ -163,7 +162,6 @@ struct ScanDirectoryDescriptorPoolTests {
 
         #expect(!(rootLease.isOpen))
         #expect(!(childLease.isOpen))
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
         #expect(tracker.openDescriptorCount == 0)
         guard case .fallback = try pool.openRoot(at: rootURL) else {
             Issue.record("An invalidated pool must reject new opens")
@@ -196,7 +194,6 @@ struct ScanDirectoryDescriptorPoolTests {
         #expect(throws: CancellationError.self) {
             try pool.openRoot(at: URL(filePath: "/virtual/root", directoryHint: .isDirectory))
         }
-        #expect(pool.debugCounters.currentOpenDescriptorCount == 0)
         #expect(tracker.openDescriptorCount == 0)
     }
 
@@ -214,50 +211,6 @@ struct ScanDirectoryDescriptorPoolTests {
 }
 
 private final class DescriptorTracker: @unchecked Sendable {
-    private let lock = NSLock()
-    private var nextDescriptor: Int32 = 100
-    private var openDescriptors: Set<Int32> = []
-
-    var systemCalls: ScanDirectoryDescriptorPool.SystemCalls {
-        ScanDirectoryDescriptorPool.SystemCalls(
-            openRoot: { [weak self] _ in
-                guard let self else { return (-1, EBADF) }
-                return (self.open(), 0)
-            },
-            openChild: { [weak self] _, _ in
-                guard let self else { return (-1, EBADF) }
-                return (self.open(), 0)
-            },
-            fileIdentity: { _ in (nil, 0) },
-            close: { [weak self] descriptor in
-                self?.close(descriptor)
-            }
-        )
-    }
-
-    var openDescriptorCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return openDescriptors.count
-    }
-
-    private func open() -> Int32 {
-        lock.lock()
-        defer { lock.unlock() }
-        let descriptor = nextDescriptor
-        nextDescriptor += 1
-        openDescriptors.insert(descriptor)
-        return descriptor
-    }
-
-    private func close(_ descriptor: Int32) {
-        lock.lock()
-        openDescriptors.remove(descriptor)
-        lock.unlock()
-    }
-}
-
-private final class RetryingDescriptorTracker: @unchecked Sendable {
     private let lock = NSLock()
     private var nextDescriptor: Int32 = 200
     private var openDescriptors: Set<Int32> = []

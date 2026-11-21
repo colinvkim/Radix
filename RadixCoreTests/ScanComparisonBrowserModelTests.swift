@@ -139,34 +139,7 @@ struct ScanComparisonBrowserModelTests {
     }
 
     @Test
-    func testDefaultProcessorBuildsSearchIndexOnlyForNonemptySearch() async throws {
-        let rows = [makeRow("first.txt"), makeRow("second.txt")]
-        let emptyOutput = try await ScanComparisonBrowserModel.process(
-            ScanComparisonBrowserModel.WorkInput(
-                rows: rows,
-                changeTree: .empty,
-                query: query(""),
-                searchIndex: nil
-            )
-        )
-
-        #expect(emptyOutput.searchIndex == nil)
-
-        let searchOutput = try await ScanComparisonBrowserModel.process(
-            ScanComparisonBrowserModel.WorkInput(
-                rows: rows,
-                changeTree: .empty,
-                query: query("second"),
-                searchIndex: nil
-            )
-        )
-
-        #expect(searchOutput.searchIndex != nil)
-        #expect(searchOutput.rows.map(\.name) == ["second.txt"])
-    }
-
-    @Test
-    func testDefaultProcessorRebuildsSearchIndexForReplacementDataset() async throws {
+    func testSearchUsesRowsFromTheReplacementComparison() async throws {
         let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
 
         model.refresh(
@@ -232,45 +205,29 @@ struct ScanComparisonBrowserModelTests {
     }
 
     @Test
-    func testProjectionReuseRequiresCompletedMatchingDatasetAndKinds() async throws {
-        let recorder = ComparisonProcessorRecorder()
-        let model = ScanComparisonBrowserModel(
-            searchDebounceNanoseconds: 0,
-            processor: { try await recorder.process($0) }
-        )
-        let id = UUID()
-        let rows = [makeRow("first.txt")]
-        let requests: [(UUID, ScanComparisonRowQuery)] = [
-            (id, query("")),
-            (id, .init(searchText: "", sortOrder: [], pathPrefix: "folder")),
-            (id, .init(searchText: "", sortOrder: [.defaultOrder])),
-            (id, query("first")),
-            (id, query("first", changeKinds: [.added])),
-            (UUID(), query("first", changeKinds: [.added])),
-        ]
-        for (comparisonID, query) in requests {
-            model.refresh(comparisonID: comparisonID, rows: rows, changeTree: .empty, query: query)
-            try await waitUntil { !model.isRefreshing }
-        }
-        let reused = await recorder.reusedProjections
-        #expect(reused == [false, true, true, true, false, false])
-        model.cancel()
-        let last = try #require(requests.last)
-        model.refresh(comparisonID: last.0, rows: rows, changeTree: .empty, query: last.1)
-        try await waitUntil { !model.isRefreshing }
-        let reusedAfterCancel = await recorder.reusedProjections.last
-        #expect(reusedAfterCancel == false)
-    }
+    func testProjectionTracksTheSelectedKindsAndCurrentComparison() async throws {
+        let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
+        let before = makeComparisonSnapshot(rootPath: "/scan", fileSize: 10)
+        let service = ScanComparisonService()
+        let first = try await service.compare(
+            before: before, after: makeComparisonSnapshot(rootPath: "/scan", fileSize: 20))
+        let second = try await service.compare(
+            before: before, after: makeComparisonSnapshot(rootPath: "/scan", fileSize: 40))
 
-    @Test
-    func testDefaultProcessorUsesSuppliedProjection() async throws {
-        let expected = ScanComparisonChangeTree.empty.significantProjection(changeKinds: [.added])
-        let output = try await ScanComparisonBrowserModel.process(
-            .init(
-                rows: [], changeTree: .empty, query: query(""), searchIndex: nil,
-                projection: expected
-            ))
-        #expect(output.projection == expected)
+        let cases: [(ScanComparison, ScanComparisonChangeKind, Int64)] = [
+            (first, .added, 0),
+            (first, .grew, 10),
+            (second, .grew, 30),
+        ]
+        for (comparison, kind, growth) in cases {
+            model.refresh(
+                comparisonID: comparison.id, rows: comparison.rows,
+                changeTree: comparison.changeTree, query: query("", changeKinds: [kind])
+            )
+            try await waitUntil { !model.isRefreshing }
+            #expect(model.projection.changeKinds == [kind])
+            #expect(model.projection.totalImpact == growth)
+        }
     }
 
     private func query(
@@ -332,7 +289,7 @@ private actor ComparisonProcessorGate {
                 to: input.rows,
                 cancellationCheck: {}
             ),
-            projection: input.changeTree.significantProjection(changeKinds: input.query.changeKinds)
+            projection: input.changeTree.significantProjection(changeKinds: input.query.changeKinds, cancellationCheck: {})
         )
     }
 
@@ -343,19 +300,17 @@ private actor ComparisonProcessorGate {
 
 private actor ComparisonProcessorRecorder {
     private(set) var searchTexts: [String] = []
-    private(set) var reusedProjections: [Bool] = []
 
     func process(
         _ input: ScanComparisonBrowserModel.WorkInput
     ) throws -> ScanComparisonBrowserModel.WorkOutput {
         searchTexts.append(input.query.searchText)
-        reusedProjections.append(input.projection != nil)
         return ScanComparisonBrowserModel.WorkOutput(
             rows: try input.query.applying(
                 to: input.rows,
                 cancellationCheck: {}
             ),
-            projection: input.projection ?? input.changeTree.significantProjection(changeKinds: input.query.changeKinds)
+            projection: input.projection ?? input.changeTree.significantProjection(changeKinds: input.query.changeKinds, cancellationCheck: {})
         )
     }
 }

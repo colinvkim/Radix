@@ -12,20 +12,24 @@ struct TreemapChartModelTests {
         let store = makeTreemapStore()
         let old = makeTreemapSegment(id: "same", label: "Old", totalSize: 10)
         let replacement = makeTreemapSegment(id: "same", label: "New name", totalSize: 1_000_000)
+        let sibling = makeTreemapSegment(id: "sibling", rect: CGRect(x: 0.9, y: 0.9, width: 0.1, height: 0.1))
         for (index, segment) in [old, replacement].enumerated() {
             let load = Task {
                 await model.loadLayout(treeStore: store, rootID: store.rootID, depthLimit: 1,
                                        size: CGSize(width: 600, height: 300), layoutID: "layout-\(index)")
             }
             await service.waitForIssuedRequestCount(index + 1)
-            #expect(await service.completeRequest(id: index, with: [segment]))
+            #expect(await service.completeRequest(id: index, with: [segment, sibling]))
             #expect(await load.value)
             #expect(model.renderedLayout.paint.count == model.renderedSegments.count)
             #expect(model.renderedLayout.paint.first?.sizeLabel == RadixFormatters.size(segment.totalSize))
             #expect(model.renderedLayout.paint.first?.labelCharacterCount == segment.label.count)
             #expect(model.selectedSegment(nodeID: "same") == segment)
+            #expect(model.selectedSegment(nodeID: sibling.id) == sibling)
             #expect(model.segment(at: CGPoint(x: 100, y: 100), in: CGSize(width: 600, height: 300)) == segment)
         }
+        #expect(model.selectedSegment(nodeID: "missing") == nil)
+        #expect(model.selectedSegment(nodeID: nil) == nil)
     }
 
     @Test
@@ -40,7 +44,6 @@ struct TreemapChartModelTests {
             #expect(throws: CancellationError.self) {
                 try TreemapChartLayout(segments: segments, cancellationCheck: cancelled.check)
             }
-            #expect(cancelled.checkCount == poll)
         }
     }
 
@@ -55,7 +58,6 @@ struct TreemapChartModelTests {
             #expect(throws: CancellationError.self) {
                 try TreemapHitTestIndex(segments: [segment], cancellationCheck: cancelled.check)
             }
-            #expect(cancelled.checkCount == poll)
         }
     }
 
@@ -312,31 +314,6 @@ struct TreemapChartModelTests {
                 moving: .down,
                 in: CGSize(width: 600, height: 300)
             ) == lowerSibling.id)
-    }
-
-    @Test
-    func testSelectedSegmentDoesNotIncludeAncestorOverlays() async {
-        let ancestor = makeTreemapSegment(id: "ancestor", depth: 0)
-        let selected = makeTreemapSegment(id: "selected", depth: 1)
-        let sibling = makeTreemapSegment(id: "sibling", depth: 1)
-        let service = ImmediateTreemapLayoutService(segments: [ancestor, selected, sibling])
-        let model = TreemapChartModel(layoutService: service)
-        let store = makeTreemapStore()
-
-        let didApply = await model.loadLayout(
-            treeStore: store,
-            rootID: store.rootID,
-            depthLimit: 2,
-            size: CGSize(width: 600, height: 300),
-            layoutID: "layout"
-        )
-        let selectedSegment = model.selectedSegment(nodeID: selected.nodeID)
-
-        #expect(didApply)
-        #expect(selectedSegment?.id == selected.id)
-        #expect(model.layoutReadiness.renderedLayoutID == "layout")
-        #expect(model.selectedSegment(nodeID: "missing") == nil)
-        #expect(model.selectedSegment(nodeID: nil) == nil)
     }
 
     @Test

@@ -89,7 +89,7 @@ struct AppModelFolderRefreshTests {
         )
         try await waitForFolderRefresh("native drag blocks computed replacement") { gate.blockedChecks > 0 }
         #expect(model.scanState.isScanOperationInProgress)
-        #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+        #expect(model.scanState.snapshot?.treeStore.node(id: fixture.keptDownload.id) == fixture.keptDownload)
         publishingSession.end(operation: [])
         try await waitForFolderRefresh("native drag pending update applied") {
             model.scanState.snapshot?.treeStore.node(id: updatedFile.id)?.allocatedSize == 200
@@ -163,7 +163,7 @@ struct AppModelFolderRefreshTests {
         try await waitForRetiredFolderRefresh(pending.task)
         #expect(pending.task.isCancelled)
         pending.gate.restore()
-        #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+        #expect(model.scanState.snapshot?.treeStore.node(id: fixture.keptDownload.id) == fixture.keptDownload)
         let updatedFile = fixture.file(fixture.keptDownload, withSize: 200)
         harness.scanner.finish(
             with: fixture.folderSnapshot(fixture.downloads, children: [updatedFile, fixture.markedDownload]),
@@ -237,7 +237,7 @@ struct AppModelFolderRefreshTests {
         try await waitForRetiredFolderRefresh(pending.task)
         #expect(pending.task.isCancelled)
         pending.gate.restore()
-        #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+        #expect(model.scanState.snapshot?.treeStore.node(id: fixture.keptDownload.id) == fixture.keptDownload)
         #expect(model.navigation.focusedNodeID == fixture.downloads.id)
         #expect(model.scanState.scanErrorMessage == nil)
         panel.finish(with: nil)
@@ -269,7 +269,7 @@ struct AppModelFolderRefreshTests {
         ])
         try await waitForFolderRefresh("Downloads automatic refresh") { harness.scanner.requests.count == 1 }
         #expect(harness.scanner.requests.map(\.id) == [fixture.downloads.id])
-        #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+        #expect(model.scanState.snapshot?.treeStore.node(id: fixture.keptDownload.id) == fixture.keptDownload)
 
         harness.scanner.finish(
             with: fixture.folderSnapshot(
@@ -343,7 +343,7 @@ struct AppModelFolderRefreshTests {
                 && harness.watcher.cancellations == 1
         }
         try await waitForRetiredFolderRefresh(refreshTask)
-        #expect(model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+        #expect(model.scanState.snapshot?.treeStore.node(id: fixture.keptDownload.id) == fixture.keptDownload)
         #expect(model.navigation.focusedNodeID == fixture.downloads.id)
         #expect(model.scanState.folderRescanState == nil)
         #expect(model.scanState.scanErrorMessage == nil)
@@ -378,6 +378,7 @@ private struct AppFolderRefreshHarness {
             systemActions: systemActions,
             scanService: scanner,
             fileSystemChangeWatcher: watcher,
+            usageStats: TestAppUsageStatsStore(),
             folderRefreshClock: clock.map { clock in
                 FolderRefreshClock(now: { clock.now }, sleep: { try await clock.sleep(for: $0) })
             } ?? .continuous
@@ -506,7 +507,7 @@ private func stageAppFolderBackgroundReplacement(
     }
     #expect(harness.scanner.cancellations == 0)
     #expect(harness.model.scanState.isScanOperationInProgress)
-    #expect(harness.model.scanState.snapshot?.treeStore.contentID == fixture.snapshot.treeStore.contentID)
+    #expect(harness.model.scanState.snapshot?.treeStore.node(id: fixture.keptDownload.id) == fixture.keptDownload)
     return (task, gate)
 }
 

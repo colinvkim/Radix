@@ -163,28 +163,6 @@ struct ScanExclusionMatcherTests {
     }
 
     @Test
-    func testRootURLAndRootPathInitializersShareExplicitCasePolicy() {
-        let rootURL = URL(filePath: "/RadixProject", directoryHint: .isDirectory)
-        for isCaseSensitive in [true, false] {
-            let matchers = [
-                ScanExclusionMatcher(
-                    patterns: ["*.log"], rootURL: rootURL,
-                    volumeSupportsCaseSensitiveNames: isCaseSensitive
-                ),
-                ScanExclusionMatcher(
-                    patterns: ["*.log"], rootPath: rootURL.path,
-                    volumeSupportsCaseSensitiveNames: isCaseSensitive
-                ),
-            ]
-            for matcher in matchers {
-                #expect(matcher.excludesKnownNormalizedPath("/RadixProject/DEBUG.LOG", isDirectory: false)
-                    == !isCaseSensitive)
-                #expect(matcher.excludesKnownNormalizedPath("/RadixProject/debug.log", isDirectory: false))
-            }
-        }
-    }
-
-    @Test
     func testUnavailableVolumeCapabilityKeepsCaseSensitiveMatching() {
         let rootURL = URL(filePath: "/RadixMissingVolume-\(UUID().uuidString)", directoryHint: .isDirectory)
         let values = try? rootURL.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
@@ -341,5 +319,11 @@ struct ScanExclusionMatcherTests {
                 of: URL(filePath: "/Users/alex/Documents"),
                 cloudRootExists: { _ in true }
             ) == nil)
+    }
+}
+
+extension ScanExclusionMatcher {
+    init(patterns: [String], rootURL: URL) {
+        self.init(patterns: patterns, rootPath: rootURL.standardizedFileURL.path)
     }
 }

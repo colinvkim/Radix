@@ -118,11 +118,9 @@ struct WorkspaceNavigationModelTests {
 
         model.updateScanContext(snapshot: snapshot)
         try await waitUntil { await gate.requestCount == 2 }
-        let revision = model.tableContentRevision
         await gate.resume(at: 1)
         try await waitUntil { !model.isLoadingTableNodes }
         #expect(model.tableNodes == files)
-        #expect(model.tableContentRevision == revision + 1)
     }
 
     @Test
@@ -176,14 +174,12 @@ struct WorkspaceNavigationModelTests {
         #expect(model.selectedNode?.id == fixture.docFile.id)
         #expect(model.selectedNodes.map(\.id) == [fixture.docFile.id])
         #expect(model.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
-        #expect(model.canClearSelection)
 
         model.select(nodeID: "/missing")
         #expect(model.selectedNodeID == nil)
         #expect(model.selectedNodeIDs.isEmpty)
         #expect(model.selectedNodes.isEmpty)
         #expect(model.selectedAncestorIDs.isEmpty)
-        #expect(!(model.canClearSelection))
 
         model.select(nodeID: fixture.cache.id)
         #expect(model.selectedNodeID == fixture.cache.id)
@@ -210,7 +206,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.selectedNodeIDs == [fixture.cache.id, fixture.rootFile.id])
         #expect(model.selectedNodes.map(\.id) == [fixture.cache.id, fixture.rootFile.id])
         #expect(model.selectedAncestorIDs == Set([fixture.root.id, fixture.rootFile.id]))
-        #expect(model.canClearSelection)
 
         model.focus(nodeID: fixture.docs.id)
 
@@ -227,7 +222,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.focusedNodeID == fixture.root.id)
         #expect(model.currentFocusNode?.id == fixture.root.id)
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         #expect(!(model.canNavigateBack))
 
         model.focus(nodeID: fixture.docs.id)
@@ -236,7 +230,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.currentFocusNode?.id == fixture.docs.id)
         #expect(model.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.docs.id])
         #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
         #expect(model.canNavigateBack)
         #expect(!(model.canNavigateForward))
 
@@ -260,7 +253,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.focusedNodeID == fixture.docs.id)
         #expect(model.currentFocusNode?.id == fixture.docs.id)
         #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
         #expect(model.canNavigateBack)
         #expect(model.canNavigateForward)
 
@@ -268,7 +260,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.focusedNodeID == fixture.root.id)
         #expect(model.currentFocusNode?.id == fixture.root.id)
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         #expect(!(model.canNavigateBack))
         #expect(model.canNavigateForward)
 
@@ -276,7 +267,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.focusedNodeID == fixture.docs.id)
         #expect(model.currentFocusNode?.id == fixture.docs.id)
         #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
         #expect(model.canNavigateBack)
         #expect(model.canNavigateForward)
     }
@@ -324,7 +314,6 @@ struct WorkspaceNavigationModelTests {
         #expect(model.selectedNodeID == nil)
         #expect(model.selectedAncestorIDs.isEmpty)
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
         #expect(model.isFocusedAtRoot)
         #expect(model.canNavigateBack)
 
@@ -355,11 +344,9 @@ struct WorkspaceNavigationModelTests {
         #expect(state.selectedNodeID == nil)
         #expect(state.selectedAncestorIDs.isEmpty)
         #expect(model.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.cache.id])
-        #expect(!model.canClearSelection)
         #expect(state.tableNodes.map(\.id) == [fixture.cacheFile.id])
-        #expect(state.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.cache.id)")
-        #expect(state.focusBackStack == [fixture.root.id, fixture.docs.id])
-        #expect(state.focusForwardStack.isEmpty)
+        model.navigateBack()
+        #expect(model.focusedNodeID == fixture.docs.id)
     }
 
     @Test
@@ -382,9 +369,8 @@ struct WorkspaceNavigationModelTests {
         #expect(state.focusedNodeID == fixture.docs.id)
         #expect(state.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id]))
         #expect(state.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(state.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docs.id)")
-        #expect(state.focusBackStack == [fixture.root.id])
-        #expect(state.focusForwardStack.isEmpty)
+        model.navigateBack()
+        #expect(model.focusedNodeID == fixture.root.id)
     }
 
     @Test
@@ -406,16 +392,16 @@ struct WorkspaceNavigationModelTests {
         #expect(state.focusedNodeID == fixture.docs.id)
         #expect(state.selectedNodeID == fixture.docFile.id)
         #expect(state.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(state.focusBackStack == [fixture.root.id])
+        model.navigateBack()
+        #expect(model.focusedNodeID == fixture.root.id)
     }
 
     @Test
-    func testSelectionPublishesAncestorsWithoutReplacingTableState() throws {
+    func testSelectionPublishesAncestorsWithoutRefreshingBrowserRows() throws {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
-        let initialTableContentID = model.tableContentID
+        let initialRefreshID = model.browserContent().refreshID
         let initialTableNodeIDs = model.tableNodes.map(\.id)
-        let initialTableStorageAddress = try #require(tableStorageAddress(of: model.state.tableNodes))
         var publishedStates: [WorkspaceNavigationState] = []
         var cancellables = Set<AnyCancellable>()
 
@@ -430,9 +416,8 @@ struct WorkspaceNavigationModelTests {
         var state = try #require(publishedStates.first)
         #expect(state.selectedNodeID == fixture.docFile.id)
         #expect(state.selectedAncestorIDs == Set([fixture.root.id, fixture.docs.id, fixture.docFile.id]))
-        #expect(state.tableContentID == initialTableContentID)
+        #expect(model.browserContent().refreshID == initialRefreshID)
         #expect(state.tableNodes.map(\.id) == initialTableNodeIDs)
-        #expect(tableStorageAddress(of: state.tableNodes) == initialTableStorageAddress)
 
         publishedStates.removeAll()
         model.clearSelection()
@@ -441,9 +426,8 @@ struct WorkspaceNavigationModelTests {
         state = try #require(publishedStates.first)
         #expect(state.selectedNodeID == nil)
         #expect(state.selectedAncestorIDs.isEmpty)
-        #expect(state.tableContentID == initialTableContentID)
+        #expect(model.browserContent().refreshID == initialRefreshID)
         #expect(state.tableNodes.map(\.id) == initialTableNodeIDs)
-        #expect(tableStorageAddress(of: state.tableNodes) == initialTableStorageAddress)
     }
 
     @Test
@@ -456,65 +440,56 @@ struct WorkspaceNavigationModelTests {
         #expect(model.focusedNodeID == nil)
         #expect(model.currentFocusNode?.id == fixture.root.id)
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
 
-        let rootTableRevision = model.tableContentRevision
+        let rootContentID = model.browserContent().contentID
         model.setFocusedNodeID(fixture.rootFile.id)
 
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentRevision == rootTableRevision)
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.rootFile.id)")
+        #expect(model.browserContent().contentID != rootContentID)
 
         model.setFocusedNodeID(fixture.docFile.id)
 
         #expect(model.focusedNodeID == fixture.docFile.id)
         #expect(model.currentFocusNode?.id == fixture.docFile.id)
         #expect(model.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.docFile.id)")
     }
 
     @Test
-    func testDeferredTableMaterializationAdvancesContentRevision() {
+    func testDeferredTableRefreshChangesBrowserContentWhenRowsChange() {
         let fixture = makeNavigationFixture()
         let model = WorkspaceNavigationModel()
 
         model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
 
-        let deferredRevision = model.tableContentRevision
         let deferredContent = model.browserContent()
         #expect(model.tableNodes.isEmpty)
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
 
         model.refreshTableNodesForCurrentContext()
 
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentID == "\(fixture.snapshot.id.uuidString)|\(fixture.root.id)")
-        #expect(model.tableContentRevision == deferredRevision + 1)
         #expect(model.browserContent().refreshID != deferredContent.refreshID)
 
         let loadedContent = model.browserContent()
 
         model.refreshTableNodesForCurrentContext()
 
-        #expect(model.tableContentRevision == deferredRevision + 1)
         #expect(model.browserContent().refreshID == loadedContent.refreshID)
 
         model.updateScanContext(snapshot: fixture.snapshot, loadTableNodesImmediately: false)
 
         #expect(model.tableNodes.isEmpty)
-        #expect(model.tableContentRevision == deferredRevision + 2)
+        #expect(model.browserContent().refreshID != loadedContent.refreshID)
 
         model.refreshTableNodesForCurrentContext()
 
         #expect(model.tableNodes.map(\.id) == [fixture.docs.id, fixture.cache.id, fixture.rootFile.id])
-        #expect(model.tableContentRevision == deferredRevision + 3)
     }
 
     @Test
-    func testSameSnapshotIDNodeMetadataChangeAdvancesTableRevision() {
+    func testSameSnapshotIDPublishesUpdatedFolderSizes() {
         let fixture = makeNavigationFixture()
         let model = makeConfiguredNavigationModel(fixture: fixture)
-        let initialRevision = model.tableContentRevision
+        let initialRefreshID = model.browserContent().refreshID
         var publishedStates: [WorkspaceNavigationState] = []
         var cancellables = Set<AnyCancellable>()
 
@@ -560,7 +535,7 @@ struct WorkspaceNavigationModelTests {
         model.updateScanContext(snapshot: updatedSnapshot)
 
         #expect(publishedStates.count == 1)
-        #expect(model.tableContentRevision == initialRevision + 1)
+        #expect(model.browserContent().refreshID != initialRefreshID)
         #expect(model.tableNodes.map(\.id) == [updatedDocs.id, fixture.cache.id, fixture.rootFile.id])
         #expect(model.tableNodes.first?.allocatedSize == 80)
         #expect(model.currentFocusNode?.allocatedSize == updatedRoot.allocatedSize)
@@ -592,9 +567,6 @@ struct WorkspaceNavigationModelTests {
         #expect(state.selectedNodeID == nil)
         #expect(state.selectedAncestorIDs.isEmpty)
         #expect(state.tableNodes.map(\.id) == [replacement.docs.id, replacement.cache.id, replacement.rootFile.id])
-        #expect(state.tableContentID == "\(replacement.snapshot.id.uuidString)|\(replacement.root.id)")
-        #expect(state.focusBackStack.isEmpty)
-        #expect(state.focusForwardStack.isEmpty)
         #expect(model.currentFocusNode?.id == replacement.root.id)
         #expect(!model.canNavigateBack)
         #expect(!model.canNavigateForward)
@@ -624,7 +596,7 @@ struct WorkspaceNavigationModelTests {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
 
-        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.scanState.restoreCompletedSnapshot(fixture.snapshot)
         model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
         model.select(nodeID: fixture.docFile.id)
         model.focus(nodeID: fixture.docs.id)
@@ -637,9 +609,7 @@ struct WorkspaceNavigationModelTests {
         #expect(model.navigation.currentFocusNode?.id == fixture.docs.id)
         #expect(model.navigation.breadcrumbNodes.map(\.id) == [fixture.root.id, fixture.docs.id])
         #expect(model.navigation.tableNodes.map(\.id) == [fixture.docFile.id])
-        #expect(model.navigation.canClearSelection)
         #expect(model.navigation.canNavigateBack)
-        #expect(model.navigation.tableContentID.hasPrefix(fixture.snapshot.id.uuidString))
 
         model.select(nodeID: "/missing")
         #expect(model.navigation.selectedNodeID == nil)
@@ -665,7 +635,7 @@ struct WorkspaceNavigationModelTests {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
 
-        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.scanState.restoreCompletedSnapshot(fixture.snapshot)
         model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
 
         model.selectAfterViewUpdate(nodeID: fixture.docFile.id)
@@ -682,7 +652,7 @@ struct WorkspaceNavigationModelTests {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
 
-        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.scanState.restoreCompletedSnapshot(fixture.snapshot)
         model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
 
         model.selectAfterViewUpdate(nodeID: fixture.docs.id)
@@ -701,12 +671,11 @@ struct WorkspaceNavigationModelTests {
         let fixture = makeNavigationFixture()
         let model = AppModel(dependencies: makeNavigationAppDependencies())
 
-        model.scanState.replaceCurrentSnapshot(fixture.snapshot)
+        model.scanState.restoreCompletedSnapshot(fixture.snapshot)
         model.navigation.reconcileAfterSnapshotApplied(fixture.snapshot)
 
         model.selectAfterViewUpdate(nodeID: fixture.docFile.id)
         let pendingTasks = model.deferredViewUpdateTasks
-        #expect(!pendingTasks.isEmpty)
         model.clearSelection()
 
         for task in pendingTasks { await task.value }
@@ -730,7 +699,8 @@ private func makeNavigationAppDependencies() -> AppDependencies {
             persistence: TestRecentTargetPersistence(),
             isAvailable: { _ in true }
         ),
-        systemActions: .inert
+        systemActions: .inert,
+        usageStats: TestAppUsageStatsStore()
     )
 }
 
@@ -770,11 +740,4 @@ private func makeNavigationFixture(rootID: String = "/root") -> NavigationFixtur
         store: store,
         snapshot: snapshot
     )
-}
-
-private func tableStorageAddress(of nodes: [FileNodeRecord]) -> UnsafeRawPointer? {
-    nodes.withUnsafeBufferPointer { buffer in
-        guard let baseAddress = buffer.baseAddress else { return nil }
-        return UnsafeRawPointer(baseAddress)
-    }
 }

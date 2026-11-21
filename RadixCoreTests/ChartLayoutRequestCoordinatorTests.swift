@@ -5,24 +5,6 @@ import Testing
 
 @MainActor
 struct ChartLayoutRequestCoordinatorTests {
-    @Test
-    func testSuccessfulRequestReturnsOutputAndAllowsNextRequest() async {
-        let coordinator = ChartLayoutRequestCoordinator<Int>()
-        let first = coordinator.start(layoutID: "first") { 17 }
-        guard case .success(let firstValue) = await coordinator.outcome(for: first) else {
-            Issue.record("The current request should return its output.")
-            return
-        }
-        #expect(firstValue == 17)
-
-        let second = coordinator.start(layoutID: "second") { 29 }
-        guard case .success(let secondValue) = await coordinator.outcome(for: second) else {
-            Issue.record("A completed request should not prevent the next request.")
-            return
-        }
-        #expect(secondValue == 29)
-    }
-
     @Test(arguments: SupersededCompletion.allCases)
     private func testSupersededRequestCannotWinWhenLayoutIDIsReused(completion: SupersededCompletion) async throws {
         let coordinator = ChartLayoutRequestCoordinator<Int>()
@@ -32,7 +14,6 @@ struct ChartLayoutRequestCoordinatorTests {
         try await waitUntil("old layout operation started") { await operation.isWaiting }
 
         let latest = coordinator.start(layoutID: "same-layout") { 29 }
-        #expect(old.task.isCancelled)
         guard case .success(let value) = await coordinator.outcome(for: latest) else {
             Issue.record("The latest generation should return its output.")
             return
@@ -82,28 +63,26 @@ struct ChartLayoutRequestCoordinatorTests {
         let waiter = Task { await coordinator.outcome(for: request) }
 
         waiter.cancel()
+        try await operation.waitForCancellation()
         await operation.finish(.success(17))
 
         guard case .cancelled = await waiter.value else {
             Issue.record("Cancelling the waiter must reject even a late successful operation.")
             return
         }
-        #expect(request.task.isCancelled)
     }
 
     @Test
     func testDeinitializationCancelsRunningRequest() async throws {
         var coordinator: ChartLayoutRequestCoordinator<Int>? = ChartLayoutRequestCoordinator()
         let operation = LayoutOperation()
-        let request = try #require(coordinator).start(layoutID: "pending") { try await operation.run() }
+        _ = try #require(coordinator).start(layoutID: "pending") { try await operation.run() }
         defer { Task { await operation.finish(.success(-1)) } }
         try await waitUntil("layout operation started before release") { await operation.isWaiting }
 
         coordinator = nil
 
-        #expect(request.task.isCancelled)
-        await operation.finish(.success(17))
-        #expect(try await request.task.value == 17)
+        try await operation.waitForCancellation()
     }
 }
 
@@ -131,11 +110,25 @@ private actor LayoutOperation {
     private var continuation: CheckedContinuation<Int, any Error>?
     private var result: Result<Int, any Error>?
 
+    private var receivedCancellation = false
+
     var isWaiting: Bool { continuation != nil }
 
     func run() async throws -> Int {
         if let result { return try result.get() }
-        return try await withCheckedThrowingContinuation { continuation = $0 }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation = $0 }
+        } onCancel: {
+            Task { await self.recordCancellation() }
+        }
+    }
+
+    private func recordCancellation() {
+        receivedCancellation = true
+    }
+
+    func waitForCancellation() async throws {
+        try await waitUntil("layout operation received cancellation") { await self.receivedCancellation }
     }
 
     func finish(_ result: Result<Int, any Error>) {

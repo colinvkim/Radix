@@ -3,7 +3,6 @@ import Foundation
 nonisolated struct DiskMapColorBranch {
     let id: String
     let index: Int
-    let count: Int
 }
 
 /// Keeps global color positions while retaining lookup entries only for branches
@@ -11,7 +10,6 @@ nonisolated struct DiskMapColorBranch {
 nonisolated struct DiskMapColorBranchContext {
     private let indexByID: [String: Int]
     private let focusedBranchID: String?
-    private let count: Int
 
     init(
         in treeStore: some DiskMapTreeReading,
@@ -53,14 +51,13 @@ nonisolated struct DiskMapColorBranchContext {
         }
         self.indexByID = indexByID
         self.focusedBranchID = focusedBranchID
-        self.count = max(branchCount, 1)
     }
 
     func branch(forNodeID nodeID: String?) -> DiskMapColorBranch? {
         guard let nodeID else { return nil }
         let branchID = focusedBranchID ?? nodeID
         guard let index = indexByID[branchID] else { return nil }
-        return DiskMapColorBranch(id: branchID, index: index, count: count)
+        return DiskMapColorBranch(id: branchID, index: index)
     }
 
     private static func topLevelBranchID(

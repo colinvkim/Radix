@@ -491,20 +491,6 @@ nonisolated struct FileTreeStore: Sendable {
         return result
     }
 
-    nonisolated var parentIDByID: [String: String] {
-        var result: [String: String] = [:]
-        result.reserveCapacity(max(nodeCount - 1, 0))
-        for nodeIndex in activeOrderedNodeIndices {
-            guard let parentIndex = activeParentIndex(of: nodeIndex),
-                  let record = node(at: nodeIndex),
-                  let parent = node(at: parentIndex) else {
-                continue
-            }
-            result[record.id] = parent.id
-        }
-        return result
-    }
-
     private struct SanitizedTopology {
         let nodesByID: [String: FileNodeRecord]
         let childIDsByID: [String: [String]]
@@ -674,36 +660,6 @@ nonisolated struct FileTreeStore: Sendable {
         return accumulator.stats(
             root: nodeRecords[Int(topologyArena.rootIndex.rawValue)]
         )
-    }
-
-    /// Fast construction for scanner output whose topology has already been
-    /// validated while it was assembled. This avoids copying every node and
-    /// edge through the general-purpose topology sanitizer a second time.
-    nonisolated init(
-        verifiedRootID rootID: String,
-        nodesByID: [String: FileNodeRecord],
-        childIDsByID: [String: [String]],
-        aggregateStats: ScanAggregateStats
-    ) {
-        precondition(nodesByID[rootID] != nil, "Verified FileTreeStore root is missing.")
-        self.contentID = UUID()
-        self.backingStorageID = contentID
-        self.rootID = rootID
-        let orderedNodeIDs = Self.orderedNodeIDsAssumingValidTopology(
-            rootID: rootID,
-            childIDsByID: childIDsByID,
-            nodeCount: nodesByID.count
-        )
-        self.topologyArena = FileTreeTopologyArena(
-            rootID: rootID,
-            nodesByID: nodesByID,
-            childIDsByID: childIDsByID,
-            orderedNodeIDs: orderedNodeIDs
-        )
-        self.nodeRecords = orderedNodeIDs.compactMap { nodesByID[$0] }
-        self.precomputedAggregateStats = aggregateStats
-        self.logicalScope = nil
-        precondition(orderedNodeIDs.count == nodesByID.count, "FileTreeStore node order count does not match its node map.")
     }
 
     /// Fast construction for scanner output already represented by compact node indices.
@@ -1698,10 +1654,6 @@ nonisolated struct FileTreeStore: Sendable {
         return activeChildren(of: index).count
     }
 
-    nonisolated func subtreeNodeCount(rootedAt nodeID: String) -> Int {
-        subtreeNodeCount(rootedAt: nodeID, upTo: .max)
-    }
-
     nonisolated func subtreeNodeCount(
         rootedAt nodeID: String,
         upTo limit: Int
@@ -1750,13 +1702,6 @@ nonisolated struct FileTreeStore: Sendable {
         return false
     }
 
-    nonisolated func indexedNodeIDs(excludingRoot: Bool = false) -> [String] {
-        activeOrderedNodeIndices.compactMap { nodeIndex in
-            guard !excludingRoot || nodeIndex != activeRootIndex else { return nil }
-            return node(at: nodeIndex)?.id
-        }
-    }
-
     nonisolated func indexedNodeIndices() -> [FileTreeNodeIndex] {
         activeOrderedNodeIndices
     }
@@ -1791,10 +1736,6 @@ nonisolated struct FileTreeStore: Sendable {
         }
     }
 
-    nonisolated func hasAncestor(in ancestorIDs: Set<String>, of nodeID: String) -> Bool {
-        hasAncestor(in: preparedNodeSet(for: ancestorIDs), of: nodeID)
-    }
-
     nonisolated func preparedNodeSet(for nodeIDs: Set<String>) -> PreparedFileTreeNodeSet {
         PreparedFileTreeNodeSet(
             indices: Set(nodeIDs.compactMap { nodeIndex(id: $0) })
@@ -1821,10 +1762,6 @@ nonisolated struct FileTreeStore: Sendable {
             cursor = parentIndex
         }
         return false
-    }
-
-    nonisolated func isNodeOrDescendant(_ nodeID: String, of ancestorIDs: Set<String>) -> Bool {
-        isNodeOrDescendant(nodeID, of: preparedNodeSet(for: ancestorIDs))
     }
 
     nonisolated func isNodeOrDescendant(
@@ -1854,10 +1791,6 @@ nonisolated struct FileTreeStore: Sendable {
         return result
     }
 
-    nonisolated func removingSubtrees(rootedAt nodeIDs: [String]) -> FileTreeStore {
-        (try? removingSubtrees(rootedAt: nodeIDs, cancellationCheck: {})) ?? self
-    }
-
     nonisolated func removingSubtrees(
         rootedAt nodeIDs: [String],
         cancellationCheck: () throws -> Void
@@ -1880,10 +1813,6 @@ nonisolated struct FileTreeStore: Sendable {
             removingSubtreesAt: removalRootIndices,
             cancellationCheck: cancellationCheck
         )
-    }
-
-    nonisolated func removingSubtree(id targetID: String) -> FileTreeStore? {
-        try? removingSubtree(id: targetID, cancellationCheck: {})
     }
 
     nonisolated func removingSubtree(
@@ -2113,32 +2042,11 @@ nonisolated struct FileTreeStore: Sendable {
         )
     }
 
-    nonisolated func replacingSubtree(id targetID: String, with replacement: FileTreeStore) -> FileTreeStore? {
-        try? replacingSubtree(id: targetID, with: replacement, cancellationCheck: {})
-    }
-
-    nonisolated func replacingSubtree(
-        id targetID: String,
-        with replacement: FileTreeStore,
-        cancellationCheck: () throws -> Void
-    ) throws -> FileTreeStore? {
-        try replacingSubtrees(
-            [targetID: replacement],
-            cancellationCheck: cancellationCheck
-        )
-    }
-
     /// Replaces multiple disjoint subtrees as one topology transaction.
     ///
     /// All replacements are validated before the store is changed. Their shared
     /// ancestor chain is then rebuilt once, followed by one scan-wide shared-
     /// allocation rebalance so claims crossing replacement boundaries remain correct.
-    nonisolated func replacingSubtrees(
-        _ replacements: [String: FileTreeStore]
-    ) -> FileTreeStore? {
-        try? replacingSubtrees(replacements, cancellationCheck: {})
-    }
-
     nonisolated func replacingSubtrees(
         _ replacements: [String: FileTreeStore],
         cancellationCheck: () throws -> Void
@@ -2351,10 +2259,6 @@ nonisolated struct FileTreeStore: Sendable {
     /// Creates an immutable view rooted inside the same compact backing store.
     /// Node and topology buffers remain shared; only membership, traversal order,
     /// and sparse shared-allocation corrections belong to the logical scope.
-    nonisolated func logicalScope(rootedAt targetID: String) -> FileTreeStore? {
-        try? logicalScope(rootedAt: targetID, cancellationCheck: {})
-    }
-
     nonisolated func logicalScope(
         rootedAt targetID: String,
         cancellationCheck: () throws -> Void
@@ -2485,10 +2389,6 @@ nonisolated struct FileTreeStore: Sendable {
             logicalScope: scope,
             backingStorageID: backingStorageID
         )
-    }
-
-    nonisolated func subtree(rootedAt targetID: String) -> FileTreeStore? {
-        try? subtree(rootedAt: targetID, cancellationCheck: {})
     }
 
     nonisolated func subtree(
@@ -2778,27 +2678,6 @@ nonisolated struct FileTreeStore: Sendable {
             materializedDirectoryIDs: materializedDirectoryIDs,
             didDropReferences: didDropReferences
         )
-    }
-
-    private nonisolated static func orderedNodeIDsAssumingValidTopology(
-        rootID: String,
-        childIDsByID: [String: [String]],
-        nodeCount: Int
-    ) -> [String] {
-        var orderedNodeIDs: [String] = []
-        orderedNodeIDs.reserveCapacity(nodeCount)
-        var stack = [rootID]
-
-        while let nodeID = stack.popLast() {
-            orderedNodeIDs.append(nodeID)
-            if orderedNodeIDs.count > nodeCount {
-                preconditionFailure("FileTreeStore topology reaches more nodes than declared.")
-            }
-            if let childIDs = childIDsByID[nodeID] {
-                stack.append(contentsOf: childIDs.reversed())
-            }
-        }
-        return orderedNodeIDs
     }
 
     private nonisolated static func repairMaterializedDirectoryTotals(

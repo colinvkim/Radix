@@ -182,23 +182,3 @@ final class UserDefaultsAppUsageStatsStore: AppUsageStatsPersisting {
         defaults.removeObject(forKey: Key.usageStats)
     }
 }
-
-final class InMemoryAppUsageStatsStore: AppUsageStatsPersisting {
-    private var stats: AppUsageStats
-
-    init(stats: AppUsageStats = .empty) {
-        self.stats = stats
-    }
-
-    func loadUsageStats() -> AppUsageStats {
-        stats
-    }
-
-    func saveUsageStats(_ stats: AppUsageStats) {
-        self.stats = stats
-    }
-
-    func clearUsageStats() {
-        stats = .empty
-    }
-}

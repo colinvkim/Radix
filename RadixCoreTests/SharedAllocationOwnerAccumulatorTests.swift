@@ -5,7 +5,7 @@ import Testing
 
 struct SharedAllocationOwnerAccumulatorTests {
     @Test
-    func testWinnerAndCorrectionsAreIndependentOfArrivalOrder() throws {
+    func testWinnerAndCorrectionsAreIndependentOfArrivalOrder() {
         let identity = FileIdentity(device: 1, inode: 42)
         let expectedWinner = claim(identity, owner: "/owner-a", path: "/a", size: 100)
         let tiedPathLoser = claim(identity, owner: "/owner-b", path: "/a", size: 100)
@@ -27,11 +27,7 @@ struct SharedAllocationOwnerAccumulatorTests {
                     #expect(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
                 }
             }
-            #expect(accumulator.identityCount == 1)
 
-            let winner = try #require(accumulator.winner(for: identity))
-            #expect(winner.path == expectedWinner.path)
-            #expect(winner.ownerNodeID == expectedWinner.ownerNodeID)
             #expect(
                 accumulator.duplicateAllocatedSizeByOwner == [
                     tiedPathLoser.ownerNodeID: 100,
@@ -41,7 +37,7 @@ struct SharedAllocationOwnerAccumulatorTests {
     }
 
     @Test
-    func testMergingLocalAccumulatorsMatchesDirectAccumulationInEitherOrder() throws {
+    func testMergingLocalAccumulatorsAssignsCorrectionsInEitherOrder() {
         let firstIdentity = FileIdentity(device: 3, inode: 10)
         let secondIdentity = FileIdentity(device: 3, inode: 11)
         let firstClaims = [
@@ -60,15 +56,10 @@ struct SharedAllocationOwnerAccumulatorTests {
         forward.merge(secondLocal)
         var reverse = secondLocal
         reverse.merge(firstLocal)
-        let direct = SharedAllocationOwnerAccumulator(firstClaims + secondClaims)
 
-        #expect(forward.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
-        #expect(reverse.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
-        #expect(try #require(forward.winner(for: firstIdentity)).path == "/a")
-        #expect(try #require(reverse.winner(for: firstIdentity)).path == "/a")
-        #expect(try #require(forward.winner(for: secondIdentity)).path == "/b")
-        #expect(forward.duplicateAllocatedSizeByOwner["/shared-owner"] == 32)
-        #expect(forward.identityCount == 2)
+        let expected: [String: Int64] = ["/package-a/y": 64, "/package-a/z": 64, "/shared-owner": 32]
+        #expect(forward.duplicateAllocatedSizeByOwner == expected)
+        #expect(reverse.duplicateAllocatedSizeByOwner == expected)
     }
 
     @Test
@@ -80,18 +71,15 @@ struct SharedAllocationOwnerAccumulatorTests {
         ])
 
         #expect(accumulator.isEmpty)
-        #expect(accumulator.identityCount == 0)
         #expect(accumulator.duplicateAllocatedSizeByOwner.isEmpty)
-        #expect(accumulator.winner(for: identity) == nil)
     }
 
     @Test
-    func testRepeatedIdenticalClaimsPreserveExistingDeduplicationSemantics() throws {
+    func testRepeatedHardLinkClaimsCountEachDuplicate() {
         let identity = FileIdentity(device: 5, inode: 20)
         let repeated = claim(identity, owner: "/owner", path: "/file", size: 128)
         let accumulator = SharedAllocationOwnerAccumulator([repeated, repeated, repeated])
 
-        #expect(try #require(accumulator.winner(for: identity)).ownerNodeID == repeated.ownerNodeID)
         #expect(accumulator.duplicateAllocatedSizeByOwner == [repeated.ownerNodeID: 256])
     }
 
@@ -301,10 +289,8 @@ struct SharedAllocationOwnerAccumulatorTests {
         ])
 
         #expect(standalone.isEmpty)
-        #expect(standalone.identityCount == 0)
         #expect(standalone.duplicateAllocatedSizeByOwner.isEmpty)
         #expect(!(hardLinked.isEmpty))
-        #expect(hardLinked.identityCount == 1)
         #expect(hardLinked.duplicateAllocatedSizeByOwner.isEmpty)
     }
 
@@ -392,7 +378,7 @@ struct SharedAllocationOwnerAccumulatorTests {
     }
 
     @Test
-    func testStandaloneCloneGroupRetainsOneIdentityAndAccumulatesLosers() {
+    func testStandaloneCloneGroupAccumulatesLosers() {
         let cloneIdentity = CloneIdentity(device: 1, cloneID: 99)
         let claims = (0..<10_000).map { index in
             cloneClaim(
@@ -406,7 +392,6 @@ struct SharedAllocationOwnerAccumulatorTests {
 
         let accumulator = SharedAllocationOwnerAccumulator(claims.reversed())
 
-        #expect(accumulator.identityCount == 1)
         #expect(
             accumulator.duplicateAllocatedSizeByOwner == [
                 "/summary": 9_999 * 80
@@ -414,7 +399,7 @@ struct SharedAllocationOwnerAccumulatorTests {
     }
 
     @Test(arguments: [Int64(80), Int64.max])
-    func testStandaloneCloneMergeMatchesDirectAccumulationInEitherOrder(dataSize: Int64) {
+    func testStandaloneCloneMergeAssignsCorrectionsInEitherOrder(dataSize: Int64) {
         let cloneIdentity = CloneIdentity(device: 2, cloneID: 7)
         let firstClaims = [
             cloneClaim(
@@ -448,16 +433,10 @@ struct SharedAllocationOwnerAccumulatorTests {
         forward.merge(second)
         var reverse = second
         reverse.merge(first)
-        let direct = SharedAllocationOwnerAccumulator(firstClaims + secondClaims)
 
-        #expect(forward.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
-        #expect(reverse.duplicateAllocatedSizeByOwner == direct.duplicateAllocatedSizeByOwner)
-        #expect(
-            forward.duplicateAllocatedSizeByOwner == [
-                "/summary-a": dataSize == .max ? Int64.max : 160
-            ])
-        #expect(forward.identityCount == 1)
-        #expect(reverse.identityCount == 1)
+        let expected = ["/summary-a": dataSize == .max ? Int64.max : 160]
+        #expect(forward.duplicateAllocatedSizeByOwner == expected)
+        #expect(reverse.duplicateAllocatedSizeByOwner == expected)
     }
 
     private func claim(
@@ -467,10 +446,12 @@ struct SharedAllocationOwnerAccumulatorTests {
         size: Int64
     ) -> SharedAllocationClaim {
         SharedAllocationClaim(
-            identity: identity,
+            hardLinkIdentity: identity,
+            cloneIdentity: nil,
             ownerNodeID: owner,
             path: path,
-            allocatedSize: size
+            allocatedSize: size,
+            cloneAllocatedSize: 0
         )
     }
 
@@ -490,5 +471,20 @@ struct SharedAllocationOwnerAccumulatorTests {
             allocatedSize: totalSize,
             cloneAllocatedSize: dataSize
         )
+    }
+}
+
+extension SharedAllocationOwnerAccumulator {
+    init(_ claims: some Sequence<SharedAllocationClaim>) {
+        self.init()
+        for claim in claims {
+            record(claim)
+        }
+    }
+}
+
+extension SharedAllocationOwnerAccumulator {
+    nonisolated var duplicateAllocatedSizeByOwner: [String: Int64] {
+        duplicateAllocatedSizeByOwner(cancellationCheck: {})
     }
 }

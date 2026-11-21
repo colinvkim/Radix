@@ -280,7 +280,7 @@ nonisolated struct DiscardPileVisualizationOverlayCache {
         movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>,
         treeStore: DiskMapTreeStore,
         renderedNodeIDs: () -> Set<FileNodeRecord.ID>,
-        renderedAggregateContainerNodeIDs: () -> Set<FileNodeRecord.ID> = { [] }
+        renderedAggregateContainerNodeIDs: () -> Set<FileNodeRecord.ID>
     ) -> DiscardPileVisualizationOverlay {
         let key = Key(
             treeContentID: treeStore.contentID,

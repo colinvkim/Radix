@@ -96,17 +96,17 @@ struct RecentTargetStoreTests {
     }
 
     @Test
-    func testClearDelegatesToPersistence() {
-        let persistence = TestRecentTargetPersistence(targets: [makeRecentTarget("/recent/item")])
-        let store = RecentTargetStore(
-            persistence: persistence,
-            isAvailable: { _ in true }
-        )
+    func testClearingRecentTargetsPersistsAcrossReloads() throws {
+        let defaults = try temporaryDefaults.make()
+        let persistence = UserDefaultsRecentTargetPersistence(defaults: defaults)
+        let store = RecentTargetStore(persistence: persistence, isAvailable: { _ in true })
+        let item = makeRecentTarget("/recent/item")
+        _ = store.record(item, currentTargets: [])
+        #expect(persistence.loadRecentTargets() == [item])
 
         store.clear()
 
-        #expect(persistence.didClear)
-        #expect(persistence.targets.isEmpty)
+        #expect(UserDefaultsRecentTargetPersistence(defaults: defaults).loadRecentTargets().isEmpty)
     }
 }
 

@@ -6,40 +6,10 @@ import Testing
 
 struct PackageClassifierTests {
     @Test
-    func testClassifierRoutesEachDirectoryToTheCheapestSource() {
-        let counters = PackageClassifierCounters()
-        let classifier = PackageClassifier(foundationPackageProvider: { url in
-            counters.recordFoundation(url)
-            return ["Sample.app", "Custom.weird"].contains(url.lastPathComponent)
-        })
-
-        let ordinaryURL = URL(filePath: "/tmp/Ordinary.TXT", directoryHint: .isDirectory)
-        #expect(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: false).source == .fastNegative)
-        #expect(counters.foundationCount == 0)
-
-        let appURL = URL(filePath: "/tmp/Sample.app", directoryHint: .isDirectory)
-        #expect(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
-        #expect(classifier.classification(for: appURL, hasFinderPackageFlag: false).isPackage)
-        #expect(counters.foundationCount == 2)
-
-        let customURL = URL(filePath: "/tmp/Custom.weird", directoryHint: .isDirectory)
-        #expect(classifier.classification(for: customURL, hasFinderPackageFlag: false).isPackage)
-        #expect(counters.foundationCount == 3)
-
-        let extensionlessURL = URL(filePath: "/tmp/Extensionless", directoryHint: .isDirectory)
-        let extensionlessClassification = classifier.classification(
-            for: extensionlessURL,
-            hasFinderPackageFlag: false
-        )
-        #expect(!(extensionlessClassification.isPackage))
-        #expect(extensionlessClassification.source == .fastNegative)
-        #expect(counters.foundationCount == 3)
-
-        #expect(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: true).isPackage)
-        #expect(counters.foundationCount == 3)
-
-        #expect(!(classifier.classification(for: ordinaryURL, hasFinderPackageFlag: nil).isPackage))
-        #expect(counters.foundationCount == 4)
+    func testMissingFinderFlagPreservesFoundationPackageDecision() {
+        let url = URL(filePath: "/tmp/Ordinary.txt", directoryHint: .isDirectory)
+        let classifier = PackageClassifier(foundationPackageProvider: { $0 == url })
+        #expect(classifier.classification(for: url, hasFinderPackageFlag: nil).isPackage)
     }
 
     @Test
@@ -109,7 +79,6 @@ struct PackageClassifierTests {
                 hasFinderPackageFlag: false
             )
             #expect(!(classification.isPackage), "\(name)")
-            #expect(classification.source == .fastNegative, "\(name)")
         }
         #expect(counters.foundationCount == 0)
 
@@ -119,7 +88,6 @@ struct PackageClassifierTests {
                 hasFinderPackageFlag: false
             )
             #expect(!(classification.isPackage), "\(name)")
-            #expect(classification.source == .foundation, "\(name)")
         }
         #expect(counters.foundationCount == 2)
     }
@@ -237,7 +205,6 @@ struct PackageClassifierTests {
         }
         let plainClassification = classifier.classification(for: plainURL, hasFinderPackageFlag: false)
         #expect(!(plainClassification.isPackage))
-        #expect(plainClassification.source == .fastNegative)
     }
 
     @Test

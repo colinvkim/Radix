@@ -8,21 +8,6 @@ nonisolated struct ScanComparisonChangeTree: Equatable, Sendable {
 
     static let empty = ScanComparisonChangeTree(rootPaths: [], nodesByPath: [:])
 
-    func node(at relativePath: String) -> ScanComparisonAggregateChange? {
-        nodesByPath[relativePath]
-    }
-
-    func significantProjection(
-        changeKinds: Set<ScanComparisonChangeKind>,
-        coverageTarget: Double = 0.95,
-        maximumNamedChildren: Int = 12
-    ) -> ScanComparisonChangeTreeProjection {
-        significantProjection(
-            changeKinds: changeKinds, coverageTarget: coverageTarget,
-            maximumNamedChildren: maximumNamedChildren, cancellationCheck: {}
-        )
-    }
-
     func significantProjection(
         changeKinds: Set<ScanComparisonChangeKind>,
         coverageTarget: Double = 0.95,
