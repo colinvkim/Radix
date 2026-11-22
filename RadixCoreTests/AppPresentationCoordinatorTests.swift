@@ -31,11 +31,11 @@ struct AppPresentationCoordinatorTests {
         coordinator.present(.sheet(.discardPileReview))
         coordinator.present(.dialog(.trashConfirmation))
 
-        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.cancel(kind: .onboarding, canStartArchiveImport: true) == nil)
         #expect(coordinator.activeSheet == .discardPileReview)
         #expect(coordinator.activeDialog == nil)
 
-        #expect(coordinator.cancel(kind: .discardPileReview) == nil)
+        #expect(coordinator.cancel(kind: .discardPileReview, canStartArchiveImport: true) == nil)
         #expect(coordinator.activeDialog == .trashConfirmation)
         #expect(coordinator.activeSheet == nil)
     }
@@ -48,9 +48,9 @@ struct AppPresentationCoordinatorTests {
 
         coordinator.present(.dialog(.error))
         coordinator.present(.sheet(.comparisonSetup(UUID())))
-        #expect(coordinator.cancel(kind: .error) == nil)
-        #expect(coordinator.cancel(kind: .comparisonSetup) == nil)
-        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.cancel(kind: .error, canStartArchiveImport: true) == nil)
+        #expect(coordinator.cancel(kind: .comparisonSetup, canStartArchiveImport: true) == nil)
+        #expect(coordinator.cancel(kind: .onboarding, canStartArchiveImport: true) == nil)
 
         #expect(coordinator.activeDestination == nil)
     }
@@ -65,7 +65,7 @@ struct AppPresentationCoordinatorTests {
 
         coordinator.present(.sheet(.comparisonSetup(firstID)))
         coordinator.present(.sheet(.comparisonSetup(latestID)))
-        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.cancel(kind: .onboarding, canStartArchiveImport: true) == nil)
 
         #expect(coordinator.activeSheet == .comparisonSetup(latestID))
     }
@@ -78,14 +78,14 @@ struct AppPresentationCoordinatorTests {
             initialDestination: .sheet(.onboarding)
         )
 
-        #expect(coordinator.requestArchiveImport(firstURL) == .queued)
-        #expect(coordinator.requestArchiveImport(secondURL) == .queued)
+        #expect(coordinator.requestArchiveImport(firstURL, canStartArchiveImport: true) == .queued)
+        #expect(coordinator.requestArchiveImport(secondURL, canStartArchiveImport: true) == .queued)
         #expect(coordinator.activeSheet == .onboarding)
-        #expect(coordinator.cancel(kind: .onboarding) == firstURL)
+        #expect(coordinator.cancel(kind: .onboarding, canStartArchiveImport: true) == firstURL)
         #expect(coordinator.activeDestination == nil)
 
         coordinator.present(.sheet(.importPreview(firstURL)))
-        #expect(coordinator.cancel(kind: .importPreview) == secondURL)
+        #expect(coordinator.cancel(kind: .importPreview, canStartArchiveImport: true) == secondURL)
         #expect(coordinator.activeDestination == nil)
     }
 
@@ -94,10 +94,10 @@ struct AppPresentationCoordinatorTests {
         let coordinator = AppPresentationCoordinator()
         let url = URL(filePath: "/tmp/immediate.radixscan")
 
-        #expect(coordinator.requestArchiveImport(url) == .startNow)
+        #expect(coordinator.requestArchiveImport(url, canStartArchiveImport: true) == .startNow)
         #expect(coordinator.activeDestination == nil)
         coordinator.present(.sheet(.onboarding))
-        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.cancel(kind: .onboarding, canStartArchiveImport: true) == nil)
         #expect(coordinator.activeDestination == nil)
     }
 
@@ -106,7 +106,7 @@ struct AppPresentationCoordinatorTests {
         let coordinator = AppPresentationCoordinator(initialDestination: .sheet(.onboarding))
         let queuedURL = URL(filePath: "/tmp/queued.radixscan")
         coordinator.present(.dialog(.trashConfirmation))
-        #expect(coordinator.requestArchiveImport(queuedURL) == .queued)
+        #expect(coordinator.requestArchiveImport(queuedURL, canStartArchiveImport: true) == .queued)
         coordinator.present(.sheet(.discardPileReview))
 
         coordinator.reset()
@@ -115,9 +115,9 @@ struct AppPresentationCoordinatorTests {
         #expect(coordinator.activeSheet == nil)
         #expect(coordinator.activeDialog == nil)
         let freshURL = URL(filePath: "/tmp/fresh.radixscan")
-        #expect(coordinator.requestArchiveImport(freshURL) == .startNow)
+        #expect(coordinator.requestArchiveImport(freshURL, canStartArchiveImport: true) == .startNow)
         coordinator.present(.sheet(.onboarding))
-        #expect(coordinator.cancel(kind: .onboarding) == nil)
+        #expect(coordinator.cancel(kind: .onboarding, canStartArchiveImport: true) == nil)
         #expect(coordinator.activeDestination == nil)
     }
 }

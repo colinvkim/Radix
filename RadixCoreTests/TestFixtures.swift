@@ -88,6 +88,7 @@ extension AppSystemActions {
         copyPath: { _ in },
         copyPaths: { _ in },
         moveToTrash: { _ in TrashMoveOutcome(.matches) },
+        deletePermanently: { _, _, _ in throw FileActionError.unsupported },
         validateQuickLookSelection: { _, _ in },
         prepareAndOpenFullDiskAccessSettings: { true },
         fullDiskAccessStatus: { .unknown },
