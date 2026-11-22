@@ -2405,10 +2405,9 @@ final class AppModel: ObservableObject {
         trashFlow.clearDiscardPile()
     }
 
-    @discardableResult
-    func requestDiscardPileCleanup(_ action: TrashFlowController.DiscardPileCleanupAction) async -> Bool {
+    func requestDiscardPileCleanup(_ action: TrashFlowController.DiscardPileCleanupAction) async {
         guard !isPreparingDiscardPileTrash, action != .deletePermanently || !workspaceTour.isActive else {
-            return false
+            return
         }
         do {
             try validateSnapshotAllowsMutation()
@@ -2441,15 +2440,13 @@ final class AppModel: ObservableObject {
             guard !Task.isCancelled, discardPilePreparation?.id == id,
                   discardPile == pile,
                   canUseWorkspaceCommands, !trashFlow.isMovingFiles,
-                  pendingTrashSelection == nil, pendingCloudFileAction == nil else { return false }
+                  pendingTrashSelection == nil, pendingCloudFileAction == nil else { return }
             try validateSnapshotAllowsMutation()
             pendingTrashSelection = selection
-            return true
         } catch is CancellationError {
-            return false
+            return
         } catch {
             presentError(error)
-            return false
         }
     }
 

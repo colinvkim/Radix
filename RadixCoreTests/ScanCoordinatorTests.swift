@@ -1900,7 +1900,7 @@ struct ScanCoordinatorTests {
         service.finish(scanIndex: 0)
         try await waitUntil("child scan publishes") { model.scanState.snapshot?.id == childSnapshot.id }
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
@@ -2050,7 +2050,7 @@ struct ScanCoordinatorTests {
         model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent displays") { model.scanState.snapshot?.id == initial.id }
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
@@ -2138,7 +2138,7 @@ struct ScanCoordinatorTests {
         try #require(model.scanState.snapshot?.id == initial.id)
         #expect(model.discardPileSnapshot.nodes == [marked])
         #expect(model.discardPileRootNodeIDs.isEmpty)
-        #expect(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
         #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [marked])
     }
