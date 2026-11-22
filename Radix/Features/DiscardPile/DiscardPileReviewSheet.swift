@@ -5,15 +5,18 @@ struct DiscardPileReviewActions {
     let clear: () -> Void
     let dismiss: () -> Void
     let cleanup: (TrashFlowController.DiscardPileCleanupAction) -> Void
+    let cancelCleanup: () -> Void
+    let confirmCleanup: (TrashFlowController.DiscardPileCleanupAction) -> Void
 }
 
 struct DiscardPileReviewSheet: View {
     @EnvironmentObject private var tour: WorkspaceTourController
-    private let rows: [DiscardPileReviewRow]
+    private let nodes: [FileNodeRecord]
     private let rowIDs: Set<FileNodeRecord.ID>
     private let summary: DiscardPileSummary
     private let canMoveToTrash: Bool
     private let isPreparingTrash: Bool
+    private let pendingCleanup: TrashFlowController.PendingTrashSelection?
     private let actions: DiscardPileReviewActions
 
     @State private var selection: Set<FileNodeRecord.ID> = []
@@ -23,18 +26,38 @@ struct DiscardPileReviewSheet: View {
         snapshot: DiscardPileSnapshot,
         canMoveToTrash: Bool,
         isPreparingTrash: Bool,
+        pendingCleanup: TrashFlowController.PendingTrashSelection?,
         actions: DiscardPileReviewActions
     ) {
-        let rows = snapshot.nodes.map(DiscardPileReviewRow.init)
-        self.rows = rows
-        self.rowIDs = Set(rows.map(\.id))
+        self.nodes = snapshot.nodes
+        self.rowIDs = Set(snapshot.nodes.map(\.id))
         self.summary = snapshot.summary
         self.canMoveToTrash = canMoveToTrash
         self.isPreparingTrash = isPreparingTrash
+        self.pendingCleanup = pendingCleanup
         self.actions = actions
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let pendingCleanup {
+                DiscardPileTrashConfirmationSheet(
+                    selection: pendingCleanup,
+                    onCancel: actions.cancelCleanup,
+                    onConfirm: { actions.confirmCleanup(pendingCleanup.action) }
+                )
+            } else {
+                review
+            }
+        }
+        .onAppear { tour.reviewOpened() }
+        .onChange(of: rowIDs) { previousRowIDs, currentRowIDs in
+            let restoredIDs = currentRowIDs.subtracting(previousRowIDs)
+            selection = restoredIDs.isEmpty ? selection.intersection(currentRowIDs) : restoredIDs
+        }
+    }
+
+    private var review: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Discard Pile")
@@ -77,11 +100,11 @@ struct DiscardPileReviewSheet: View {
                 }
 
                 cleanupButton
+                    .disabled(!canMoveToTrash)
             }
         }
         .padding(20)
         .frame(width: 720, height: showsTourGuidance ? 560 : 420)
-        .onAppear { tour.reviewOpened() }
         .confirmationDialog(
             "Clear Discard Pile?",
             isPresented: $isConfirmingClear,
@@ -96,10 +119,6 @@ struct DiscardPileReviewSheet: View {
         } message: {
             Text("This removes all marked items from the Discard Pile. Files on disk are unchanged.")
         }
-        .onChange(of: rowIDs) { previousRowIDs, currentRowIDs in
-            let restoredIDs = currentRowIDs.subtracting(previousRowIDs)
-            selection = restoredIDs.isEmpty ? selection.intersection(currentRowIDs) : restoredIDs
-        }
     }
 
     @ViewBuilder
@@ -107,7 +126,6 @@ struct DiscardPileReviewSheet: View {
         if tour.isActive {
             Button("Move to Trash…") { actions.cleanup(.moveToTrash) }
                 .keyboardShortcut(showsTourGuidance ? nil : .defaultAction)
-                .disabled(!canMoveToTrash)
         } else {
             Menu {
                 Button("Delete Permanently…", role: .destructive) {
@@ -120,7 +138,6 @@ struct DiscardPileReviewSheet: View {
             }
             .fixedSize()
             .keyboardShortcut(.defaultAction)
-            .disabled(!canMoveToTrash)
         }
     }
 
@@ -129,9 +146,9 @@ struct DiscardPileReviewSheet: View {
 
         return VStack(spacing: 0) {
             List(selection: $selection) {
-                ForEach(rows) { row in
-                    reviewRow(row)
-                        .tag(row.id)
+                ForEach(nodes) { node in
+                    reviewRow(node)
+                        .tag(node.id)
                 }
             }
             .listStyle(.inset)
@@ -146,7 +163,7 @@ struct DiscardPileReviewSheet: View {
                 remove(selection)
             }
             .overlay {
-                if rows.isEmpty {
+                if nodes.isEmpty {
                     ContentUnavailableView("No Items Marked", systemImage: "checklist")
                 }
             }
@@ -178,36 +195,37 @@ struct DiscardPileReviewSheet: View {
         }
     }
 
-    private func reviewRow(_ row: DiscardPileReviewRow) -> some View {
-        let removeButtonLabel = removeButtonLabel(for: row)
+    private func reviewRow(_ node: FileNodeRecord) -> some View {
+        let path = node.url.path
+        let removeButtonLabel = removeButtonLabel(for: node)
 
         return HStack(spacing: 10) {
-            Image(systemName: row.systemImageName)
+            Image(systemName: node.systemImageName)
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.name)
+                Text(node.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Text(row.path)
+                Text(path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .help(row.path)
+                    .help(path)
             }
 
             Spacer(minLength: 12)
 
-            Text(row.sizeText)
+            Text(RadixFormatters.size(node.allocatedSize))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .trailing)
 
             Button {
-                remove([row.id])
+                remove([node.id])
             } label: {
                 Image(systemName: "minus.circle")
             }
@@ -226,8 +244,8 @@ struct DiscardPileReviewSheet: View {
         String(localized: "\(selectedRowCount) selected", comment: "Discard Pile status showing the number of selected review rows. The count controls pluralization.")
     }
 
-    private func removeButtonLabel(for row: DiscardPileReviewRow) -> String {
-        String(localized: "Remove \(row.name) from Discard Pile", comment: "Accessible label and help text for removing an item from the Discard Pile review list.")
+    private func removeButtonLabel(for node: FileNodeRecord) -> String {
+        String(localized: "Remove \(node.name) from Discard Pile", comment: "Accessible label and help text for removing an item from the Discard Pile review list.")
     }
 
     private func remove(_ selectedIDs: Set<FileNodeRecord.ID>) {
@@ -319,21 +337,5 @@ struct DiscardPileTrashConfirmationSheet: View {
         case .deletePermanently:
             String(localized: "Delete \(selection.nodes.count) Items Permanently", comment: "Destructive action for permanently deleting the listed items. The count controls pluralization.")
         }
-    }
-}
-
-private struct DiscardPileReviewRow: Identifiable {
-    let id: FileNodeRecord.ID
-    let name: String
-    let systemImageName: String
-    let path: String
-    let sizeText: String
-
-    init(node: FileNodeRecord) {
-        self.id = node.id
-        self.name = node.name
-        self.systemImageName = node.systemImageName
-        self.path = node.url.path
-        self.sizeText = RadixFormatters.size(node.allocatedSize)
     }
 }
