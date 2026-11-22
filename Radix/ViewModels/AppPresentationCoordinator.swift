@@ -135,7 +135,7 @@ final class AppPresentationCoordinator: ObservableObject {
         activeDestination = destination
     }
 
-    func cancel(kind: DestinationKind) -> URL? {
+    func cancel(kind: DestinationKind, canStartArchiveImport: Bool) -> URL? {
         queue.removeAll { entry in
             guard case .destination(let destination) = entry else { return false }
             return destination.kind == kind
@@ -143,11 +143,11 @@ final class AppPresentationCoordinator: ObservableObject {
 
         guard activeDestination?.kind == kind else { return nil }
         activeDestination = nil
-        return advance()
+        return advance(canStartArchiveImport: canStartArchiveImport)
     }
 
-    func requestArchiveImport(_ url: URL) -> ArchiveImportDisposition {
-        guard activeDestination != nil || !queue.isEmpty else {
+    func requestArchiveImport(_ url: URL, canStartArchiveImport: Bool) -> ArchiveImportDisposition {
+        if canStartArchiveImport, activeDestination == nil, queue.isEmpty {
             return .startNow
         }
         guard !queue.contains(.archiveImport(url)) else { return .queued }
@@ -160,9 +160,12 @@ final class AppPresentationCoordinator: ObservableObject {
         activeDestination = nil
     }
 
-    private func advance() -> URL? {
-        guard activeDestination == nil, !queue.isEmpty else { return nil }
-        switch queue.removeFirst() {
+    func advance(canStartArchiveImport: Bool) -> URL? {
+        guard activeDestination == nil, let index = queue.firstIndex(where: { entry in
+            if case .archiveImport = entry { return canStartArchiveImport }
+            return true
+        }) else { return nil }
+        switch queue.remove(at: index) {
         case .destination(let destination):
             activeDestination = destination
             return nil

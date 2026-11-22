@@ -151,7 +151,7 @@ struct InspectorDiscardPileSection: View {
         }
 
         return String(
-            localized: "This item is marked for review. It remains on disk until you move the Discard Pile to Trash.",
+            localized: "Marking this item leaves it on disk.",
             comment: "Inspector explanation for an item directly added to the Discard Pile."
         )
     }

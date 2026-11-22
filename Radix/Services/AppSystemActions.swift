@@ -22,6 +22,10 @@ nonisolated struct TrashMoveOutcome: Sendable {
 
 @MainActor
 struct AppSystemActions {
+    typealias DeletePermanently = @MainActor (
+        FileNodeRecord, URL, @escaping PermanentDeletion.VerifyCoveredMarks
+    ) async throws -> PermanentDeletion.Outcome
+
     var open: (URL) throws -> Void
     var openInTerminal: (URL) async throws -> Void
     var reveal: (URL) -> Void
@@ -29,6 +33,7 @@ struct AppSystemActions {
     var copyPath: (URL) throws -> Void
     var copyPaths: ([URL]) throws -> Void
     var moveToTrash: @MainActor (FileNodeRecord) async throws -> TrashMoveOutcome
+    var deletePermanently: DeletePermanently
     var validateQuickLookSelection: ([FileNodeRecord], ScanSnapshotSource) async throws -> Void
     var prepareAndOpenFullDiskAccessSettings: () -> Bool
     var fullDiskAccessStatus: @MainActor () async -> FullDiskAccessStatus
@@ -58,6 +63,7 @@ struct AppSystemActions {
                 try SystemIntegration.moveToTrash(node)
             }.value
         },
+        deletePermanently: PermanentDeletion.remove,
         validateQuickLookSelection: { nodes, source in
             let validation = Task.detached(priority: .userInitiated) {
                 for node in nodes {
