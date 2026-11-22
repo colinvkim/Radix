@@ -64,7 +64,10 @@ struct ContentView: View {
         .focusedSceneValue(\.isWorkspaceWindowFocused, true)
         .focusedSceneValue(\.isDiscardPileUndoContext, isDiscardPileUndoContext)
         .background {
-            DiscardPileUndoFocusObserver(includesAttachedSheet: appModel.presentationCoordinator.activeSheet == .discardPileReview) {
+            DiscardPileUndoFocusObserver(
+                includesAttachedSheet: appModel.presentationCoordinator.activeSheet == .discardPileReview
+                    && appModel.pendingDiscardPileCleanup == nil
+            ) {
                 isDiscardPileUndoContext = $0
             }
         }
@@ -189,6 +192,7 @@ struct ContentView: View {
                     snapshot: discardPileSnapshot,
                     canMoveToTrash: appModel.canMoveDiscardPileToTrash,
                     isPreparingTrash: appModel.isPreparingDiscardPileTrash,
+                    pendingCleanup: appModel.pendingDiscardPileCleanup,
                     actions: DiscardPileReviewActions(
                         removeNodes: { nodeIDs in
                             appModel.removeDiscardPileNodes(ids: nodeIDs)
@@ -201,22 +205,14 @@ struct ContentView: View {
                         },
                         cleanup: { action in
                             Task { @MainActor in
-                                if await appModel.requestDiscardPileCleanup(action) {
-                                    appModel.dismissDiscardPileReview()
-                                }
+                                await appModel.requestDiscardPileCleanup(action)
                             }
-                        }
+                        },
+                        cancelCleanup: { appModel.cancelPendingTrash() },
+                        confirmCleanup: { appModel.confirmPendingCleanup($0) }
                     )
                 )
                 .environmentObject(appModel.workspaceTour)
-            case .discardPileTrashConfirmation:
-                if let selection = appModel.pendingTrashSelection {
-                    DiscardPileTrashConfirmationSheet(
-                        selection: selection,
-                        onCancel: { appModel.cancelPendingTrash() },
-                        onConfirm: { appModel.confirmPendingCleanup(selection.action) }
-                    )
-                }
             case .importPreview:
                 if let preview = appModel.pendingImportPreview {
                     ImportSnapshotPreviewSheet(
