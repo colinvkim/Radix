@@ -59,14 +59,8 @@ struct DiscardPileReviewSheet: View {
 
     private var review: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Discard Pile")
-                    .font(.title3.weight(.semibold))
-
-                Text("Review items marked for cleanup.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Discard Pile")
+                .font(.title3.weight(.semibold))
 
             if let step = tour.step, step == .removeMark || step == .finished {
                 WorkspaceTourPromptView(

@@ -15681,53 +15681,6 @@
         }
       }
     },
-    "Review items marked for cleanup." : {
-      "comment" : "Subtitle of the Discard Pile review sheet.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Review items marked for cleanup."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zur Bereinigung markierte Elemente überprüfen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Revisa los elementos marcados para la limpieza."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vérifiez les éléments marqués pour le nettoyage."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Controlla gli elementi contrassegnati per la pulizia."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Проверьте объекты, отмеченные для очистки."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "检查标记为待清理的项目。"
-          }
-        }
-      }
-    },
     "Could not finish deleting \"%@\". Some contents may already have been deleted." : {
       "localizations" : {
         "en" : {
