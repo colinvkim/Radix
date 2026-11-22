@@ -192,7 +192,8 @@ struct AppModelDependencyTests {
         #expect(!model.addNodesToDiscardPile([file]))
         #expect(!model.addNodeIDsToDiscardPile([file.id], snapshotID: snapshot.id))
         #expect(!model.requestMoveNodesToTrash([file]))
-        #expect(!(await model.requestDiscardPileCleanup(.moveToTrash)))
+        await model.requestDiscardPileCleanup(.moveToTrash)
+        #expect(model.pendingTrashSelection == nil)
         model.requestMoveSelectedToTrash()
         model.requestMovePrimarySelectionToTrash()
         #expect(model.pendingTrashSelection == nil)
@@ -1286,7 +1287,7 @@ struct AppModelDependencyTests {
         model.scanState.restoreCompletedSnapshot(oldSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(oldSnapshot)
         model.addNodesToDiscardPile([oldFile])
-        #expect(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         model.confirmPendingCleanup(.moveToTrash)
         try await probe.waitUntilStarted()
 
@@ -1330,7 +1331,7 @@ struct AppModelDependencyTests {
         model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
         model.addNodesToDiscardPile([first, second])
-        #expect(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         model.confirmPendingCleanup(.moveToTrash)
 
         try await probe.waitUntilStarted()
@@ -1657,7 +1658,7 @@ struct AppModelDependencyTests {
         let store = FileTreeStore(root: root, childrenByID: [root.id: [node]])
         model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: store))
         try #require(model.addNodesToDiscardPile([node]))
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
 
         model.confirmPendingCleanup(.moveToTrash)
 
@@ -2037,7 +2038,7 @@ struct AppModelDependencyTests {
         #expect(model.addNodesToDiscardPile([file]))
         #expect(verified.withLock { $0.isEmpty })
 
-        #expect(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         #expect(verified.withLock { $0 } == [file])
         #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
         #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [file])
@@ -2076,7 +2077,7 @@ struct AppModelDependencyTests {
             }
         }
 
-        #expect(await preparation.value == !dismissed)
+        await preparation.value
         #expect(!model.isPreparingDiscardPileTrash)
         #expect(model.pendingTrashSelection?.nodes == (dismissed ? nil : [file]))
         #expect(model.discardPileSnapshot.nodes == [file])
@@ -2342,9 +2343,8 @@ struct AppModelDependencyTests {
         model.addNodesToDiscardPile([child])
         model.addNodesToDiscardPile([folder])
 
-        let didRequestTrash = await model.requestDiscardPileCleanup(.moveToTrash)
+        await model.requestDiscardPileCleanup(.moveToTrash)
 
-        #expect(didRequestTrash)
         #expect(model.pendingTrashSelection?.nodes.map(\.id) == [folder.id])
         #expect(model.discardPile.nodeIDs == [folder.id])
 
@@ -2389,8 +2389,8 @@ struct AppModelDependencyTests {
         #expect(model.discardPileSnapshot.nodes == [first, failed, unattempted])
         #expect(model.discardPileRootNodeIDs == [failed.id, unattempted.id])
 
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
-        #expect(model.pendingTrashSelection?.nodes == [first, failed, unattempted])
+        await model.requestDiscardPileCleanup(.moveToTrash)
+        try #require(model.pendingTrashSelection?.nodes == [first, failed, unattempted])
         #expect(attempted.isEmpty)
 
         model.confirmPendingCleanup(.moveToTrash)
@@ -2437,7 +2437,7 @@ struct AppModelDependencyTests {
         let parentStore = FileTreeStore(root: root, childrenByID: [root.id: [parent]])
         model.scanState.restoreCompletedSnapshot(makeTestSnapshot(root: root, store: parentStore))
         try #require(model.addNodesToDiscardPile([parent]))
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         try #require(model.pendingTrashSelection?.nodes == [parent])
 
         try manager.moveItem(at: children[0].url, to: rescuedURL)
@@ -2483,15 +2483,15 @@ struct AppModelDependencyTests {
         try #require(model.addNodesToDiscardPile(nodes))
         model.presentDiscardPileReview()
 
-        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
-        #expect(model.pendingTrashSelection?.nodes == nodes)
+        await model.requestDiscardPileCleanup(.deletePermanently)
+        try #require(model.pendingTrashSelection?.nodes == nodes)
         model.cancelPendingTrash()
         model.confirmPendingCleanup(.deletePermanently)
         #expect(model.presentationCoordinator.activeSheet == .discardPileReview)
         #expect(deleted.isEmpty)
         #expect(model.discardPileSnapshot.nodes == nodes)
 
-        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        await model.requestDiscardPileCleanup(.deletePermanently)
         model.confirmPendingCleanup(.moveToTrash)
         #expect(model.pendingTrashSelection?.nodes == nodes)
         #expect(deleted.isEmpty)
@@ -2531,7 +2531,7 @@ struct AppModelDependencyTests {
         model.confirmPendingCloudFileAction()
         model.presentDiscardPileReview()
 
-        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        await model.requestDiscardPileCleanup(.deletePermanently)
         model.openScanSnapshotArchive(archiveURL)
         model.confirmPendingCleanup(.deletePermanently)
         #expect(model.pendingCloudFileAction?.kind == .deletePermanently)
@@ -2596,7 +2596,7 @@ struct AppModelDependencyTests {
         try #require(model.sidebar.activeTargetID == target.id)
         let folder = try #require(model.scanState.fileTreeStore?.node(id: folderPath))
         try #require(model.addNodesToDiscardPile([folder]))
-        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        await model.requestDiscardPileCleanup(.deletePermanently)
 
         model.confirmPendingCleanup(.deletePermanently)
         if window != .active {
@@ -2686,7 +2686,7 @@ struct AppModelDependencyTests {
         try #require(model.addNodesToDiscardPile([original]))
         let covered = try display(alias)
         if markAlias { try #require(model.addNodesToDiscardPile([covered])) }
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         try #require(model.pendingTrashSelection?.nodes == [original])
 
         model.confirmPendingCleanup(.moveToTrash)
@@ -2737,7 +2737,7 @@ struct AppModelDependencyTests {
         try manager.moveItem(at: originalURL, to: stagingURL)
         try manager.moveItem(at: stagingURL, to: renamedURL)
         let renamed = try await scan(for: renamedURL)
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
         try #require(model.pendingTrashSelection?.nodes == [original])
 
         model.confirmPendingCleanup(.moveToTrash)
@@ -2790,7 +2790,7 @@ struct AppModelDependencyTests {
         try #require(model.addNodesToDiscardPile([marked]))
         let displayed = try folderNode(in: displayedParent)
         display(displayed, children: [])
-        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        await model.requestDiscardPileCleanup(.moveToTrash)
 
         model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("trash and scan reconciliation finish") { !model.trashFlow.isMovingFiles }
@@ -3515,7 +3515,7 @@ struct AppModelDependencyTests {
         model.dismissOnboarding()
         model.scanState.restoreCompletedSnapshot(snapshot)
         try #require(model.addNodesToDiscardPile([file]))
-        try #require(await model.requestDiscardPileCleanup(.deletePermanently))
+        await model.requestDiscardPileCleanup(.deletePermanently)
         model.confirmPendingCleanup(.deletePermanently)
         try await waitUntil("permanent deletion starts") { deletionStarted }
 
