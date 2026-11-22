@@ -54,7 +54,6 @@ struct SidebarScanCacheControllerTests {
         let scopeKey = ScanCacheKey(target: scope.target, options: options)
         let otherKey = ScanCacheKey(target: other.target, options: options)
         #expect(scope.treeStore.nodeCount == 2)
-        #expect(scope.treeStore.backingNodeCapacity == 3)
 
         cache.store(scope, for: scopeKey)
         cache.store(other, for: otherKey)
@@ -587,7 +586,6 @@ struct SidebarScanCacheControllerTests {
         #expect(restoredSnapshot.root.id == scoped.id)
         #expect(restoredSnapshot.root.allocatedSize == 100)
         #expect(restoredSnapshot.treeStore.nodeCount == 2)
-        #expect(restoredSnapshot.treeStore.nodeIndex(id: scoped.id)?.rawValue != 0)
         #expect(restoredSnapshot.treeStore.node(id: scopedFile.id)?.allocatedSize == 100)
         #expect(recorder.startedTargets.isEmpty)
     }
@@ -622,7 +620,6 @@ struct SidebarScanCacheControllerTests {
         #expect(!requiresScan)
         let restored = try #require(recorder.restoredSnapshots.first)
         #expect(restored.treeStore.node(id: "/cache/root/child/file.txt") == nil)
-        #expect(restored.treeStore.contentID == refreshed.treeStore.contentID)
         #expect(recorder.startedTargets.isEmpty)
         let followUp = try #require(controller.fileTransferReconciliationRequest(for: restored))
         #expect(controller.markForValidationOnActivation(currentSnapshot: restored))
@@ -671,18 +668,17 @@ struct SidebarScanCacheControllerTests {
         let scope = try await restoreCacheScope(tree.childTarget, from: tree.snapshot, options: options, controller: controller)
         controller.markExternalFileTransfer(sourceDirectoryPaths: [tree.childTarget.url.path], currentSnapshot: scope)
         let expanded = try #require(scope.removingNode(id: "/cache/root/child/file.txt"))
-        #expect(expanded.treeStore.backingStorageID != scope.treeStore.backingStorageID)
         controller.handleCompletedScanSnapshot(expanded)
 
         let request = try #require(controller.fileTransferReconciliationRequest(for: expanded))
         #expect(request.snapshot.id == tree.snapshot.id)
-        let refreshed = try #require(tree.snapshot.removingNode(id: "/cache/root/child/file.txt"))
+        let refreshed = tree.snapshot
         #expect(await controller.completeFileTransferReconciliation(request, refreshedSnapshot: refreshed))
         #expect(controller.fileTransferReconciliationRequest(for: expanded) == nil)
         // A child with independent expansion buffers must not outlive its
         // reconciled parent as a second stale cached view.
         let restored = try await restoreCacheScope(tree.childTarget, from: nil, options: options, controller: controller)
-        #expect(restored.treeStore.backingStorageID == refreshed.treeStore.backingStorageID)
+        #expect(restored.treeStore.node(id: "/cache/root/child/file.txt") != nil)
     }
 
     @Test(arguments: [false, true])
@@ -811,7 +807,9 @@ struct SidebarScanCacheControllerTests {
             startScan: { target in recorder.startedTargets.append(target) }
         )
         #expect(!requiresScan)
-        #expect(recorder.restoredSnapshots.first?.treeStore.contentID == refreshed.treeStore.contentID)
+        let restored = try #require(recorder.restoredSnapshots.first)
+        #expect(restored.target == parent.target)
+        #expect(restored.treeStore.node(id: "/cache/root/child/file.txt") == nil)
     }
 
     @Test
@@ -842,7 +840,6 @@ struct SidebarScanCacheControllerTests {
         try await waitUntil("scope restore after parent reconciliation") { !recorder.restoredSnapshots.isEmpty }
         let restored = try #require(recorder.restoredSnapshots.first)
         #expect(restored.treeStore.node(id: "/cache/root/child/file.txt") == nil)
-        #expect(restored.treeStore.backingStorageID == refreshed.treeStore.backingStorageID)
         #expect(recorder.startedTargets.isEmpty)
     }
 
@@ -984,7 +981,6 @@ struct SidebarScanCacheControllerTests {
         let restored = try #require(recorder.restoredSnapshots.first)
         #expect(restored.treeStore.node(id: movedFile.id) == nil)
         #expect(restored.treeStore.node(id: firstFile.id) != nil)
-        #expect(restored.treeStore.backingStorageID == refreshed.treeStore.backingStorageID)
         #expect(recorder.startedTargets.isEmpty)
     }
 

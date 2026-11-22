@@ -39,3 +39,17 @@ enum TestFileSystem {
         return false
     }
 }
+
+func fixtureDescriptorCount(at directoryURL: URL) throws -> Int {
+    var directory = stat()
+    guard lstat(directoryURL.path, &directory) == 0 else {
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+    return try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").reduce(0) { count, name in
+        guard let descriptor = Int32(name) else { return count }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              status.st_dev == directory.st_dev, status.st_ino == directory.st_ino else { return count }
+        return count + 1
+    }
+}

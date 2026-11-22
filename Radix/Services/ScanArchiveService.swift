@@ -43,7 +43,6 @@ nonisolated struct ScanArchiveExportOptions: Sendable {
 
 nonisolated struct ScanArchiveExportResult: Sendable {
     let archiveURL: URL
-    let nodeChecksum: String
 }
 
 nonisolated struct ScanArchiveImportResult: Sendable {
@@ -388,7 +387,7 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         try installArchive(from: archiveURL, to: destinationURL)
         didInstallArchive = true
 
-        return ScanArchiveExportResult(archiveURL: destinationURL, nodeChecksum: nodeChecksum)
+        return ScanArchiveExportResult(archiveURL: destinationURL)
     }
 
     func previewSnapshot(from sourceURL: URL) async throws -> ScanArchivePreview {

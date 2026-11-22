@@ -580,7 +580,6 @@ struct SunburstResponsivenessBenchmarkTests {
             ChartBenchmarkSupport.hash(segment.colorToken.branchID, into: &hash)
             ChartBenchmarkSupport.hash(segment.colorToken.localID, into: &hash)
             ChartBenchmarkSupport.hash(UInt64(bitPattern: Int64(segment.colorToken.branchIndex)), into: &hash)
-            ChartBenchmarkSupport.hash(UInt64(bitPattern: Int64(segment.colorToken.branchCount)), into: &hash)
             ChartBenchmarkSupport.hash(UInt64(bitPattern: Int64(segment.colorToken.siblingIndex)), into: &hash)
             ChartBenchmarkSupport.hash(UInt64(bitPattern: Int64(segment.colorToken.siblingCount)), into: &hash)
             ChartBenchmarkSupport.hash(UInt64(bitPattern: Int64(segment.colorToken.depth)), into: &hash)

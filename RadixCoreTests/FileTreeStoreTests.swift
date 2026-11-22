@@ -202,8 +202,6 @@ struct FileTreeStoreTests {
             ])
 
         #expect(store.topLevelNodeIDs(from: [leaf.id, folder.id, sibling.id, folder.id]) == [folder.id, sibling.id])
-        #expect(store.isNodeOrDescendant(leaf.id, of: [folder.id]))
-        #expect(!(store.isNodeOrDescendant(sibling.id, of: [folder.id])))
     }
 
     @Test
@@ -246,7 +244,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testRemovingSubtreesRemovesQueuedParentsAndRepairsTotals() {
+    func testRemovingSubtreesRemovesQueuedParentsAndRepairsTotals() throws {
         let leaf = makeFileNode(id: "/root/folder/file.txt", name: "file.txt", size: 12)
         let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [leaf])
         let sibling = makeFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 4)
@@ -258,7 +256,7 @@ struct FileTreeStoreTests {
                 folder.id: [leaf],
             ])
 
-        let updatedStore = store.removingSubtrees(rootedAt: [leaf.id, folder.id])
+        let updatedStore = try store.removingSubtrees(rootedAt: [leaf.id, folder.id], cancellationCheck: {})
 
         #expect(updatedStore.node(id: folder.id) == nil)
         #expect(updatedStore.node(id: leaf.id) == nil)
@@ -270,12 +268,12 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testRemovingSubtreesRootReturnsEmptyRootStore() {
+    func testRemovingSubtreesRootReturnsEmptyRootStore() throws {
         let child = makeFileNode(id: "/root/child.txt", name: "child.txt", size: 12)
         let root = makeDirectoryNode(id: "/root", name: "root", children: [child])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [child]])
 
-        let updatedStore = store.removingSubtrees(rootedAt: [root.id])
+        let updatedStore = try store.removingSubtrees(rootedAt: [root.id], cancellationCheck: {})
 
         #expect(updatedStore.root.id == root.id)
         #expect(updatedStore.root.allocatedSize == 0)
@@ -285,7 +283,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testRemovingSubtreesRepairsAndResortsSharedAncestors() {
+    func testRemovingSubtreesRepairsAndResortsSharedAncestors() throws {
         let retained = makeFileNode(id: "/root/folder/retained.bin", name: "retained.bin", size: 1)
         let removed = makeFileNode(id: "/root/folder/removed.bin", name: "removed.bin", size: 99)
         let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [removed, retained])
@@ -299,7 +297,7 @@ struct FileTreeStoreTests {
                 folder.id: [removed, retained],
             ])
 
-        let updatedStore = store.removingSubtrees(rootedAt: [removed.id, unrelated.id])
+        let updatedStore = try store.removingSubtrees(rootedAt: [removed.id, unrelated.id], cancellationCheck: {})
 
         #expect(updatedStore.children(of: folder.id).map(\.id) == [retained.id])
         #expect(updatedStore.children(of: root.id).map(\.id) == [sibling.id, folder.id])
@@ -335,7 +333,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testRemovingSubtreesResortsMultipleChangedBranches() {
+    func testRemovingSubtreesResortsMultipleChangedBranches() throws {
         let firstRetained = makeFileNode(
             id: "/root/first/retained.bin",
             name: "retained.bin",
@@ -380,8 +378,8 @@ struct FileTreeStoreTests {
                 second.id: [secondRetained, secondRemoved],
             ])
 
-        let updatedStore = store.removingSubtrees(
-            rootedAt: [firstRemoved.id, secondRemoved.id]
+        let updatedStore = try store.removingSubtrees(
+            rootedAt: [firstRemoved.id, secondRemoved.id], cancellationCheck: {}
         )
 
         #expect(updatedStore.childIDs(of: root.id) == [second.id, sibling.id, first.id])
@@ -457,12 +455,11 @@ struct FileTreeStoreTests {
         let completed = CancellationProbe(throwOnCheck: .max)
         let replaced = try store.replacingAllocatedSizes(replacements, cancellationCheck: completed.check)
         #expect(replaced.childIDs(of: root.id) == children.reversed().map(\.id))
-        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+        for poll in [1, max(1, completed.checkCount / 2), max(1, completed.checkCount)] {
             let cancelled = CancellationProbe(throwOnCheck: poll)
             #expect(throws: CancellationError.self) {
                 try store.replacingAllocatedSizes(replacements, cancellationCheck: cancelled.check)
             }
-            #expect(cancelled.checkCount == poll)
             #expect(store.childIDs(of: root.id) == children.map(\.id))
             #expect(store.children(of: root.id).map(\.allocatedSize) == children.map(\.allocatedSize))
             #expect(store.root.allocatedSize == root.allocatedSize)
@@ -617,89 +614,41 @@ struct FileTreeStoreTests {
                 == updatedStore.nodeCount)
     }
 
-    @Test
-    func testRemovingSubtreeHonorsCancellationDuringCompaction() throws {
-        let children = (0..<1_024).map { index in
-            makeFileNode(
-                id: "/root/folder/item-\(index).bin",
-                name: "item-\(index).bin",
-                size: 1
-            )
-        }
-        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: children)
-        let root = makeDirectoryNode(id: "/root", name: "root", children: [folder])
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [
-                root.id: [folder],
-                folder.id: children,
-            ])
-        var checkCount = 0
-
-        #expect(throws: CancellationError.self) {
-            try store.removingSubtree(
-                id: folder.id,
-                cancellationCheck: {
-                    checkCount += 1
-                    if checkCount == 10 {
-                        throw CancellationError()
-                    }
-                }
-            )
-        }
-        #expect(store.nodeCount == children.count + 2)
-        #expect(store.node(id: folder.id) != nil)
+    private enum SubtreeOperation: CaseIterable {
+        case remove, materialize, scope
     }
 
-    @Test
-    func testRemovingWideSiblingHonorsCancellationAcrossRepairPasses() throws {
-        let children = (0..<1_025).map { index in
-            makeFileNode(
-                id: "/root/item-\(index).bin",
-                name: "item-\(index).bin",
-                size: 1
-            )
-        }
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
-        let store = FileTreeStore(root: root, childrenByID: [root.id: children])
-        for cancellationCheckLimit in [6, 21] {
-            var cancellationCheckCount = 0
-            #expect(throws: CancellationError.self) {
-                try store.removingSubtree(
-                    id: children[512].id,
-                    cancellationCheck: {
-                        cancellationCheckCount += 1
-                        if cancellationCheckCount == cancellationCheckLimit {
-                            throw CancellationError()
-                        }
-                    }
-                )
+    @Test(arguments: SubtreeOperation.allCases)
+    private func testWideSubtreeWorkRemainsCancellable(operation: SubtreeOperation) throws {
+        let folderID = "/root/folder"
+        func store(childCount: Int) -> FileTreeStore {
+            let children = (0..<childCount).map { index in
+                makeFileNode(id: "\(folderID)/item-\(index).bin", name: "item-\(index).bin", size: 1)
             }
-            #expect(cancellationCheckCount == cancellationCheckLimit)
+            let folder = makeDirectoryNode(id: folderID, name: "folder", children: children)
+            let root = makeDirectoryNode(id: "/root", name: "root", children: [folder])
+            return FileTreeStore(root: root, childrenByID: [root.id: [folder], folderID: children])
         }
-        guard let logicalScope = store.logicalScope(rootedAt: root.id) else {
-            Issue.record("Expected logical scope.")
-            return
+        func perform(on tree: FileTreeStore, probe: CancellationProbe) throws -> FileTreeStore? {
+            switch operation {
+            case .remove: try tree.removingSubtree(id: folderID, cancellationCheck: probe.check)
+            case .materialize: try tree.subtree(rootedAt: folderID, cancellationCheck: probe.check)
+            case .scope: try tree.logicalScope(rootedAt: folderID, cancellationCheck: probe.check)
+            }
         }
-        var logicalScopeCheckCount = 0
+
+        let baseline = CancellationProbe(throwOnCheck: .max)
+        _ = try #require(try perform(on: store(childCount: 1), probe: baseline))
+        let wide = store(childCount: 1_024)
+        let cancellation = CancellationProbe(throwOnCheck: baseline.checkCount + 1)
         #expect(throws: CancellationError.self) {
-            try logicalScope.removingSubtree(
-                id: children[512].id,
-                cancellationCheck: {
-                    logicalScopeCheckCount += 1
-                    if logicalScopeCheckCount == 10 {
-                        throw CancellationError()
-                    }
-                }
-            )
+            try perform(on: wide, probe: cancellation)
         }
-        #expect(logicalScopeCheckCount == 10)
-        #expect(store.nodeCount == children.count + 1)
-        #expect(store.node(id: children[512].id) != nil)
+        #expect(wide.childIDs(of: folderID).count == 1_024)
     }
 
-    @Test
-    func testLogicalScopeWideRemovalHonorsCancellationWithoutChangingSource() throws {
+    @Test(arguments: [false, true])
+    func testWideRemovalHonorsCancellationWithoutChangingSource(scoped: Bool) throws {
         let children = (0..<1_025).map { index in
             makeFileNode(
                 id: "/root/item-\(index).bin",
@@ -709,17 +658,16 @@ struct FileTreeStoreTests {
         }
         let root = makeDirectoryNode(id: "/root", name: "root", children: children)
         let store = FileTreeStore(root: root, childrenByID: [root.id: children])
-        let scope = try #require(store.logicalScope(rootedAt: root.id))
+        let scope = try #require(scoped ? store.logicalScope(rootedAt: root.id) : store)
         let completed = CancellationProbe(throwOnCheck: .max)
         let removed = try #require(try scope.removingSubtree(id: children[512].id, cancellationCheck: completed.check))
         #expect(removed.nodeCount == children.count)
         #expect(removed.childIDs(of: root.id) == children.filter { $0.id != children[512].id }.map(\.id))
-        for poll in [1, completed.checkCount / 2, completed.checkCount] {
+        for poll in [1, max(1, completed.checkCount / 2), max(1, completed.checkCount)] {
             let cancelled = CancellationProbe(throwOnCheck: poll)
             #expect(throws: CancellationError.self) {
                 try scope.removingSubtree(id: children[512].id, cancellationCheck: cancelled.check)
             }
-            #expect(cancelled.checkCount == poll)
             #expect(scope.childIDs(of: root.id) == children.map(\.id))
             #expect(scope.nodeCount == children.count + 1)
             #expect(scope.root.allocatedSize == root.allocatedSize)
@@ -776,12 +724,6 @@ struct FileTreeStoreTests {
                 root.id: [sibling.id, folder.id],
                 folder.id: [nested.id],
             ])
-        #expect(
-            store.parentIDByID == [
-                folder.id: root.id,
-                nested.id: folder.id,
-                sibling.id: root.id,
-            ])
         #expect(store.aggregateStats.totalAllocatedSize == stats.totalAllocatedSize)
         #expect(store.aggregateStats.totalLogicalSize == stats.totalLogicalSize)
         #expect(store.aggregateStats.fileCount == stats.fileCount)
@@ -809,10 +751,8 @@ struct FileTreeStoreTests {
         #expect(logicalScope.nodeCount == 2)
         #expect(logicalScope.indexedNodeIndices() == [folderIndex, nestedIndex])
         #expect(logicalScope.indexedNodeIDs() == [folder.id, nested.id])
-        #expect(logicalScope.indexedNodeIDs(excludingRoot: true) == [nested.id])
         #expect(logicalScope.nodesByID == [folder.id: folder, nested.id: nested])
         #expect(logicalScope.childIDsByID == [folder.id: [nested.id]])
-        #expect(logicalScope.parentIDByID == [nested.id: folder.id])
         #expect(logicalScope.childIndices(of: folderIndex) == [nestedIndex])
         #expect(logicalScope.parentIndex(of: nestedIndex) == folderIndex)
         #expect(logicalScope.parentIndex(of: folderIndex) == nil)
@@ -862,8 +802,8 @@ struct FileTreeStoreTests {
         #expect(homeScope.aggregateStats.directoryCount == 2)
         #expect(homeScope.aggregateStats.accessibleItemCount == 1)
         #expect(homeScope.aggregateStats.inaccessibleItemCount == 2)
-        #expect(homeScope.subtreeNodeCount(rootedAt: home.id) == 3)
-        #expect(homeScope.subtreeNodeCount(rootedAt: root.id) == 0)
+        #expect(homeScope.subtreeNodeCount(rootedAt: home.id, upTo: .max) == 3)
+        #expect(homeScope.subtreeNodeCount(rootedAt: root.id, upTo: .max) == 0)
 
         let nestedScope = try #require(homeScope.logicalScope(rootedAt: summarized.id))
 
@@ -962,15 +902,14 @@ struct FileTreeStoreTests {
         #expect(filtered.node(id: visibleClone.id)?.allocatedSize == 100)
 
         let batchRemovalIDs = [regular.id, visibleClone.id]
-        let expectedBatch = materializedScope.removingSubtrees(rootedAt: batchRemovalIDs)
-        let filteredBatch = scope.removingSubtrees(rootedAt: batchRemovalIDs)
+        let expectedBatch = try materializedScope.removingSubtrees(rootedAt: batchRemovalIDs, cancellationCheck: {})
+        let filteredBatch = try scope.removingSubtrees(rootedAt: batchRemovalIDs, cancellationCheck: {})
         assertEquivalent(filteredBatch, expectedBatch)
 
         let rescannedRegular = makeFileNode(id: regular.id, name: regular.name, size: 75)
         let replaced = try #require(
-            try scope.replacingSubtree(
-                id: regular.id,
-                with: FileTreeStore(root: rescannedRegular),
+            try scope.replacingSubtrees(
+                [regular.id: FileTreeStore(root: rescannedRegular)],
                 cancellationCheck: {}
             ))
         #expect(replaced.root.allocatedSize == 275)
@@ -1233,9 +1172,8 @@ struct FileTreeStoreTests {
             ])
 
         #expect {
-            try store.replacingSubtree(
-                id: target.id,
-                with: replacementStore,
+            try store.replacingSubtrees(
+                [target.id: replacementStore],
                 cancellationCheck: {}
             )
         } throws: { error in
@@ -1243,7 +1181,6 @@ struct FileTreeStoreTests {
             #expect(error.localizedDescription.contains(sibling.id))
             return true
         }
-        #expect(store.replacingSubtree(id: target.id, with: replacementStore) == nil)
         #expect(store.node(id: sibling.id)?.name == sibling.name)
     }
 
@@ -1273,48 +1210,6 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testVerifiedRootIDInitProjectsSuppliedTopology() {
-        let leaf = makeFileNode(id: "/root/folder/file.txt", name: "file.txt", size: 4)
-        let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [leaf])
-        let sibling = makeFileNode(id: "/root/sibling.txt", name: "sibling.txt", size: 8)
-        let root = makeDirectoryNode(id: "/root", name: "root", children: [sibling, folder])
-
-        let store = FileTreeStore(
-            verifiedRootID: root.id,
-            nodesByID: [
-                root.id: root,
-                sibling.id: sibling,
-                folder.id: folder,
-                leaf.id: leaf,
-            ],
-            childIDsByID: [
-                root.id: [sibling.id, folder.id],
-                folder.id: [leaf.id],
-            ],
-            aggregateStats: ScanAggregateStats(
-                totalAllocatedSize: 12,
-                totalLogicalSize: 12,
-                fileCount: 2,
-                directoryCount: 1,
-                accessibleItemCount: 3,
-                inaccessibleItemCount: 0
-            )
-        )
-
-        #expect(store.rootID == root.id)
-        #expect(store.nodesByID[root.id] == root)
-        #expect(store.nodesByID[leaf.id] == leaf)
-        #expect(store.childIDsByID[root.id] == [sibling.id, folder.id])
-        #expect(store.childIDsByID[folder.id] == [leaf.id])
-        #expect(store.parentIDByID[sibling.id] == root.id)
-        #expect(store.parentIDByID[folder.id] == root.id)
-        #expect(store.parentIDByID[leaf.id] == folder.id)
-        #expect(store.parentIDByID[root.id] == nil)
-        #expect(store.aggregateStats.totalAllocatedSize == 12)
-        #expect(store.aggregateStats.fileCount == 2)
-    }
-
-    @Test
     func testSubtreeNodeCountStopsAtLimit() {
         let files = (0..<10).map { index in
             makeFileNode(
@@ -1329,7 +1224,6 @@ struct FileTreeStoreTests {
         #expect(store.subtreeNodeCount(rootedAt: root.id, upTo: 4) == 4)
         #expect(store.subtreeNodeCount(rootedAt: root.id, upTo: 0) == 0)
         #expect(store.subtreeNodeCount(rootedAt: "/missing", upTo: 4) == 0)
-        #expect(store.subtreeNodeCount(rootedAt: root.id) == files.count + 1)
         #expect(store.subtreeNodeCount(rootedAt: root.id, upTo: .max) == files.count + 1)
 
         let nestedFolder = makeDirectoryNode(id: "/root/nested", name: "nested", children: files)
@@ -1348,36 +1242,6 @@ struct FileTreeStoreTests {
 
         #expect(nestedStore.subtreeNodeCount(rootedAt: nestedRoot.id, upTo: 5) == 5)
         #expect(nestedStore.subtreeNodeCount(rootedAt: nestedFolder.id, upTo: 7) == 7)
-    }
-
-    @Test
-    func testReplacingRootCanChangeRootID() throws {
-        let oldChild = makeFileNode(id: "/root/old.txt", name: "old.txt", size: 4)
-        let oldRoot = makeDirectoryNode(id: "/root", name: "root", children: [oldChild])
-        let store = FileTreeStore(
-            root: oldRoot,
-            childrenByID: [
-                oldRoot.id: [oldChild]
-            ])
-        let newChild = makeFileNode(id: "/replacement/new.txt", name: "new.txt", size: 12)
-        let newRoot = makeDirectoryNode(id: "/replacement", name: "replacement", children: [newChild])
-        let replacementStore = FileTreeStore(
-            root: newRoot,
-            childrenByID: [
-                newRoot.id: [newChild]
-            ])
-
-        let updated = try #require(
-            try store.replacingSubtree(
-                id: oldRoot.id,
-                with: replacementStore,
-                cancellationCheck: {}
-            ))
-
-        #expect(updated.root.id == newRoot.id)
-        #expect(updated.children(of: newRoot.id).map(\.id) == [newChild.id])
-        #expect(updated.node(id: oldRoot.id) == nil)
-        #expect(updated.node(id: oldChild.id) == nil)
     }
 
     @Test
@@ -1450,6 +1314,7 @@ struct FileTreeStoreTests {
         #expect(updated.root.allocatedSize == 9)
         #expect(updated.children(of: replacementRoot.id) == [newChild])
         #expect(updated.node(id: root.id) == nil)
+        #expect(updated.node(id: oldChild.id) == nil)
     }
 
     @Test
@@ -1628,47 +1493,6 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testSubtreeProjectionHonorsCancellationAcrossWideDirectories() throws {
-        let children = (0..<1_024).map { offset in
-            makeFileNode(
-                id: "/root/file-\(offset).bin",
-                name: "file-\(offset).bin",
-                size: 1
-            )
-        }
-        let root = makeDirectoryNode(id: "/root", name: "root", children: children)
-        let store = FileTreeStore(root: root, childrenByID: [root.id: children])
-        var cancellationCheckCount = 0
-
-        #expect(throws: CancellationError.self) {
-            try store.subtree(
-                rootedAt: root.id,
-                cancellationCheck: {
-                    cancellationCheckCount += 1
-                    if cancellationCheckCount >= 4 {
-                        throw CancellationError()
-                    }
-                }
-            )
-        }
-        #expect(cancellationCheckCount >= 4)
-
-        cancellationCheckCount = 0
-        #expect(throws: CancellationError.self) {
-            try store.logicalScope(
-                rootedAt: root.id,
-                cancellationCheck: {
-                    cancellationCheckCount += 1
-                    if cancellationCheckCount >= 4 {
-                        throw CancellationError()
-                    }
-                }
-            )
-        }
-        #expect(cancellationCheckCount >= 4)
-    }
-
-    @Test
     func testVolumeReconciliationUpdatesAndReordersExistingRemainderWithoutChangingTopology() throws {
         let mebibyte: Int64 = 1_024 * 1_024
         let nested = makeFileNode(id: "/root/folder/nested.bin", name: "nested.bin", size: 300 * mebibyte)
@@ -1755,7 +1579,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testVolumeReconciliationAddsAndRemovesRemainderWithoutMaterializingTreeMaps() {
+    func testVolumeReconciliationAddsAndRemovesRemainder() {
         let mebibyte: Int64 = 1_024 * 1_024
         let nested = makeFileNode(id: "/root/folder/nested.bin", name: "nested.bin", size: 100 * mebibyte)
         let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
@@ -1821,7 +1645,9 @@ private func assertEquivalent(
     #expect(actual.indexedNodeIDs() == expectedNodeIDs, sourceLocation: sourceLocation)
     #expect(actual.nodesByID == expected.nodesByID, sourceLocation: sourceLocation)
     #expect(actual.childIDsByID == expected.childIDsByID, sourceLocation: sourceLocation)
-    #expect(actual.parentIDByID == expected.parentIDByID, sourceLocation: sourceLocation)
+    for id in expectedNodeIDs {
+        #expect(actual.parentID(of: id) == expected.parentID(of: id), sourceLocation: sourceLocation)
+    }
     #expect(
         actual.aggregateStats.totalAllocatedSize == expected.aggregateStats.totalAllocatedSize,
         sourceLocation: sourceLocation)

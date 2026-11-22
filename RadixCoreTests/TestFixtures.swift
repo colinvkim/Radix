@@ -1,3 +1,4 @@
+import Combine
 import Darwin
 import Foundation
 import Testing
@@ -78,6 +79,56 @@ final class CancellationProbe: @unchecked Sendable {
     }
 }
 
+extension AppSystemActions {
+    static let inert = AppSystemActions(
+        open: { _ in },
+        openInTerminal: { _ in },
+        reveal: { _ in },
+        revealMany: { _ in },
+        copyPath: { _ in },
+        copyPaths: { _ in },
+        moveToTrash: { _ in TrashMoveOutcome(.matches) },
+        deletePermanently: { _, _, _ in throw FileActionError.unsupported },
+        validateQuickLookSelection: { _, _ in },
+        prepareAndOpenFullDiskAccessSettings: { true },
+        fullDiskAccessStatus: { .unknown },
+        defaultTargets: { [] },
+        targetCapacityDescriptions: { [:] },
+        trashSafetyPolicy: {
+            TrashSafetyPolicy.live()
+        },
+        presentOpenPanel: { nil },
+        presentExportScanPanel: { _ in nil },
+        presentImportScanPanel: { nil },
+        presentComparisonSnapshotPanel: { nil },
+        fileExists: { _ in false },
+        verifyTrashIdentity: { _ in .matches },
+        isExistingDirectory: { _ in false },
+        preferredSmartTargetIDs: { [] },
+        mountedVolumeEvents: { Empty().eraseToAnyPublisher() }
+    )
+}
+
+final class TestAppUsageStatsStore: AppUsageStatsPersisting {
+    private var stats: AppUsageStats
+
+    init(stats: AppUsageStats = .empty) {
+        self.stats = stats
+    }
+
+    func loadUsageStats() -> AppUsageStats {
+        stats
+    }
+
+    func saveUsageStats(_ stats: AppUsageStats) {
+        self.stats = stats
+    }
+
+    func clearUsageStats() {
+        stats = .empty
+    }
+}
+
 final class TestAppPreferencesStore: AppPreferencesPersisting {
     var preferences: AppPreferences
 
@@ -117,7 +168,6 @@ final class TestAppPreferencesStore: AppPreferencesPersisting {
 final class TestRecentTargetPersistence: RecentTargetPersisting {
     var targets: [ScanTarget]
     var savedTargets: [[ScanTarget]] = []
-    var didClear = false
 
     init(targets: [ScanTarget] = []) {
         self.targets = targets
@@ -132,7 +182,6 @@ final class TestRecentTargetPersistence: RecentTargetPersisting {
 
     func clearRecentTargets() {
         targets = []
-        didClear = true
     }
 }
 
@@ -361,5 +410,46 @@ final class TemporaryTestDefaults {
 
     deinit {
         for suiteName in suiteNames { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+    }
+}
+
+extension ScanSnapshot {
+    nonisolated func removingNode(id targetID: String) -> ScanSnapshot? {
+        try? removingNodes(ids: [targetID], cancellationCheck: {})
+    }
+
+    nonisolated func replacingNode(
+        id targetID: String,
+        with replacement: FileTreeStore,
+        additionalWarnings: [ScanWarning] = []
+    ) -> ScanSnapshot? {
+        try? replacingNode(
+            id: targetID,
+            with: replacement,
+            additionalWarnings: additionalWarnings,
+            cancellationCheck: {}
+        )
+    }
+
+    nonisolated func scoped(to target: ScanTarget) -> ScanSnapshot? {
+        try? scoped(to: target, cancellationCheck: {})
+    }
+}
+
+extension FileTreeStore {
+    nonisolated func indexedNodeIDs() -> [String] {
+        indexedNodeIndices().compactMap { node(at: $0)?.id }
+    }
+
+    nonisolated func removingSubtree(id targetID: String) -> FileTreeStore? {
+        try? removingSubtree(id: targetID, cancellationCheck: {})
+    }
+
+    nonisolated func logicalScope(rootedAt targetID: String) -> FileTreeStore? {
+        try? logicalScope(rootedAt: targetID, cancellationCheck: {})
+    }
+
+    nonisolated func subtree(rootedAt targetID: String) -> FileTreeStore? {
+        try? subtree(rootedAt: targetID, cancellationCheck: {})
     }
 }

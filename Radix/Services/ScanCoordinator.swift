@@ -536,17 +536,6 @@ final class ScanCoordinator: ObservableObject {
         phase = state.phase
     }
 
-    func replaceCurrentSnapshot(_ snapshot: ScanSnapshot?) {
-        cancelExpansion(completeWith: .cancelled)
-        dismissScanCompletionNotice()
-        publishSnapshot(snapshot, startsNewContext: true)
-        if snapshot == nil {
-            phase = .idle
-        } else if !isScanOperationInProgress {
-            phase = .displaying
-        }
-    }
-
     func restoreCompletedSnapshot(
         _ snapshot: ScanSnapshot,
         prepare: () -> Void = {}

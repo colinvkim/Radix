@@ -29,12 +29,16 @@ struct IncrementalScanServiceTests {
     }
 
     @Test
-    func testDarwinHistoryProviderCapturesCheckpointForLocalDirectory() throws {
+    func testLiveScanCapturesCheckpointForLocalDirectory() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let checkpoint = try DarwinFileSystemEventHistoryProvider()
-            .currentCheckpoint(for: rootURL)
+        let service = await AppDependencies.live.scanService
+        let result = try await incrementalScanResult(from: service.scan(
+            target: ScanTarget(url: rootURL), options: ScanOptions()
+        ))
+        #expect(result.executionModes == [.full])
+        let checkpoint = try #require(result.snapshot.incrementalCheckpoint)
 
         #expect(checkpoint.eventID > 0)
         #expect(!(checkpoint.volumeUUID.isEmpty))
@@ -384,28 +388,6 @@ struct IncrementalScanServiceTests {
         #expect(result.snapshot.treeStore.node(id: systemURL.path) != nil)
         #expect(result.snapshot.treeStore.node(id: volumesURL.path) == nil)
         #expect(result.snapshot.aggregateStats.fileCount == 0)
-    }
-
-    @Test
-    func testFullScanReportsFullExecutionMode() async throws {
-        let rootURL = try makeIncrementalTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let service = IncrementalScanService(
-            eventHistoryProvider: IncrementalHistoryStub(
-                checkpoints: [checkpoint(10)],
-                events: []
-            )
-        )
-        let result = try await incrementalScanResult(
-            from: service.scan(
-                target: ScanTarget(url: rootURL),
-                options: ScanOptions()
-            )
-        )
-
-        #expect(result.executionModes == [.full])
-        #expect(result.snapshot.incrementalCheckpoint?.eventID == 10)
     }
 
     @MainActor

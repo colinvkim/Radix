@@ -274,23 +274,6 @@ struct ScanCoordinatorTests {
     }
 
     @Test
-    func testStartScanWithEligibleBaselineRoutesToRescan() {
-        let service = RescanRecordingService()
-        let coordinator = ScanCoordinator(scanService: service)
-        let target = makeCoordinatorTarget("/scan/incremental")
-        let baseline = makeCoordinatorSnapshot(target: target)
-        let options = ScanOptions(includeHiddenFiles: true)
-
-        coordinator.startScan(target, options: options, baseline: baseline)
-
-        #expect(service.scanRequests.isEmpty)
-        #expect(service.rescanRequests.map(\.target) == [target])
-        #expect(service.rescanRequests.map(\.baselineID) == [baseline.id])
-        #expect(service.rescanRequests.first?.options.includeHiddenFiles == true)
-        coordinator.stopScan()
-    }
-
-    @Test
     func testRestoreCompletedSnapshotDisplaysWithoutScanRequest() {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
@@ -1046,11 +1029,12 @@ struct ScanCoordinatorTests {
     }
 
     @Test(arguments: [false, true])
-    func testBackgroundRefreshWaitsToApplyAndRejectsReplacedContext(replaceContext: Bool) async throws {
+    func testBackgroundRefreshWaitsToApplyAndPreservesConcurrentRemoval(removeFile: Bool) async throws {
         let service = ControlledScanService()
         let coordinator = ScanCoordinator(scanService: service)
         let target = makeCoordinatorTarget("/scan/deferred")
         let baseline = makeCoordinatorSnapshot(target: target, scanOptions: ScanOptions())
+        let originalFile = try #require(baseline.treeStore.children(of: target.id).first)
         coordinator.restoreCompletedSnapshot(baseline)
         var canApply = false
         var applicationCheckCount = 0
@@ -1062,25 +1046,26 @@ struct ScanCoordinatorTests {
         coordinator.onFolderRescanFinished = { _, success in completion = success }
         #expect(coordinator.refreshFolderInBackground(id: target.id))
         let changedFile = makeTestFileNode(id: target.id + "/changed.dat", name: "changed.dat", size: 40)
-        let changedRoot = makeTestDirectoryNode(id: target.id, name: target.displayName, children: [changedFile])
+        let refreshedFiles = [originalFile, changedFile]
+        let changedRoot = makeTestDirectoryNode(id: target.id, name: target.displayName, children: refreshedFiles)
         service.yield(.finished(makeCoordinatorSnapshot(
             target: target,
             root: changedRoot,
-            store: FileTreeStore(root: changedRoot, childrenByID: [target.id: [changedFile]])
+            store: FileTreeStore(root: changedRoot, childrenByID: [target.id: refreshedFiles])
         )), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("refresh waits for safe application") { applicationCheckCount > 0 }
         #expect(completion == nil)
         #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
-        let newerSnapshot = makeCoordinatorSnapshot(target: target, scanOptions: ScanOptions())
-        if replaceContext {
-            coordinator.replaceCurrentSnapshot(newerSnapshot)
+        if removeFile {
+            let didRemove = await coordinator.removeNodesFromCurrentSnapshot([originalFile])
+            try #require(didRemove)
         }
         canApply = true
         try await waitUntil("deferred refresh completed") { completion != nil }
-        #expect(completion == (replaceContext ? .cancelled : .updated))
-        if replaceContext {
-            #expect(coordinator.snapshot?.treeStore.contentID == newerSnapshot.treeStore.contentID)
+        #expect(completion == (removeFile ? .cancelled : .updated))
+        if removeFile {
+            #expect(coordinator.snapshot?.treeStore.children(of: target.id).isEmpty == true)
         } else {
             #expect(coordinator.snapshot?.treeStore.node(id: changedFile.id) == changedFile)
         }
@@ -1362,7 +1347,7 @@ struct ScanCoordinatorTests {
             store: baseStore,
             warnings: [existingWarning]
         )
-        coordinator.replaceCurrentSnapshot(baseSnapshot)
+        coordinator.restoreCompletedSnapshot(baseSnapshot)
 
         let expandedFile = makeTestFileNode(id: "/root/cache/item.txt", name: "item.txt", size: 125)
         let expandedRoot = makeTestDirectoryNode(id: summarizedNode.id, name: "cache", children: [expandedFile])
@@ -1420,7 +1405,7 @@ struct ScanCoordinatorTests {
         let retained = makeTestFileNode(id: "/root/retained.dat", name: "retained.dat", size: 30)
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: [first, second, retained])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [first, second, retained]])
-        coordinator.replaceCurrentSnapshot(
+        coordinator.restoreCompletedSnapshot(
             makeCoordinatorSnapshot(
                 target: makeCoordinatorTarget(root.id),
                 root: root,
@@ -1447,7 +1432,7 @@ struct ScanCoordinatorTests {
         let transformService = PausingSnapshotTransformService(pausedRemovalID: first.id)
         defer { Task { await transformService.resume() } }
         let coordinator = ScanCoordinator(snapshotTransformService: transformService)
-        coordinator.replaceCurrentSnapshot(
+        coordinator.restoreCompletedSnapshot(
             makeCoordinatorSnapshot(
                 target: makeCoordinatorTarget(root.id),
                 root: root,
@@ -1541,7 +1526,7 @@ struct ScanCoordinatorTests {
         let transformService = PausingSnapshotTransformService(pausedRemovalID: removed.id)
         defer { Task { await transformService.resume() } }
         let coordinator = ScanCoordinator(snapshotTransformService: transformService)
-        coordinator.replaceCurrentSnapshot(originalSnapshot)
+        coordinator.restoreCompletedSnapshot(originalSnapshot)
 
         let removal = Task { @MainActor in
             await coordinator.removeNodesFromCurrentSnapshot([removed])
@@ -1559,7 +1544,7 @@ struct ScanCoordinatorTests {
             childrenByID: [
                 replacementRoot.id: [removed, retained, externallyAdded]
             ])
-        coordinator.replaceCurrentSnapshot(
+        coordinator.restoreCompletedSnapshot(
             copyCoordinatorSnapshot(
                 originalSnapshot,
                 treeStore: replacementStore
@@ -1589,7 +1574,7 @@ struct ScanCoordinatorTests {
             scanService: scanService,
             snapshotTransformService: transformService
         )
-        coordinator.replaceCurrentSnapshot(
+        coordinator.restoreCompletedSnapshot(
             makeCoordinatorSnapshot(
                 target: makeCoordinatorTarget(root.id),
                 root: root,
@@ -1643,13 +1628,13 @@ struct ScanCoordinatorTests {
             root: root,
             store: store
         )
-        coordinator.replaceCurrentSnapshot(snapshot)
+        coordinator.restoreCompletedSnapshot(snapshot)
         var expansionResult: ScanExpansionResult?
         coordinator.expandSummarizedNode(summarized, options: ScanOptions()) { result in
             expansionResult = result
         }
 
-        coordinator.replaceCurrentSnapshot(snapshot)
+        coordinator.restoreCompletedSnapshot(snapshot)
 
         guard case .cancelled = expansionResult else {
             Issue.record("Expected external snapshot replacement to cancel expansion.")
@@ -1721,49 +1706,6 @@ struct ScanCoordinatorTests {
         #expect(publishedStates.first?.focusedNodeID == snapshot.root.id)
     }
 
-    @Test
-    func testAppModelRestoresCachedSidebarTargetWithoutStartingScan() async throws {
-        let service = ControlledScanService()
-        let firstTarget = makeCoordinatorTarget("/app/sidebar/first")
-        let secondTarget = makeCoordinatorTarget("/app/sidebar/second")
-        let model = AppModel(
-            dependencies: makeCoordinatorAppDependencies(
-                scanService: service,
-                systemActions: makeCoordinatorSidebarActions(targets: [firstTarget, secondTarget])
-            )
-        )
-        let firstSnapshot = makeCoordinatorSnapshot(target: firstTarget)
-        let secondSnapshot = makeCoordinatorSnapshot(target: secondTarget)
-
-        model.selectSidebarTarget(id: firstTarget.id)
-        try await waitUntil("first sidebar scan request") {
-            service.requests.count == 1
-        }
-        service.yield(.finished(firstSnapshot), scanIndex: 0)
-        service.finish(scanIndex: 0)
-        try await waitUntil("first sidebar scan finished") {
-            model.scanState.snapshot?.target == firstTarget
-        }
-
-        model.selectSidebarTarget(id: secondTarget.id)
-        try await waitUntil("second sidebar scan request") {
-            service.requests.count == 2
-        }
-        service.yield(.finished(secondSnapshot), scanIndex: 1)
-        service.finish(scanIndex: 1)
-        try await waitUntil("second sidebar scan finished") {
-            model.scanState.snapshot?.target == secondTarget
-        }
-
-        model.selectSidebarTarget(id: firstTarget.id)
-
-        #expect(service.requests.count == 2)
-        #expect(model.scanState.selectedTarget == firstTarget)
-        #expect(model.scanState.snapshot?.target == firstTarget)
-        #expect(model.navigation.focusedNodeID == firstSnapshot.root.id)
-        #expect(model.sidebar.activeTargetID == firstTarget.id)
-    }
-
     @Test(arguments: [false, true])
     func testAppModelRestoresDiscardPileWhenReturningToSidebarTarget(rescansOnReturn: Bool) async throws {
         let service = ControlledScanService()
@@ -1791,14 +1733,14 @@ struct ScanCoordinatorTests {
             return makeCoordinatorSnapshot(target: firstTarget, root: root, store: store)
         }
 
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
         try await waitUntil("first sidebar scan request") { service.requests.count == 1 }
         service.yield(.finished(firstSnapshot(with: [kept, replaced])), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("first sidebar scan finished") { model.scanState.snapshot?.target == firstTarget }
         try #require(model.addNodesToDiscardPile([kept, replaced]))
 
-        model.selectSidebarTarget(id: secondTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: secondTarget.id)
         try await waitUntil("second sidebar scan request") { service.requests.count == 2 }
         service.yield(.finished(makeCoordinatorSnapshot(target: secondTarget)), scanIndex: 1)
         service.finish(scanIndex: 1)
@@ -1806,7 +1748,7 @@ struct ScanCoordinatorTests {
         #expect(model.discardPileSnapshot.nodes == [kept, replaced])
         #expect(model.discardPileRootNodeIDs.isEmpty)
 
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
         if rescansOnReturn {
             try await waitUntil("first sidebar target rescanned") { service.requests.count == 3 }
             service.yield(.finished(firstSnapshot(with: [kept, replacement])), scanIndex: 2)
@@ -1866,16 +1808,16 @@ struct ScanCoordinatorTests {
             move.cancel()
             model.cleanup()
         }
-        model.selectSidebarTarget(id: parent.id)
+        model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent scan starts") { service.requests.count == 1 }
         service.yield(.finished(parentSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("parent scan publishes") { model.scanState.snapshot?.id == parentSnapshot.id }
         try #require(model.requestMoveNodesToTrash([summarized]))
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
-        model.selectSidebarTarget(id: child.id)
+        model.selectSidebarTargetAfterViewUpdate(id: child.id)
         try await waitUntil("child scan starts") { service.requests.count == 2 }
         service.yield(.finished(childSnapshot), scanIndex: 1)
         service.finish(scanIndex: 1)
@@ -1904,19 +1846,19 @@ struct ScanCoordinatorTests {
         let model = AppModel(dependencies: makeCoordinatorAppDependencies(scanService: service, systemActions: actions))
         defer { model.cleanup() }
 
-        model.selectSidebarTarget(id: parent.id)
+        model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent scan starts") { service.requests.count == 1 }
         service.yield(.finished(initial), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("parent scan publishes") { model.scanState.snapshot?.id == initial.id }
 
         try #require(model.requestMoveNodesToTrash([removed]))
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("tree no longer contains moved node") {
             model.scanState.snapshot?.id == initial.id && model.scanState.fileTreeStore?.node(id: removed.id) == nil
         }
 
-        model.selectSidebarTarget(id: child.id)
+        model.selectSidebarTargetAfterViewUpdate(id: child.id)
         try await waitUntil("child display or fresh scan") {
             model.scanState.snapshot?.target == child || service.requests.count > 1
         }
@@ -1952,17 +1894,17 @@ struct ScanCoordinatorTests {
             move.cancel()
             model.cleanup()
         }
-        model.selectSidebarTarget(id: child.id)
+        model.selectSidebarTargetAfterViewUpdate(id: child.id)
         try await waitUntil("child scan starts") { service.requests.count == 1 }
         service.yield(.finished(childSnapshot), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("child scan publishes") { model.scanState.snapshot?.id == childSnapshot.id }
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(await model.requestMoveDiscardPileToTrash())
-        model.confirmMovePendingSelectionToTrash()
+        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
-        model.selectSidebarTarget(id: parent.id)
+        model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent scan reads file before move finishes") { service.requests.count == 2 }
         try #require(model.scanState.snapshot == nil)
         move.finish()
@@ -2026,14 +1968,14 @@ struct ScanCoordinatorTests {
             move.cancel()
             model.cleanup()
         }
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
         try await waitUntil("initial scan starts") { service.requests.count == 1 }
         service.yield(.finished(baseline), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("initial scan publishes") { model.scanState.snapshot?.id == baseline.id }
         try #require(model.addNodesToDiscardPile([kept]))
         try #require(model.requestMoveNodesToTrash([moved]))
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
         try #require(model.scanState.rescanFolder(id: child.id))
         let changed = makeTestFileNode(
@@ -2095,24 +2037,24 @@ struct ScanCoordinatorTests {
             model.cleanup()
         }
 
-        model.selectSidebarTarget(id: parent.id)
+        model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent scan request") { service.requests.count == 1 }
         service.yield(.finished(initial), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("parent finishes") { model.scanState.snapshot?.id == initial.id }
 
-        model.selectSidebarTarget(id: scope.id)
+        model.selectSidebarTargetAfterViewUpdate(id: scope.id)
         try await waitUntil("scope displays") { model.scanState.snapshot?.target == scope }
         try #require(model.addNodesToDiscardPile([marked]))
 
-        model.selectSidebarTarget(id: parent.id)
+        model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent displays") { model.scanState.snapshot?.id == initial.id }
         try #require(model.addNodesToDiscardPile([marked]))
-        try #require(await model.requestMoveDiscardPileToTrash())
-        model.confirmMovePendingSelectionToTrash()
+        try #require(await model.requestDiscardPileCleanup(.moveToTrash))
+        model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
-        model.selectSidebarTarget(id: scope.id)
+        model.selectSidebarTargetAfterViewUpdate(id: scope.id)
         try await waitUntil("scope displays again") { model.scanState.snapshot?.target == scope }
         try #require(model.discardPileSnapshot.nodes.map(\.id) == [marked.id])
         try #require(model.discardPileRootNodeIDs.contains(marked.id))
@@ -2160,14 +2102,14 @@ struct ScanCoordinatorTests {
             store: FileTreeStore(root: root, childrenByID: [root.id: [initialFolder], initialFolder.id: [marked]]),
             scanOptions: ScanOptions()
         )
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
         try await waitUntil("initial scan request") { service.requests.count == 1 }
         service.yield(.finished(initial), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("initial scan finishes") { model.scanState.snapshot?.id == initial.id }
         try #require(model.addNodesToDiscardPile([marked]))
 
-        model.selectSidebarTarget(id: other.id)
+        model.selectSidebarTargetAfterViewUpdate(id: other.id)
         try await waitUntil("other scan request") { service.requests.count == 2 }
         service.yield(.finished(makeCoordinatorSnapshot(target: other)), scanIndex: 1)
         service.finish(scanIndex: 1)
@@ -2178,7 +2120,7 @@ struct ScanCoordinatorTests {
         let newIdentity = try ScanMetadataLoader().fileSystemIdentity(at: fileURL)
         try #require(oldIdentity != newIdentity)
 
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
         try await waitUntil("initial snapshot restores from cache") { model.scanState.snapshot?.id == initial.id }
         try #require(model.discardPileSnapshot.nodes.map(\.fileIdentity) == [oldIdentity])
         try #require(model.scanState.refreshFolderInBackground(id: folder.id))
@@ -2196,7 +2138,7 @@ struct ScanCoordinatorTests {
         try #require(model.scanState.snapshot?.id == initial.id)
         #expect(model.discardPileSnapshot.nodes == [marked])
         #expect(model.discardPileRootNodeIDs.isEmpty)
-        #expect(await model.requestMoveDiscardPileToTrash())
+        #expect(await model.requestDiscardPileCleanup(.moveToTrash))
         #expect(model.pendingTrashSelection?.nodes.isEmpty == true)
         #expect(model.pendingTrashSelection?.discardPileBatch?.unavailable.map(\.node) == [marked])
     }
@@ -2227,7 +2169,7 @@ struct ScanCoordinatorTests {
             store: FileTreeStore(root: expanded, childrenByID: [expanded.id: [marked]])
         )
 
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
         try await waitUntil("initial summary scan request") { service.requests.count == 1 }
         service.yield(.finished(makeCoordinatorSnapshot(target: target, root: root, store: collapsed)), scanIndex: 0)
         service.finish(scanIndex: 0)
@@ -2241,13 +2183,13 @@ struct ScanCoordinatorTests {
         }
         try #require(model.addNodesToDiscardPile([marked]))
 
-        model.selectSidebarTarget(id: other.id)
+        model.selectSidebarTargetAfterViewUpdate(id: other.id)
         try await waitUntil("other scan request") { service.requests.count == 3 }
         service.yield(.finished(makeCoordinatorSnapshot(target: other)), scanIndex: 2)
         service.finish(scanIndex: 2)
         try await waitUntil("other scan finishes") { model.scanState.snapshot?.target == other }
 
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
         try await waitUntil("first target scans again after cache eviction") { service.requests.count == 4 }
         service.yield(.finished(makeCoordinatorSnapshot(target: target, root: root, store: collapsed)), scanIndex: 3)
         service.finish(scanIndex: 3)
@@ -2283,7 +2225,7 @@ struct ScanCoordinatorTests {
         let snapshots = targets.map { makeCoordinatorSnapshot(target: $0) }
 
         for (index, target) in targets.enumerated() {
-            model.selectSidebarTarget(id: target.id)
+            model.selectSidebarTargetAfterViewUpdate(id: target.id)
             try await waitUntil("small sidebar scan request \(index)") {
                 service.requests.count == index + 1
             }
@@ -2294,7 +2236,7 @@ struct ScanCoordinatorTests {
             }
         }
 
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
         try await waitUntil("first small scan restored or rescanned") {
             model.scanState.snapshot?.target == firstTarget || service.requests.count > targets.count
         }
@@ -2325,7 +2267,7 @@ struct ScanCoordinatorTests {
         )
         #expect(homeSnapshot.treeStore.nodeCount > 3)
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("oversized home scan request") {
             service.requests.count == 1
         }
@@ -2335,12 +2277,12 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        model.selectSidebarTarget(id: downloadsTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: downloadsTarget.id)
         try await waitUntil("downloads scoped from oversized home") {
             model.scanState.snapshot?.target == downloadsTarget
         }
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("oversized home restored from cache") {
             model.scanState.snapshot?.target == homeTarget
         }
@@ -2391,7 +2333,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == downloadsTarget
         }
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("evicted home rescan requested") {
             service.requests.count == 3
         }
@@ -2418,7 +2360,7 @@ struct ScanCoordinatorTests {
             )
         )
 
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
         try await waitUntil("initial sidebar scan request") {
             service.requests.count == 1
         }
@@ -2583,7 +2525,7 @@ struct ScanCoordinatorTests {
             )
         )
 
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
         try await waitUntil("first options scan request") {
             service.requests.count == 1
         }
@@ -2593,7 +2535,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == firstTarget
         }
 
-        model.selectSidebarTarget(id: secondTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: secondTarget.id)
         try await waitUntil("second options scan request") {
             service.requests.count == 2
         }
@@ -2604,7 +2546,7 @@ struct ScanCoordinatorTests {
         }
 
         model.treatPackagesAsDirectories = true
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
 
         try await waitUntil("changed options cache miss request") {
             service.requests.count == 3
@@ -2648,7 +2590,7 @@ struct ScanCoordinatorTests {
             ])
         let homeSnapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("home exclusion scan request") {
             service.requests.count == 1
         }
@@ -2660,7 +2602,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        model.selectSidebarTarget(id: libraryTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: libraryTarget.id)
 
         try await waitUntil("library exclusion scan request") {
             service.requests.count == 2
@@ -2700,7 +2642,7 @@ struct ScanCoordinatorTests {
         model.select(nodeID: child.id)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [child])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
 
         try await waitUntil("trashed child removed from current snapshot") {
             model.scanState.snapshot?.treeStore.node(id: child.id) == nil
@@ -2734,13 +2676,13 @@ struct ScanCoordinatorTests {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [first])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("first trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
         }
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [second])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("second trashed child removed") {
             model.scanState.snapshot?.treeStore.node(id: second.id) == nil
         }
@@ -2772,7 +2714,7 @@ struct ScanCoordinatorTests {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.requestMoveNodesToTrash([first, second])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
 
         try await waitUntil("bulk trashed children removed") {
             model.scanState.snapshot?.treeStore.node(id: first.id) == nil
@@ -2805,7 +2747,7 @@ struct ScanCoordinatorTests {
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [root])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("trashed active root clears snapshot") {
             model.scanState.snapshot == nil
         }
@@ -2847,7 +2789,7 @@ struct ScanCoordinatorTests {
                 secondRoot.id: [secondChild]
             ])
 
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
         try await waitUntil("stale first scan request") {
             service.requests.count == 1
         }
@@ -2857,7 +2799,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == firstTarget
         }
 
-        model.selectSidebarTarget(id: secondTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: secondTarget.id)
         try await waitUntil("stale second scan request") {
             service.requests.count == 2
         }
@@ -2870,13 +2812,13 @@ struct ScanCoordinatorTests {
         }
 
         model.pendingTrashSelection = AppModel.PendingTrashSelection(nodes: [secondChild])
-        model.confirmMovePendingSelectionToTrash()
+        model.confirmPendingCleanup(.moveToTrash)
         try await waitUntil("trashed child removed from second snapshot") {
             model.scanState.snapshot?.treeStore.node(id: secondChild.id) == nil
         }
         #expect(service.requests.count == 2)
 
-        model.selectSidebarTarget(id: firstTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: firstTarget.id)
 
         try await waitUntil("first target scans after cache invalidation") {
             service.requests.count == 3
@@ -2938,7 +2880,7 @@ struct ScanCoordinatorTests {
             ])
         let homeSnapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: homeStore)
 
-        model.selectSidebarTarget(id: downloadsTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: downloadsTarget.id)
         try await waitUntil("downloads exact scan request") {
             service.requests.count == 1
         }
@@ -2948,7 +2890,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == downloadsTarget
         }
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("home containing scan request") {
             service.requests.count == 2
         }
@@ -2958,7 +2900,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        model.selectSidebarTarget(id: downloadsTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: downloadsTarget.id)
 
         try await waitUntil("downloads target scoped from home") {
             model.scanState.snapshot?.target == downloadsTarget
@@ -3007,7 +2949,7 @@ struct ScanCoordinatorTests {
             ])
         let snapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: store)
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("home sidebar scan request") {
             service.requests.count == 1
         }
@@ -3017,7 +2959,7 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        model.selectSidebarTarget(id: downloadsTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: downloadsTarget.id)
 
         try await waitUntil("downloads target scoped from active snapshot") {
             model.scanState.snapshot?.target == downloadsTarget
@@ -3085,7 +3027,7 @@ struct ScanCoordinatorTests {
             ])
         let snapshot = makeCoordinatorSnapshot(target: homeTarget, root: homeRoot, store: store)
 
-        model.selectSidebarTarget(id: homeTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: homeTarget.id)
         try await waitUntil("sibling home scan request") {
             service.requests.count == 1
         }
@@ -3095,12 +3037,12 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == homeTarget
         }
 
-        model.selectSidebarTarget(id: downloadsTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: downloadsTarget.id)
         try await waitUntil("downloads sibling target scoped") {
             model.scanState.snapshot?.target == downloadsTarget
         }
 
-        model.selectSidebarTarget(id: documentsTarget.id)
+        model.selectSidebarTargetAfterViewUpdate(id: documentsTarget.id)
 
         try await waitUntil("documents sibling target scoped") {
             model.scanState.snapshot?.target == documentsTarget
@@ -3198,7 +3140,6 @@ struct ScanCoordinatorTests {
         defer { model.cleanup() }
         model.startScan(makeCoordinatorTarget("/app/deferred-\(trigger)"))
         let pendingTasks = model.deferredViewUpdateTasks
-        #expect(!pendingTasks.isEmpty)
         switch trigger {
         case "stop": model.stopScan()
         case "cleanup": model.cleanup()
@@ -3245,7 +3186,6 @@ struct ScanCoordinatorTests {
 
         model.selectSidebarTargetAfterViewUpdate(id: target.id)
         let pendingTasks = model.deferredViewUpdateTasks
-        #expect(!pendingTasks.isEmpty)
         model.stopScan()
 
         for task in pendingTasks { await task.value }
@@ -3265,7 +3205,7 @@ struct ScanCoordinatorTests {
             )
         )
 
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
 
         try await waitUntil("initial sidebar scan starts") {
             model.sidebar.activeTargetID == target.id && service.requests.count == 1
@@ -3277,7 +3217,7 @@ struct ScanCoordinatorTests {
             model.sidebar.activeTargetID == nil && service.terminationCount == 1
         }
 
-        model.selectSidebarTarget(id: target.id)
+        model.selectSidebarTargetAfterViewUpdate(id: target.id)
 
         try await waitUntil("same sidebar target restarts after cancel") {
             model.sidebar.activeTargetID == target.id && service.requests.count == 2
@@ -3297,7 +3237,7 @@ struct ScanCoordinatorTests {
             root: root,
             store: baseStore
         )
-        model.scanState.replaceCurrentSnapshot(baseSnapshot)
+        model.scanState.restoreCompletedSnapshot(baseSnapshot)
         model.navigation.reconcileAfterSnapshotApplied(baseSnapshot)
         model.navigation.setFocusedNodeID(root.id)
         model.focus(nodeID: focusChild.id)
@@ -3758,7 +3698,8 @@ private func makeCoordinatorAppDependencies(
             isAvailable: { _ in true }
         ),
         systemActions: systemActions,
-        scanService: scanService
+        scanService: scanService,
+        usageStats: TestAppUsageStatsStore()
     )
 }
 

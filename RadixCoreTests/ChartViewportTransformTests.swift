@@ -88,8 +88,6 @@ struct ChartViewportTransformTests {
 
         #expect(chartPoint.point == CGPoint(x: 375, y: 115))
         #expect(chartPoint.size == CGSize(width: 750, height: 300))
-        #expect(abs((chartPoint.point.x / chartPoint.size.width) - (0.5)) <= 0.000_001)
-        #expect(abs((chartPoint.point.y / chartPoint.size.height) - (115 / 300)) <= 0.000_001)
     }
 
     @Test

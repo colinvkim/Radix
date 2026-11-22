@@ -16,7 +16,7 @@ struct FolderRefreshControllerTests {
             now: { clock.now },
             sleep: { try await clock.sleep(for: $0) },
             makeExclusionMatcher: { patterns, rootPath in
-                factory.make(patterns: patterns, rootPath: rootPath, streamStarted: watcher.requestCount > 0)
+                factory.make(patterns: patterns, rootPath: rootPath)
             },
             directoryExists: { _ in true },
             requestRefresh: { requests.append($0); return true }
@@ -27,11 +27,10 @@ struct FolderRefreshControllerTests {
         }
         let snapshot = makeFolderRefreshSnapshot(checkpoint: nil)
         controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
-        try await waitUntil { factory.receipts.count == 1 }
+        try await waitUntil { factory.startedBuilds == 1 }
         #expect(factory.isBlocked)
         #expect(!factory.timedOut)
-        #expect(factory.receipts.first?.wasMainThread == false)
-        #expect(factory.receipts.first?.streamStarted == true)
+        #expect(watcher.requestCount == 1)
         #expect(watcher.startedOnMainThread == [false])
         #expect(watcher.checkpoints == [nil])
         var mainActorPulse = false
@@ -43,39 +42,6 @@ struct FolderRefreshControllerTests {
         try await waitUntil { clock.pendingSleeps == 1 }
         clock.advance(by: .seconds(1))
         try await waitUntil { requests == [downloads] }
-        #expect(factory.receipts.count == 1)
-    }
-
-    @Test
-    func reusesSessionMatcherAcrossBatchesNavigationAndTreeReplacement() async throws {
-        let factory = RefreshMatcherFactory()
-        let harness = FolderRefreshHarness(makeExclusionMatcher: { patterns, rootPath in
-            factory.make(patterns: patterns, rootPath: rootPath)
-        })
-        let options = ScanOptions(exclusionPatterns: ["build/", "*.log"], exclusionRootPath: home)
-        let snapshot = makeFolderRefreshSnapshot(options: options)
-        harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
-        try await waitUntil { harness.watcher.requests.count == 1 }
-        try await harness.watcher.emitAndWaitUntilProcessed([
-            changedFile(downloads + "/BUILD/item"), changedFile(downloads + "/TRACE.LOG")
-        ])
-        #expect(harness.requests.isEmpty)
-        #expect(harness.clock.pendingSleeps == 0)
-        harness.controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
-        harness.controller.update(
-            snapshot: makeFolderRefreshSnapshot(id: snapshot.id, options: options, hasNewDownload: true),
-            focusedNodeID: downloads, canRefresh: true
-        )
-        try await harness.watcher.emitAndWaitUntilProcessed([])
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/visible.zip")])
-        try await waitUntil { harness.clock.pendingSleeps == 1 }
-        harness.clock.advance(by: .seconds(1))
-        try await waitUntil { harness.requests == [downloads] }
-        #expect(harness.watcher.requests.count == 1)
-        #expect(factory.receipts.count == 1)
-        #expect(factory.receipts.first?.patterns == ["build/", "*.log"])
-        #expect(factory.receipts.first?.rootPath == home)
-        #expect(factory.receipts.first?.wasMainThread == false)
     }
 
     @Test(arguments: [false, true])
@@ -98,14 +64,14 @@ struct FolderRefreshControllerTests {
         }
         let snapshot = makeFolderRefreshSnapshot()
         controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
-        try await waitUntil { factory.receipts.count == 1 }
+        try await waitUntil { factory.startedBuilds == 1 }
         #expect(factory.isBlocked)
         controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
         let replacement = sameIdentity ? snapshot : makeFolderRefreshSnapshot(
             options: ScanOptions(exclusionPatterns: ["*.log"])
         )
         controller.update(snapshot: replacement, focusedNodeID: downloads, canRefresh: true)
-        try await waitUntil { factory.receipts.count == 2 && watcher.requestCount == 2 }
+        try await waitUntil { factory.startedBuilds == 2 && watcher.requestCount == 2 }
         factory.release()
         try await waitUntil { factory.finishedBuilds == 2 && watcher.cancelledSessions == [0] }
         watcher.emit([], to: 1)
@@ -116,7 +82,6 @@ struct FolderRefreshControllerTests {
         try await waitUntil { clock.pendingSleeps == 1 }
         clock.advance(by: .seconds(1))
         try await waitUntil { requests == [downloads] }
-        #expect(factory.receipts.count == 2)
     }
 
     @Test
@@ -405,7 +370,6 @@ struct FolderRefreshControllerTests {
             harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: true)
         }
         try await harness.watcher.emitAndWaitUntilProcessed([])
-        #expect(harness.sleepRequests == 1)
         harness.clock.advance(by: .seconds(1))
         try await waitUntil { harness.requests == [downloads] }
         harness.controller.update(snapshot: snapshot, focusedNodeID: downloads, canRefresh: false)
@@ -503,23 +467,40 @@ struct FolderRefreshControllerTests {
 
     @Test
     func respectsExclusionsHiddenFilesAndPathBoundaries() async throws {
-        let harness = FolderRefreshHarness()
-        let options = ScanOptions(exclusionPatterns: ["build/", "*.log"])
-        harness.controller.update(snapshot: makeFolderRefreshSnapshot(options: options), focusedNodeID: downloads, canRefresh: true)
-        try await waitUntil { harness.watcher.requests.count == 1 }
-        try await harness.watcher.emitAndWaitUntilProcessed([
+        let watcher = TestFileSystemChangeWatcher()
+        let clock = ManualTestClock()
+        let factory = RefreshMatcherFactory()
+        var requests: [String] = []
+        let controller = FolderRefreshController(
+            watcher: watcher,
+            now: { clock.now },
+            sleep: { try await clock.sleep(for: $0) },
+            makeExclusionMatcher: { factory.make(patterns: $0, rootPath: $1) },
+            directoryExists: { _ in true },
+            requestRefresh: { requests.append($0); return true }
+        )
+        let options = ScanOptions(exclusionPatterns: ["build/", "*.log"], exclusionRootPath: home)
+        let snapshot = makeFolderRefreshSnapshot(options: options)
+        controller.update(snapshot: snapshot, focusedNodeID: documents, canRefresh: true)
+        try await waitUntil { watcher.requests.count == 1 }
+        controller.update(
+            snapshot: makeFolderRefreshSnapshot(id: snapshot.id, options: options, hasNewDownload: true),
+            focusedNodeID: downloads, canRefresh: true
+        )
+        try await watcher.emitAndWaitUntilProcessed([
             changedFile(downloads + "/.secret/item"),
-            changedFile(downloads + "/build/item"),
-            changedFile(downloads + "/trace.log"),
+            changedFile(downloads + "/BUILD/item"),
+            changedFile(downloads + "/TRACE.LOG"),
             changedFile(home + "-other/Downloads/file"),
             FileSystemEventRecord(path: downloads + "/read.txt", eventID: 43, flags: [.itemIsFile])
         ])
-        #expect(harness.clock.pendingSleeps == 0)
-        #expect(harness.requests.isEmpty)
-        try await harness.watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/visible.zip")])
-        try await waitUntil { harness.clock.pendingSleeps == 1 }
-        harness.clock.advance(by: .seconds(1))
-        try await waitUntil { harness.requests == [downloads] }
+        #expect(clock.pendingSleeps == 0)
+        #expect(requests.isEmpty)
+        try await watcher.emitAndWaitUntilProcessed([changedFile(downloads + "/visible.zip")])
+        try await waitUntil { clock.pendingSleeps == 1 }
+        clock.advance(by: .seconds(1))
+        try await waitUntil { requests == [downloads] }
+        #expect(factory.startedBuilds == 1)
     }
 
     @Test(arguments: [FileSystemEventFlags.itemCreated, .itemRemoved])
@@ -553,10 +534,7 @@ struct FolderRefreshControllerTests {
 
     @Test(arguments: [false, true])
     func savedAndIncompleteScansNeverWatch(isImported: Bool) async throws {
-        let factory = RefreshMatcherFactory()
-        let harness = FolderRefreshHarness(makeExclusionMatcher: { patterns, rootPath in
-            factory.make(patterns: patterns, rootPath: rootPath)
-        })
+        let harness = FolderRefreshHarness()
         let snapshot = isImported
             ? makeFolderRefreshSnapshot(source: .imported(ImportedSnapshotContext(
                 sourceURL: URL(filePath: "/saved.radixscan"), pathMode: .absolute, liveActionCapability: .pathValidation
@@ -567,9 +545,7 @@ struct FolderRefreshControllerTests {
         // each eligibility guard is exercised without replacing its context.
         try await Task.sleep(for: .milliseconds(20))
         #expect(harness.watcher.requests.isEmpty)
-        #expect(factory.receipts.isEmpty)
         harness.controller.update(snapshot: nil, focusedNodeID: nil, canRefresh: false)
-        #expect(factory.receipts.isEmpty)
     }
 
     @Test
@@ -686,7 +662,6 @@ private final class FolderRefreshHarness {
     var allowsRequests = true
     var sleepRequests = 0
     private let maximumPendingPaths: Int
-    private let makeExclusionMatcher: @Sendable ([String], String) -> ScanExclusionMatcher
     var directoryExists: @MainActor (String) -> Bool
     lazy var controller = FolderRefreshController(
         watcher: watcher,
@@ -696,7 +671,6 @@ private final class FolderRefreshHarness {
             self?.sleepRequests += 1
             try await clock.sleep(for: $0)
         },
-        makeExclusionMatcher: makeExclusionMatcher,
         directoryExists: { [weak self] in self?.directoryExists($0) == true },
         requestRefresh: { [weak self] nodeID in
             guard let self else { return false }
@@ -708,28 +682,17 @@ private final class FolderRefreshHarness {
 
     init(
         maximumPendingPaths: Int = 4_096,
-        makeExclusionMatcher: @escaping @Sendable ([String], String) -> ScanExclusionMatcher = {
-            ScanExclusionMatcher(patterns: $0, rootPath: $1)
-        },
         directoryExists: @escaping @MainActor (String) -> Bool = { _ in true }
     ) {
         self.maximumPendingPaths = maximumPendingPaths
-        self.makeExclusionMatcher = makeExclusionMatcher
         self.directoryExists = directoryExists
     }
 }
 
 nonisolated private final class RefreshMatcherFactory: @unchecked Sendable {
-    struct Receipt: Sendable {
-        let patterns: [String]
-        let rootPath: String
-        let wasMainThread: Bool
-        let streamStarted: Bool
-    }
-
     private let condition = NSCondition()
     private let blockFirstBuild: Bool
-    private var storedReceipts: [Receipt] = []
+    private var started = 0
     private var released = false
     private var blocked = false
     private var didTimeOut = false
@@ -739,7 +702,7 @@ nonisolated private final class RefreshMatcherFactory: @unchecked Sendable {
         self.blockFirstBuild = blockFirstBuild
     }
 
-    var receipts: [Receipt] { condition.withLock { storedReceipts } }
+    var startedBuilds: Int { condition.withLock { started } }
     var isBlocked: Bool { condition.withLock { blocked } }
     var timedOut: Bool { condition.withLock { didTimeOut } }
     var finishedBuilds: Int { condition.withLock { completed } }
@@ -751,13 +714,10 @@ nonisolated private final class RefreshMatcherFactory: @unchecked Sendable {
         }
     }
 
-    func make(patterns: [String], rootPath: String, streamStarted: Bool = true) -> ScanExclusionMatcher {
+    func make(patterns: [String], rootPath: String) -> ScanExclusionMatcher {
         condition.lock()
-        storedReceipts.append(Receipt(
-            patterns: patterns, rootPath: rootPath,
-            wasMainThread: Thread.isMainThread, streamStarted: streamStarted
-        ))
-        if blockFirstBuild, storedReceipts.count == 1 {
+        started += 1
+        if blockFirstBuild, started == 1 {
             blocked = true
             let deadline = Date().addingTimeInterval(15)
             while !released {

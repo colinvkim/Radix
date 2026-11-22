@@ -40,13 +40,10 @@ struct TestSynchronizationTests {
     }
 
     @Test
-    func timedOutWaitStopsTheTestInsteadOfContinuingWithInvalidState() async {
-        var continuedAfterTimeout = false
+    func timedOutWaitThrows() async {
         await #expect(throws: TestWaitTimeout.self) {
             try await waitUntil("never satisfied", timeout: 0) { false }
-            continuedAfterTimeout = true
         }
-        #expect(!continuedAfterTimeout)
     }
 
     @Test

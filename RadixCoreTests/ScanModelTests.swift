@@ -67,19 +67,6 @@ struct ScanModelTests {
     }
 
     @Test
-    func testSupportsMoveToTrashRejectsSyntheticNodesAndRootPath() {
-        let rootNode = makeNode(id: "/", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let syntheticNode = makeNode(
-            id: "/System & Unattributed", isDirectory: true, isSynthetic: true, isAccessible: true)
-        let folderNode = makeNode(
-            id: "/Users/example/Documents", isDirectory: true, isSynthetic: false, isAccessible: true)
-
-        #expect(!(rootNode.supportsMoveToTrash))
-        #expect(!(syntheticNode.supportsMoveToTrash))
-        #expect(folderNode.supportsMoveToTrash)
-    }
-
-    @Test
     func testTrashSafetyPolicyRejectsProtectedRoots() {
         let policy = makeTrashSafetyPolicy()
         let protectedPaths = [
@@ -122,44 +109,16 @@ struct ScanModelTests {
     }
 
     @Test
-    func testSupportsMoveToTrashRejectsTrashSafetyProtectedRoots() {
-        let systemNode = makeNode(id: "/System", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let libraryNode = makeNode(id: "/Library", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let applicationsNode = makeNode(id: "/Applications", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let applicationsChildNode = makeNode(
-            id: "/Applications/Example.app", isDirectory: true, isSynthetic: false, isAccessible: true)
-
-        #expect(!(systemNode.supportsMoveToTrash))
-        #expect(!(libraryNode.supportsMoveToTrash))
-        #expect(!(applicationsNode.supportsMoveToTrash))
-        #expect(applicationsChildNode.supportsMoveToTrash)
-    }
-
-    @Test
-    func testSupportsMoveToTrashRejectsActiveVolumeRoot() {
-        let volumeTarget = ScanTarget(
-            url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
-            kind: .volume
-        )
-        let volumeRootNode = makeNode(id: volumeTarget.id, isDirectory: true, isSynthetic: false, isAccessible: true)
-        let childNode = makeNode(
-            id: volumeTarget.id + "/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
-
-        #expect(!(volumeRootNode.supportsMoveToTrash(activeTarget: volumeTarget)))
-        #expect(childNode.supportsMoveToTrash(activeTarget: volumeTarget))
-    }
-
-    @Test
-    func testSupportsMoveToTrashUsesInjectedTrashSafetyPolicy() {
+    func testTrashAvailabilityProtectsMountedRootAndAllowsItsChildren() {
         let policy = makeTrashSafetyPolicy()
         let mountedRootNode = makeNode(
             id: "/Volumes/External", isDirectory: true, isSynthetic: false, isAccessible: true)
         let mountedChildNode = makeNode(
             id: "/Volumes/External/file.txt", isDirectory: false, isSynthetic: false, isAccessible: true)
 
-        #expect(!(mountedRootNode.supportsMoveToTrash(trashSafetyPolicy: policy)))
-        #expect(!(mountedRootNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy)))
-        #expect(mountedChildNode.supportsMoveToTrash(activeTarget: nil, trashSafetyPolicy: policy))
+        #expect(FileNodeActionAvailability(
+            node: mountedChildNode, activeTarget: nil, trashSafetyPolicy: policy
+        ).canMoveToTrash)
         #expect(
             !(FileNodeActionAvailability(
                 node: mountedRootNode,
@@ -169,7 +128,7 @@ struct ScanModelTests {
     }
 
     @Test
-    func testActionAvailabilityUsesSharedFileActionRules() {
+    func testFileActionsForVolumeRootRegularFileSyntheticNodeAndEmptySelection() {
         let volumeTarget = ScanTarget(
             url: URL(filePath: "/Volumes/External", directoryHint: .isDirectory),
             kind: .volume
@@ -180,18 +139,18 @@ struct ScanModelTests {
         let syntheticNode = makeNode(
             id: volumeTarget.id + "/system", isDirectory: false, isSynthetic: true, isAccessible: true)
 
-        let volumeRootAvailability = volumeRootNode.actionAvailability(activeTarget: volumeTarget)
+        let volumeRootAvailability = FileNodeActionAvailability(node: volumeRootNode, activeTarget: volumeTarget)
         #expect(volumeRootAvailability.canOpen)
         #expect(volumeRootAvailability.canPreviewWithQuickLook)
         #expect(volumeRootAvailability.canRevealInFinder)
         #expect(volumeRootAvailability.canCopyPath)
         #expect(!(volumeRootAvailability.canMoveToTrash))
 
-        let regularFileAvailability = regularFile.actionAvailability(activeTarget: volumeTarget)
+        let regularFileAvailability = FileNodeActionAvailability(node: regularFile, activeTarget: volumeTarget)
         #expect(regularFileAvailability.canOpen)
         #expect(regularFileAvailability.canMoveToTrash)
 
-        let syntheticAvailability = syntheticNode.actionAvailability(activeTarget: volumeTarget)
+        let syntheticAvailability = FileNodeActionAvailability(node: syntheticNode, activeTarget: volumeTarget)
         #expect(!(syntheticAvailability.canOpen))
         #expect(!(syntheticAvailability.canPreviewWithQuickLook))
         #expect(!(syntheticAvailability.canRevealInFinder))
@@ -343,7 +302,7 @@ struct ScanModelTests {
     }
 
     @Test
-    func testSnapshotReplacingMissingNodeReturnsNil() {
+    func testSnapshotReplacingMissingNodeReturnsNil() throws {
         let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
@@ -356,7 +315,7 @@ struct ScanModelTests {
         let treeStore = FileTreeStore(root: root)
         let snapshot = makeSnapshot(root: root, treeStore: treeStore)
 
-        #expect(snapshot.replacingNode(id: "/root/missing", with: treeStore) == nil)
+        #expect(try snapshot.replacingNode(id: "/root/missing", with: treeStore, cancellationCheck: {}) == nil)
     }
 
     @Test
@@ -526,7 +485,7 @@ struct ScanModelTests {
             warnings: removedWarnings + [retainedWarning, prefixSiblingWarning]
         )
 
-        let updated = try #require(snapshot.removingNodes(ids: [firstDirectory.id, first.id, second.id]))
+        let updated = try #require(try snapshot.removingNodes(ids: [firstDirectory.id, first.id, second.id], cancellationCheck: {}))
 
         #expect(updated.treeStore.node(id: firstDirectory.id) == nil)
         #expect(updated.treeStore.node(id: first.id) == nil)
@@ -534,9 +493,9 @@ struct ScanModelTests {
         #expect(updated.treeStore.node(id: retained.id) != nil)
         #expect(updated.scanWarnings.map(\.path) == [retained.id, prefixSiblingWarning.path])
         #expect(updated.aggregateStats.fileCount == 1)
-        #expect(snapshot.removingNodes(ids: []) == nil)
-        #expect(snapshot.removingNodes(ids: ["/root/missing"]) == nil)
-        #expect(snapshot.removingNodes(ids: [root.id, second.id]) == nil)
+        #expect(try snapshot.removingNodes(ids: [], cancellationCheck: {}) == nil)
+        #expect(try snapshot.removingNodes(ids: ["/root/missing"], cancellationCheck: {}) == nil)
+        #expect(try snapshot.removingNodes(ids: [root.id, second.id], cancellationCheck: {}) == nil)
     }
 
     @Test
@@ -599,7 +558,7 @@ struct ScanModelTests {
     }
 
     @Test
-    func testSnapshotScopedToMissingTargetReturnsNil() {
+    func testSnapshotScopedToMissingTargetReturnsNil() throws {
         let root = FileNodeRecord.directory(
             id: "/root",
             url: URL(filePath: "/root", directoryHint: .isDirectory),
@@ -613,69 +572,7 @@ struct ScanModelTests {
         let snapshot = makeSnapshot(root: root, treeStore: treeStore)
 
         #expect(
-            snapshot.scoped(to: ScanTarget(url: URL(filePath: "/root/Missing", directoryHint: .isDirectory))) == nil)
-    }
-
-    @Test
-    func testSnapshotReplacingNodeDeduplicatesWarningsByContent() throws {
-        let child = makeNode(id: "/root/folder", isDirectory: true, isSynthetic: false, isAccessible: true)
-        let root = FileNodeRecord.directory(
-            id: "/root",
-            url: URL(filePath: "/root", directoryHint: .isDirectory),
-            name: "root",
-            children: [child],
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true
-        )
-        let treeStore = FileTreeStore(root: root, childrenByID: [root.id: [child]])
-
-        let existingWarning = ScanWarning(
-            path: "/root/folder",
-            message: "Permission denied",
-            category: .permissionDenied
-        )
-        let duplicateWarning = ScanWarning(
-            path: "/root/folder",
-            message: "Permission denied",
-            category: .permissionDenied
-        )
-        let distinctWarning = ScanWarning(
-            path: "/root/folder/other",
-            message: "File system error",
-            category: .fileSystem
-        )
-
-        let snapshot = makeSnapshot(root: root, treeStore: treeStore, warnings: [existingWarning])
-        let replacement = FileNodeRecord.directory(
-            id: "/root/folder",
-            url: URL(filePath: "/root/folder", directoryHint: .isDirectory),
-            name: "folder",
-            children: [],
-            lastModified: nil,
-            isPackage: false,
-            isAccessible: true
-        )
-
-        let updatedSnapshot = try #require(
-            snapshot.replacingNode(
-                id: child.id,
-                with: FileTreeStore(root: replacement),
-                additionalWarnings: [duplicateWarning, duplicateWarning, distinctWarning]
-            ))
-
-        #expect(updatedSnapshot.id == snapshot.id)
-        #expect(updatedSnapshot.scanWarnings.count == 2)
-        #expect(
-            updatedSnapshot.scanWarnings.map(\.path) == [
-                duplicateWarning.path,
-                distinctWarning.path,
-            ])
-        #expect(
-            updatedSnapshot.scanWarnings.map(\.message) == [
-                duplicateWarning.message,
-                distinctWarning.message,
-            ])
+            try snapshot.scoped(to: ScanTarget(url: URL(filePath: "/root/Missing", directoryHint: .isDirectory)), cancellationCheck: {}) == nil)
     }
 
     @Test
@@ -704,6 +601,7 @@ struct ScanModelTests {
         let newA = makeNode(id: oldA.id, isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 11)
         let newB = makeNode(id: oldB.id, isDirectory: false, isSynthetic: false, isAccessible: true, allocatedSize: 13)
         let newWarning = ScanWarning(path: "/root/B/new-child", message: "new", category: .fileSystem)
+        let otherWarning = ScanWarning(path: newWarning.path, message: "unreadable", category: .permissionDenied)
         let duplicateNewWarning = ScanWarning(
             path: newWarning.path, message: newWarning.message, category: newWarning.category)
 
@@ -713,13 +611,14 @@ struct ScanModelTests {
                     oldA.id: FileTreeStore(root: newA),
                     oldB.id: FileTreeStore(root: newB),
                 ],
-                additionalWarnings: [newWarning, duplicateNewWarning],
+                additionalWarnings: [newWarning, duplicateNewWarning, otherWarning],
                 cancellationCheck: {}
             ))
 
+        #expect(updated.id == snapshot.id)
         #expect(updated.root.allocatedSize == 27)
-        #expect(updated.scanWarnings.map(\.path) == [retained.path, newWarning.path])
-        #expect(updated.scanWarnings.map(\.message) == [retained.message, newWarning.message])
+        #expect(updated.scanWarnings.map(\.path) == [retained.path, newWarning.path, otherWarning.path])
+        #expect(updated.scanWarnings.map(\.message) == [retained.message, newWarning.message, otherWarning.message])
     }
 
     @Test
@@ -747,40 +646,8 @@ struct ScanModelTests {
     }
 
     @Test
-    func testPermissionAdvisorCanEvaluateSelectionScopedWarnings() {
+    func testPermissionAdvisorDistinguishesProtectedHomePathsFromSimilarPaths() {
         let exampleHome = URL(filePath: "/Users/example", directoryHint: .isDirectory)
-        let unlockableWarning = ScanWarning(
-            path: "/Users/example/Library/Mail",
-            message: "Permission denied",
-            category: .permissionDenied
-        )
-        let permanentlyProtectedWarning = ScanWarning(
-            path: "/Library/Application Support/com.apple.TCC",
-            message: "Permission denied",
-            category: .permissionDenied
-        )
-
-        #expect(
-            PermissionAdvisor.fullDiskAccessAdvice(
-                for: [unlockableWarning],
-                fullDiskAccessStatus: .notGranted,
-                snapshotSource: .live,
-                homeDirectory: exampleHome
-            ) == .openSettings)
-        #expect(
-            PermissionAdvisor.fullDiskAccessAdvice(
-                for: [permanentlyProtectedWarning],
-                fullDiskAccessStatus: .notGranted,
-                snapshotSource: .live,
-                homeDirectory: exampleHome
-            ) == .none)
-        #expect(
-            PermissionAdvisor.fullDiskAccessAdvice(
-                for: [unlockableWarning],
-                fullDiskAccessStatus: .granted,
-                snapshotSource: .live,
-                homeDirectory: exampleHome
-            ) == .rescanMayBeNeeded)
         #expect(
             PermissionAdvisor.fullDiskAccessAdvice(
                 for: [

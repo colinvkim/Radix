@@ -119,7 +119,7 @@ nonisolated enum TreemapLayout {
             let entry = tile.entry
             let siblingIndex = siblingIndexes[entry.id] ?? 0
             let branch = branchContext ?? colorBranchContext.branch(forNodeID: entry.nodeID)
-                ?? DiskMapColorBranch(id: entry.colorID, index: siblingIndex, count: siblingCount)
+                ?? DiskMapColorBranch(id: entry.colorID, index: siblingIndex)
 
             let childBounds = childContentBounds(in: tile.rect)
             let childNodes: [FileNodeRecord]
@@ -137,7 +137,6 @@ nonisolated enum TreemapLayout {
                 branchID: branch.id,
                 localID: entry.colorID,
                 branchIndex: branch.index,
-                branchCount: branch.count,
                 siblingIndex: siblingIndex,
                 siblingCount: siblingCount,
                 depth: depth,

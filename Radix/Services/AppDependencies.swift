@@ -18,7 +18,7 @@ struct AppDependencies {
         scanService: any ScanEventStreaming = IncrementalScanService(),
         fileSystemChangeWatcher: any FileSystemChangeWatching = DarwinFileSystemChangeWatcher(),
         scanArchiveService: any ScanArchiveServicing = ScanArchiveService(),
-        usageStats: any AppUsageStatsPersisting = InMemoryAppUsageStatsStore(),
+        usageStats: any AppUsageStatsPersisting,
         folderRefreshClock: FolderRefreshClock = .continuous
     ) {
         self.preferences = preferences
@@ -42,7 +42,6 @@ struct AppDependencies {
                 }
             ),
             systemActions: systemActions,
-            scanService: IncrementalScanService(),
             usageStats: UserDefaultsAppUsageStatsStore()
         )
     }

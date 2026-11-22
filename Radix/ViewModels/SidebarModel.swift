@@ -15,7 +15,7 @@ final class SidebarModel: ObservableObject {
     @Published private(set) var smartTargetRows: [SidebarTargetDisplay] = []
     @Published private(set) var recentScanTargetRows: [SidebarTargetDisplay] = []
     @Published private(set) var activeTargetID: String?
-    @Published private(set) var targetCapacityDescriptions: [String: String] = [:]
+    private var targetCapacityDescriptions: [String: String] = [:]
 
     private let recentTargetStore: RecentTargetStore
     private let preferredSmartTargetIDs: () -> [String]
@@ -28,14 +28,6 @@ final class SidebarModel: ObservableObject {
     ) {
         self.recentTargetStore = recentTargetStore
         self.preferredSmartTargetIDs = preferredSmartTargetIDs
-    }
-
-    var smartTargets: [ScanTarget] {
-        smartTargetRows.map(\.target)
-    }
-
-    var recentScanTargets: [ScanTarget] {
-        recentScanTargetRows.map(\.target)
     }
 
     func refreshTargetSections(

@@ -161,19 +161,17 @@ struct SystemIntegrationTests {
     @Test
     func testCopyPathWritesPathAndFileURLToPasteboard() throws {
         let url = URL(filePath: "/tmp/example.txt")
-        let pasteboard = PasteboardSpy()
+        let pasteboard = PasteboardSpy(writtenStrings: [.html: "<b>old</b>"])
 
         try SystemIntegration.copyPath(url, pasteboard: pasteboard)
 
-        #expect(pasteboard.clearCount == 1)
-        #expect(pasteboard.writtenStrings[.string] == url.path)
-        #expect(pasteboard.writtenStrings[.fileURL] == url.absoluteString)
+        #expect(pasteboard.writtenStrings == [.string: url.path, .fileURL: url.absoluteString])
     }
 
-    @Test
-    func testCopyPathThrowsWhenPasteboardRejectsARepresentation() throws {
+    @Test(arguments: [NSPasteboard.PasteboardType.string, .fileURL])
+    func testCopyPathThrowsWhenPasteboardRejectsARepresentation(rejected: NSPasteboard.PasteboardType) throws {
         let url = URL(filePath: "/tmp/example.txt")
-        let pasteboard = PasteboardSpy(rejectedTypes: [.fileURL])
+        let pasteboard = PasteboardSpy(rejectedTypes: [rejected])
 
         #expect { try SystemIntegration.copyPath(url, pasteboard: pasteboard) } throws: { error in
             guard let integrationError = error as? SystemIntegration.SystemIntegrationError else {
@@ -189,9 +187,6 @@ struct SystemIntegrationTests {
             #expect(path == url.path)
             return true
         }
-        #expect(pasteboard.clearCount == 1)
-        #expect(pasteboard.writtenStrings[.string] == url.path)
-        #expect(pasteboard.writtenStrings[.fileURL] == url.absoluteString)
     }
 
     @Test
@@ -200,11 +195,10 @@ struct SystemIntegrationTests {
             URL(filePath: "/tmp/first.txt"),
             URL(filePath: "/tmp/second.txt"),
         ]
-        let pasteboard = PasteboardSpy()
+        let pasteboard = PasteboardSpy(writtenStrings: [.fileURL: "file:///previous"])
 
         try SystemIntegration.copyPaths(urls, pasteboard: pasteboard)
 
-        #expect(pasteboard.clearCount == 1)
         #expect(pasteboard.writtenStrings[.string] == "/tmp/first.txt\n/tmp/second.txt")
         #expect(pasteboard.writtenStrings[.fileURL] == nil)
     }
@@ -245,59 +239,25 @@ struct SystemIntegrationTests {
     }
 
     @Test
-    func testFullDiskAccessStatusUsesInjectedProbes() {
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
-                userTCCDatabaseProbe: nil,
-                protectedDataVaultProbes: []
-            ) == .unknown)
-
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
-                userTCCDatabaseProbe: nil,
-                protectedDataVaultProbes: [successfulProbe, successfulProbe]
-            ) == .notGranted)
-
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
-                userTCCDatabaseProbe: failedProbe,
-                protectedDataVaultProbes: [successfulProbe, successfulProbe]
-            ) == .notGranted)
-
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
-                userTCCDatabaseProbe: successfulProbe,
-                protectedDataVaultProbes: [successfulProbe, failedProbe]
-            ) == .notGranted)
-
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
-                userTCCDatabaseProbe: successfulProbe,
-                protectedDataVaultProbes: [successfulProbe, successfulProbe]
-            ) == .granted)
-    }
-
-    @Test
-    func testFullDiskAccessStatusKeepsLegacyLogicBeforeMacOS27() {
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
+    func testFullDiskAccessBeforeMacOS27RequiresReadableUserTCCAndTwoDataVaults() {
+        let cases: [(SystemIntegration.FullDiskAccessProbe?, [SystemIntegration.FullDiskAccessProbe], FullDiskAccessStatus)] = [
+            (nil, [], .unknown),
+            (nil, [successfulProbe, successfulProbe], .notGranted),
+            (failedProbe, [successfulProbe, successfulProbe], .notGranted),
+            (successfulProbe, [successfulProbe, failedProbe], .notGranted),
+            (successfulProbe, [successfulProbe, successfulProbe], .granted),
+        ]
+        for (userTCC, vaults, expected) in cases {
+            let modernProbe = expected == .granted ? nil : successfulProbe
+            #expect(SystemIntegration.fullDiskAccessStatus(
                 macOSMajorVersion: 26,
-                userTCCDatabaseProbe: nil,
-                protectedDataVaultProbes: [successfulProbe, successfulProbe],
-                timeMachinePreferencesProbe: successfulProbe,
-                stocksContainerProbe: successfulProbe,
-                systemTCCDatabaseProbe: successfulProbe
-            ) == .notGranted)
-
-        #expect(
-            SystemIntegration.fullDiskAccessStatus(
-                macOSMajorVersion: 26,
-                userTCCDatabaseProbe: successfulProbe,
-                protectedDataVaultProbes: [successfulProbe, successfulProbe],
-                timeMachinePreferencesProbe: failedProbe,
-                stocksContainerProbe: failedProbe,
-                systemTCCDatabaseProbe: failedProbe
-            ) == .granted)
+                userTCCDatabaseProbe: userTCC,
+                protectedDataVaultProbes: vaults,
+                timeMachinePreferencesProbe: modernProbe,
+                stocksContainerProbe: modernProbe,
+                systemTCCDatabaseProbe: modernProbe
+            ) == expected)
+        }
     }
 
     @Test
@@ -582,21 +542,22 @@ private final class WorkspaceSpy: SystemWorkspace {
 
 private final class PasteboardSpy: PathPasteboard {
     private let rejectedTypes: Set<NSPasteboard.PasteboardType>
-    private(set) var clearCount = 0
-    private(set) var writtenStrings: [NSPasteboard.PasteboardType: String] = [:]
+    private(set) var writtenStrings: [NSPasteboard.PasteboardType: String]
 
-    init(rejectedTypes: Set<NSPasteboard.PasteboardType> = []) {
+    init(writtenStrings: [NSPasteboard.PasteboardType: String] = [:], rejectedTypes: Set<NSPasteboard.PasteboardType> = []) {
+        self.writtenStrings = writtenStrings
         self.rejectedTypes = rejectedTypes
     }
 
     @discardableResult
     func clearContents() -> Int {
-        clearCount += 1
-        return clearCount
+        writtenStrings.removeAll()
+        return 0
     }
 
     func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+        guard !rejectedTypes.contains(dataType) else { return false }
         writtenStrings[dataType] = string
-        return !rejectedTypes.contains(dataType)
+        return true
     }
 }

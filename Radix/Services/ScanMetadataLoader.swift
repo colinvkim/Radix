@@ -254,10 +254,9 @@ nonisolated struct ScanMetadataLoader: Sendable {
         URL,
         ScanDiagnosticsContext?
     ) -> (identity: FileIdentity?, linkCount: UInt64)
-    typealias FileAllocatedSizeProvider = @Sendable (URL) -> Int64?
     typealias FileStatusProvider = @Sendable (URL) -> FileStatus?
 
-    static let cloneProbeOptions = UInt32(
+    private static let cloneProbeOptions = UInt32(
         FSOPT_ATTR_CMN_EXTENDED | FSOPT_NOFOLLOW | FSOPT_RETURN_REALDEV
     )
 
@@ -318,7 +317,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
     private let linkCountCapabilityCache: LinkCountCapabilityCache
     private let cloneMappingCapabilityCache: CloneMappingCapabilityCache
     private let fileSystemInfoProvider: FileSystemInfoProvider?
-    private let fileAllocatedSizeProvider: FileAllocatedSizeProvider?
     private let fileStatusProvider: FileStatusProvider
     private let packageClassifier: PackageClassifier
 
@@ -327,7 +325,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
         linkCountCapabilityCache: LinkCountCapabilityCache = LinkCountCapabilityCache(),
         cloneMappingCapabilityCache: CloneMappingCapabilityCache = CloneMappingCapabilityCache(),
         fileSystemInfoProvider: FileSystemInfoProvider? = nil,
-        fileAllocatedSizeProvider: FileAllocatedSizeProvider? = nil,
         fileStatusProvider: @escaping FileStatusProvider = ScanMetadataLoader.defaultFileStatus,
         packageClassifier: PackageClassifier = PackageClassifier()
     ) {
@@ -335,7 +332,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
         self.linkCountCapabilityCache = linkCountCapabilityCache
         self.cloneMappingCapabilityCache = cloneMappingCapabilityCache
         self.fileSystemInfoProvider = fileSystemInfoProvider
-        self.fileAllocatedSizeProvider = fileAllocatedSizeProvider
         self.fileStatusProvider = fileStatusProvider
         self.packageClassifier = packageClassifier
     }
@@ -428,7 +424,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
             linkCountCapabilityCache: linkCountCapabilityCache,
             cloneMappingCapabilityCache: cloneMappingCapabilityCache,
             fileSystemInfoProvider: fileSystemInfoProvider,
-            fileAllocatedSizeProvider: fileAllocatedSizeProvider,
             fileStatusProvider: fileStatusProvider
         )
     }
@@ -483,7 +478,6 @@ nonisolated struct ScanMetadataLoader: Sendable {
         linkCountCapabilityCache: LinkCountCapabilityCache,
         cloneMappingCapabilityCache: CloneMappingCapabilityCache,
         fileSystemInfoProvider: FileSystemInfoProvider?,
-        fileAllocatedSizeProvider: FileAllocatedSizeProvider?,
         fileStatusProvider: FileStatusProvider
     ) -> NodeMetadata {
         let isDirectory = values.isDirectory ?? false
@@ -498,14 +492,11 @@ nonisolated struct ScanMetadataLoader: Sendable {
             if let status, let identity = status.fileIdentity { return (identity, status.linkCount) }
             return defaultFileSystemInfo(for: url, diagnostics: diagnostics)
         }
-        func fallbackAllocatedSize() -> Int64? {
-            if let fileAllocatedSizeProvider { return fileAllocatedSizeProvider(url) }
-            return status?.allocatedSize ?? defaultFileStatus(for: url)?.allocatedSize
-        }
         let logicalSize = Int64(values.totalFileSize ?? values.fileSize ?? 0)
         let allocatedSize = values.totalFileAllocatedSize.map(Int64.init)
             ?? values.fileAllocatedSize.map(Int64.init)
-            ?? fallbackAllocatedSize()
+            ?? status?.allocatedSize
+            ?? defaultFileStatus(for: url)?.allocatedSize
             ?? 0
         let dataAllocatedSize = min(
             max(values.fileAllocatedSize.map(Int64.init) ?? allocatedSize, 0),

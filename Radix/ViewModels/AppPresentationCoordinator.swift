@@ -14,7 +14,6 @@ final class AppPresentationCoordinator: ObservableObject {
         case onboarding
         case goToPath(GoToPathRequest)
         case discardPileReview
-        case discardPileTrashConfirmation
         case importPreview(URL)
         case comparisonSetup(UUID)
 
@@ -26,8 +25,6 @@ final class AppPresentationCoordinator: ObservableObject {
                 "onboarding"
             case .discardPileReview:
                 "discard-pile-review"
-            case .discardPileTrashConfirmation:
-                "discard-pile-trash-confirmation"
             case .importPreview(let url):
                 "import-preview-\(url.absoluteString)"
             case .comparisonSetup(let id):
@@ -40,7 +37,6 @@ final class AppPresentationCoordinator: ObservableObject {
             case .goToPath: .goToPath
             case .onboarding: .onboarding
             case .discardPileReview: .discardPileReview
-            case .discardPileTrashConfirmation: .discardPileTrashConfirmation
             case .importPreview: .importPreview
             case .comparisonSetup: .comparisonSetup
             }
@@ -82,7 +78,6 @@ final class AppPresentationCoordinator: ObservableObject {
         case goToPath
         case onboarding
         case discardPileReview
-        case discardPileTrashConfirmation
         case importPreview
         case comparisonSetup
         case error
@@ -135,7 +130,7 @@ final class AppPresentationCoordinator: ObservableObject {
         activeDestination = destination
     }
 
-    func cancel(kind: DestinationKind) -> URL? {
+    func cancel(kind: DestinationKind, canStartArchiveImport: Bool) -> URL? {
         queue.removeAll { entry in
             guard case .destination(let destination) = entry else { return false }
             return destination.kind == kind
@@ -143,11 +138,11 @@ final class AppPresentationCoordinator: ObservableObject {
 
         guard activeDestination?.kind == kind else { return nil }
         activeDestination = nil
-        return advance()
+        return advance(canStartArchiveImport: canStartArchiveImport)
     }
 
-    func requestArchiveImport(_ url: URL) -> ArchiveImportDisposition {
-        guard activeDestination != nil || !queue.isEmpty else {
+    func requestArchiveImport(_ url: URL, canStartArchiveImport: Bool) -> ArchiveImportDisposition {
+        if canStartArchiveImport, activeDestination == nil, queue.isEmpty {
             return .startNow
         }
         guard !queue.contains(.archiveImport(url)) else { return .queued }
@@ -160,9 +155,12 @@ final class AppPresentationCoordinator: ObservableObject {
         activeDestination = nil
     }
 
-    private func advance() -> URL? {
-        guard activeDestination == nil, !queue.isEmpty else { return nil }
-        switch queue.removeFirst() {
+    func advance(canStartArchiveImport: Bool) -> URL? {
+        guard activeDestination == nil, let index = queue.firstIndex(where: { entry in
+            if case .archiveImport = entry { return canStartArchiveImport }
+            return true
+        }) else { return nil }
+        switch queue.remove(at: index) {
         case .destination(let destination):
             activeDestination = destination
             return nil

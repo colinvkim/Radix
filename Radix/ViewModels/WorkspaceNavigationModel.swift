@@ -474,8 +474,6 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     deinit { tableLoadTask?.cancel() }
 
-    var isLoadingTableNodes: Bool { state.tableMaterialization.pendingSource != nil }
-
     var selectedNodeID: String? {
         state.selectedNodeID
     }
@@ -489,18 +487,6 @@ final class WorkspaceNavigationModel: ObservableObject {
     }
 
     var onSelectionChanged: (() -> Void)?
-
-    var tableNodes: [FileNodeRecord] {
-        state.tableNodes
-    }
-
-    var tableContentID: String {
-        state.tableContentID
-    }
-
-    var tableContentRevision: Int {
-        state.tableContentRevision
-    }
 
     var selectedAncestorIDs: Set<String> {
         state.selectedAncestorIDs
@@ -569,10 +555,6 @@ final class WorkspaceNavigationModel: ObservableObject {
 
     var canNavigateToParent: Bool {
         currentFocusNodeParent != nil
-    }
-
-    var canClearSelection: Bool {
-        !selectedNodeIDs.isEmpty
     }
 
     var isFocusedAtRoot: Bool {

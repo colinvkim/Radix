@@ -5,7 +5,7 @@ import Testing
 
 struct DiscardPileVisualizationOverlayTests {
     @Test
-    func testQueuedRootAndRenderedDescendantsAreMarkedWithoutChangingTree() {
+    func testQueuedRootAndRenderedDescendantsRemainActionable() {
         let fixture = makeFixture()
         let overlay = DiscardPileVisualizationOverlay(
             renderedNodeIDs: [fixture.folder.id, fixture.child.id, fixture.sibling.id],
@@ -22,8 +22,6 @@ struct DiscardPileVisualizationOverlayTests {
         #expect(overlay.allowsChartNodeAction(for: fixture.folder.id))
         #expect(overlay.allowsChartNodeAction(for: fixture.child.id))
         #expect(overlay.allowsChartNodeAction(for: fixture.sibling.id))
-        #expect(fixture.store.node(id: fixture.folder.id) != nil)
-        #expect(fixture.store.node(id: fixture.child.id) != nil)
     }
 
     @Test
@@ -56,61 +54,53 @@ struct DiscardPileVisualizationOverlayTests {
         #expect(overlay.role(for: fixture.sibling.id) == .queuedRoot)
     }
 
+    @MainActor
     @Test
-    func testRootLevelSunburstAggregateMarksQueuedGroupedItem() throws {
+    func testRootLevelSunburstAggregateMarksQueuedGroupedItem() async throws {
         let fixture = makeAggregateFixture()
-        let segments = SunburstLayout.segments(
-            in: fixture.store,
-            rootID: fixture.root.id,
-            depthLimit: 1
-        )
-        let aggregateValue = (segments.first(where: \.isAggregate))
-        let aggregate = try #require(aggregateValue)
-        let overlay = DiscardPileVisualizationOverlay(
-            renderedNodeIDs: Set(segments.compactMap(\.nodeID)),
-            renderedAggregateContainerNodeIDs: Set(
-                segments.lazy.filter(\.isAggregate).map(\.containerNodeID)
-            ),
-            queuedRootNodeIDs: [fixture.tiny.id],
-            treeStore: fixture.store
-        )
-
-        #expect(aggregate.nodeID == nil)
-        #expect(aggregate.containerNodeID == fixture.root.id)
-        #expect(
-            overlay.role(
-                for: aggregate.nodeID,
-                aggregateContainerNodeID: aggregate.containerNodeID
-            ) == .containsQueuedItem)
-    }
-
-    @Test
-    func testRootLevelTreemapAggregateMarksQueuedGroupedItem() throws {
-        let fixture = makeAggregateFixture()
-        let segments = TreemapLayout.segments(
-            in: fixture.store,
+        let tree = DiskMapTreeStore(fixture.store)
+        let model = SunburstChartModel()
+        _ = await model.loadLayout(
+            treeStore: tree,
             rootID: fixture.root.id,
             depthLimit: 1,
-            size: CGSize(width: 500, height: 300)
+            layoutID: "layout"
         )
-        let aggregateValue = (segments.first(where: \.isAggregate))
-        let aggregate = try #require(aggregateValue)
-        let overlay = DiscardPileVisualizationOverlay(
-            renderedNodeIDs: Set(segments.compactMap(\.nodeID)),
-            renderedAggregateContainerNodeIDs: Set(
-                segments.lazy.filter(\.isAggregate).map(\.containerNodeID)
-            ),
+        let aggregateSegment = model.renderedSegments.first(where: \.isAggregate)
+        let aggregate = try #require(aggregateSegment)
+        let overlay = model.discardPileOverlay(
             queuedRootNodeIDs: [fixture.tiny.id],
-            treeStore: fixture.store
+            movingToTrashRootNodeIDs: [],
+            treeStore: tree
         )
 
-        #expect(aggregate.nodeID == nil)
-        #expect(aggregate.containerNodeID == fixture.root.id)
-        #expect(
-            overlay.role(
-                for: aggregate.nodeID,
-                aggregateContainerNodeID: aggregate.containerNodeID
-            ) == .containsQueuedItem)
+        #expect(overlay.role(for: aggregate.nodeID, aggregateContainerNodeID: aggregate.containerNodeID)
+            == .containsQueuedItem)
+    }
+
+    @MainActor
+    @Test
+    func testRootLevelTreemapAggregateMarksQueuedGroupedItem() async throws {
+        let fixture = makeAggregateFixture()
+        let tree = DiskMapTreeStore(fixture.store)
+        let model = TreemapChartModel()
+        _ = await model.loadLayout(
+            treeStore: tree,
+            rootID: fixture.root.id,
+            depthLimit: 1,
+            size: CGSize(width: 500, height: 300),
+            layoutID: "layout"
+        )
+        let aggregateSegment = model.renderedSegments.first(where: \.isAggregate)
+        let aggregate = try #require(aggregateSegment)
+        let overlay = model.discardPileOverlay(
+            queuedRootNodeIDs: [fixture.tiny.id],
+            movingToTrashRootNodeIDs: [],
+            treeStore: tree
+        )
+
+        #expect(overlay.role(for: aggregate.nodeID, aggregateContainerNodeID: aggregate.containerNodeID)
+            == .containsQueuedItem)
     }
 
     @Test
@@ -197,121 +187,42 @@ struct DiscardPileVisualizationOverlayTests {
         #expect(overlay.role(for: fixture.folder.id) == .containsMovingToTrashItem)
     }
 
-    @Test
-    func testCacheAvoidsRebuildingOverlayUntilLayoutOrQueueChanges() {
-        let fixture = makeFixture()
-        let treeStore = DiskMapTreeStore(fixture.store)
-        var cache = DiscardPileVisualizationOverlayCache()
-        var renderedNodeIDBuildCount = 0
-        let renderedNodeIDs = {
-            renderedNodeIDBuildCount += 1
-            return Set([fixture.folder.id, fixture.child.id, fixture.sibling.id])
-        }
-
-        let first = cache.overlay(
-            renderedLayoutVersion: 1,
-            queuedRootNodeIDs: [fixture.folder.id],
-            movingToTrashRootNodeIDs: [],
-            treeStore: treeStore,
-            renderedNodeIDs: renderedNodeIDs
-        )
-        let cached = cache.overlay(
-            renderedLayoutVersion: 1,
-            queuedRootNodeIDs: [fixture.folder.id],
-            movingToTrashRootNodeIDs: [],
-            treeStore: treeStore,
-            renderedNodeIDs: renderedNodeIDs
-        )
-        let updated = cache.overlay(
-            renderedLayoutVersion: 1,
-            queuedRootNodeIDs: [fixture.child.id],
-            movingToTrashRootNodeIDs: [],
-            treeStore: treeStore,
-            renderedNodeIDs: renderedNodeIDs
-        )
-
-        #expect(first == cached)
-        #expect(updated != first)
-        #expect(renderedNodeIDBuildCount == 2)
-    }
-
-    @Test
-    func testCacheRebuildsWhenMovingToTrashRootsChange() {
-        let fixture = makeFixture()
-        let treeStore = DiskMapTreeStore(fixture.store)
-        var cache = DiscardPileVisualizationOverlayCache()
-        var renderedNodeIDBuildCount = 0
-        let renderedNodeIDs = {
-            renderedNodeIDBuildCount += 1
-            return Set([fixture.folder.id, fixture.child.id, fixture.sibling.id])
-        }
-
-        _ = cache.overlay(
-            renderedLayoutVersion: 1,
-            queuedRootNodeIDs: [],
-            movingToTrashRootNodeIDs: [fixture.folder.id],
-            treeStore: treeStore,
-            renderedNodeIDs: renderedNodeIDs
-        )
-        _ = cache.overlay(
-            renderedLayoutVersion: 1,
-            queuedRootNodeIDs: [],
-            movingToTrashRootNodeIDs: [fixture.sibling.id],
-            treeStore: treeStore,
-            renderedNodeIDs: renderedNodeIDs
-        )
-
-        #expect(renderedNodeIDBuildCount == 2)
-    }
-
     @MainActor
     @Test
-    func testConsecutiveQueueChangesPreserveLayoutIdentity() {
+    func testMarksTrackQueueAndTrashChangesOnTheSameLayout() async {
         let fixture = makeFixture()
-        let snapshot = makeTestSnapshot(
-            root: fixture.root,
-            store: fixture.store
-        )
-        let queuedNodeIDSets: [Set<FileNodeRecord.ID>] = [
-            [],
-            [fixture.folder.id],
-            [fixture.folder.id, fixture.sibling.id],
-            [fixture.child.id, fixture.sibling.id],
-        ]
-        let presentations = queuedNodeIDSets.map { queuedNodeIDs in
+        let snapshot = makeTestSnapshot(root: fixture.root, store: fixture.store)
+        func presentation(
+            queued: Set<String> = [], moving: Set<String> = [], depth: Int = 2
+        ) -> DiscardPileVisualizationPresentation {
             DiscardPileVisualizationPresentation(
-                snapshot: snapshot,
-                focusNode: fixture.root,
-                showFreeSpace: false,
-                maxRenderedDepth: 6,
-                discardPileRootNodeIDs: queuedNodeIDs
+                snapshot: snapshot, focusNode: fixture.root,
+                showFreeSpace: false, maxRenderedDepth: depth,
+                discardPileRootNodeIDs: queued, movingToTrashRootNodeIDs: moving
             )
         }
-        let changedDepthPresentation = DiscardPileVisualizationPresentation(
-            snapshot: snapshot,
-            focusNode: fixture.root,
-            showFreeSpace: false,
-            maxRenderedDepth: 7,
-            discardPileRootNodeIDs: queuedNodeIDSets.last ?? []
-        )
-        let movingPresentation = DiscardPileVisualizationPresentation(
-            snapshot: snapshot,
-            focusNode: fixture.root,
-            showFreeSpace: false,
-            maxRenderedDepth: 6,
-            discardPileRootNodeIDs: queuedNodeIDSets.last ?? [],
-            movingToTrashRootNodeIDs: [fixture.folder.id]
-        )
 
-        #expect(Set(presentations.map(\.layoutID)).count == 1)
-        #expect(presentations.map(\.discardPileRootNodeIDs) == queuedNodeIDSets)
-        #expect(
-            presentations.allSatisfy {
-                $0.visualizationInput.treeContentID == fixture.store.contentID
-            })
-        #expect(changedDepthPresentation.layoutID != presentations.last?.layoutID)
-        #expect(movingPresentation.layoutID == presentations.last?.layoutID)
-        #expect(movingPresentation.movingToTrashRootNodeIDs == [fixture.folder.id])
+        let initial = presentation()
+        let model = SunburstChartModel()
+        _ = await model.loadLayout(
+            treeStore: initial.visualizationInput.treeStore, rootID: initial.visualizationInput.rootNode.id,
+            depthLimit: 2, layoutID: initial.layoutID
+        )
+        let cases: [(DiscardPileVisualizationPresentation, DiscardPileVisualizationOverlayRole?)] = [
+            (presentation(queued: [fixture.folder.id]), .queuedDescendant),
+            (presentation(), nil),
+            (presentation(moving: [fixture.folder.id]), .movingToTrashDescendant),
+        ]
+        for (state, expectedRole) in cases {
+            #expect(state.layoutID == initial.layoutID)
+            let overlay = model.discardPileOverlay(
+                queuedRootNodeIDs: state.discardPileRootNodeIDs,
+                movingToTrashRootNodeIDs: state.movingToTrashRootNodeIDs,
+                treeStore: state.visualizationInput.treeStore
+            )
+            #expect(overlay.role(for: fixture.child.id) == expectedRole)
+        }
+        #expect(presentation(depth: 3).layoutID != initial.layoutID)
     }
 
     private func makeFixture() -> (

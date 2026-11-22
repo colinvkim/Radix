@@ -127,12 +127,11 @@ nonisolated enum SunburstLayout {
             let segmentEnd = cursor + (totalAngle * proportion)
             let siblingIndex = siblingIndexes[entry.id] ?? 0
             let branch = branchContext ?? colorBranchContext.branch(forNodeID: entry.nodeID)
-                ?? DiskMapColorBranch(id: entry.colorID, index: siblingIndex, count: siblingCount)
+                ?? DiskMapColorBranch(id: entry.colorID, index: siblingIndex)
             let colorToken = SunburstColorToken(
                 branchID: branch.id,
                 localID: entry.colorID,
                 branchIndex: branch.index,
-                branchCount: branch.count,
                 siblingIndex: siblingIndex,
                 siblingCount: siblingCount,
                 depth: depth,
@@ -419,19 +418,6 @@ nonisolated final class SunburstSegmentIndex: Sendable {
 
 nonisolated struct SunburstHitTestIndex: Sendable {
     private let rings: [Ring]
-
-    nonisolated init(segments: [SunburstSegment]) {
-        var segmentsByDepth: [Int: [SunburstSegment]] = [:]
-        for segment in segments {
-            segmentsByDepth[segment.depth, default: []].append(segment)
-        }
-
-        rings = segmentsByDepth
-            .map { depth, segments in
-                Ring(depth: depth, segments: segments)
-            }
-            .sorted { $0.depth < $1.depth }
-    }
 
     nonisolated init(segmentIndex: SunburstSegmentIndex) {
         rings = segmentIndex.depths.map { depth in

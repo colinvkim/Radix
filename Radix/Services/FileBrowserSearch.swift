@@ -12,10 +12,6 @@ nonisolated protocol FileSearching: Sendable {
     func pruneIndexes(keeping snapshotID: UUID?) async
 }
 
-extension FileSearching {
-    func pruneIndexes(keeping snapshotID: UUID?) async {}
-}
-
 actor FileBrowserDisplayService {
     func children(in treeStore: FileTreeStore, directoryID: String) throws -> [FileNodeRecord] {
         try treeStore.children(of: directoryID, cancellationCheck: { try Task.checkCancellation() })

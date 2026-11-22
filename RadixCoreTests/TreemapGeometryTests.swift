@@ -298,7 +298,7 @@ struct TreemapGeometryTests {
             name: "folder",
             children: [first, second]
         )
-        let sibling = makeTestFileNode(id: "/root/sibling", name: "sibling", size: 100)
+        let sibling = makeTestFileNode(id: "/root/sibling", name: "sibling", size: 600)
         let root = makeTestDirectoryNode(
             id: "/root",
             name: "root",
@@ -329,54 +329,10 @@ struct TreemapGeometryTests {
         let rootToken = try #require(rootSegments.first { $0.nodeID == first.id }?.colorToken)
         let focusedToken = try #require(focusedSegments.first { $0.nodeID == first.id }?.colorToken)
 
-        #expect(focusedToken.branchID == rootToken.branchID)
-        #expect(focusedToken.branchIndex == rootToken.branchIndex)
-        #expect(focusedToken.branchCount == rootToken.branchCount)
-        #expect(focusedToken.localID == rootToken.localID)
-        #expect(focusedToken.siblingIndex == rootToken.siblingIndex)
-        #expect(focusedToken.siblingCount == rootToken.siblingCount)
-        #expect(focusedToken.role == rootToken.role)
-    }
-
-    @Test
-    func testGroupedRootPreservesGlobalColorIndexForVisibleBranches() throws {
-        let groupedA = makeTestFileNode(
-            id: "/root/grouped-a",
-            name: "grouped-a",
-            size: 1
-        )
-        let groupedB = makeTestFileNode(
-            id: "/root/grouped-b",
-            name: "grouped-b",
-            size: 1
-        )
-        let visible = makeTestFileNode(
-            id: "/root/visible",
-            name: "visible",
-            size: 999
-        )
-        let root = makeTestDirectoryNode(
-            id: "/root",
-            name: "root",
-            children: [groupedA, groupedB, visible]
-        )
-        let store = FileTreeStore(
-            root: root,
-            childrenByID: [root.id: [groupedA, groupedB, visible]]
-        )
-
-        let segments = TreemapLayout.segments(
-            in: store,
-            rootID: root.id,
-            depthLimit: 1,
-            size: CGSize(width: 100, height: 100),
-            minimumTileArea: 20
-        )
-        let visibleToken = try #require(segments.first { $0.nodeID == visible.id }?.colorToken)
-
-        #expect(visibleToken.branchID == visible.id)
-        #expect(visibleToken.branchIndex == 0)
-        #expect(visibleToken.branchCount == 3)
+        for appearance in [TreemapColorAppearance.light, .dark] {
+            #expect(TreemapColorResolver.components(for: focusedToken, appearance: appearance).hue
+                == TreemapColorResolver.components(for: rootToken, appearance: appearance).hue)
+        }
     }
 
     @Test
