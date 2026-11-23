@@ -163,6 +163,41 @@ struct ScanComparisonBrowserModelTests {
     }
 
     @Test
+    func sortingDuringARefreshUsesTheRequestedComparisonAndFilters() async throws {
+        let model = ScanComparisonBrowserModel(searchDebounceNanoseconds: 0)
+        let id = UUID()
+        let rows = ["keep-b", "other", "keep-a"].map(makeRow)
+        func refresh(_ text: String, order: [ScanComparisonRowComparator], comparisonID: UUID? = nil) {
+            model.refresh(
+                comparisonID: comparisonID ?? id, rows: rows, changeTree: .empty,
+                query: ScanComparisonRowQuery(searchText: text, sortOrder: order)
+            )
+        }
+        let ascending = [ScanComparisonRowComparator(field: .relativePath)]
+        let descending = [ScanComparisonRowComparator(field: .relativePath, order: .reverse)]
+        refresh("keep", order: ascending)
+        try await waitUntil { !model.isRefreshing }
+        #expect(model.displayedRows.map(\.name) == ["keep-a", "keep-b"])
+        model.selection = [rows[0].id]
+
+        refresh("other", order: ascending, comparisonID: UUID())
+        refresh("keep", order: descending)
+        try await waitUntil { !model.isRefreshing }
+        #expect(model.displayedRows.map(\.name) == ["keep-b", "keep-a"])
+        #expect(model.selection == [rows[0].id])
+
+        refresh("other", order: ascending)
+        refresh("other", order: descending)
+        try await waitUntil { !model.isRefreshing }
+        #expect(model.displayedRows.map(\.name) == ["other"])
+        #expect(model.selection.isEmpty)
+
+        refresh("", order: [])
+        try await waitUntil { !model.isRefreshing }
+        #expect(model.displayedRows == rows)
+    }
+
+    @Test
     func testRapidSearchChangesDebounceSupersededQuery() async throws {
         let recorder = ComparisonProcessorRecorder()
         let model = ScanComparisonBrowserModel(

@@ -9,6 +9,7 @@ final class ScanComparisonBrowserModel: ObservableObject {
         let query: ScanComparisonRowQuery
         let searchIndex: ScanComparisonSearchIndex?
         var projection: ScanComparisonChangeTreeProjection? = nil
+        var isSortOnly = false
     }
 
     nonisolated struct WorkOutput: Equatable, Sendable {
@@ -52,7 +53,7 @@ final class ScanComparisonBrowserModel: ObservableObject {
     private var latestComparisonID: UUID?
     private var latestQuery: ScanComparisonRowQuery?
     private var searchIndex: ScanComparisonSearchIndex?
-    private var projectionComparisonID: UUID?
+    private var displayedQuery: (comparisonID: UUID, query: ScanComparisonRowQuery)?
 
     init(
         searchDebounceNanoseconds: UInt64 = 200_000_000,
@@ -87,13 +88,16 @@ final class ScanComparisonBrowserModel: ObservableObject {
         refreshTask?.cancel()
         generation &+= 1
         let requestGeneration = generation
+        let sameComparison = displayedQuery?.comparisonID == comparisonID
+        let isSortOnly = sameComparison && displayedQuery?.query.hasSameFilters(as: query) == true
+            && !query.sortOrder.isEmpty
         let input = WorkInput(
-            rows: rows,
+            rows: isSortOnly ? displayedRows : rows,
             changeTree: changeTree,
             query: query,
-            searchIndex: searchIndex,
-            projection: projectionComparisonID == comparisonID && projection.changeKinds == query.changeKinds
-                ? projection : nil
+            searchIndex: sameComparison ? searchIndex : nil,
+            projection: sameComparison && projection.changeKinds == query.changeKinds ? projection : nil,
+            isSortOnly: isSortOnly
         )
         let processor = self.processor
         let sleeper = self.sleeper
@@ -110,14 +114,16 @@ final class ScanComparisonBrowserModel: ObservableObject {
                 guard let self, generation == requestGeneration else { return }
 
                 displayedRows = output.rows
+                displayedQuery = (comparisonID, query)
                 if input.projection == nil {
                     projection = output.projection
-                    projectionComparisonID = comparisonID
                 }
-                searchIndex = output.searchIndex ?? searchIndex
-                selection.formIntersection(output.rows.lazy.map(\.id))
-                aggregateSelection = aggregateSelection.filter {
-                    output.projection.node(withID: $0) != nil
+                searchIndex = output.searchIndex ?? input.searchIndex
+                if !input.isSortOnly {
+                    selection.formIntersection(output.rows.lazy.map(\.id))
+                    aggregateSelection = aggregateSelection.filter {
+                        output.projection.node(withID: $0) != nil
+                    }
                 }
                 isRefreshing = false
                 refreshTask = nil
@@ -136,7 +142,7 @@ final class ScanComparisonBrowserModel: ObservableObject {
         latestComparisonID = nil
         latestQuery = nil
         searchIndex = nil
-        projectionComparisonID = nil
+        displayedQuery = nil
         isRefreshing = false
     }
 
@@ -149,7 +155,7 @@ final class ScanComparisonBrowserModel: ObservableObject {
             let searchIndex: ScanComparisonSearchIndex?
             if let existingSearchIndex = input.searchIndex {
                 searchIndex = existingSearchIndex
-            } else if input.query.hasSearchText {
+            } else if !input.isSortOnly && input.query.hasSearchText {
                 searchIndex = try ScanComparisonSearchIndex(
                     rows: input.rows,
                     cancellationCheck: cancellationCheck
@@ -157,11 +163,13 @@ final class ScanComparisonBrowserModel: ObservableObject {
             } else {
                 searchIndex = nil
             }
-            let rows = try input.query.applying(
-                to: input.rows,
-                searchIndex: searchIndex,
-                cancellationCheck: cancellationCheck
-            )
+            let rows = if input.isSortOnly {
+                try ScanComparisonRowComparator.sorted(
+                    input.rows, using: input.query.sortOrder, cancellationCheck: cancellationCheck
+                )
+            } else {
+                try input.query.applying(to: input.rows, searchIndex: searchIndex, cancellationCheck: cancellationCheck)
+            }
             try Task.checkCancellation()
             let projection = try input.projection ?? input.changeTree.significantProjection(
                 changeKinds: input.query.changeKinds,
