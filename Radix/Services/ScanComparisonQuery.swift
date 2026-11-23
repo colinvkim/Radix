@@ -107,12 +107,13 @@ nonisolated struct ScanComparisonRowComparator: Equatable, SortComparator, Senda
                 continue
             }
         }
-        return FileNodeSortComparison.fallback(
+        let fallback = FileNodeSortComparison.fallback(
             lhsName: lhs.name,
             lhsID: lhs.relativePath,
             rhsName: rhs.name,
             rhsID: rhs.relativePath
-        ) == .orderedAscending
+        )
+        return fallback == .orderedSame ? lhs.id < rhs.id : fallback == .orderedAscending
     }
 }
 
@@ -138,6 +139,10 @@ nonisolated struct ScanComparisonRowQuery: Equatable, Sendable {
 
     var hasSearchText: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func hasSameFilters(as other: Self) -> Bool {
+        changeKinds == other.changeKinds && searchText == other.searchText && pathPrefix == other.pathPrefix
     }
 
     func applying(
