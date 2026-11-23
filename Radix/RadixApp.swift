@@ -25,9 +25,8 @@ struct RadixApp: App {
             ContentView()
                 .environmentObject(appModel)
                 .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 620, maxHeight: .infinity)
-                .onAppear { appearance.apply() }
-                .onChange(of: appearance) { _, newValue in newValue.apply() }
         }
+        .onChange(of: appearance, initial: true) { appearance.apply() }
         .defaultSize(width: 1480, height: 820)
         .windowResizability(.contentMinSize)
         .commands {

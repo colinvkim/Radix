@@ -139,13 +139,17 @@ private struct GeneralSettingsPane: View {
 
     var body: some View {
         Form {
-            Section("Appearance") {
-                Picker("Theme", selection: $appearance) {
-                    ForEach(AppAppearance.allCases) { option in
-                        Text(option.title).tag(option)
+            Section {
+                LabeledContent("Appearance") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 215)
                 }
-                .pickerStyle(.segmented)
             }
 
             Section("Software Updates") {
