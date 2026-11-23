@@ -1870,8 +1870,8 @@ struct ScanCoordinatorTests {
         #expect(model.scanState.snapshot?.target == child)
     }
 
-    @Test
-    func testTrashCompletingBeforeOverlappingFullScanPublishes() async throws {
+    @Test(arguments: [false, true])
+    func testTrashCompletingBeforeOverlappingFullScanPublishes(deferRestart: Bool) async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let parent = ScanTarget(url: fixture.appending(path: "parent", directoryHint: .isDirectory))
@@ -1908,12 +1908,15 @@ struct ScanCoordinatorTests {
         model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
 
+        model.snapshotAutosaveFolder = fixture
         model.selectSidebarTargetAfterViewUpdate(id: parent.id)
         try await waitUntil("parent scan reads file before move finishes") { service.requests.count == 2 }
         try #require(model.scanState.snapshot == nil)
+        if deferRestart { model.suspendBackgroundActivity() }
         move.finish()
         try await waitUntil("move finishes before scan publishes") { model.usageStats.bytesMovedToTrash > 0 }
         try #require(!FileManager.default.fileExists(atPath: fileURL.path))
+        if deferRestart { model.resumeMainWindowActivity() }
 
         service.yield(.finished(parentSnapshot), scanIndex: 1)
         service.finish(scanIndex: 1)
@@ -1929,6 +1932,11 @@ struct ScanCoordinatorTests {
             model.scanState.snapshot?.target == parent
         }
         #expect(model.scanState.snapshot?.treeStore.node(id: marked.id) == nil)
+        try await waitUntil("corrected parent scan autosaved") { model.exportConfirmation != nil }
+        let url = try #require(model.exportConfirmation?.archiveURL)
+        let saved = try await ScanArchiveService().importSnapshot(from: url).snapshot
+        #expect(saved.target == parent)
+        #expect(saved.treeStore.node(id: marked.id) == nil)
     }
 
     @Test
@@ -1978,6 +1986,7 @@ struct ScanCoordinatorTests {
         service.finish(scanIndex: 0)
         try await waitUntil("initial scan publishes") { model.scanState.snapshot?.id == baseline.id }
         try #require(model.addNodesToDiscardPile([kept]))
+        model.snapshotAutosaveFolder = fixture
         try #require(model.requestMoveNodesToTrash([moved]))
         model.confirmPendingCleanup(.moveToTrash)
         try await move.waitUntilStarted()
@@ -2012,6 +2021,21 @@ struct ScanCoordinatorTests {
         try await waitUntil("updated scan publishes") { model.scanState.phase == .displaying }
         #expect(model.scanState.snapshot?.treeStore.node(id: moved.id) == nil)
         #expect(model.discardPileSnapshot.nodes.map(\.id) == [kept.id])
+
+        // The next explicit scan should produce the first archive, even though
+        // the earlier folder rescan needed a whole-target restart.
+        let nextScan = service.requests.count
+        model.startScan(child)
+        try await waitUntil("next scan starts") { service.requests.count > nextScan }
+        service.yield(.finished(makeCoordinatorSnapshot(target: child)), scanIndex: nextScan)
+        service.finish(scanIndex: nextScan)
+        try await waitUntil("snapshot saved") { model.exportConfirmation != nil }
+        let archives = try FileManager.default.contentsOfDirectory(at: fixture, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == ScanArchiveService.fileExtension }
+        #expect(archives.count == 1)
+        let url = try #require(archives.first)
+        let saved = try await ScanArchiveService().importSnapshot(from: url).snapshot
+        #expect(saved.target == child)
     }
 
     @Test

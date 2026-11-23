@@ -274,7 +274,7 @@ final class AppModel: ObservableObject {
     private var lastActionErrorTitle: String?
     private let sidebarScanCacheController: SidebarScanCacheController
     private var folderRefreshController: FolderRefreshController?
-    private var deferredCleanupRescan: (targetID: String, snapshotID: UUID?)?
+    private var deferredCleanupRescan: (targetID: String, snapshotID: UUID?, onCompletion: ScanCoordinator.ScanCompletion?)?
     private var isWorkspaceActive = true
     private var isWorkspaceDragging = false
     private var isScanPanelPresented = false
@@ -516,7 +516,9 @@ final class AppModel: ObservableObject {
             deferredCleanupRescan = nil
             if let target = scanCoordinator.selectedTarget, target.id == pending.targetID,
                scanCoordinator.snapshot?.id == pending.snapshotID, !scanCoordinator.isFullScanInProgress {
-                if !restartCurrentScanAfterTrash(target, snapshot: scanCoordinator.snapshot) { clearScanAfterTrash(target) }
+                if !restartCurrentScanAfterTrash(target, snapshot: scanCoordinator.snapshot, onCompletion: pending.onCompletion) {
+                    clearScanAfterTrash(target)
+                }
             }
         }
     }
@@ -2702,6 +2704,10 @@ final class AppModel: ObservableObject {
         let isFullScanInProgress = scanCoordinator.isFullScanInProgress
         guard snapshot?.source.allowsFileMutation ?? isFullScanInProgress else { return }
 
+        func restartScan() -> Bool {
+            restartCurrentScanAfterTrash(target, snapshot: snapshot, onCompletion: scanCoordinator.activeScanCompletion)
+        }
+
         let resolvedTargetPath = resolvedURLs.isEmpty ? target.id : Self.resolvedScanPath(target.url)
         func alternatePathEntries(for node: FileNodeRecord) -> [(id: String, node: FileNodeRecord)] {
             guard let resolvedPath = resolvedURLs[node.id]?.path else { return [] }
@@ -2740,13 +2746,13 @@ final class AppModel: ObservableObject {
                 Self.path(entry.id, isWithin: path) || Self.path(path, isWithin: entry.id)
             }
         }) {
-            if !restartCurrentScanAfterTrash(target, snapshot: snapshot) { clearScanAfterTrash(target) }
+            if !restartScan() { clearScanAfterTrash(target) }
             return
         }
 
         if isFullScanInProgress,
            rootMayHaveMoved || paths.contains(where: { Self.path($0.id, isWithin: target.id) }) {
-            if restartCurrentScanAfterTrash(target, snapshot: snapshot) { return }
+            if restartScan() { return }
             scanCoordinator.stopScan()
         }
 
@@ -2776,7 +2782,7 @@ final class AppModel: ObservableObject {
 
         if !summarized.isEmpty {
             sidebarScanCacheController.invalidateDisplayedNodes(summarized, in: snapshot)
-            if restartCurrentScanAfterTrash(target, snapshot: snapshot) { return }
+            if restartScan() { return }
         }
         guard !matched.isEmpty else { return }
 
@@ -2835,18 +2841,20 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    private func restartCurrentScanAfterTrash(_ target: ScanTarget, snapshot: ScanSnapshot?) -> Bool {
+    private func restartCurrentScanAfterTrash(
+        _ target: ScanTarget, snapshot: ScanSnapshot?, onCompletion: ScanCoordinator.ScanCompletion?
+    ) -> Bool {
         guard sidebarModel.activeTargetID == nil || sidebarModel.activeTargetID == target.id,
               deferredWorkBoxes[.scanStart] == nil, deferredWorkBoxes[.sidebarSelection] == nil else { return false }
         if !isWorkspaceActive {
             // An overlapping scan may already have observed the deleted entries.
             scanCoordinator.stopScan()
-            deferredCleanupRescan = (target.id, snapshot?.id)
+            deferredCleanupRescan = (target.id, snapshot?.id, onCompletion)
             return true
         }
         let options = snapshot?.scanOptions ?? scanOptions(for: target)
         sidebarScanCacheController.prepareForScanStart(target: target, options: options)
-        scanCoordinator.startScan(target, options: options)
+        scanCoordinator.startScan(target, options: options, onCompletion: onCompletion)
         return true
     }
 
