@@ -847,7 +847,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
             do {
                 try fileManager.moveItem(at: temporaryURL, to: candidate)
                 return candidate
-            } catch let error as CocoaError where keepBoth && error.code == .fileWriteFileExists {
+            } catch let error as CocoaError {
+                // A competing package can appear between FileManager’s existence check and rename.
+                let occupied = error.code == .fileWriteFileExists || (error.underlying as? POSIXError)?.code == .ENOTEMPTY
+                guard keepBoth && occupied else { throw error }
                 suffix += 1
                 let stem = destinationURL.deletingPathExtension().lastPathComponent
                 candidate = destinationURL.deletingLastPathComponent()

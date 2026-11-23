@@ -1091,6 +1091,27 @@ struct ScanArchiveServiceTests {
     }
 
     @Test
+    func testConcurrentKeepBothExportsPreserveEveryArchive() async throws {
+        let destination = try makeTemporaryArchiveURL()
+        let snapshot = makeArchiveSnapshot()
+        let exportCount = 16
+        try await withThrowingDiscardingTaskGroup { group in
+            for _ in 0..<exportCount {
+                group.addTask {
+                    _ = try await ScanArchiveService().export(
+                        snapshot: snapshot, to: destination, options: .init(keepBoth: true)
+                    )
+                }
+            }
+        }
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: destination.deletingLastPathComponent(), includingPropertiesForKeys: nil
+        )
+        #expect(entries.count == exportCount)
+        #expect(entries.allSatisfy { $0.pathExtension == ScanArchiveService.fileExtension })
+    }
+
+    @Test
     func testExportReplacesExistingArchiveAfterSuccessfulWrite() async throws {
         let service = ScanArchiveService()
         let archiveURL = try makeTemporaryArchiveURL()
