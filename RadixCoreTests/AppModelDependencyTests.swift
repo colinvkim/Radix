@@ -1058,6 +1058,8 @@ struct AppModelDependencyTests {
         model.confirmPendingCleanup(.moveToTrash)
         try await probe.waitUntilStarted()
         model.suspendMainWindowActivity()
+        model.setReadOnlyMode(true)
+        #expect(!model.isReadOnlyMode)
         await probe.finish()
 
         try await waitUntil("completed move reconciled after cancellation") {
