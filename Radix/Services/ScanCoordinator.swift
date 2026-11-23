@@ -9,12 +9,14 @@ enum AppModelPhase: Equatable, Sendable {
 }
 
 nonisolated protocol ScanEventStreaming: Sendable {
-    nonisolated func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error>
+    nonisolated func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error>
     nonisolated func scanSubtree(
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error>
     nonisolated func rescan(
         target: ScanTarget,
@@ -30,6 +32,10 @@ nonisolated protocol ScanEventStreaming: Sendable {
 }
 
 extension ScanEventStreaming {
+    nonisolated func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+        scan(target: target, options: options, materialization: .automatic)
+    }
+
     nonisolated func rescan(
         target: ScanTarget,
         options: ScanOptions,
@@ -367,7 +373,7 @@ final class ScanCoordinator: ObservableObject {
             target: subtreeTarget,
             preservingBehaviorOf: baseline.target,
             options: options,
-            preservingMaterializedDirectoriesIn: baseline.treeStore
+            preservingExpansionsFrom: baseline
         )
         scanTask = Task { [weak self] in
             await self?.consumeFolderRescanStream(
@@ -439,7 +445,8 @@ final class ScanCoordinator: ObservableObject {
                         startedAt: updated.startedAt, finishedAt: updated.finishedAt,
                         scanWarnings: updated.scanWarnings, isComplete: updated.isComplete,
                         scanOptions: updated.scanOptions, volumeCapacity: updated.volumeCapacity,
-                        source: updated.source, incrementalCheckpoint: updated.incrementalCheckpoint
+                        source: updated.source, incrementalCheckpoint: updated.incrementalCheckpoint,
+                        preservingExpansionsFrom: updated
                     )
                 }
                 let refreshed = preservingID(replacement, id: baseline.id)
@@ -631,7 +638,7 @@ final class ScanCoordinator: ObservableObject {
         expansionCompletion = completion
 
         let target = ScanTarget(url: node.url)
-        let stream = scanService.scan(target: target, options: options)
+        let stream = scanService.scan(target: target, options: options, materialization: .expandFully)
         expandTask = Task { [weak self] in
             await self?.consumeExpansionStream(
                 stream,
@@ -868,7 +875,8 @@ final class ScanCoordinator: ObservableObject {
             var fullSnapshot: ScanSnapshot?
             for try await event in scanService.scan(
                 target: baseline.target,
-                options: options
+                options: options,
+                materialization: .init(preserving: baseline)
             ) {
                 guard activeScanID == rescanID else { return }
                 switch event {
@@ -1306,7 +1314,7 @@ final class ScanCoordinator: ObservableObject {
             }
 
             let transformRevision = snapshotRevision
-            guard let updatedSnapshot = try await snapshotTransformService.replacingNode(
+            guard var updatedSnapshot = try await snapshotTransformService.replacingNode(
                 in: currentSnapshot,
                 id: oldNode.id,
                 with: expandedSnapshot.treeStore,
@@ -1319,6 +1327,7 @@ final class ScanCoordinator: ObservableObject {
             }
             guard snapshotRevision == transformRevision else { continue }
 
+            updatedSnapshot.expandedDirectories[oldNode.id] = expandedSnapshot.expandedDirectories[oldNode.id]
             publishSnapshot(updatedSnapshot, startsNewContext: false)
             completedScanSnapshot = updatedSnapshot
             return expandedSnapshot.root.id

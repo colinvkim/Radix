@@ -915,7 +915,7 @@ nonisolated final class ScanEngine: Sendable {
         target: ScanTarget,
         options: ScanOptions,
         preservingBehaviorOf scanTarget: ScanTarget,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore? = nil
+        materialization: ScanDirectoryMaterialization = .automatic
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task(priority: .userInitiated) {
@@ -924,7 +924,7 @@ nonisolated final class ScanEngine: Sendable {
                         target: target,
                         scanTarget: scanTarget,
                         options: options,
-                        preservingMaterializedDirectoriesIn: treeStore,
+                        materialization: materialization,
                         continuation: continuation
                     )
                     continuation.yield(.finished(snapshot))
@@ -1078,7 +1078,7 @@ nonisolated final class ScanEngine: Sendable {
         target: ScanTarget,
         scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn materializedTree: FileTreeStore?,
+        materialization: ScanDirectoryMaterialization,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
     ) async throws -> ScanSnapshot {
         let startedAt = Date()
@@ -1100,10 +1100,22 @@ nonisolated final class ScanEngine: Sendable {
             rootPath: options.exclusionRootPath ?? target.url.path
         )
 
+        let baseline: ScanSnapshot?
+        var expandedIdentities: Set<FileIdentity>?
+        switch materialization {
+        case .automatic:
+            baseline = nil
+        case .expandFully:
+            baseline = nil
+            expandedIdentities = []
+        case .preserving(let snapshot):
+            baseline = snapshot
+        }
         let treeStore = try await scanDirectory(
             target: target,
             options: options,
-            preservingMaterializedDirectoriesIn: materializedTree,
+            preservingExpansionsFrom: baseline,
+            expandedIdentities: &expandedIdentities,
             behavior: behavior,
             exclusionMatcher: exclusionMatcher,
             metrics: &metrics,
@@ -1137,7 +1149,7 @@ nonisolated final class ScanEngine: Sendable {
             continuation.yield(.warning(warning))
         }
 
-        let snapshot = makeSnapshot(
+        var snapshot = makeSnapshot(
             target: target,
             treeStore: treeStore,
             startedAt: startedAt,
@@ -1147,8 +1159,12 @@ nonisolated final class ScanEngine: Sendable {
             scanOptions: options,
             volumeCapacity: metrics.volumeCapacity,
             reconcilesVolumeCapacity: metrics.estimatedTotalBytes > 0,
-            hasActiveExclusions: !exclusionMatcher.isEmpty
+            hasActiveExclusions: !exclusionMatcher.isEmpty,
+            preservingExpansionsFrom: baseline
         )
+        if let expandedIdentities {
+            snapshot.expandedDirectories[target.id] = expandedIdentities
+        }
         #if DEBUG
         diagnostics?.record(
             operation: "scan.finalize.snapshot",
@@ -1179,7 +1195,8 @@ nonisolated final class ScanEngine: Sendable {
     private func scanDirectory(
         target: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn materializedTree: FileTreeStore?,
+        preservingExpansionsFrom baseline: ScanSnapshot?,
+        expandedIdentities: inout Set<FileIdentity>?,
         behavior: ScanBehavior,
         exclusionMatcher: ScanExclusionMatcher,
         metrics: inout ScanMetrics,
@@ -1194,6 +1211,7 @@ nonisolated final class ScanEngine: Sendable {
             diagnostics: diagnostics,
             linkCountCapabilityCache: linkCountCapabilityCache
         )
+        let preservesExpansion = baseline?.expandedDirectoryMatcher()
         let rootMetadata = try scanMetadataLoader.metadata(for: target.url, includeVolumeDetails: target.kind == .volume)
         guard !rootMetadata.isDataless else {
             throw ScanEngineError.cloudOnlyRoot
@@ -1510,12 +1528,8 @@ nonisolated final class ScanEngine: Sendable {
                                     isNodeDependencyLayout: isNodeDependencyLayout
                                 )
                                 let isAtomicSummaryCandidate: Bool
-                                // Keep browsable contents expanded during refresh; collapsed
-                                // and newly discovered directories still use normal summaries.
-                                let preservesMaterializedDirectory = materializedTree?.node(id: taskItem.url.path)
-                                    .map { $0.isDirectory && !$0.isAutoSummarized } == true
                                 if options.autoSummarizeDirectories, canProbeForAutoSummary,
-                                   !preservesMaterializedDirectory,
+                                   preservesExpansion?(taskItem.url.path, taskMetadata.fileIdentity) != true,
                                    contents.incompleteListingError == nil {
                                     isAtomicSummaryCandidate = try scanAtomicDirectorySummarizer.isAtomicSummaryCandidate(
                                         url: taskItem.url,
@@ -2155,6 +2169,7 @@ nonisolated final class ScanEngine: Sendable {
 
             switch completed {
             case .traversableDirectory(let metadata, let url, let isListingComplete):
+                if let identity = metadata.fileIdentity { expandedIdentities?.insert(identity) }
                 // Traversable directories must still be materialized when empty.
                 var sortedChildKeys = childrenKeysByKey[key] ?? []
                 childrenKeysByKey[key] = nil
@@ -3135,7 +3150,8 @@ nonisolated final class ScanEngine: Sendable {
         scanOptions: ScanOptions?,
         volumeCapacity: VolumeCapacitySnapshot? = nil,
         reconcilesVolumeCapacity: Bool = false,
-        hasActiveExclusions: Bool = false
+        hasActiveExclusions: Bool = false,
+        preservingExpansionsFrom baseline: ScanSnapshot? = nil
     ) -> ScanSnapshot {
         let reconciledStore = VolumeCapacityAccounting.reconciledStore(
             treeStore,
@@ -3152,7 +3168,8 @@ nonisolated final class ScanEngine: Sendable {
             scanWarnings: warnings,
             isComplete: isComplete,
             scanOptions: scanOptions,
-            volumeCapacity: volumeCapacity
+            volumeCapacity: volumeCapacity,
+            preservingExpansionsFrom: baseline
         )
     }
 

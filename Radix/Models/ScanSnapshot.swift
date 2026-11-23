@@ -172,6 +172,20 @@ nonisolated struct ScanBrowserSource: Sendable {
     }
 }
 
+nonisolated enum ScanDirectoryMaterialization: Sendable {
+    case automatic
+    case expandFully
+    case preserving(ScanSnapshot)
+
+    init(preserving baseline: ScanSnapshot?) {
+        if let baseline, !baseline.expandedDirectories.isEmpty {
+            self = .preserving(baseline)
+        } else {
+            self = .automatic
+        }
+    }
+}
+
 nonisolated struct ScanSnapshot: Identifiable, Sendable {
     let id: UUID
     let target: ScanTarget
@@ -184,6 +198,7 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
     let volumeCapacity: VolumeCapacitySnapshot?
     let source: ScanSnapshotSource
     let incrementalCheckpoint: ScanIncrementalCheckpoint?
+    var expandedDirectories: [String: Set<FileIdentity>]
 
     nonisolated init(
         id: UUID = UUID(),
@@ -196,7 +211,8 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
         scanOptions: ScanOptions? = nil,
         volumeCapacity: VolumeCapacitySnapshot? = nil,
         source: ScanSnapshotSource = .live,
-        incrementalCheckpoint: ScanIncrementalCheckpoint? = nil
+        incrementalCheckpoint: ScanIncrementalCheckpoint? = nil,
+        preservingExpansionsFrom baseline: ScanSnapshot? = nil
     ) {
         self.id = id
         self.target = target
@@ -209,6 +225,54 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
         self.volumeCapacity = volumeCapacity
         self.source = source
         self.incrementalCheckpoint = source.allowsFileMutation ? incrementalCheckpoint : nil
+        self.expandedDirectories = baseline?.expandedDirectories(in: treeStore) ?? [:]
+    }
+
+    /// Each expansion freezes the identities of the directories it opened.
+    /// Keep their ancestors traversable so the expanded contents remain reachable.
+    func expandedDirectoryMatcher() -> (@Sendable (String, FileIdentity?) -> Bool)? {
+        guard !expandedDirectories.isEmpty else { return nil }
+        var memberships: [FileTreeNodeIndex: Set<FileIdentity>] = [:]
+        var ancestorIDs: Set<String> = []
+        for (id, members) in expandedDirectories {
+            guard let index = treeStore.nodeIndex(id: id) else { continue }
+            memberships[index] = members
+            ancestorIDs.formUnion(treeStore.path(to: id).map(\.id))
+        }
+        return { [memberships, ancestorIDs] id, identity in
+            guard let identity, wasMaterializedDirectory(id: id, identity: identity) else { return false }
+            if ancestorIDs.contains(id) { return true }
+            var cursor = treeStore.nodeIndex(id: id)
+            while let index = cursor {
+                if let members = memberships[index], let match = members.firstIndex(of: identity),
+                   !members[match].hasConflictingTrashEvidence(with: identity) { return true }
+                cursor = treeStore.parentIndex(of: index)
+            }
+            return false
+        }
+    }
+
+    private func expandedDirectories(in tree: FileTreeStore) -> [String: Set<FileIdentity>] {
+        guard !expandedDirectories.isEmpty, tree.contentID != treeStore.contentID else { return expandedDirectories }
+        var retained: [String: Set<FileIdentity>] = [:]
+        for (rootID, members) in expandedDirectories {
+            let id = Self.path(tree.rootID, isContainedIn: rootID) ? tree.rootID : rootID
+            guard let node = tree.node(id: id), node.isDirectory, !node.isAutoSummarized,
+                  let identity = node.fileIdentity, members.contains(identity),
+                  wasMaterializedDirectory(id: id, identity: identity) else { continue }
+            if retained[id] == nil {
+                retained[id] = members
+            } else {
+                retained[id]?.formUnion(members)
+            }
+        }
+        return retained
+    }
+
+    private func wasMaterializedDirectory(id: String, identity: FileIdentity?) -> Bool {
+        guard let identity, let node = treeStore.node(id: id), node.isDirectory, !node.isAutoSummarized,
+              let original = node.fileIdentity else { return false }
+        return original == identity && !original.hasConflictingTrashEvidence(with: identity)
     }
 
     nonisolated var root: FileNodeRecord {
@@ -276,7 +340,8 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             scanOptions: scanOptions,
             volumeCapacity: volumeCapacity,
             source: source,
-            incrementalCheckpoint: incrementalCheckpoint
+            incrementalCheckpoint: incrementalCheckpoint,
+            preservingExpansionsFrom: self
         )
         return updatedSnapshot.reconcilingVolumeCapacity()
     }
@@ -319,7 +384,8 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             scanOptions: scanOptions,
             volumeCapacity: volumeCapacity,
             source: source,
-            incrementalCheckpoint: incrementalCheckpoint
+            incrementalCheckpoint: incrementalCheckpoint,
+            preservingExpansionsFrom: self
         )
     }
 
@@ -371,7 +437,8 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             scanOptions: scanOptions,
             volumeCapacity: updatedCapacity,
             source: source,
-            incrementalCheckpoint: incrementalCheckpoint
+            incrementalCheckpoint: incrementalCheckpoint,
+            preservingExpansionsFrom: self
         )
     }
 
@@ -404,7 +471,8 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             scanOptions: scanOptions,
             volumeCapacity: volumeCapacity,
             source: source,
-            incrementalCheckpoint: incrementalCheckpoint
+            incrementalCheckpoint: incrementalCheckpoint,
+            preservingExpansionsFrom: self
         )
     }
 
@@ -457,7 +525,8 @@ nonisolated struct ScanSnapshot: Identifiable, Sendable {
             scanOptions: scanOptions,
             volumeCapacity: volumeCapacity,
             source: source,
-            incrementalCheckpoint: incrementalCheckpoint
+            incrementalCheckpoint: incrementalCheckpoint,
+            preservingExpansionsFrom: self
         )
     }
 }

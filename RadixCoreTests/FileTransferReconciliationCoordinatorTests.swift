@@ -353,7 +353,9 @@ private final class TransferControlledScanService: ScanEventStreaming, @unchecke
     var requests: [Request] { lock.withLock { storedRequests } }
     var rescanRequests: [Request] { requests.filter { $0.baseline != nil } }
 
-    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         stream(Request(target: target, baseline: nil, options: options, forcedPaths: []))
     }
 
@@ -361,7 +363,7 @@ private final class TransferControlledScanService: ScanEventStreaming, @unchecke
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         scan(target: target, options: options)
     }

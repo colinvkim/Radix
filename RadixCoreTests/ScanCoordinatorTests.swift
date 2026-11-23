@@ -480,7 +480,6 @@ struct ScanCoordinatorTests {
                 ScanTarget(url: folderTarget.url, kind: .folder)
             ])
         #expect(service.subtreeBehaviorTargets == [rootTarget])
-        #expect(service.subtreeMaterializedTreeContentIDs == [baseline.treeStore.contentID])
         #expect(service.requests.first?.options.includeHiddenFiles == true)
         #expect(service.requests.first?.options.exclusionRootPath == rootTarget.id)
 
@@ -3345,7 +3344,9 @@ private final class RescanRecordingService: ScanEventStreaming, @unchecked Senda
         return storedRescanRequests
     }
 
-    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         lock.lock()
         storedScanRequests.append(ControlledScanRequest(target: target, options: options))
         lock.unlock()
@@ -3356,7 +3357,7 @@ private final class RescanRecordingService: ScanEventStreaming, @unchecked Senda
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         scan(target: target, options: options)
     }
@@ -3590,7 +3591,6 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
     private var storedRequests: [ControlledScanRequest] = []
     private var storedRescanRequests: [ControlledRescanRequest] = []
     private var storedSubtreeBehaviorTargets: [ScanTarget] = []
-    private var storedSubtreeMaterializedTreeContentIDs: [UUID?] = []
     private var storedTerminationCount = 0
 
     var requests: [ControlledScanRequest] {
@@ -3617,13 +3617,9 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
         return storedSubtreeBehaviorTargets
     }
 
-    var subtreeMaterializedTreeContentIDs: [UUID?] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedSubtreeMaterializedTreeContentIDs
-    }
-
-    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             lock.lock()
             continuations.append(continuation)
@@ -3660,11 +3656,10 @@ private final class ControlledScanService: ScanEventStreaming, @unchecked Sendab
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         lock.lock()
         storedSubtreeBehaviorTargets.append(scanTarget)
-        storedSubtreeMaterializedTreeContentIDs.append(treeStore?.contentID)
         lock.unlock()
         return scan(target: target, options: options)
     }

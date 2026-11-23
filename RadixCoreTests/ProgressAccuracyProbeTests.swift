@@ -535,22 +535,23 @@ private nonisolated final class ProgressProbeScanService: ScanEventStreaming, @u
 
     func scan(
         target: ScanTarget,
-        options: ScanOptions
+        options: ScanOptions,
+        materialization: ScanDirectoryMaterialization
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
-        engine.scan(target: target, options: options)
+        engine.scan(target: target, options: options, preservingBehaviorOf: target, materialization: materialization)
     }
 
     func scanSubtree(
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         engine.scan(
             target: target,
             options: options,
             preservingBehaviorOf: scanTarget,
-            preservingMaterializedDirectoriesIn: treeStore
+            materialization: .init(preserving: baseline)
         )
     }
 
