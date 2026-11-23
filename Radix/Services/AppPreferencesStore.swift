@@ -136,8 +136,9 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
                 automaticallyRefreshFocusedFolder: defaults.object(forKey: Key.automaticallyRefreshFocusedFolder) == nil
                     ? AppScanPreferences.defaults.automaticallyRefreshFocusedFolder
                     : defaults.bool(forKey: Key.automaticallyRefreshFocusedFolder),
-                snapshotAutosaveFolder: defaults.string(forKey: Key.snapshotAutosaveFolder).map {
-                    URL(filePath: $0, directoryHint: .isDirectory)
+                snapshotAutosaveFolder: defaults.string(forKey: Key.snapshotAutosaveFolder).flatMap { path in
+                    guard path.hasPrefix("/") else { return nil }
+                    return URL(filePath: path, directoryHint: .isDirectory)
                 },
                 autosaveVolumesOnly: defaults.bool(forKey: Key.autosaveVolumesOnly)
             ),

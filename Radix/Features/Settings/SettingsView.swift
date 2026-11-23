@@ -65,18 +65,24 @@ private struct ScanningSettingsPane: View {
             }
 
             Section("Snapshots") {
-                Toggle("Save a snapshot after each scan", isOn: Binding(
-                    get: { appModel.snapshotAutosaveFolder != nil },
-                    set: { enabled in
-                        if enabled {
-                            chooseSnapshotFolder()
-                        } else {
-                            appModel.snapshotAutosaveFolder = nil
+                SettingsToggle(
+                    "Save a snapshot after each scan",
+                    detail: "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped.",
+                    isOn: Binding(
+                        get: { appModel.snapshotAutosaveFolder != nil },
+                        set: { enabled in
+                            if enabled {
+                                chooseSnapshotFolder()
+                            } else {
+                                appModel.snapshotAutosaveFolder = nil
+                            }
                         }
-                    }
-                ))
+                    )
+                )
+                .controlSize(.regular)
                 if let folder = appModel.snapshotAutosaveFolder {
                     Toggle("Only save volume scans", isOn: $appModel.autosaveVolumesOnly)
+                        .controlSize(.mini)
                     LabeledContent {
                         Button("Choose Folder…") { chooseSnapshotFolder() }
                     } label: {
@@ -102,6 +108,7 @@ private struct ScanningSettingsPane: View {
     }
 
     private func chooseSnapshotFolder() {
+        guard let settingsWindow = NSApp.keyWindow else { return }
         let panel = NSOpenPanel()
         panel.title = String(localized: "Snapshot Folder", comment: "Title of the folder picker for automatic snapshot saves.")
         panel.prompt = String(localized: "Choose")
@@ -109,7 +116,8 @@ private struct ScanningSettingsPane: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.directoryURL = appModel.snapshotAutosaveFolder
-        if panel.runModal() == .OK, let folder = panel.url {
+        panel.beginSheetModal(for: settingsWindow) { response in
+            guard response == .OK, let folder = panel.url else { return }
             appModel.snapshotAutosaveFolder = folder
         }
     }

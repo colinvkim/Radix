@@ -93,6 +93,52 @@
         }
       }
     },
+    "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sichert eine .radixscan-Datei mit Zeitstempel. Bei Teilscans und automatischen Aktualisierungen wird keine Datei gesichert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guarda un archivo .radixscan con fecha y hora. Se omiten los análisis parciales y las actualizaciones automáticas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistre un fichier .radixscan horodaté. Les analyses partielles et les actualisations automatiques sont ignorées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salva un file .radixscan con data e ora. Le scansioni parziali e gli aggiornamenti automatici vengono ignorati."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохраняет файл .radixscan с датой и временем. При частичном повторном сканировании и автоматическом обновлении файл не создаётся."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存带时间戳的 .radixscan 文件。局部重新扫描和自动刷新时不会保存。"
+          }
+        }
+      }
+    },
     "Save a snapshot after each scan" : {
       "localizations" : {
         "en" : {

@@ -16,6 +16,16 @@ struct AppPreferencesStoreTests {
     }
 
     @Test
+    func testAutosaveNeedsAnAbsoluteDestinationPath() throws {
+        let defaults = try temporaryDefaults.make()
+        let store = UserDefaultsAppPreferencesStore(defaults: defaults)
+        for invalidPath in ["", "Snapshots"] {
+            defaults.set(invalidPath, forKey: "snapshotAutosaveFolder")
+            #expect(store.loadPreferences().scan.snapshotAutosaveFolder == nil)
+        }
+    }
+
+    @Test
     func testReadOnlyModeSurvivesReloadWithoutChangingScanPreferences() throws {
         let defaults = try temporaryDefaults.make()
         let store = UserDefaultsAppPreferencesStore(defaults: defaults)
