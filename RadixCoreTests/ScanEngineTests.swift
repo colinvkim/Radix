@@ -1043,7 +1043,7 @@ struct ScanEngineTests {
     }
 
     @Test
-    func testBoundedWorkerSideLeafPreparationMatchesCoordinatorPreparation() async throws {
+    func testSingleEntryLeafBatchesPreserveSiblingsAndHardLinkOwnership() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
         let firstDirectoryURL = rootURL.appending(path: "First", directoryHint: .isDirectory)
@@ -1068,36 +1068,24 @@ struct ScanEngineTests {
         var options = ScanOptions()
         options.autoSummarizeDirectories = false
         options.directoryTraversalWorkerLimit = 4
-        let workerSnapshot = try await finishedSnapshot(
+        let snapshot = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: options,
             engine: ScanEngine(workerSideLeafPreparationBatchLimit: 1)
         )
-        let coordinatorSnapshot = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: options,
-            engine: ScanEngine(usesWorkerSideLeafPreparation: false)
-        )
 
-        let nodeIDs = coordinatorSnapshot.treeStore.indexedNodeIDs()
-        #expect(workerSnapshot.treeStore.indexedNodeIDs() == nodeIDs)
-        #expect(workerSnapshot.treeStore.childIDsByID == coordinatorSnapshot.treeStore.childIDsByID)
-        for nodeID in nodeIDs {
-            #expect(
-                workerSnapshot.treeStore.node(id: nodeID) == coordinatorSnapshot.treeStore.node(id: nodeID),
-                Comment(rawValue: nodeID))
-        }
-        #expect(
-            workerSnapshot.aggregateStats.totalAllocatedSize == coordinatorSnapshot.aggregateStats.totalAllocatedSize)
-        #expect(workerSnapshot.aggregateStats.totalLogicalSize == coordinatorSnapshot.aggregateStats.totalLogicalSize)
-        #expect(workerSnapshot.aggregateStats.fileCount == coordinatorSnapshot.aggregateStats.fileCount)
-        #expect(workerSnapshot.aggregateStats.directoryCount == coordinatorSnapshot.aggregateStats.directoryCount)
-        #expect(
-            workerSnapshot.aggregateStats.accessibleItemCount == coordinatorSnapshot.aggregateStats.accessibleItemCount)
-        #expect(
-            workerSnapshot.aggregateStats.inaccessibleItemCount
-                == coordinatorSnapshot.aggregateStats.inaccessibleItemCount)
-        #expect(workerSnapshot.scanWarnings == coordinatorSnapshot.scanWarnings)
+        let tree = snapshot.treeStore
+        #expect(Set(tree.children(of: firstDirectoryURL.path).map(\.name)) == ["café.dat", "alias.dat"])
+        #expect(Set(tree.children(of: secondDirectoryURL.path).map(\.name)) == ["hard-link.dat", "ordinary.dat"])
+        let owner = try #require(tree.node(id: originalURL.path))
+        let link = try #require(tree.node(id: secondDirectoryURL.appending(path: "hard-link.dat").path))
+        #expect(owner.allocatedSize > 0)
+        #expect(link.allocatedSize == 0)
+        #expect(owner.logicalSize == 4_096)
+        #expect(link.logicalSize == 4_096)
+        #expect(tree.node(id: firstDirectoryURL.appending(path: "alias.dat").path)?.isSymbolicLink == true)
+        #expect(snapshot.root.descendantFileCount == 3)
+        #expect(snapshot.scanWarnings.isEmpty)
     }
 
     @Test
@@ -1581,74 +1569,51 @@ struct ScanEngineTests {
         options.includeHiddenFiles = true
         options.autoSummarizeDirectories = false
         options.exclusionPatterns = ["*.tmp", "Excluded/"]
-        let legacy = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: options,
-            engine: ScanEngine(usesDeferredBulkEntryFiltering: false)
-        )
-        let optimized = try await finishedSnapshot(
-            target: ScanTarget(url: rootURL),
-            options: options,
-            engine: ScanEngine(usesDeferredBulkEntryFiltering: true)
-        )
+        let bulk = try await finishedSnapshot(target: ScanTarget(url: rootURL), options: options)
         let foundation = try await finishedSnapshot(
             target: ScanTarget(url: rootURL),
             options: options,
-            engine: ScanEngine(directoryContents: { url, keys, enumerationOptions, cancellationCheck in
-                try cancellationCheck()
-                let contents = try FileManager.default.contentsOfDirectory(
-                    at: url,
-                    includingPropertiesForKeys: keys,
-                    options: enumerationOptions
-                )
-                try cancellationCheck()
-                return contents
-            })
+            engine: ScanEngine(forcedBulkFailure: .unavailable(afterBatchCount: 0))
         )
 
-        let optimizedNodeIDs = optimized.treeStore.indexedNodeIDs()
-        #expect(optimizedNodeIDs == foundation.treeStore.indexedNodeIDs())
-        #expect(optimized.treeStore.childIDsByID == foundation.treeStore.childIDsByID)
-        #expect(optimized.aggregateStats.totalAllocatedSize == foundation.aggregateStats.totalAllocatedSize)
-        #expect(optimized.aggregateStats.totalLogicalSize == foundation.aggregateStats.totalLogicalSize)
-        #expect(optimized.aggregateStats.fileCount == foundation.aggregateStats.fileCount)
-        #expect(optimized.aggregateStats.directoryCount == foundation.aggregateStats.directoryCount)
-        #expect(optimized.aggregateStats.accessibleItemCount == foundation.aggregateStats.accessibleItemCount)
-        #expect(optimized.aggregateStats.inaccessibleItemCount == foundation.aggregateStats.inaccessibleItemCount)
-        #expect(optimizedNodeIDs == legacy.treeStore.indexedNodeIDs())
-        #expect(optimized.treeStore.childIDsByID == legacy.treeStore.childIDsByID)
-        #expect(optimized.aggregateStats.totalAllocatedSize == legacy.aggregateStats.totalAllocatedSize)
-        #expect(optimized.aggregateStats.totalLogicalSize == legacy.aggregateStats.totalLogicalSize)
-        #expect(optimized.aggregateStats.fileCount == legacy.aggregateStats.fileCount)
-        #expect(optimized.aggregateStats.directoryCount == legacy.aggregateStats.directoryCount)
-        #expect(optimized.aggregateStats.accessibleItemCount == legacy.aggregateStats.accessibleItemCount)
-        #expect(optimized.aggregateStats.inaccessibleItemCount == legacy.aggregateStats.inaccessibleItemCount)
+        let bulkNodeIDs = bulk.treeStore.indexedNodeIDs()
+        #expect(bulkNodeIDs.contains(sparseURL.path))
+        #expect(bulkNodeIDs.contains(unicodeDirectoryURL.appending(path: ".hidden").path))
+        #expect(!bulkNodeIDs.contains(unicodeDirectoryURL.appending(path: "excluded.tmp").path))
+        #expect(!bulkNodeIDs.contains(excludedDirectoryURL.path))
+        #expect(bulkNodeIDs == foundation.treeStore.indexedNodeIDs())
+        #expect(bulk.treeStore.childIDsByID == foundation.treeStore.childIDsByID)
+        #expect(bulk.aggregateStats.totalAllocatedSize == foundation.aggregateStats.totalAllocatedSize)
+        #expect(bulk.aggregateStats.totalLogicalSize == foundation.aggregateStats.totalLogicalSize)
+        #expect(bulk.aggregateStats.fileCount == foundation.aggregateStats.fileCount)
+        #expect(bulk.aggregateStats.directoryCount == foundation.aggregateStats.directoryCount)
+        #expect(bulk.aggregateStats.accessibleItemCount == foundation.aggregateStats.accessibleItemCount)
+        #expect(bulk.aggregateStats.inaccessibleItemCount == foundation.aggregateStats.inaccessibleItemCount)
 
-        for nodeID in optimizedNodeIDs {
-            let optimizedNode = try #require(optimized.treeStore.node(id: nodeID))
+        for nodeID in bulkNodeIDs {
+            let bulkNode = try #require(bulk.treeStore.node(id: nodeID))
             let foundationNode = try #require(foundation.treeStore.node(id: nodeID))
-            #expect(optimizedNode == legacy.treeStore.node(id: nodeID), Comment(rawValue: nodeID))
-            #expect(optimizedNode.name == foundationNode.name, Comment(rawValue: nodeID))
-            #expect(optimizedNode.isDirectory == foundationNode.isDirectory, Comment(rawValue: nodeID))
-            #expect(optimizedNode.isSymbolicLink == foundationNode.isSymbolicLink, Comment(rawValue: nodeID))
-            #expect(optimizedNode.allocatedSize == foundationNode.allocatedSize, Comment(rawValue: nodeID))
+            #expect(bulkNode.name == foundationNode.name, Comment(rawValue: nodeID))
+            #expect(bulkNode.isDirectory == foundationNode.isDirectory, Comment(rawValue: nodeID))
+            #expect(bulkNode.isSymbolicLink == foundationNode.isSymbolicLink, Comment(rawValue: nodeID))
+            #expect(bulkNode.allocatedSize == foundationNode.allocatedSize, Comment(rawValue: nodeID))
             #expect(
-                optimizedNode.unduplicatedAllocatedSize == foundationNode.unduplicatedAllocatedSize,
+                bulkNode.unduplicatedAllocatedSize == foundationNode.unduplicatedAllocatedSize,
                 Comment(rawValue: nodeID))
-            #expect(optimizedNode.dataAllocatedSize == foundationNode.dataAllocatedSize, Comment(rawValue: nodeID))
-            #expect(optimizedNode.logicalSize == foundationNode.logicalSize, Comment(rawValue: nodeID))
-            #expect(optimizedNode.descendantFileCount == foundationNode.descendantFileCount, Comment(rawValue: nodeID))
-            #expect(optimizedNode.linkCount == foundationNode.linkCount, Comment(rawValue: nodeID))
-            #expect(optimizedNode.cloneIdentity == foundationNode.cloneIdentity, Comment(rawValue: nodeID))
-            #expect(optimizedNode.mayShareDataBlocks == foundationNode.mayShareDataBlocks, Comment(rawValue: nodeID))
-            #expect(optimizedNode.isPackage == foundationNode.isPackage, Comment(rawValue: nodeID))
-            #expect(optimizedNode.isAccessible == foundationNode.isAccessible, Comment(rawValue: nodeID))
-            #expect(optimizedNode.isSelfAccessible == foundationNode.isSelfAccessible, Comment(rawValue: nodeID))
-            if optimizedNode.linkCount > 1 {
-                #expect(optimizedNode.fileIdentity != nil, Comment(rawValue: nodeID))
+            #expect(bulkNode.dataAllocatedSize == foundationNode.dataAllocatedSize, Comment(rawValue: nodeID))
+            #expect(bulkNode.logicalSize == foundationNode.logicalSize, Comment(rawValue: nodeID))
+            #expect(bulkNode.descendantFileCount == foundationNode.descendantFileCount, Comment(rawValue: nodeID))
+            #expect(bulkNode.linkCount == foundationNode.linkCount, Comment(rawValue: nodeID))
+            #expect(bulkNode.cloneIdentity == foundationNode.cloneIdentity, Comment(rawValue: nodeID))
+            #expect(bulkNode.mayShareDataBlocks == foundationNode.mayShareDataBlocks, Comment(rawValue: nodeID))
+            #expect(bulkNode.isPackage == foundationNode.isPackage, Comment(rawValue: nodeID))
+            #expect(bulkNode.isAccessible == foundationNode.isAccessible, Comment(rawValue: nodeID))
+            #expect(bulkNode.isSelfAccessible == foundationNode.isSelfAccessible, Comment(rawValue: nodeID))
+            if bulkNode.linkCount > 1 {
+                #expect(bulkNode.fileIdentity != nil, Comment(rawValue: nodeID))
                 #expect(foundationNode.fileIdentity != nil, Comment(rawValue: nodeID))
-            } else if optimizedNode.isSymbolicLink || optimizedNode.isDirectory {
-                #expect(optimizedNode.fileIdentity == foundationNode.fileIdentity, Comment(rawValue: nodeID))
+            } else if bulkNode.isSymbolicLink || bulkNode.isDirectory {
+                #expect(bulkNode.fileIdentity == foundationNode.fileIdentity, Comment(rawValue: nodeID))
             }
         }
     }
