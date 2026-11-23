@@ -1565,33 +1565,26 @@ struct ScanComparisonServiceTests {
     }
 
     @Test
-    func testRowQuerySortsDeltaByDisplayedSignedValue() throws {
-        let grewBefore = makeTestFileNode(id: "/before/grew.bin", name: "grew.bin", size: 10)
-        let grewAfter = makeTestFileNode(id: "/after/grew.bin", name: "grew.bin", size: 20)
-        let shrankBefore = makeTestFileNode(id: "/before/shrank.bin", name: "shrank.bin", size: 100)
-        let shrankAfter = makeTestFileNode(id: "/after/shrank.bin", name: "shrank.bin", size: 20)
-        let rows = [
+    func testRowQuerySortsDisplayedSizeChanges() throws {
+        let deltas: [(String, Int64)] = [("A", -80), ("B", 10), ("C", -5), ("D", 40)]
+        let rows = deltas.map { name, delta in
             ScanComparisonRow(
-                relativePath: "shrank.bin",
-                kind: .shrank,
-                beforeNode: shrankBefore,
-                afterNode: shrankAfter
-            ),
-            ScanComparisonRow(
-                relativePath: "grew.bin",
-                kind: .grew,
-                beforeNode: grewBefore,
-                afterNode: grewAfter
-            ),
+                relativePath: name, kind: delta > 0 ? .grew : .shrank,
+                beforeNode: makeTestFileNode(id: "/before/" + name, name: name, size: 100),
+                afterNode: makeTestFileNode(id: "/after/" + name, name: name, size: 100 + delta)
+            )
+        }
+        let columns: [(ScanComparisonRowComparator.Field, [String])] = [
+            (.increase, ["D", "B", "A", "C"]),
+            (.decrease, ["A", "C", "B", "D"]),
+            (.allocatedDelta, ["D", "B", "C", "A"]),
         ]
-        let query = ScanComparisonRowQuery(
-            searchText: "",
-            sortOrder: [ScanComparisonRowComparator(field: .allocatedDelta, order: .reverse)]
-        )
-
-        let result = try query.applying(to: rows, cancellationCheck: {})
-
-        #expect(result.map(\.relativePath) == ["grew.bin", "shrank.bin"])
+        for (field, expected) in columns {
+            let query = ScanComparisonRowQuery(
+                searchText: "", sortOrder: [ScanComparisonRowComparator(field: field, order: .reverse)]
+            )
+            #expect(try query.applying(to: rows, cancellationCheck: {}).map(\.name) == expected)
+        }
     }
 
     @Test

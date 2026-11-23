@@ -494,7 +494,7 @@ struct ScanComparisonView: View {
             }
             .width(min: 105, ideal: 120)
 
-            TableColumn("Increase", sortUsing: ScanComparisonRowComparator(field: .allocatedDelta)) { row in
+            TableColumn("Increase", sortUsing: ScanComparisonRowComparator(field: .increase, order: .reverse)) { row in
                 Text(row.allocatedDelta > 0 ? "+" + RadixFormatters.size(row.allocatedDelta) : "–")
                     .foregroundStyle(row.allocatedDelta > 0 ? Color.red : Color.secondary)
                     .monospacedDigit()
@@ -502,7 +502,7 @@ struct ScanComparisonView: View {
             }
             .width(min: 120, ideal: 140)
 
-            TableColumn("Decrease", sortUsing: ScanComparisonRowComparator(field: .allocatedDelta)) { row in
+            TableColumn("Decrease", sortUsing: ScanComparisonRowComparator(field: .decrease, order: .reverse)) { row in
                 Text(row.allocatedDelta < 0 ? "−" + RadixFormatters.size(abs(row.allocatedDelta)) : "–")
                     .foregroundStyle(row.allocatedDelta < 0 ? Color.green : Color.secondary)
                     .monospacedDigit()
