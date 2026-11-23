@@ -560,7 +560,9 @@ private nonisolated final class AppFolderRefreshScanner: ScanEventStreaming, @un
     var requests: [ScanTarget] { lock.withLock { storedRequests } }
     var cancellations: Int { lock.withLock { storedCancellations } }
 
-    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             lock.withLock {
                 storedRequests.append(target)
@@ -577,7 +579,7 @@ private nonisolated final class AppFolderRefreshScanner: ScanEventStreaming, @un
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         scan(target: target, options: options)
     }

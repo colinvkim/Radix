@@ -42,29 +42,31 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
 
     nonisolated func scan(
         target: ScanTarget,
-        options: ScanOptions
+        options: ScanOptions,
+        materialization: ScanDirectoryMaterialization
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
-        fullScan(target: target, options: options, executionMode: .full)
+        fullScan(target: target, options: options, executionMode: .full, materialization: materialization)
     }
 
     nonisolated func scanSubtree(
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         engine.scan(
             target: target,
             options: options,
             preservingBehaviorOf: scanTarget,
-            preservingMaterializedDirectoriesIn: treeStore
+            materialization: .init(preserving: baseline)
         )
     }
 
     private nonisolated func fullScan(
         target: ScanTarget,
         options: ScanOptions,
-        executionMode: ScanExecutionMode
+        executionMode: ScanExecutionMode,
+        materialization: ScanDirectoryMaterialization
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached(priority: .userInitiated) {
@@ -82,7 +84,9 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
 
                 do {
                     try Task.checkCancellation()
-                    for try await event in self.engine.scan(target: target, options: options) {
+                    for try await event in self.engine.scan(
+                        target: target, options: options, preservingBehaviorOf: target, materialization: materialization
+                    ) {
                         if case .finished(let snapshot) = event {
                             continuation.yield(.finished(self.snapshot(
                                 snapshot,
@@ -134,9 +138,12 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                     case .eligible(let checkpoint):
                         previousCheckpoint = checkpoint
                     case .ineligible(let reason):
+                        let canPreserveExpansions = target == baseline.target && baseline.scanOptions == options
+                            && reason != .targetIdentityChanged
                         try await self.forwardFullScan(
                             target: target,
                             options: options,
+                            preservingExpansionsFrom: canPreserveExpansions ? baseline : nil,
                             reason: reason,
                             continuation: continuation
                         )
@@ -158,6 +165,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                         try await self.forwardFullScan(
                             target: target,
                             options: options,
+                            preservingExpansionsFrom: baseline,
                             reason: .eventHistoryUnavailable,
                             diagnostic: String(describing: error),
                             continuation: continuation
@@ -180,6 +188,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                         try await self.forwardFullScan(
                             target: target,
                             options: options,
+                            preservingExpansionsFrom: baseline,
                             reason: reason,
                             continuation: continuation
                         )
@@ -206,6 +215,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                                     try await self.forwardFullScan(
                                         target: target,
                                         options: options,
+                                        preservingExpansionsFrom: baseline,
                                         reason: .sharedAllocationTopologyChanged,
                                         continuation: continuation
                                     )
@@ -312,6 +322,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             try await forwardFullScan(
                 target: target,
                 options: options,
+                preservingExpansionsFrom: baseline,
                 reason: .directoryRelistFailed,
                 diagnostic: String(describing: error),
                 continuation: continuation
@@ -327,6 +338,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 try await forwardFullScan(
                     target: target,
                     options: options,
+                    preservingExpansionsFrom: baseline,
                     reason: .changedSubtreeUnavailable,
                     continuation: continuation
                 )
@@ -344,7 +356,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 for try await event in engine.scan(
                     target: ScanTarget(url: node.url, kind: .folder),
                     options: adjustedSubtreeOptions,
-                    preservingBehaviorOf: target
+                    preservingBehaviorOf: target,
+                    materialization: .init(preserving: baseline)
                 ) {
                     switch event {
                     case .executionMode:
@@ -379,6 +392,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 try await forwardFullScan(
                     target: target,
                     options: options,
+                    preservingExpansionsFrom: baseline,
                     reason: .subtreeRescanFailed,
                     diagnostic: String(describing: error),
                     continuation: continuation
@@ -389,6 +403,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 try await forwardFullScan(
                     target: target,
                     options: options,
+                    preservingExpansionsFrom: baseline,
                     reason: .subtreeResultUnavailable,
                     continuation: continuation
                 )
@@ -411,6 +426,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 try await forwardFullScan(
                     target: target,
                     options: options,
+                    preservingExpansionsFrom: baseline,
                     reason: .sharedAllocationTopologyChanged,
                     continuation: continuation
                 )
@@ -430,6 +446,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             try await forwardFullScan(
                 target: target,
                 options: options,
+                preservingExpansionsFrom: baseline,
                 reason: .treeUpdateFailed,
                 diagnostic: String(describing: error),
                 continuation: continuation
@@ -440,6 +457,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             try await forwardFullScan(
                 target: target,
                 options: options,
+                preservingExpansionsFrom: baseline,
                 reason: .treeUpdateFailed,
                 continuation: continuation
             )
@@ -455,7 +473,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             scanOptions: options,
             volumeCapacity: baseline.volumeCapacity,
             source: .live,
-            incrementalCheckpoint: cutoff
+            incrementalCheckpoint: cutoff,
+            preservingExpansionsFrom: spliced
         )
         continuation.yield(.finished(finished))
         continuation.finish()
@@ -481,7 +500,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             return try await scannedShallowReplacement(
                 originalRoot: originalRoot,
                 target: target,
-                options: options
+                options: options,
+                preservingExpansionsFrom: baseline
             )
         }
         let listing: ScanEngine.ShallowDirectoryListing
@@ -496,7 +516,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             return try await scannedShallowReplacement(
                 originalRoot: originalRoot,
                 target: target,
-                options: options
+                options: options,
+                preservingExpansionsFrom: baseline
             )
         }
         guard listing.directoryMetadata.fileIdentity != nil,
@@ -518,7 +539,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 return try await scannedShallowReplacement(
                     originalRoot: originalRoot,
                     target: target,
-                    options: options
+                    options: options,
+                    preservingExpansionsFrom: baseline
                 )
             }
             let childID = entry.url.path
@@ -545,7 +567,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 let childSnapshot = try await scannedReplacement(
                     at: entry.url,
                     scanTarget: target,
-                    options: options
+                    options: options,
+                    preservingExpansionsFrom: baseline
                 )
                 guard childSnapshot.treeStore.rootID == childID,
                       let subtree = FileTreeStore.SubtreeSource(
@@ -603,12 +626,14 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
     private nonisolated func scannedShallowReplacement(
         originalRoot: FileNodeRecord,
         target: ScanTarget,
-        options: ScanOptions
+        options: ScanOptions,
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) async throws -> ShallowReplacement {
         let replacement = try await scannedReplacement(
             at: originalRoot.url,
             scanTarget: target,
-            options: options
+            options: options,
+            preservingExpansionsFrom: baseline
         )
         let root = replacement.root
         guard replacement.treeStore.rootID == originalRoot.id,
@@ -632,7 +657,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
     private nonisolated func scannedReplacement(
         at url: URL,
         scanTarget: ScanTarget,
-        options: ScanOptions
+        options: ScanOptions,
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) async throws -> ScanSnapshot {
         var snapshot: ScanSnapshot?
         let adjustedOptions = ScanEngine.subtreeScanOptions(
@@ -643,7 +669,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
         for try await event in engine.scan(
             target: ScanTarget(url: url, kind: .folder),
             options: adjustedOptions,
-            preservingBehaviorOf: scanTarget
+            preservingBehaviorOf: scanTarget,
+            materialization: .init(preserving: baseline)
         ) {
             switch event {
             case .finished(let finished):
@@ -682,6 +709,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
     private nonisolated func forwardFullScan(
         target: ScanTarget,
         options: ScanOptions,
+        preservingExpansionsFrom baseline: ScanSnapshot?,
         reason: IncrementalRescanFallbackReason,
         diagnostic: String? = nil,
         continuation: AsyncThrowingStream<ScanProgressEvent, Error>.Continuation
@@ -698,7 +726,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
         for try await event in fullScan(
             target: target,
             options: options,
-            executionMode: .fullFallback(reason)
+            executionMode: .fullFallback(reason),
+            materialization: .init(preserving: baseline)
         ) {
             continuation.yield(event)
         }
@@ -765,7 +794,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             scanOptions: snapshot.scanOptions,
             volumeCapacity: snapshot.volumeCapacity,
             source: snapshot.source,
-            incrementalCheckpoint: checkpoint
+            incrementalCheckpoint: checkpoint,
+            preservingExpansionsFrom: snapshot
         )
     }
 
@@ -784,7 +814,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
             scanOptions: snapshot.scanOptions,
             volumeCapacity: snapshot.volumeCapacity,
             source: .live,
-            incrementalCheckpoint: checkpoint
+            incrementalCheckpoint: checkpoint,
+            preservingExpansionsFrom: snapshot
         )
     }
 }

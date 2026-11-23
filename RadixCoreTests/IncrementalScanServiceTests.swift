@@ -1101,6 +1101,106 @@ struct IncrementalScanServiceTests {
         #expect(incremental.incrementalCheckpoint?.eventID == 20)
     }
 
+    @MainActor
+    @Test(arguments: ["incremental", "manual", "full fallback"])
+    func testRefreshPreservesOnlyExplicitExpansions(route: String) async throws {
+        let target = ScanTarget(url: try makeIncrementalTemporaryDirectory())
+        defer { try? FileManager.default.removeItem(at: target.url) }
+        let parent = target.url.appending(path: "Parent")
+        let expanded = parent.appending(path: "Expanded")
+        let ordinary = parent.appending(path: "Ordinary")
+        for directory in [expanded, ordinary] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data([1]).write(to: directory.appending(path: "first"))
+        }
+        try Data([2]).write(to: expanded.appending(path: "second"))
+
+        let nested = expanded.appending(path: "Nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for name in ["one", "two"] { try Data([1]).write(to: nested.appending(path: name)) }
+
+        let events = [expanded, ordinary].map { directory in
+            FileSystemEventRecord(
+                path: directory.appending(path: "new").path,
+                eventID: 15, flags: [.itemCreated, .itemIsFile]
+            )
+        }
+        let service = IncrementalScanService(eventHistoryProvider: IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(11), checkpoint(20), checkpoint(21)],
+            events: route == "full fallback"
+                ? [FileSystemEventRecord(path: target.id, eventID: 15, flags: [.userDropped])]
+                : events
+        ))
+        var options = ScanOptions()
+        options.autoSummarizeMinFileCount = 2
+        options.autoSummarizeMaxAverageFileSize = 1_000_000
+        options.autoSummarizeMinDepthForSummarization = 2
+        let initial = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        let summarized = try #require(initial.treeStore.node(id: expanded.path))
+        #expect(summarized.isAutoSummarized)
+        #expect(initial.treeStore.node(id: ordinary.path)?.isAutoSummarized == false)
+
+        let coordinator = ScanCoordinator(scanService: service)
+        defer { coordinator.stopScan() }
+        coordinator.restoreCompletedSnapshot(initial)
+        var expansionOptions = options
+        expansionOptions.autoSummarizeDirectories = false
+        let expansion = await withCheckedContinuation { continuation in
+            coordinator.expandSummarizedNode(summarized, options: expansionOptions) {
+                continuation.resume(returning: $0)
+            }
+        }
+        guard case .expanded = expansion else {
+            Issue.record("The fixture's dense directory could not be expanded")
+            return
+        }
+        let baseline = try #require(coordinator.snapshot)
+        for directory in [expanded, ordinary] {
+            try Data([3]).write(to: directory.appending(path: "new"))
+        }
+        let newDense = expanded.appending(path: "New Dense")
+        try FileManager.default.createDirectory(at: newDense, withIntermediateDirectories: true)
+        for name in ["one", "two"] { try Data([4]).write(to: newDense.appending(path: name)) }
+        let late = expanded.appending(path: "Late")
+        try FileManager.default.createDirectory(at: late, withIntermediateDirectories: true)
+        try Data([1]).write(to: late.appending(path: "first"))
+        let refreshed: ScanSnapshot
+        if route == "manual" {
+            var result: FolderRescanResult?
+            coordinator.onFolderRescanFinished = { _, value in result = value }
+            try #require(coordinator.rescanFolder(id: parent.path))
+            try await waitUntil { result != nil }
+            #expect(result == .updated)
+            refreshed = try #require(coordinator.snapshot)
+        } else {
+            let result = try await incrementalScanResult(
+                from: service.rescan(target: target, options: options, from: baseline)
+            )
+            let expected: ScanExecutionMode = route == "incremental" ? .incremental : .fullFallback(.userDroppedEvents)
+            #expect(result.executionModes == [expected])
+            refreshed = result.snapshot
+            #expect(refreshed.incrementalCheckpoint != nil)
+        }
+        #expect(refreshed.treeStore.node(id: expanded.appending(path: "new").path) != nil)
+        #expect(refreshed.treeStore.node(id: nested.appending(path: "one").path) != nil)
+        #expect(refreshed.treeStore.node(id: newDense.path)?.isAutoSummarized == true)
+        #expect(refreshed.treeStore.node(id: ordinary.path)?.isAutoSummarized == true)
+        #expect(refreshed.treeStore.children(of: ordinary.path).isEmpty)
+        if route == "incremental" {
+            #expect(refreshed.treeStore.node(id: late.appending(path: "first").path) != nil)
+            let second = late.appending(path: "second")
+            try Data([2]).write(to: second)
+            let next = IncrementalScanService(eventHistoryProvider: IncrementalHistoryStub(
+                checkpoints: [checkpoint(30)],
+                events: [FileSystemEventRecord(path: second.path, eventID: 25, flags: [.itemCreated, .itemIsFile])]
+            ))
+            let updated = try await finishedIncrementalSnapshot(
+                from: next.rescan(target: target, options: options, from: refreshed)
+            )
+            #expect(updated.treeStore.node(id: late.path)?.isAutoSummarized == true)
+        }
+    }
+
     @Test
     func testFullScanCapturesCheckpointAndIncrementalRescanRelistsChangedDirectory() async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()

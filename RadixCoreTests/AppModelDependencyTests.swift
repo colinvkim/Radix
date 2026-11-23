@@ -4049,7 +4049,9 @@ private actor AsyncValueProbe<Value: Sendable> {
 private final class NeverFinishingScanService: ScanEventStreaming, @unchecked Sendable {
     private var continuations: [AsyncThrowingStream<ScanProgressEvent, Error>.Continuation] = []
 
-    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             continuations.append(continuation)
         }
@@ -4059,7 +4061,7 @@ private final class NeverFinishingScanService: ScanEventStreaming, @unchecked Se
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         scan(target: target, options: options)
     }
@@ -4093,7 +4095,9 @@ private final class ControlledAppModelScanService: ScanEventStreaming, @unchecke
         return storedOptions
     }
 
-    func scan(target: ScanTarget, options: ScanOptions) -> AsyncThrowingStream<ScanProgressEvent, Error> {
+    func scan(
+        target: ScanTarget, options: ScanOptions, materialization: ScanDirectoryMaterialization
+    ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         AsyncThrowingStream { continuation in
             lock.lock()
             continuations.append(continuation)
@@ -4107,7 +4111,7 @@ private final class ControlledAppModelScanService: ScanEventStreaming, @unchecke
         target: ScanTarget,
         preservingBehaviorOf scanTarget: ScanTarget,
         options: ScanOptions,
-        preservingMaterializedDirectoriesIn treeStore: FileTreeStore?
+        preservingExpansionsFrom baseline: ScanSnapshot?
     ) -> AsyncThrowingStream<ScanProgressEvent, Error> {
         scan(target: target, options: options)
     }
