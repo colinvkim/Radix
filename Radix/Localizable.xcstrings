@@ -231,6 +231,52 @@
         }
       }
     },
+    "The snapshot folder “%@” is unavailable. Reconnect the drive or choose another folder in Settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The snapshot folder “%@” is unavailable. Reconnect the drive or choose another folder in Settings."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Snapshot-Ordner „%@“ ist nicht verfügbar. Schließe das Laufwerk wieder an oder wähle in den Einstellungen einen anderen Ordner."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La carpeta de instantáneas «%@» no está disponible. Vuelve a conectar la unidad o elige otra carpeta en Ajustes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le dossier d’instantanés « %@ » est indisponible. Reconnectez le disque ou choisissez un autre dossier dans les réglages."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La cartella delle istantanee “%@” non è disponibile. Ricollega il disco o scegli un’altra cartella nelle impostazioni."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка для снимков «%@» недоступна. Подключите диск снова или выберите другую папку в настройках."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "快照文件夹“%@”不可用。请重新连接驱动器，或在设置中选择其他文件夹。"
+          }
+        }
+      }
+    },
     "Snapshot Autosave Failed" : {
       "localizations" : {
         "en" : {

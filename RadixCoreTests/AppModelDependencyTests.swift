@@ -3096,8 +3096,9 @@ struct AppModelDependencyTests {
     func testUnavailableAutosaveFolderReportsErrorAndKeepsScanAvailable() async throws {
         let scanner = ControlledAppModelScanService()
         let model = AppModel(dependencies: makeDependencies(scanService: scanner))
-        model.snapshotAutosaveFolder = FileManager.default.temporaryDirectory
+        let missingFolder = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        model.snapshotAutosaveFolder = missingFolder
         let snapshot = makeComparisonSnapshot(rootPath: "/autosave", fileSize: 42)
         model.startScan(snapshot.target)
         try await waitUntil("scan started") { scanner.requests.count == 1 }
@@ -3105,6 +3106,9 @@ struct AppModelDependencyTests {
         scanner.finish(scanIndex: 0)
 
         try await waitUntil("autosave error presented") { model.lastErrorMessage != nil }
+        let message = try #require(model.lastErrorMessage)
+        #expect(message.contains(missingFolder.path))
+        #expect(!message.contains(".tmp"))
         #expect(model.exportConfirmation == nil)
         #expect(model.scanState.snapshot?.id == snapshot.id)
         #expect(model.canExportCurrentScan)

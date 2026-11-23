@@ -41,6 +41,7 @@ nonisolated enum FileActionError: LocalizedError, Sendable {
     case directoryRequired
     case packageContentsHidden(settingEnabled: Bool)
     case folderRequiredForDrop
+    case snapshotFolderUnavailable(path: String)
     case fullDiskAccessSettingsUnavailable
     case readOnlySnapshot
     case readOnlyMode
@@ -78,6 +79,8 @@ nonisolated enum FileActionError: LocalizedError, Sendable {
             return String(localized: "Radix scanned this package as a single item. To zoom into it, turn on “Expand packages” in Settings, then rescan this location.", comment: "Error explaining how to enable package expansion before zooming into a package.")
         case .folderRequiredForDrop:
             return String(localized: "Drop a folder or mounted volume to start a scan.", comment: "Error shown when a dropped item is not a folder or volume.")
+        case .snapshotFolderUnavailable(let path):
+            return String(localized: "The snapshot folder “\(path)” is unavailable. Reconnect the drive or choose another folder in Settings.", comment: "Autosave failed because the selected destination folder is unavailable.")
         case .fullDiskAccessSettingsUnavailable:
             return String(localized: "Radix could not open Full Disk Access settings.", comment: "Error shown when System Settings cannot open Full Disk Access.")
         case .readOnlySnapshot:
@@ -1016,7 +1019,10 @@ final class AppModel: ObservableObject {
                     title: String(localized: "Snapshot Saved", comment: "Confirmation after a snapshot is saved automatically.")
                 )
             } catch {
-                await self?.presentError(error, title: String(localized: "Snapshot Autosave Failed", comment: "Alert title when a completed scan could not be saved automatically."))
+                let failure = AppSystemActions.isExistingDirectoryURL(folder)
+                    ? error
+                    : FileActionError.snapshotFolderUnavailable(path: folder.path)
+                await self?.presentError(failure, title: String(localized: "Snapshot Autosave Failed", comment: "Alert title when a completed scan could not be saved automatically."))
             }
         }
     }
