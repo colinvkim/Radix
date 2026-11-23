@@ -496,7 +496,6 @@ nonisolated final class ScanEngine: Sendable {
 
     private let directoryContents: DirectoryContentsProvider
     private let usesBulkDirectoryEnumeration: Bool
-    private let usesDeferredBulkEntryFiltering: Bool
     private let forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?
     private let directoryNamespaceResolver: DirectoryNamespaceResolver
     private let linkCountCapabilityCache: LinkCountCapabilityCache
@@ -507,7 +506,6 @@ nonisolated final class ScanEngine: Sendable {
     #endif
     private let volumeFileSystemTypeProvider: VolumeFileSystemTypeProvider
     private let directoryDescriptorPoolFactory: DirectoryDescriptorPoolFactory
-    private let usesWorkerSideLeafPreparation: Bool
     private let workerSideLeafPreparationBatchLimit: Int
 
     convenience init(
@@ -517,8 +515,6 @@ nonisolated final class ScanEngine: Sendable {
         directoryDescriptorPoolFactory: @escaping DirectoryDescriptorPoolFactory = {
             ScanDirectoryDescriptorPool()
         },
-        usesDeferredBulkEntryFiltering: Bool = true,
-        usesWorkerSideLeafPreparation: Bool = true,
         workerSideLeafPreparationBatchLimit: Int? = nil,
         forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure? = nil
     ) {
@@ -529,9 +525,7 @@ nonisolated final class ScanEngine: Sendable {
             atomicSummaryWorkerObserver: atomicSummaryWorkerObserver,
             atomicSummaryProgressEmissionInterval: atomicSummaryProgressEmissionInterval,
             directoryDescriptorPoolFactory: directoryDescriptorPoolFactory,
-            usesDeferredBulkEntryFiltering: usesDeferredBulkEntryFiltering,
             forcedBulkFailure: forcedBulkFailure,
-            usesWorkerSideLeafPreparation: usesWorkerSideLeafPreparation,
             workerSideLeafPreparationBatchLimit: workerSideLeafPreparationBatchLimit
         )
     }
@@ -544,14 +538,11 @@ nonisolated final class ScanEngine: Sendable {
         directoryDescriptorPoolFactory: @escaping DirectoryDescriptorPoolFactory = {
             ScanDirectoryDescriptorPool()
         },
-        usesDeferredBulkEntryFiltering: Bool = true,
-        usesWorkerSideLeafPreparation: Bool = true,
         workerSideLeafPreparationBatchLimit: Int? = nil,
         autoSummaryProfileReporter: @escaping AutoSummaryProfileReporter
     ) {
         self.directoryContents = ScanEngine.defaultDirectoryContents
         self.usesBulkDirectoryEnumeration = true
-        self.usesDeferredBulkEntryFiltering = usesDeferredBulkEntryFiltering
         self.forcedBulkFailure = nil
         self.directoryNamespaceResolver = DirectoryNamespaceResolver()
         self.linkCountCapabilityCache = LinkCountCapabilityCache()
@@ -560,7 +551,6 @@ nonisolated final class ScanEngine: Sendable {
         self.autoSummaryProfileReporter = autoSummaryProfileReporter
         self.volumeFileSystemTypeProvider = volumeFileSystemTypeProvider
         self.directoryDescriptorPoolFactory = directoryDescriptorPoolFactory
-        self.usesWorkerSideLeafPreparation = usesWorkerSideLeafPreparation
         self.workerSideLeafPreparationBatchLimit = min(
             max(
                 workerSideLeafPreparationBatchLimit
@@ -585,9 +575,7 @@ nonisolated final class ScanEngine: Sendable {
             atomicSummaryWorkerObserver: atomicSummaryWorkerObserver,
             atomicSummaryProgressEmissionInterval: atomicSummaryProgressEmissionInterval,
             directoryDescriptorPoolFactory: { ScanDirectoryDescriptorPool() },
-            usesDeferredBulkEntryFiltering: false,
             forcedBulkFailure: nil,
-            usesWorkerSideLeafPreparation: true,
             workerSideLeafPreparationBatchLimit: nil
         )
     }
@@ -599,14 +587,11 @@ nonisolated final class ScanEngine: Sendable {
         atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver?,
         atomicSummaryProgressEmissionInterval: TimeInterval,
         directoryDescriptorPoolFactory: @escaping DirectoryDescriptorPoolFactory,
-        usesDeferredBulkEntryFiltering: Bool,
         forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?,
-        usesWorkerSideLeafPreparation: Bool,
         workerSideLeafPreparationBatchLimit: Int?
     ) {
         self.directoryContents = enumeratedDirectoryContents
         self.usesBulkDirectoryEnumeration = usesBulkDirectoryEnumeration
-        self.usesDeferredBulkEntryFiltering = usesDeferredBulkEntryFiltering
         self.forcedBulkFailure = forcedBulkFailure
         self.directoryNamespaceResolver = DirectoryNamespaceResolver()
         self.linkCountCapabilityCache = LinkCountCapabilityCache()
@@ -617,7 +602,6 @@ nonisolated final class ScanEngine: Sendable {
         #endif
         self.volumeFileSystemTypeProvider = volumeFileSystemTypeProvider
         self.directoryDescriptorPoolFactory = directoryDescriptorPoolFactory
-        self.usesWorkerSideLeafPreparation = usesWorkerSideLeafPreparation
         self.workerSideLeafPreparationBatchLimit = min(
             max(
                 workerSideLeafPreparationBatchLimit
@@ -973,7 +957,6 @@ nonisolated final class ScanEngine: Sendable {
             metadataLoader: metadataLoader,
             directoryContents: directoryContents,
             usesBulkDirectoryEnumeration: usesBulkDirectoryEnumeration,
-            usesDeferredBulkEntryFiltering: usesDeferredBulkEntryFiltering,
             forcedBulkFailure: forcedBulkFailure,
             directoryNamespaceResolver: directoryNamespaceResolver,
             directoryDescriptorPool: usesBulkDirectoryEnumeration
@@ -1259,7 +1242,6 @@ nonisolated final class ScanEngine: Sendable {
         )
         let directoryContentsProvider = directoryContents
         let usesBulkDirectoryEnumeration = usesBulkDirectoryEnumeration
-        let usesDeferredBulkEntryFiltering = usesDeferredBulkEntryFiltering
         let forcedBulkFailure = forcedBulkFailure
         let directoryNamespaceResolver = directoryNamespaceResolver
         let directoryDescriptorPool = usesBulkDirectoryEnumeration
@@ -1487,7 +1469,6 @@ nonisolated final class ScanEngine: Sendable {
                                     metadataLoader: scanMetadataLoader,
                                     directoryContents: directoryContentsProvider,
                                     usesBulkDirectoryEnumeration: usesBulkDirectoryEnumeration,
-                                    usesDeferredBulkEntryFiltering: usesDeferredBulkEntryFiltering,
                                     forcedBulkFailure: forcedBulkFailure,
                                     directoryNamespaceResolver: directoryNamespaceResolver,
                                     directoryDescriptorPool: directoryDescriptorPool,
@@ -1998,51 +1979,20 @@ nonisolated final class ScanEngine: Sendable {
                     // allocating work-stack items or serializing wide suffixes here.
                     if let childMetadata = childEntry.metadata,
                        !childMetadata.isDirectory || childMetadata.isSymbolicLink {
-                        if usesWorkerSideLeafPreparation {
-                            let batchLimit = workerSideLeafPreparationBatchLimit
-                            let chunkStart = (offset / batchLimit) * batchLimit
-                            if lastQueuedLeafChunkStart != chunkStart {
-                                pendingOrdinaryLeafRequests.append(
-                                    OrdinaryLeafPreparationRequest(
-                                        entries: childEntries,
-                                        range: chunkStart..<min(chunkStart + batchLimit, childEntries.count),
-                                        parentKey: itemKey,
-                                        parentWeight: item.weight,
-                                        totalWeightUnits: totalWeightUnits
-                                    )
+                        let batchLimit = workerSideLeafPreparationBatchLimit
+                        let chunkStart = (offset / batchLimit) * batchLimit
+                        if lastQueuedLeafChunkStart != chunkStart {
+                            pendingOrdinaryLeafRequests.append(
+                                OrdinaryLeafPreparationRequest(
+                                    entries: childEntries,
+                                    range: chunkStart..<min(chunkStart + batchLimit, childEntries.count),
+                                    parentKey: itemKey,
+                                    parentWeight: item.weight,
+                                    totalWeightUnits: totalWeightUnits
                                 )
-                                lastQueuedLeafChunkStart = chunkStart
-                            }
-                            continue
-                        }
-
-                        let childNode = makeFileNode(
-                            url: childEntry.url,
-                            metadata: childMetadata
-                        )
-                        let preparedItem = PreparedOrdinaryLeafItem(
-                            weight: item.weight / totalWeightUnits,
-                            node: childNode,
-                            sharedAllocationClaim: SharedAllocationDeduplicator.claim(
-                                for: childMetadata,
-                                ownerNodeID: childNode.id,
-                                path: childNode.id
                             )
-                        )
-                        try recordPreparedOrdinaryLeaf(
-                            preparedItem,
-                            parentKey: itemKey,
-                            nextKey: &nextKey,
-                            scanKeyByNodeID: &scanKeyByNodeID,
-                            sharedAllocationAccumulator: &sharedAllocationAccumulator,
-                            metrics: &metrics,
-                            warnings: &warnings,
-                            continuation: continuation,
-                            emissionState: &emissionState,
-                            summaryPool: atomicSummaryPool,
-                            completedByKey: &completedByKey,
-                            childrenKeysByKey: &childrenKeysByKey
-                        )
+                            lastQueuedLeafChunkStart = chunkStart
+                        }
                         continue
                     }
 
@@ -2627,7 +2577,6 @@ nonisolated final class ScanEngine: Sendable {
         metadataLoader: ScanMetadataLoader,
         directoryContents: DirectoryContentsProvider,
         usesBulkDirectoryEnumeration: Bool,
-        usesDeferredBulkEntryFiltering: Bool,
         forcedBulkFailure: BulkDirectoryEnumerator.ForcedFailure?,
         directoryNamespaceResolver: DirectoryNamespaceResolver,
         directoryDescriptorPool: ScanDirectoryDescriptorPool?,
@@ -2705,9 +2654,7 @@ nonisolated final class ScanEngine: Sendable {
             let entryInclusion: BulkDirectoryEnumerator.EntryInclusion?
             let canExcludeNativeEntry = !exclusionMatcher.isEmpty
                 || shouldFilterStartupVolumeInternals(under: url, behavior: behavior)
-            let requiresPostEnumerationFiltering = canExcludeNativeEntry
-                && !usesDeferredBulkEntryFiltering
-            if usesDeferredBulkEntryFiltering && canExcludeNativeEntry {
+            if canExcludeNativeEntry {
                 let parentPath = url.path
                 entryInclusion = { childName, isDirectory in
                     ScanDirectoryEntryFilter.includes(
@@ -2770,21 +2717,10 @@ nonisolated final class ScanEngine: Sendable {
                     enumerationNanoseconds += DispatchTime.now().uptimeNanoseconds - batchStart
                     let classificationStart = DispatchTime.now().uptimeNanoseconds
                     #endif
-                    let acceptedEntries = if requiresPostEnumerationFiltering {
-                        try ScanDirectoryEntryFilter.filteredEntries(
-                            batch.entries,
-                            under: url,
-                            behavior: behavior,
-                            exclusionMatcher: exclusionMatcher,
-                            cancellationCheck: cancellationCheck
-                        )
-                    } else {
-                        batch.entries
-                    }
                     if entries.isEmpty {
-                        entries = acceptedEntries
+                        entries = batch.entries
                     } else {
-                        entries.append(contentsOf: acceptedEntries)
+                        entries.append(contentsOf: batch.entries)
                     }
                     enumeratedItemCount += batch.enumeratedItemCount
                     #if DEBUG
