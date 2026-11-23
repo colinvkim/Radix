@@ -15,11 +15,15 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
     private static let dragThreshold: CGFloat = 3
 
     private var trackingArea: NSTrackingArea?
-    private var mouseDownLocation: CGPoint?
-    private var lastDragLocation: CGPoint?
-    private var shouldPanFromMouseDownLocation = false
-    private var didPan = false
-    private var didStartDrag = false
+    private enum PointerGesture {
+        case idle
+        case pressed(CGPoint, prefersPan: Bool)
+        case click(CGPoint)
+        case panning(CGPoint)
+        case dragging
+    }
+
+    private var gesture = PointerGesture.idle
 
     override var isFlipped: Bool {
         true
@@ -58,72 +62,52 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
     override func mouseDown(with event: NSEvent) {
         focusForKeyboardInput()
         let location = eventLocation(event)
-        mouseDownLocation = location
-        lastDragLocation = location
-        shouldPanFromMouseDownLocation = isPanEnabled && canStartPan(location)
-        didPan = false
-        didStartDrag = false
+        gesture = .pressed(location, prefersPan: isPanEnabled && canStartPan(location))
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let mouseDownLocation,
-              let lastDragLocation else { return }
-
         let location = eventLocation(event)
-        if !didPan {
-            guard didExceedDragThreshold(from: mouseDownLocation, to: location) else {
+        let previous: CGPoint
+        switch gesture {
+        case .pressed(let origin, let prefersPan):
+            guard didExceedDragThreshold(from: origin, to: location) else { return }
+            if !prefersPan, let item = draggingItem(at: origin) {
+                gesture = .dragging
+                fileDragSession?.begin()
+                onDragActiveChange(fileDragSession?.canCollect == true)
+                beginDraggingSession(with: [item], event: event, source: self)
                 return
             }
-            didPan = true
-        }
-
-        if shouldPanFromMouseDownLocation {
-            defer { self.lastDragLocation = location }
-            guard isPanEnabled else { return }
-
-            onPan(
-                CGSize(
-                    width: location.x - lastDragLocation.x,
-                    height: location.y - lastDragLocation.y
-                ),
-                location
-            )
-            toolTip = nil
+            guard isPanEnabled else {
+                gesture = .click(origin)
+                return
+            }
+            previous = origin
+        case .panning(let lastLocation):
+            previous = lastLocation
+        case .idle, .click, .dragging:
             return
         }
 
-        if !didStartDrag,
-           let draggingItem = draggingItem(at: mouseDownLocation) {
-            didStartDrag = true
-            fileDragSession?.begin()
-            onDragActiveChange(fileDragSession?.canCollect == true)
-            beginDraggingSession(with: [draggingItem], event: event, source: self)
-            return
-        }
-
-        defer { self.lastDragLocation = location }
+        gesture = .panning(location)
         guard isPanEnabled else { return }
-
         onPan(
-            CGSize(
-                width: location.x - lastDragLocation.x,
-                height: location.y - lastDragLocation.y
-            ),
+            CGSize(width: location.x - previous.x, height: location.y - previous.y),
             location
         )
         toolTip = nil
     }
 
     override func mouseUp(with event: NSEvent) {
-        let location = eventLocation(event)
-        if !didPan {
-            onClick(location, event.clickCount)
+        defer { gesture = .idle }
+        switch gesture {
+        case .pressed:
+            onClick(eventLocation(event), event.clickCount)
+        case .click(let origin):
+            onClick(origin, event.clickCount)
+        case .idle, .panning, .dragging:
+            break
         }
-        mouseDownLocation = nil
-        lastDragLocation = nil
-        shouldPanFromMouseDownLocation = false
-        didPan = false
-        didStartDrag = false
     }
 
     override func magnify(with event: NSEvent) {
@@ -175,11 +159,7 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
     ) {
         let completedSession = fileDragSession
         fileDragSession = nil
-        mouseDownLocation = nil
-        lastDragLocation = nil
-        shouldPanFromMouseDownLocation = false
-        didPan = false
-        didStartDrag = false
+        gesture = .idle
         onDragActiveChange(false)
         completedSession?.end(operation: operation)
     }
