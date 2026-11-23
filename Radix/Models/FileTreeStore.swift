@@ -1676,6 +1676,8 @@ nonisolated struct FileTreeStore: Sendable {
 
     nonisolated func subtreeContainsSharedAllocationMetadata(
         rootedAt nodeID: String,
+        changedFrom baseline: FileTreeStore? = nil,
+        skipping preservedSubtreeIDs: Set<String> = [],
         cancellationCheck: () throws -> Void
     ) throws -> Bool {
         guard let rootIndex = nodeIndex(id: nodeID) else { return false }
@@ -1686,13 +1688,26 @@ nonisolated struct FileTreeStore: Sendable {
                 try cancellationCheck()
             }
             visitedCount += 1
-            if let node = node(at: nodeIndex),
-               (node.isDirectory
-                   ? summarizedAllocations[node.id] != nil
-                   : !node.isSymbolicLink && !node.isSynthetic && (node.cloneIdentity != nil || node.linkCount > 1)) {
-                return true
+            guard let node = node(at: nodeIndex) else { continue }
+            if node.isDirectory {
+                guard !preservedSubtreeIDs.contains(node.id) else { continue }
+                if let summary = summarizedAllocations[node.id] {
+                    guard let previous = baseline?.summarizedAllocations[node.id],
+                          summary.claims.summarizedMemberPaths.isSubset(of: previous.claims.summarizedMemberPaths) else {
+                        return true
+                    }
+                }
+                stack.append(contentsOf: activeChildren(of: nodeIndex))
+            } else if !node.isSymbolicLink, !node.isSynthetic, node.cloneIdentity != nil || node.linkCount > 1 {
+                guard let previous = baseline?.node(id: node.id),
+                      previous.fileIdentity == node.fileIdentity,
+                      previous.linkCount == node.linkCount,
+                      previous.cloneIdentity == node.cloneIdentity,
+                      previous.unduplicatedAllocatedSize == node.unduplicatedAllocatedSize,
+                      previous.dataAllocatedSize == node.dataAllocatedSize,
+                      previous.logicalSize == node.logicalSize,
+                      previous.lastModified == node.lastModified else { return true }
             }
-            stack.append(contentsOf: activeChildren(of: nodeIndex))
         }
         return false
     }

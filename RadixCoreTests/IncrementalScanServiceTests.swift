@@ -1228,34 +1228,40 @@ struct IncrementalScanServiceTests {
         try assertEquivalent(result.snapshot, fresh)
     }
 
-    @Test(arguments: [true, false])
-    func testChangingPackageHardLinkRefreshesVisibleAlias(existingLink: Bool) async throws {
+    enum PackageLinkChange: CaseIterable {
+        case writeHidden, createHidden, createVisible
+    }
+
+    @Test(arguments: PackageLinkChange.allCases)
+    func testChangingPackageHardLinkRefreshesAliases(change: PackageLinkChange) async throws {
         let root = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let package = root.appending(path: "Z.app", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: package, withIntermediateDirectories: false)
         let visible = root.appending(path: "A.dat")
         let hidden = package.appending(path: "shared.dat")
-        try Data(repeating: 1, count: existingLink ? 0 : 4096).write(to: visible)
-        if existingLink { try FileManager.default.linkItem(at: visible, to: hidden) }
+        let original = change == .createVisible ? hidden : visible
+        let alias = change == .createVisible ? visible : hidden
+        try Data(repeating: 1, count: change == .writeHidden ? 0 : 4096).write(to: original)
+        if change == .writeHidden { try FileManager.default.linkItem(at: original, to: alias) }
 
         let target = ScanTarget(url: root)
         let options = ScanOptions()
         let service = IncrementalScanService(eventHistoryProvider: IncrementalHistoryStub(
             checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
             events: [FileSystemEventRecord(
-                path: hidden.path,
+                path: alias.path,
                 eventID: 15,
-                flags: existingLink ? [.itemModified, .itemIsFile] : [.itemCreated, .itemIsFile]
+                flags: change == .writeHidden ? [.itemModified, .itemIsFile] : [.itemCreated, .itemIsFile]
             )]
         ))
         let baseline = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
-        if existingLink {
-            let handle = try FileHandle(forWritingTo: hidden)
+        if change == .writeHidden {
+            let handle = try FileHandle(forWritingTo: alias)
             try handle.write(contentsOf: Data(repeating: 2, count: 32_768))
             try handle.close()
         } else {
-            try FileManager.default.linkItem(at: visible, to: hidden)
+            try FileManager.default.linkItem(at: original, to: alias)
         }
 
         let updated = try await incrementalScanResult(from: service.rescan(target: target, options: options, from: baseline))
