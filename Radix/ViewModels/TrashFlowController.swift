@@ -286,14 +286,15 @@ final class TrashFlowController {
 
     func cancelConfirmedTrashMoves() {
         for task in confirmedTrashMoveTasks.values { task.cancel() }
-        confirmedTrashMoveTasks.removeAll()
         confirmedPermanentDeletion?.cancel()
     }
 
     func cancelPostTrashSnapshotRemoval() {
+        guard let task = postTrashRemovalTask else { return }
         postTrashRemovalRequests.removeAll()
-        postTrashRemovalTask?.cancel()
+        task.cancel()
         postTrashRemovalTask = nil
+        notifyChanged()
     }
 
     @discardableResult
@@ -660,10 +661,12 @@ final class TrashFlowController {
                 }
             }
 
-            self?.confirmedTrashMoveTasks.removeValue(forKey: requestID)
             onFinish(nodes, moved, actionError, wasCancelled)
+            self?.confirmedTrashMoveTasks.removeValue(forKey: requestID)
+            self?.notifyChanged()
         }
         beginMove()
+        notifyChanged()
     }
 
     func startPermanentDeletion(
@@ -722,7 +725,9 @@ final class TrashFlowController {
             }
             guard !Task.isCancelled else { return }
             self?.postTrashRemovalTask = nil
+            self?.notifyChanged()
         }
+        notifyChanged()
     }
 
     private func notifyChanged() {
