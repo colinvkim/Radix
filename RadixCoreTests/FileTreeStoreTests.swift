@@ -1579,7 +1579,7 @@ struct FileTreeStoreTests {
     }
 
     @Test
-    func testVolumeReconciliationAddsAndRemovesRemainder() {
+    func testVolumeReconciliationAddsAndRemovesRemainder() throws {
         let mebibyte: Int64 = 1_024 * 1_024
         let nested = makeFileNode(id: "/root/folder/nested.bin", name: "nested.bin", size: 100 * mebibyte)
         let folder = makeDirectoryNode(id: "/root/folder", name: "folder", children: [nested])
@@ -1606,7 +1606,8 @@ struct FileTreeStoreTests {
             ),
             hasActiveExclusions: false
         )
-        let remainderID = root.id + "#system-unattributed"
+        let remainder = grown.children(of: root.id).first(where: \.isSynthetic)
+        let remainderID = try #require(remainder?.id)
 
         #expect(grown.nodeCount == store.nodeCount + 1)
         #expect(grown.node(id: remainderID)?.allocatedSize == 200 * mebibyte)
