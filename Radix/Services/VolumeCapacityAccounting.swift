@@ -23,12 +23,8 @@ nonisolated enum VolumeCapacityAccounting {
 
         let root = treeStore.root
         let currentRootChildren = treeStore.children(of: root.id)
-        let existingRemainder = currentRootChildren.first {
-            isUnattributedNodeID($0.id)
-        }
-        let ordinaryChildren = currentRootChildren.filter {
-            !isUnattributedNodeID($0.id)
-        }
+        let existingRemainder = currentRootChildren.first(where: isUnattributedNode)
+        let ordinaryChildren = currentRootChildren.filter { !isUnattributedNode($0) }
         let scannedRoot = rebuiltRoot(root, children: ordinaryChildren)
         let missingBytes = max(capacity.usedCapacity - scannedRoot.allocatedSize, 0)
         let shouldIncludeRemainder = missingBytes >= minimumNewRemainder || existingRemainder != nil
@@ -69,7 +65,7 @@ nonisolated enum VolumeCapacityAccounting {
         }
 
         let unattributedNode = FileNodeRecord(
-            id: root.id + unattributedSuffix,
+            id: existingRemainder?.id ?? root.id + "\0" + unattributedSuffix,
             url: target.url,
             name: hasActiveExclusions ? "Excluded & Unattributed" : "System & Unattributed",
             isDirectory: false,
@@ -122,18 +118,16 @@ nonisolated enum VolumeCapacityAccounting {
 
     static func hasActiveExclusions(in treeStore: FileTreeStore) -> Bool {
         treeStore.children(of: treeStore.rootID).contains {
-            isUnattributedNodeID($0.id) && $0.name == "Excluded & Unattributed"
+            isUnattributedNode($0) && $0.name == "Excluded & Unattributed"
         }
     }
 
     static func hasUnattributedRemainder(in treeStore: FileTreeStore) -> Bool {
-        treeStore.children(of: treeStore.rootID).contains {
-            isUnattributedNodeID($0.id)
-        }
+        treeStore.children(of: treeStore.rootID).contains(where: isUnattributedNode)
     }
 
-    private static func isUnattributedNodeID(_ nodeID: String) -> Bool {
-        nodeID.hasSuffix(unattributedSuffix)
+    private static func isUnattributedNode(_ node: FileNodeRecord) -> Bool {
+        node.isSynthetic && node.id.hasSuffix(unattributedSuffix)
     }
 
     private static func adjustedStats(

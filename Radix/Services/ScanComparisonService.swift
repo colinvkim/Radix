@@ -542,8 +542,8 @@ nonisolated struct ScanComparisonService: Sendable {
                 try Task.checkCancellation()
             }
             guard let beforeNode = before.treeStore.node(at: nodeIndex),
-                  beforeNode.id != rootID,
-                  let afterNode = after.treeStore.node(id: beforeNode.id),
+                  beforeNode.id != rootID, !beforeNode.isSynthetic,
+                  let afterNode = Self.fileNode(id: beforeNode.id, in: after.treeStore),
                   let relativePath = Self.relativePath(for: beforeNode.id, rootID: rootID) else {
                 continue
             }
@@ -812,8 +812,8 @@ nonisolated struct ScanComparisonService: Sendable {
                 try Task.checkCancellation()
             }
             guard let node = treeStore.node(at: nodeIndex),
-                  node.id != rootID,
-                  otherStore.nodeIndex(id: node.id) == nil,
+                  node.id != rootID, !node.isSynthetic,
+                  fileNode(id: node.id, in: otherStore) == nil,
                   let relativePath = relativePath(for: node.id, rootID: rootID) else {
                 continue
             }
@@ -831,8 +831,13 @@ nonisolated struct ScanComparisonService: Sendable {
     ) {
         for relativePath in relativePaths where nodes[relativePath] == nil {
             let id = nodeID(for: relativePath, rootID: rootID)
-            nodes[relativePath] = treeStore.node(id: id)
+            nodes[relativePath] = fileNode(id: id, in: treeStore)
         }
+    }
+
+    private static func fileNode(id: String, in treeStore: FileTreeStore) -> FileNodeRecord? {
+        guard let node = treeStore.node(id: id), !node.isSynthetic else { return nil }
+        return node
     }
 
     private static func nodeID(for relativePath: String, rootID: String) -> String {
@@ -849,7 +854,7 @@ nonisolated struct ScanComparisonService: Sendable {
         for nodeIndex in snapshot.treeStore.indexedNodeIndices() {
             try Task.checkCancellation()
             guard let node = snapshot.treeStore.node(at: nodeIndex),
-                  node.id != snapshot.treeStore.rootID,
+                  node.id != snapshot.treeStore.rootID, !node.isSynthetic,
                   let relativePath = Self.relativePath(for: node.id, rootID: snapshot.treeStore.rootID) else {
                 continue
             }

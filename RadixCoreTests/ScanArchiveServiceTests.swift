@@ -7,6 +7,32 @@ import Testing
 struct ScanArchiveServiceTests {
     private let temporaryFiles = TemporaryTestFiles()
 
+    @Test(arguments: ["/", "/Volumes/Test"])
+    func testVolumeRemainderPreservesRealFilenamesThroughArchive(rootPath: String) async throws {
+        let rootURL = URL(filePath: rootPath, directoryHint: .isDirectory)
+        let names = ["#system-unattributed", "mine#system-unattributed"]
+        let files = names.map { makeTestFileNode(id: rootURL.appending(path: $0).path, name: $0, size: 10) }
+        let root = makeTestDirectoryNode(id: rootPath, name: "Volume", children: files)
+        let target = ScanTarget(url: rootURL, kind: .volume)
+        let scanned = FileTreeStore(root: root, childrenByID: [root.id: files])
+        #expect(!VolumeCapacityAccounting.hasUnattributedRemainder(in: scanned))
+
+        let used: Int64 = 128 * 1_024 * 1_024
+        let tree = VolumeCapacityAccounting.reconciledStore(
+            scanned, target: target, capacity: VolumeCapacitySnapshot(totalCapacity: used, availableCapacity: 0),
+            hasActiveExclusions: true
+        )
+        let service = ScanArchiveService()
+        let archiveURL = try makeTemporaryArchiveURL()
+        _ = try await service.export(snapshot: makeTestSnapshot(target: target, root: tree.root, store: tree), to: archiveURL)
+        let imported = try await service.importSnapshot(from: archiveURL).snapshot.treeStore
+        for file in files {
+            #expect(imported.node(id: file.id) == file)
+        }
+        #expect(imported.children(of: root.id).filter(\.isSynthetic).map(\.allocatedSize) == [used - 20])
+        #expect(VolumeCapacityAccounting.hasActiveExclusions(in: imported))
+    }
+
     @Test
     func testExportImportRoundTripsLogicalScopeWithNonDenseNodeIndices() async throws {
         let service = ScanArchiveService()
