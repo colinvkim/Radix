@@ -1245,15 +1245,10 @@ struct ScanEngineTests {
             }
             return false
         }
-        let didFinish = try await withTimeout(.seconds(2)) {
-            try await scanTask.value
+        try await waitUntil("root and child descriptors to open and close after cancellation") {
+            tracked.peakCount >= 2 && tracked.openCount == 0
         }
-
-        #expect(!(didFinish))
-        #expect(tracked.peakCount >= 2)
-        try await waitUntil("cancelled descriptor leases to close") {
-            tracked.openCount == 0
-        }
+        #expect(try await !scanTask.value)
     }
 
     @Test
