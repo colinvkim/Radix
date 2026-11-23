@@ -1030,7 +1030,8 @@ struct ScanCoordinatorTests {
     @Test(arguments: [false, true])
     func testBackgroundRefreshWaitsToApplyAndPreservesConcurrentRemoval(removeFile: Bool) async throws {
         let service = ControlledScanService()
-        let coordinator = ScanCoordinator(scanService: service)
+        let transform = PausingSnapshotTransformService()
+        let coordinator = ScanCoordinator(scanService: service, snapshotTransformService: transform)
         let target = makeCoordinatorTarget("/scan/deferred")
         let baseline = makeCoordinatorSnapshot(target: target, scanOptions: ScanOptions())
         let originalFile = try #require(baseline.treeStore.children(of: target.id).first)
@@ -1054,6 +1055,7 @@ struct ScanCoordinatorTests {
         )), scanIndex: 0)
         service.finish(scanIndex: 0)
         try await waitUntil("refresh waits for safe application") { applicationCheckCount > 0 }
+        #expect(await transform.recordedReplacementIDs().isEmpty)
         #expect(completion == nil)
         #expect(coordinator.snapshot?.treeStore.contentID == baseline.treeStore.contentID)
         if removeFile {
@@ -1063,6 +1065,7 @@ struct ScanCoordinatorTests {
         canApply = true
         try await waitUntil("deferred refresh completed") { completion != nil }
         #expect(completion == (removeFile ? .cancelled : .updated))
+        #expect(await transform.recordedReplacementIDs() == (removeFile ? [] : [target.id]))
         if removeFile {
             #expect(coordinator.snapshot?.treeStore.children(of: target.id).isEmpty == true)
         } else {
