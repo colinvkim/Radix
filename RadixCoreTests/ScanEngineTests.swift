@@ -2833,8 +2833,8 @@ struct ScanEngineTests {
 
         #expect(!didFinishCancelledScan)
         #expect(activity.peakActiveWorkerCount > 0)
+        try await waitUntil("the cancelled package summary pool shut down") { activity.didObserveShutdown }
         #expect(activity.activeWorkerCount == 0)
-        #expect(activity.didObserveShutdown)
 
         let followUpFinished = try await withTimeout(.seconds(5)) {
             for try await event in engine.scan(target: ScanTarget(url: followUpURL), options: ScanOptions()) {
@@ -2853,76 +2853,55 @@ struct ScanEngineTests {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        for packageIndex in 0..<8 {
-            let resourcesURL =
-                rootURL
-                .appending(path: "Package-\(packageIndex).app", directoryHint: .isDirectory)
-                .appending(path: "Contents/Resources", directoryHint: .isDirectory)
-            for branchIndex in 0..<4 {
-                let branchURL = resourcesURL.appending(
-                    path: "Branch-\(branchIndex)",
-                    directoryHint: .isDirectory
-                )
-                try FileManager.default.createDirectory(
-                    at: branchURL,
-                    withIntermediateDirectories: true
-                )
-                for fileIndex in 0..<128 {
-                    try Data([UInt8(fileIndex % 256)]).write(
-                        to: branchURL.appending(path: "payload-\(fileIndex).tmp")
-                    )
-                }
-            }
+        let packageURL = rootURL.appending(path: "Sample.app", directoryHint: .isDirectory)
+        for name in ["First", "Second"] {
+            let child = packageURL.appending(path: name, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+            try Data([1]).write(to: child.appending(path: "payload.dat"))
         }
 
-        for _ in 0..<8 {
-            let lifecycle = AtomicSummaryWorkerLifecycleProbe()
-            let cancellation = TestTaskCancellation()
-            defer { cancellation.cancel() }
-            let engine = ScanEngine(
-                atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
-                    didStart: { _, _ in
-                        lifecycle.didStart()
-                        if lifecycle.peakActiveWorkerCount >= 2 { cancellation.cancel() }
-                    },
-                    didFinish: { _, _ in lifecycle.didFinish() },
-                    didShutdown: { lifecycle.didShutdown() }
-                ),
-                atomicSummaryProgressEmissionInterval: 0
-            )
-            let scanTask = cancellation.start {
-                var didFinish = false
-                do {
-                    for try await event in engine.scan(
-                        target: ScanTarget(url: rootURL),
-                        options: ScanOptions()
-                    ) {
-                        try Task.checkCancellation()
-                        if case .finished = event {
-                            didFinish = true
-                        }
+        let releaseWorker = AsyncStream<Void>.makeStream()
+        let lifecycle = AtomicSummaryWorkerLifecycleProbe()
+        let engine = ScanEngine(
+            atomicSummaryWorkerObserver: AtomicSummaryWorkerObserver(
+                didStart: { _, url in
+                    let active = lifecycle.didStart()
+                    // Hold the first child until the other worker publishes progress for its file.
+                    if url.pathExtension != "app", active == 1 {
+                        for await _ in releaseWorker.stream {}
                     }
-                } catch is CancellationError {
-                    return false
+                },
+                didFinish: { _, _ in lifecycle.didFinish() },
+                didShutdown: lifecycle.didShutdown
+            ),
+            atomicSummaryProgressEmissionInterval: 0
+        )
+        let scanTask = Task {
+            defer { releaseWorker.continuation.finish() }
+            for try await event in engine.scan(
+                target: ScanTarget(url: rootURL),
+                options: ScanOptions(atomicSummaryWorkerLimit: 2)
+            ) {
+                switch event {
+                case .progress(let metrics) where metrics.currentPath.hasSuffix("/payload.dat"):
+                    withUnsafeCurrentTask { $0?.cancel() }
+                case .finished:
+                    return true
+                default:
+                    break
                 }
-                return didFinish
             }
-
-            let didFinish = try await withTimeout(.seconds(2)) {
-                try await scanTask.value
-            }
-            let shutdownDeadline = ContinuousClock.now.advanced(by: .seconds(1))
-            while !lifecycle.didObserveShutdown || lifecycle.activeWorkerCount > 0,
-                ContinuousClock.now < shutdownDeadline
-            {
-                await Task.yield()
-            }
-
-            #expect(lifecycle.peakActiveWorkerCount >= 2)
-            #expect(!(didFinish))
-            #expect(lifecycle.activeWorkerCount == 0)
-            #expect(lifecycle.didObserveShutdown)
+            return false
         }
+        defer {
+            scanTask.cancel()
+            releaseWorker.continuation.finish()
+        }
+
+        try await waitUntil("the cancelled package summary pool shut down") { lifecycle.didObserveShutdown }
+        #expect(try await !scanTask.value)
+        #expect(lifecycle.peakActiveWorkerCount == 2)
+        #expect(lifecycle.activeWorkerCount == 0)
     }
 
     @Test
@@ -5246,11 +5225,13 @@ private final class AtomicSummaryWorkerLifecycleProbe: @unchecked Sendable {
         lock.withLock { events.last }
     }
 
-    func didStart() {
+    @discardableResult
+    func didStart() -> Int {
         lock.withLock {
             activeCount += 1
             peakActiveCount = max(peakActiveCount, activeCount)
             events.append(.started)
+            return activeCount
         }
     }
 
