@@ -18,6 +18,9 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
         let cloneAllocatedSize: Int64
     }
 
+    // Even a zero-byte hard link can grow through a hidden alias after the scan.
+    // Keep the paths only in package/auto-summary partials, never in the scan-wide accumulator.
+    private(set) var summarizedMemberPaths: Set<String> = []
     private var hardLinkWinnerByIdentity: [FileIdentity: SharedAllocationClaim] = [:]
     private var standaloneCloneWinnerByIdentity: [CloneIdentity: CloneWinner] = [:]
     private var hardLinkDuplicateAllocatedSizeByOwner: [String: Int64] = [:]
@@ -67,6 +70,16 @@ nonisolated struct SharedAllocationOwnerAccumulator: Sendable {
 
     nonisolated var isEmpty: Bool {
         hardLinkWinnerByIdentity.isEmpty && standaloneCloneWinnerByIdentity.isEmpty
+    }
+
+    nonisolated mutating func recordSummarizedMember(_ claim: SharedAllocationClaim) {
+        summarizedMemberPaths.insert(claim.path)
+        record(claim)
+    }
+
+    nonisolated mutating func mergeSummaryPartial(_ other: Self) {
+        summarizedMemberPaths.formUnion(other.summarizedMemberPaths)
+        merge(other)
     }
 
     nonisolated mutating func record(_ claim: SharedAllocationClaim) {

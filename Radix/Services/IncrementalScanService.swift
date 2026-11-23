@@ -398,20 +398,24 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
         }
 
         try Task.checkCancellation()
-        if validatesSharedAllocation {
-            for replacement in replacements.values {
-                if try replacement.subtreeContainsSharedAllocationMetadata(
+        for replacement in replacements.values {
+            let introducedSharedMembers = replacement.summarizedAllocations.contains { nodeID, summary in
+                guard let previous = baseline.treeStore.summarizedAllocations[nodeID] else { return true }
+                return !summary.claims.summarizedMemberPaths.isSubset(of: previous.claims.summarizedMemberPaths)
+            }
+            let requiresFullScan = try introducedSharedMembers || (validatesSharedAllocation
+                && replacement.subtreeContainsSharedAllocationMetadata(
                     rootedAt: replacement.rootID,
                     cancellationCheck: { try Task.checkCancellation() }
-                ) {
-                    try await forwardFullScan(
-                        target: target,
-                        options: options,
-                        reason: .sharedAllocationTopologyChanged,
-                        continuation: continuation
-                    )
-                    return
-                }
+                ))
+            if requiresFullScan {
+                try await forwardFullScan(
+                    target: target,
+                    options: options,
+                    reason: .sharedAllocationTopologyChanged,
+                    continuation: continuation
+                )
+                return
             }
         }
         let spliced: ScanSnapshot?

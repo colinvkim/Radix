@@ -410,6 +410,13 @@ nonisolated final class ScanEngine: Sendable {
         let sharedAllocationAccumulator: SharedAllocationOwnerAccumulator
         let minimumAllocatedSize: Int64?
         let summaryVisitedItemCount: Int
+
+        var allocationSummary: SharedAllocationDeduplicator.Summary? {
+            SharedAllocationDeduplicator.Summary(
+                claims: sharedAllocationAccumulator,
+                minimumAllocatedSize: minimumAllocatedSize
+            )
+        }
     }
 
     private struct OrdinaryLeafPreparationRequest: Sendable {
@@ -1202,7 +1209,7 @@ nonisolated final class ScanEngine: Sendable {
         metrics.currentPath = target.url.path
         metrics.recalculateProgress()
         var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var minimumAllocatedSizeByNodeID: [String: Int64] = [:]
+        var summarizedAllocations: [String: SharedAllocationDeduplicator.Summary] = [:]
         let atomicSummaryWorkerLimit = ScanConcurrencyPolicy.atomicSummaryWorkerLimit(for: options)
         let atomicSummaryPool = AtomicDirectorySummaryPool(
             workerLimit: atomicSummaryWorkerLimit,
@@ -1303,7 +1310,9 @@ nonisolated final class ScanEngine: Sendable {
                 )
             }
             await atomicSummaryPool.finish()
-            return FileTreeStore(root: root)
+            var store = FileTreeStore(root: root)
+            store.summarizedAllocations[root.id] = leafResult.allocationSummary
+            return store
         }
 
         metrics.discoveredDirectoryCount = 1
@@ -1587,8 +1596,8 @@ nonisolated final class ScanEngine: Sendable {
                             continuation: continuation
                         )
                         sharedAllocationAccumulator.merge(leafResult.sharedAllocationAccumulator)
-                        if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
-                            minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
+                        if let summary = leafResult.allocationSummary {
+                            summarizedAllocations[leafResult.node.id] = summary
                         }
                         applyLeafMetrics(
                             leafResult.node,
@@ -1813,8 +1822,8 @@ nonisolated final class ScanEngine: Sendable {
                         0
                     )
                     sharedAllocationAccumulator.merge(leafResult.sharedAllocationAccumulator)
-                    if let minimumAllocatedSize = leafResult.minimumAllocatedSize {
-                        minimumAllocatedSizeByNodeID[leafResult.node.id] = minimumAllocatedSize
+                    if let summary = leafResult.allocationSummary {
+                        summarizedAllocations[leafResult.node.id] = summary
                     }
                     applyLeafMetrics(
                         leafResult.node,
@@ -1887,7 +1896,10 @@ nonisolated final class ScanEngine: Sendable {
                         isAutoSummarized: true
                     )
                     sharedAllocationAccumulator.merge(summary.sharedAllocationAccumulator)
-                    minimumAllocatedSizeByNodeID[atomicNode.id] = meta.allocatedSize
+                    summarizedAllocations[atomicNode.id] = SharedAllocationDeduplicator.Summary(
+                        claims: summary.sharedAllocationAccumulator,
+                        minimumAllocatedSize: meta.allocatedSize
+                    )
                     // The summarized children will never be enqueued: count them as
                     // completed and release their frontier claims.
                     metrics.pendingAutoSummaryRepresentedItemCount = max(
@@ -2209,7 +2221,7 @@ nonisolated final class ScanEngine: Sendable {
                 let correctedChild = SharedAllocationDeduplicator.deduplicatedNode(
                     onlyChild,
                     duplicateAllocatedSize: duplicateAllocatedSizeByOwner[onlyChild.id] ?? 0,
-                    minimumAllocatedSize: minimumAllocatedSizeByNodeID[onlyChild.id] ?? 0
+                    minimumAllocatedSize: summarizedAllocations[onlyChild.id]?.minimumAllocatedSize ?? 0
                 )
                 nodes.append(correctedChild)
                 parentRawIndices.append(UInt32.max)
@@ -2270,7 +2282,7 @@ nonisolated final class ScanEngine: Sendable {
         #if DEBUG
         let storeConstructionStart = diagnostics?.start()
         #endif
-        let store = try FileTreeStore(
+        var store = try FileTreeStore(
             verifiedRootIndex: rootIndex,
             nodes: nodes,
             indexByNodeID: indexByNodeID,
@@ -2280,6 +2292,7 @@ nonisolated final class ScanEngine: Sendable {
             aggregateStats: aggregateStats.stats(root: rootNode),
             cancellationCheck: Task.checkCancellation
         )
+        store.summarizedAllocations = summarizedAllocations
         #if DEBUG
         diagnostics?.record(
             operation: "scan.finalize.store",

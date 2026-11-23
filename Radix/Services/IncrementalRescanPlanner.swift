@@ -55,9 +55,13 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
                 return .fullScan(reason: .sharedAllocationTopologyChanged)
             }
             if let existingNode = treeStore.node(id: eventPath) {
-                if !event.flags.intersection([.itemModified, .itemRemoved]).isEmpty,
+                if !event.flags.intersection([.itemModified, .itemRemoved, .itemRenamed]).isEmpty,
                    existingNode.cloneIdentity != nil {
                     return .fullScan(reason: .cloneTopologyChanged)
+                }
+                if existingNode.isDirectory, !treeStore.summarizedAllocations.isEmpty,
+                   treeStore.subtreeContainsSharedAllocationMetadata(rootedAt: existingNode.id, cancellationCheck: {}) {
+                    return .fullScan(reason: .sharedAllocationTopologyChanged)
                 }
                 if !existingNode.isDirectory,
                    !existingNode.isSymbolicLink,
@@ -81,6 +85,11 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
             }
             if matchedNode.isAutoSummarized {
                 return .fullScan(reason: .autoSummarizedBoundary)
+            }
+            if let summary = treeStore.summarizedAllocations[matchedNode.id],
+               knownIsDirectory != false || summary.claims.summarizedMemberPaths.contains(eventPath) {
+                // A write or unlink can change an alias outside this package.
+                return .fullScan(reason: .sharedAllocationTopologyChanged)
             }
             let updateKind = updateKind(
                 for: event,

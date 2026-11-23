@@ -50,7 +50,7 @@ nonisolated final class AtomicSummaryAccumulator: @unchecked Sendable {
         )
         isAccessible = isAccessible && partial.isAccessible
         warnings.append(contentsOf: partial.warnings)
-        sharedAllocationAccumulator.merge(partial.sharedAllocationAccumulator)
+        sharedAllocationAccumulator.mergeSummaryPartial(partial.sharedAllocationAccumulator)
         lock.unlock()
     }
 

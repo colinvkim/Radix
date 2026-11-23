@@ -75,7 +75,7 @@ nonisolated struct AtomicDirectorySummaryPartial: Sendable {
             ownerNodeID: ownerNodeID,
             path: knownPath ?? url.path
         ) {
-            sharedAllocationAccumulator.record(claim)
+            sharedAllocationAccumulator.recordSummarizedMember(claim)
         }
     }
 }

@@ -43,80 +43,86 @@ nonisolated struct SharedAllocationDeduplicator {
         _ store: FileTreeStore,
         cancellationCheck: () throws -> Void
     ) throws -> FileTreeStore {
-        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var claimNodeIndices: [FileTreeNodeIndex] = []
-
+        var allocations = Rebalancer()
         for (offset, nodeIndex) in store.indexedNodeIndices().enumerated() {
             if offset.isMultiple(of: 256) {
                 try cancellationCheck()
             }
-            guard let node = store.node(at: nodeIndex),
-                  let claim = claim(for: node) else {
-                continue
+            if let node = store.node(at: nodeIndex) {
+                allocations.include(node, at: nodeIndex, from: store)
             }
-            sharedAllocationAccumulator.record(claim)
-            claimNodeIndices.append(nodeIndex)
+        }
+        return try allocations.rebalancedStore(store, cancellationCheck: cancellationCheck)
+    }
+
+    /// Retains only the claims hidden inside an opaque directory and its own allocation floor.
+    nonisolated struct Summary: Sendable {
+        let claims: SharedAllocationOwnerAccumulator
+        let minimumAllocatedSize: Int64
+
+        init?(claims: SharedAllocationOwnerAccumulator, minimumAllocatedSize: Int64?) {
+            guard !claims.summarizedMemberPaths.isEmpty, let minimumAllocatedSize else { return nil }
+            self.claims = claims
+            self.minimumAllocatedSize = minimumAllocatedSize
+        }
+    }
+
+    nonisolated struct Rebalancer {
+        private var accumulator = SharedAllocationOwnerAccumulator()
+        private var claimNodeIndices: [FileTreeNodeIndex] = []
+        private(set) var summaries: [String: Summary] = [:]
+
+        mutating func include(_ node: FileNodeRecord, at index: FileTreeNodeIndex, from source: FileTreeStore? = nil) {
+            if node.isDirectory, let summary = source?.summarizedAllocations[node.id] {
+                accumulator.merge(summary.claims)
+                summaries[node.id] = summary
+            } else if let claim = SharedAllocationDeduplicator.claim(for: node) {
+                accumulator.record(claim)
+            } else {
+                return
+            }
+            claimNodeIndices.append(index)
         }
 
-        return try rebalancedStore(
-            store,
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: claimNodeIndices,
-            cancellationCheck: cancellationCheck
-        )
-    }
-
-    nonisolated static func rebalancedStore(
-        _ store: FileTreeStore,
-        sharedAllocationAccumulator: SharedAllocationOwnerAccumulator,
-        claimNodeIndices: [FileTreeNodeIndex],
-        cancellationCheck: () throws -> Void
-    ) throws -> FileTreeStore {
-        let replacements = try rebalancedAllocatedSizeReplacements(
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: claimNodeIndices,
-            nodeAt: { nodeIndex in
-                guard let node = store.node(at: nodeIndex) else {
-                    preconditionFailure("Shared-allocation claim index is out of range.")
-                }
-                return node
-            },
-            cancellationCheck: cancellationCheck
-        )
-        guard !replacements.isEmpty else { return store }
-
-        return try store.replacingAllocatedSizes(
-            replacements,
-            cancellationCheck: cancellationCheck
-        )
-    }
-
-    nonisolated static func rebalancedAllocatedSizeReplacements(
-        sharedAllocationAccumulator: SharedAllocationOwnerAccumulator,
-        claimNodeIndices: [FileTreeNodeIndex],
-        nodeAt: (FileTreeNodeIndex) -> FileNodeRecord,
-        cancellationCheck: () throws -> Void
-    ) throws -> [(nodeIndex: FileTreeNodeIndex, allocatedSize: Int64)] {
-        guard !sharedAllocationAccumulator.isEmpty else { return [] }
-
-        let duplicateAllocatedSizeByOwner = try sharedAllocationAccumulator.duplicateAllocatedSizeByOwner(
-            cancellationCheck: cancellationCheck
-        )
-        var replacements: [(nodeIndex: FileTreeNodeIndex, allocatedSize: Int64)] = []
-        for (offset, nodeIndex) in claimNodeIndices.enumerated() {
-            if offset.isMultiple(of: 256) {
-                try cancellationCheck()
-            }
-            let node = nodeAt(nodeIndex)
-            let duplicateAllocatedSize = duplicateAllocatedSizeByOwner[node.id] ?? 0
-            let targetAllocatedSize = max(
-                0,
-                node.unduplicatedAllocatedSize - duplicateAllocatedSize
+        func rebalancedStore(
+            _ store: FileTreeStore,
+            cancellationCheck: () throws -> Void
+        ) throws -> FileTreeStore {
+            let replacements = try allocatedSizeReplacements(
+                nodeAt: { nodeIndex in
+                    guard let node = store.node(at: nodeIndex) else {
+                        preconditionFailure("Shared-allocation claim index is out of range.")
+                    }
+                    return node
+                },
+                cancellationCheck: cancellationCheck
             )
-            guard node.allocatedSize != targetAllocatedSize else { continue }
-            replacements.append((nodeIndex, targetAllocatedSize))
+            var result = try store.replacingAllocatedSizes(replacements, cancellationCheck: cancellationCheck)
+            result.summarizedAllocations = summaries
+            return result
         }
-        return replacements
+
+        func allocatedSizeReplacements(
+            nodeAt: (FileTreeNodeIndex) -> FileNodeRecord,
+            cancellationCheck: () throws -> Void
+        ) throws -> [(nodeIndex: FileTreeNodeIndex, allocatedSize: Int64)] {
+            guard !accumulator.isEmpty else { return [] }
+
+            let duplicates = try accumulator.duplicateAllocatedSizeByOwner(cancellationCheck: cancellationCheck)
+            var replacements: [(nodeIndex: FileTreeNodeIndex, allocatedSize: Int64)] = []
+            for (offset, nodeIndex) in claimNodeIndices.enumerated() {
+                if offset.isMultiple(of: 256) {
+                    try cancellationCheck()
+                }
+                let node = nodeAt(nodeIndex)
+                let minimum = node.isDirectory ? summaries[node.id]?.minimumAllocatedSize ?? 0 : 0
+                let allocatedSize = max(minimum, node.unduplicatedAllocatedSize - (duplicates[node.id] ?? 0))
+                if allocatedSize != node.allocatedSize {
+                    replacements.append((nodeIndex, allocatedSize))
+                }
+            }
+            return replacements
+        }
     }
 
     nonisolated static func claim(for node: FileNodeRecord) -> SharedAllocationClaim? {
