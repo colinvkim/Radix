@@ -220,14 +220,13 @@ struct LocalizationCatalogTests {
 
     @Test
     func testXcodeProjectDeclaresSupportedLocales() throws {
-        let url = repositoryRoot.appendingPathComponent("Radix.xcodeproj/project.pbxproj")
-        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil)
-        let project = try #require(plist as? [String: Any])
-        let objects = try #require(project["objects"] as? [String: Any])
-        let rootID = try #require(project["rootObject"] as? String)
-        let root = try #require(objects[rootID] as? [String: Any])
-        let knownRegions = try #require(root["knownRegions"] as? [String])
-        #expect(Set(["en"] + supportedLocales).isSubset(of: Set(knownRegions)))
+        let url = repositoryRoot.appendingPathComponent("Radix.xcodeproj/project.xcproj")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url), options: .json5Allowed)
+        let project = try #require(json as? [String: Any])
+        let localizations = try #require(project["localizations"] as? [String: Any])
+        let supported = try #require(localizations["supported"] as? [String])
+        #expect(localizations["development"] as? String == "en")
+        #expect(Set(supportedLocales).isSubset(of: Set(supported)))
     }
 
     private func assertTranslated(

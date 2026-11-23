@@ -3,7 +3,7 @@
 ## Radix
 
 Radix is a native macOS 14+ disk-space analyzer built with Swift 6.2,
-SwiftUI, and Xcode 26+.
+SwiftUI, and Xcode 27+.
 
 ## Architecture and task routing
 

@@ -83,7 +83,8 @@ Download the latest version from [Releases](https://github.com/colinvkim/Radix/r
 
 ## Building from Source
 
-Building Radix requires **Xcode 26 or later** with a Swift 6.2 toolchain.
+Building the Radix app requires **Xcode 27 or later**. The Swift package
+requires Swift 6.2 or later.
 
 Clone the repository and run the Swift package tests:
 
