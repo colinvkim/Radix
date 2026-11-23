@@ -3036,6 +3036,12 @@ struct AppModelDependencyTests {
         model.snapshotAutosaveFolder = folder
         let first = makeComparisonSnapshot(rootPath: "/autosave", fileSize: 42)
         let second = makeComparisonSnapshot(rootPath: "/autosave", fileSize: 100)
+        var confirmedArchives: [URL] = []
+        let observer = model.$exportConfirmation.compactMap { $0?.archiveURL }.sink { url in
+            #expect(FileManager.default.fileExists(atPath: url.path))
+            confirmedArchives.append(url)
+        }
+        defer { observer.cancel() }
 
         model.startScan(first.target)
         try await waitUntil("full scan started") { scanService.requests.count == 1 }
@@ -3047,13 +3053,11 @@ struct AppModelDependencyTests {
         scanService.yield(.finished(second), scanIndex: 1)
         scanService.finish(scanIndex: 1)
 
-        func archives() throws -> [URL] {
-            try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-                .filter { $0.pathExtension == "radixscan" }
-        }
-        try await waitUntil("two autosaved archives") { (try? archives().count) == 2 }
+        try await waitUntil("both autosaves confirmed") { confirmedArchives.count == 2 }
+        let archiveNames = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(archiveNames.sorted() == confirmedArchives.map(\.lastPathComponent).sorted())
         var sizes: [Int64] = []
-        for url in try archives() {
+        for url in confirmedArchives {
             let result = try await ScanArchiveService().importSnapshot(from: url)
             sizes.append(result.snapshot.root.allocatedSize)
         }
@@ -3073,6 +3077,7 @@ struct AppModelDependencyTests {
         scanner.finish(scanIndex: 0)
 
         try await waitUntil("autosave error presented") { model.lastErrorMessage != nil }
+        #expect(model.exportConfirmation == nil)
         #expect(model.scanState.snapshot?.id == snapshot.id)
         #expect(model.canExportCurrentScan)
     }

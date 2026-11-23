@@ -4,7 +4,8 @@ In **Settings → Scanning**, turn on **Save a snapshot after each scan** and
 choose a destination folder. The setting is off by default.
 
 When you finish scanning a folder or volume, Radix saves a timestamped
-`.radixscan` file in your chosen destination. Rescan the entire target to
+`.radixscan` file in your chosen destination. When **Snapshot Saved**
+appears, select **Show in Finder** to see the archive. Rescan the entire target to
 save another snapshot, then compare the two in Radix to see where disk
 usage changed.
 

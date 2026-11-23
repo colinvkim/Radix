@@ -141,8 +141,9 @@ struct ContentView: View {
                 .padding(.top, 12)
                 .padding(.horizontal, 16)
                 .topBannerTransition()
-            } else if appModel.exportConfirmation != nil {
+            } else if let confirmation = appModel.exportConfirmation {
                 ExportConfirmationBanner(
+                    title: confirmation.title,
                     onReveal: {
                         appModel.revealExportedSnapshotInFinder()
                     },
@@ -417,6 +418,7 @@ private struct ArchiveOperationBanner: View {
 }
 
 private struct ExportConfirmationBanner: View {
+    let title: String
     let onReveal: () -> Void
     let onDismiss: () -> Void
 
@@ -425,7 +427,7 @@ private struct ExportConfirmationBanner: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
 
-            Text("Snapshot Exported")
+            Text(title)
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
 

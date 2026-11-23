@@ -4,6 +4,7 @@ import Foundation
 struct ExportConfirmationState: Identifiable, Equatable, Sendable {
     let id: UUID
     let archiveURL: URL
+    let title: String
 }
 
 struct DiscardPileSummary: Equatable, Sendable {
@@ -1003,7 +1004,11 @@ final class AppModel: ObservableObject {
         let service = dependencies.scanArchiveService
         Task.detached(priority: .utility) { [weak self] in
             do {
-                _ = try await service.export(snapshot: snapshot, to: destination, options: .init(keepBoth: true))
+                let result = try await service.export(snapshot: snapshot, to: destination, options: .init(keepBoth: true))
+                await self?.presentExportConfirmation(
+                    for: result.archiveURL,
+                    title: String(localized: "Snapshot Saved", comment: "Confirmation after a snapshot is saved automatically.")
+                )
             } catch {
                 await self?.presentError(error, title: String(localized: "Snapshot Autosave Failed", comment: "Alert title when a completed scan could not be saved automatically."))
             }
@@ -1033,7 +1038,7 @@ final class AppModel: ObservableObject {
             onSuccess: { [weak self] result in
                 guard let self else { return }
                 lastErrorMessage = nil
-                presentExportConfirmation(for: result.archiveURL)
+                presentExportConfirmation(for: result.archiveURL, title: String(localized: "Snapshot Exported"))
             },
             onFailure: { [weak self] error in
                 self?.presentError(error, title: String(localized: "Export Failed", comment: "Alert title shown when exporting a snapshot fails."))
@@ -1056,9 +1061,9 @@ final class AppModel: ObservableObject {
         exportConfirmation = nil
     }
 
-    private func presentExportConfirmation(for archiveURL: URL) {
+    private func presentExportConfirmation(for archiveURL: URL, title: String) {
         dismissExportConfirmation()
-        let confirmation = ExportConfirmationState(id: UUID(), archiveURL: archiveURL)
+        let confirmation = ExportConfirmationState(id: UUID(), archiveURL: archiveURL, title: title)
         exportConfirmation = confirmation
         exportConfirmationDismissTask = Task { @MainActor [weak self] in
             do {
