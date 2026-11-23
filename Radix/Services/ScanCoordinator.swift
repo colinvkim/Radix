@@ -746,7 +746,7 @@ final class ScanCoordinator: ObservableObject {
             }
 
             try Task.checkCancellation()
-            guard folderRescanContextIsCurrent(
+            guard try await waitForBackgroundRefreshApplication(
                 id: rescanID,
                 snapshotContextID: baselineContextID,
                 snapshotRevision: baselineRevision
