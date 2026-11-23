@@ -264,16 +264,20 @@ struct TrashFlowControllerTests {
         let node = makeTestFileNode(id: "/selection/file", name: "file")
         var continuation: CheckedContinuation<Void, Never>?
         var didFinish = false
+        var reportedBusy: Bool?
+        controller.onChange = { [weak controller] in reportedBusy = controller?.isMovingFiles }
         controller.startConfirmedMove([node], moveToTrash: { _ in
             await withCheckedContinuation { continuation = $0 }
             return TrashMoveOutcome(.matches)
         }, beginMove: {}, onFinish: { _, _, _, _ in didFinish = true })
+        #expect(reportedBusy == true)
         #expect(!controller.setReadOnlyMode(true))
         try await waitUntil("move starts") { continuation != nil }
         #expect(!controller.setReadOnlyMode(true))
         #expect(!controller.isReadOnlyMode)
         continuation?.resume()
         try await waitUntil("move finishes") { didFinish }
+        #expect(reportedBusy == false)
         #expect(controller.setReadOnlyMode(true))
         #expect(controller.isReadOnlyMode)
     }
@@ -341,6 +345,8 @@ struct TrashFlowControllerTests {
         let controller = TrashFlowController()
         var oldContinuation: CheckedContinuation<Void, Never>?
         var newContinuation: CheckedContinuation<Void, Never>?
+        var reportedBusy: Bool?
+        controller.onChange = { [weak controller] in reportedBusy = controller?.isMovingFiles }
         var events: [String] = []
         controller.enqueuePostTrashSnapshotRemoval {
             events.append("old started")
@@ -351,7 +357,9 @@ struct TrashFlowControllerTests {
             Issue.record("Cancellation must discard queued removal requests")
         }
         try await waitUntil("old removal starts") { oldContinuation != nil }
+        #expect(reportedBusy == true)
         controller.cancelPostTrashSnapshotRemoval()
+        #expect(reportedBusy == false)
 
         controller.enqueuePostTrashSnapshotRemoval {
             events.append("new started")
@@ -366,6 +374,7 @@ struct TrashFlowControllerTests {
         newContinuation?.resume()
 
         try await waitUntil("replacement queue drains") { events.contains("last") }
+        #expect(reportedBusy == false)
         #expect(events == ["old started", "new started", "old returned", "new returned", "next", "last"])
     }
 }
