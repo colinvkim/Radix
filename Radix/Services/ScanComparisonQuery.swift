@@ -41,6 +41,8 @@ nonisolated struct ScanComparisonRowComparator: Equatable, SortComparator, Senda
         case relativePath
         case beforeAllocatedSize
         case afterAllocatedSize
+        case increase
+        case decrease
         case allocatedDelta
         case absoluteAllocatedDelta
         case itemKind
@@ -73,6 +75,10 @@ nonisolated struct ScanComparisonRowComparator: Equatable, SortComparator, Senda
             FileNodeSortComparison.compareOptional(lhs.beforeAllocatedSize, rhs.beforeAllocatedSize)
         case .afterAllocatedSize:
             FileNodeSortComparison.compareOptional(lhs.afterAllocatedSize, rhs.afterAllocatedSize)
+        case .increase:
+            FileNodeSortComparison.compare(max(0, lhs.allocatedDelta), max(0, rhs.allocatedDelta))
+        case .decrease:
+            FileNodeSortComparison.compare(min(0, rhs.allocatedDelta), min(0, lhs.allocatedDelta))
         case .allocatedDelta:
             FileNodeSortComparison.compare(lhs.allocatedDelta, rhs.allocatedDelta)
         case .absoluteAllocatedDelta:
