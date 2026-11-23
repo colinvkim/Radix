@@ -185,40 +185,6 @@ struct LocalizationCatalogTests {
     }
 
     @Test
-    func testSwiftPackageCoreSourceListMatchesCoreFilesOnDisk() throws {
-        let root = repositoryRoot
-        let scratch = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: scratch) }
-        let package = Process()
-        let output = Pipe()
-        package.executableURL = URL(filePath: "/usr/bin/xcrun")
-        package.arguments = ["swift", "package", "--package-path", root.path, "--scratch-path", scratch.path, "describe", "--type", "json"]
-        package.standardOutput = output
-        try package.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        package.waitUntilExit()
-        try #require(package.terminationStatus == 0)
-        let description = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let targets = try #require(description["targets"] as? [[String: Any]])
-        let core = try #require(targets.first { $0["name"] as? String == "RadixCore" })
-        let listedSources = Set(try #require(core["sources"] as? [String]))
-
-        let appSourceRoot = root.appendingPathComponent("Radix")
-        let expectedSources = Set(
-            try swiftSourceFiles(in: appSourceRoot).compactMap { url -> String? in
-                let relativePath = String(url.path.dropFirst(appSourceRoot.path.count + 1))
-                let firstComponent = relativePath.split(separator: "/").first.map(String.init)
-                if ["App", "Features", "Shared"].contains(firstComponent) { return nil }
-                if ["ContentView.swift", "RadixApp.swift"].contains(relativePath) { return nil }
-                return relativePath
-            })
-
-        #expect(
-            listedSources == expectedSources,
-            "Package.swift's explicit RadixCore sources must track every non-UI Swift source exactly.")
-    }
-
-    @Test
     func testXcodeProjectDeclaresSupportedLocales() throws {
         let url = repositoryRoot.appendingPathComponent("Radix.xcodeproj/project.xcproj")
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url), options: .json5Allowed)

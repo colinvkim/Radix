@@ -34,9 +34,9 @@ SwiftUI, and Xcode 27+.
   menu commands: `Radix/App/RadixCommands.swift`
 - Swift Testing core and integration tests: `RadixCoreTests/`
 
-`Package.swift` defines the non-UI `RadixCore` target. When adding or moving a
-non-UI Swift file, update its explicit source list. The Xcode project builds
-the complete app.
+`Package.swift` defines the non-UI `RadixCore` target. SwiftPM discovers its
+sources under `Radix/` using the manifest’s exclusions. The Xcode project
+builds the complete app.
 
 ## Change guidelines
 
