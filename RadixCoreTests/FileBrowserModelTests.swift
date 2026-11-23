@@ -74,6 +74,7 @@ struct FileBrowserModelTests {
         ("/library/caches", ["/root/Library/Caches/cache.db"]),
         ("\\library\\caches", ["/root/Library/Caches/cache.db"]),
         ("Library", []),
+        (String(repeating: "한", count: 12).decomposedStringWithCanonicalMapping, ["/root/korean"]),
     ])
     func testCurrentContentsAndEntireScanSearchUseSameNormalizedRules(query: String, expectedIDs: [String]) async throws
     {
@@ -81,7 +82,8 @@ struct FileBrowserModelTests {
         let report = makeTestFileNode(id: "/root/reports/quarterly.pdf", name: "REPORT.PDF", size: 20)
         let cache = makeTestFileNode(id: "/root/Library/Caches/cache.db", name: "cache.db", size: 30)
         let ignored = makeTestFileNode(id: "/root/other.bin", name: "other.bin", size: 40)
-        let nodes = [resume, report, cache, ignored]
+        let korean = makeTestFileNode(id: "/root/korean", name: String(repeating: "한", count: 12), size: 1)
+        let nodes = [resume, report, cache, ignored, korean]
         let root = makeTestDirectoryNode(id: "/root", name: "root", children: nodes)
         let store = FileTreeStore(root: root, childrenByID: [root.id: nodes])
         let service = FileSearchService()
