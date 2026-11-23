@@ -27,17 +27,20 @@ nonisolated struct ScanArchiveExportOptions: Sendable {
     var appVersion: String?
     var formatVersion: Int
     var progressReporter: ScanArchiveProgressReporter?
+    var keepBoth: Bool
 
     nonisolated init(
         pathMode: ScanArchivePathMode = .absolute,
         appVersion: String? = nil,
         formatVersion: Int = ScanArchiveService.currentFormatVersion,
-        progressReporter: ScanArchiveProgressReporter? = nil
+        progressReporter: ScanArchiveProgressReporter? = nil,
+        keepBoth: Bool = false
     ) {
         self.pathMode = pathMode
         self.appVersion = appVersion
         self.formatVersion = formatVersion
         self.progressReporter = progressReporter
+        self.keepBoth = keepBoth
     }
 }
 
@@ -384,10 +387,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         _ = try writeJSON(manifest, to: manifestURL)
 
         try Task.checkCancellation()
-        try installArchive(from: archiveURL, to: destinationURL)
+        let installedURL = try installArchive(from: archiveURL, to: destinationURL, keepBoth: options.keepBoth)
         didInstallArchive = true
 
-        return ScanArchiveExportResult(archiveURL: destinationURL)
+        return ScanArchiveExportResult(archiveURL: installedURL)
     }
 
     func previewSnapshot(from sourceURL: URL) async throws -> ScanArchivePreview {
@@ -825,8 +828,8 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         return tempURL
     }
 
-    private func installArchive(from temporaryURL: URL, to destinationURL: URL) throws {
-        if fileManager.fileExists(atPath: destinationURL.path) {
+    private func installArchive(from temporaryURL: URL, to destinationURL: URL, keepBoth: Bool) throws -> URL {
+        if !keepBoth, fileManager.fileExists(atPath: destinationURL.path) {
             var resultingURL: NSURL?
             try fileManager.replaceItem(
                 at: destinationURL,
@@ -835,8 +838,21 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
                 options: [],
                 resultingItemURL: &resultingURL
             )
-        } else {
-            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+            return destinationURL
+        }
+
+        var candidate = destinationURL
+        var suffix = 1
+        while true {
+            do {
+                try fileManager.moveItem(at: temporaryURL, to: candidate)
+                return candidate
+            } catch let error as CocoaError where keepBoth && error.code == .fileWriteFileExists {
+                suffix += 1
+                let stem = destinationURL.deletingPathExtension().lastPathComponent
+                candidate = destinationURL.deletingLastPathComponent()
+                    .appendingPathComponent("\(stem) (\(suffix)).\(Self.fileExtension)")
+            }
         }
     }
 

@@ -62,12 +62,15 @@ struct AppPreferencesStoreTests {
             visualizationMode: .treemap,
             useScanExclusions: true,
             exclusionPatterns: ["node_modules", "*.log"],
-            automaticallyRefreshFocusedFolder: false
+            automaticallyRefreshFocusedFolder: false,
+            snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory)
         )
 
         store.saveScanPreferences(preferences)
 
         #expect(store.loadPreferences().scan == preferences)
+        store.saveScanPreferences(.defaults)
+        #expect(store.loadPreferences().scan.snapshotAutosaveFolder == nil)
         #expect(!(store.loadPreferences().didCompleteOnboarding))
 
         store.markOnboardingComplete()

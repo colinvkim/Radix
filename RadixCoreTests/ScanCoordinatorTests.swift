@@ -296,7 +296,9 @@ struct ScanCoordinatorTests {
         let coordinator = ScanCoordinator(scanService: service, progressThrottleDuration: .milliseconds(40))
         let target = makeCoordinatorTarget("/scan/cancel")
 
-        coordinator.startScan(target, options: ScanOptions())
+        coordinator.startScan(target, options: ScanOptions(), onCompletion: { _ in
+            Issue.record("A cancelled scan delivered a completed snapshot")
+        })
         let scanTask = try #require(coordinator.scanTask)
         coordinator.stopScan()
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -63,6 +64,29 @@ private struct ScanningSettingsPane: View {
                 )
             }
 
+            Section("Snapshots") {
+                Toggle("Save a snapshot after each scan", isOn: Binding(
+                    get: { appModel.snapshotAutosaveFolder != nil },
+                    set: { enabled in
+                        if enabled {
+                            chooseSnapshotFolder()
+                        } else {
+                            appModel.snapshotAutosaveFolder = nil
+                        }
+                    }
+                ))
+                if let folder = appModel.snapshotAutosaveFolder {
+                    LabeledContent {
+                        Button("Choose Folder…") { chooseSnapshotFolder() }
+                    } label: {
+                        Text(verbatim: folder.path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(folder.path)
+                    }
+                }
+            }
+
             Section("Exclusions") {
                 SettingsToggle(
                     "Use exclusions",
@@ -74,6 +98,19 @@ private struct ScanningSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func chooseSnapshotFolder() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Snapshot Folder", comment: "Title of the folder picker for automatic snapshot saves.")
+        panel.prompt = String(localized: "Choose")
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = appModel.snapshotAutosaveFolder
+        if panel.runModal() == .OK, let folder = panel.url {
+            appModel.snapshotAutosaveFolder = folder
+        }
     }
 }
 

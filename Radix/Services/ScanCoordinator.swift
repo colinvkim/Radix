@@ -292,6 +292,7 @@ final class ScanCoordinator: ObservableObject {
         options: ScanOptions,
         baseline: ScanSnapshot? = nil,
         isRescan: Bool = false,
+        onCompletion: ((ScanSnapshot) -> Void)? = nil,
         prepare: () -> Void = {}
     ) {
         stopScan(resetState: false)
@@ -316,7 +317,7 @@ final class ScanCoordinator: ObservableObject {
             stream = scanService.scan(target: target, options: options)
         }
         scanTask = Task { [weak self] in
-            await self?.consumeScanStream(stream, scanID: scanID)
+            await self?.consumeScanStream(stream, scanID: scanID, onCompletion: onCompletion)
         }
     }
 
@@ -651,12 +652,23 @@ final class ScanCoordinator: ObservableObject {
 
     private func consumeScanStream(
         _ stream: AsyncThrowingStream<ScanProgressEvent, Error>,
-        scanID: UUID
+        scanID: UUID,
+        onCompletion: ((ScanSnapshot) -> Void)?
     ) async {
         do {
             for try await event in stream {
                 guard activeScanID == scanID else { break }
-                handle(event, scanID: scanID)
+                switch event {
+                case .executionMode(let mode):
+                    handleExecutionMode(mode)
+                case .progress(let metrics):
+                    handleProgress(metrics, operationID: scanID)
+                case .warning:
+                    break
+                case .finished(let snapshot):
+                    finishScan(with: snapshot, scanID: scanID)
+                    onCompletion?(snapshot)
+                }
             }
         } catch is CancellationError {
             completeCancelledScan(scanID: scanID)
@@ -978,21 +990,6 @@ final class ScanCoordinator: ObservableObject {
                 id: expansionID,
                 result: .failed(message: String(localized: "Failed to expand '\(node.name)': \(error.localizedDescription)", comment: "Error shown when expanding a summarized folder fails."))
             )
-        }
-    }
-
-    private func handle(_ event: ScanProgressEvent, scanID: UUID) {
-        guard activeScanID == scanID else { return }
-
-        switch event {
-        case .executionMode(let mode):
-            handleExecutionMode(mode)
-        case .progress(let metrics):
-            handleProgress(metrics, operationID: scanID)
-        case .warning:
-            break
-        case .finished(let snapshot):
-            finishScan(with: snapshot, scanID: scanID)
         }
     }
 

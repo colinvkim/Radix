@@ -112,6 +112,7 @@ final class AppModel: ObservableObject {
     @Published var maxRenderedDepth = 6
     @Published var autoSummarizeDirectories = true
     @Published var automaticallyRefreshFocusedFolder = true
+    @Published var snapshotAutosaveFolder: URL?
     @Published var showFreeSpaceInDiskMaps = false
     @Published var scanVisualizationMode = ScanVisualizationMode.sunburst
     @Published var useScanExclusions = false
@@ -334,6 +335,7 @@ final class AppModel: ObservableObject {
         maxRenderedDepth = preferences.scan.maxRenderedDepth
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
         automaticallyRefreshFocusedFolder = preferences.scan.automaticallyRefreshFocusedFolder
+        snapshotAutosaveFolder = preferences.scan.snapshotAutosaveFolder
         showFreeSpaceInDiskMaps = preferences.scan.showFreeSpaceInDiskMaps
         scanVisualizationMode = preferences.scan.visualizationMode
         useScanExclusions = preferences.scan.useScanExclusions
@@ -846,6 +848,7 @@ final class AppModel: ObservableObject {
         maxRenderedDepth = AppScanPreferences.defaults.maxRenderedDepth
         autoSummarizeDirectories = AppScanPreferences.defaults.autoSummarizeDirectories
         automaticallyRefreshFocusedFolder = AppScanPreferences.defaults.automaticallyRefreshFocusedFolder
+        snapshotAutosaveFolder = nil
         showFreeSpaceInDiskMaps = AppScanPreferences.defaults.showFreeSpaceInDiskMaps
         scanVisualizationMode = AppScanPreferences.defaults.visualizationMode
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
@@ -991,6 +994,20 @@ final class AppModel: ObservableObject {
         scanCoordinator.snapshot?.isComplete == true &&
             !scanCoordinator.isForegroundScanOperationInProgress &&
             !isArchiveOperationInProgress
+    }
+
+    private func autosaveSnapshot(_ snapshot: ScanSnapshot) {
+        guard let folder = snapshotAutosaveFolder, snapshot.isComplete, !tourSession.isActive else { return }
+        let destination = folder.appendingPathComponent(defaultExportFileName(for: snapshot))
+            .appendingPathExtension(ScanArchiveService.fileExtension)
+        let service = dependencies.scanArchiveService
+        Task.detached(priority: .utility) { [weak self] in
+            do {
+                _ = try await service.export(snapshot: snapshot, to: destination, options: .init(keepBoth: true))
+            } catch {
+                await self?.presentError(error, title: String(localized: "Snapshot Autosave Failed", comment: "Alert title when a completed scan could not be saved automatically."))
+            }
+        }
     }
 
     private func startArchiveExport(snapshot: ScanSnapshot, destinationURL: URL) {
@@ -1779,7 +1796,8 @@ final class AppModel: ObservableObject {
             target,
             options: options,
             baseline: baseline,
-            isRescan: intent == .rescan || baseline != nil
+            isRescan: intent == .rescan || baseline != nil,
+            onCompletion: { [weak self] snapshot in self?.autosaveSnapshot(snapshot) }
         ) {
             prepareForScan(target)
         }
@@ -3379,15 +3397,11 @@ final class AppModel: ObservableObject {
                 $useScanExclusions,
                 $exclusionPatterns
             ))
-            .combineLatest($scanVisualizationMode, $automaticallyRefreshFocusedFolder)
-            .map { preferences, visualizationMode, automaticallyRefreshFocusedFolder in
-                Self.scanPreferences(preferences.0, preferences.1, visualizationMode, automaticallyRefreshFocusedFolder)
-            }
+            .combineLatest($scanVisualizationMode, $automaticallyRefreshFocusedFolder, $snapshotAutosaveFolder)
             .dropFirst()
-            .removeDuplicates()
             .debounce(for: Self.scanPreferencePersistenceDebounce, scheduler: RunLoop.main)
-            .sink { [weak self] preferences in
-                self?.persistScanPreferences(preferences)
+            .sink { [weak self] _ in
+                self?.flushPendingScanPreferences()
             }
             .store(in: &cancellables)
     }
@@ -3402,41 +3416,21 @@ final class AppModel: ObservableObject {
             visualizationMode: scanVisualizationMode,
             useScanExclusions: useScanExclusions,
             exclusionPatterns: exclusionPatterns,
-            automaticallyRefreshFocusedFolder: automaticallyRefreshFocusedFolder
+            automaticallyRefreshFocusedFolder: automaticallyRefreshFocusedFolder,
+            snapshotAutosaveFolder: snapshotAutosaveFolder
         )
     }
 
     private func flushPendingScanPreferences() {
-        persistScanPreferences(currentScanPreferences)
-    }
-
-    private func persistScanPreferences(_ preferences: AppScanPreferences) {
+        let preferences = currentScanPreferences
         guard !tourSession.isActive, lastPersistedScanPreferences != preferences else { return }
         dependencies.preferences.saveScanPreferences(preferences)
         lastPersistedScanPreferences = preferences
     }
 
-    private static func scanPreferences(
-        _ scanBasics: (Bool, Bool, Int),
-        _ scanFilters: (Bool, Bool, Bool, [String]),
-        _ visualizationMode: ScanVisualizationMode,
-        _ automaticallyRefreshFocusedFolder: Bool
-    ) -> AppScanPreferences {
-        AppScanPreferences(
-            showHiddenFiles: scanBasics.0,
-            treatPackagesAsDirectories: scanBasics.1,
-            maxRenderedDepth: scanBasics.2,
-            autoSummarizeDirectories: scanFilters.0,
-            showFreeSpaceInDiskMaps: scanFilters.1,
-            visualizationMode: visualizationMode,
-            useScanExclusions: scanFilters.2,
-            exclusionPatterns: scanFilters.3,
-            automaticallyRefreshFocusedFolder: automaticallyRefreshFocusedFolder
-        )
-    }
-
     private func defaultExportFileName(for snapshot: ScanSnapshot) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         let dateText = formatter.string(from: snapshot.finishedAt ?? Date())
         let targetName = sanitizedFileName(snapshot.target.displayName)
@@ -3449,7 +3443,11 @@ final class AppModel: ObservableObject {
             .union(.controlCharacters)
         let components = name.components(separatedBy: invalidCharacters)
         let sanitizedName = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
-        return sanitizedName.isEmpty ? String(localized: "Radix Scan", comment: "Fallback filename for an exported scan.") : sanitizedName
+        // The temporary archive also appends a UUID to the timestamped filename.
+        guard !sanitizedName.isEmpty, sanitizedName.utf8.count <= 175 else {
+            return String(localized: "Radix Scan", comment: "Fallback filename for an exported scan.")
+        }
+        return sanitizedName.hasPrefix(".") ? "Radix \(sanitizedName)" : sanitizedName
     }
 
     private static func currentAppVersion() -> String {
