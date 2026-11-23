@@ -3,7 +3,6 @@ import SwiftUI
 struct TreemapChartView: View {
     private static let chartPadding: CGFloat = 18
     private static let viewportControlsAvoidanceSize = CGSize(width: 160, height: 56)
-    private static let tooltipMaximumSize = CGSize(width: 272, height: 122)
 
     let rootNode: FileNodeRecord
     let treeStore: DiskMapTreeStore
@@ -217,15 +216,17 @@ struct TreemapChartView: View {
                 if layoutPresentation.canUseRenderedLayout,
                    let tooltipContent,
                    let tooltipAnchor {
+                    let bounds = CGRect(origin: .zero, size: geometry.size)
+                    let controlsFrame = canAdjustViewport ? viewportControlsFrame(in: geometry.size) : nil
                     TreemapHoverTooltip(content: tooltipContent)
-                        .frame(width: Self.tooltipMaximumSize.width)
-                        .offset(
-                            tooltipOrigin(
-                                at: tooltipAnchor,
-                                in: geometry.size,
-                                avoidingViewportControls: canAdjustViewport
+                        .frame(width: 272)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .visualEffect { effect, tooltip in
+                            let origin = TreemapTooltipPlacement.origin(
+                                for: tooltipAnchor, tooltipSize: tooltip.size, in: bounds, avoiding: controlsFrame
                             )
-                        )
+                            return effect.offset(x: origin.x, y: origin.y)
+                        }
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                         .transition(.opacity)
@@ -347,7 +348,7 @@ struct TreemapChartView: View {
         }
 
         let status = discardPileOverlay.role(for: displayedNode.id)?.statusText
-            ?? summaryStatus(for: displayedNode)
+            ?? displayedNode.itemKind(activeTarget: activeTarget)
         return String(localized: "\(displayedNode.displayName), \(RadixFormatters.size(displayedNode.allocatedSize)), \(status)", comment: "Accessibility value describing the selected treemap tile.")
     }
 
@@ -401,29 +402,13 @@ struct TreemapChartView: View {
         chartModel.setHoveredSegmentID(segment.id)
     }
 
-    private func tooltipOrigin(
-        at location: CGPoint,
-        in size: CGSize,
-        avoidingViewportControls: Bool
-    ) -> CGSize {
-        let controlsFrame: CGRect?
-        if avoidingViewportControls {
-            controlsFrame = CGRect(
-                x: max(size.width - Self.viewportControlsAvoidanceSize.width, 0),
-                y: 0,
-                width: min(Self.viewportControlsAvoidanceSize.width, size.width),
-                height: min(Self.viewportControlsAvoidanceSize.height, size.height)
-            )
-        } else {
-            controlsFrame = nil
-        }
-        let origin = TreemapTooltipPlacement.origin(
-            for: location,
-            tooltipSize: Self.tooltipMaximumSize,
-            in: CGRect(origin: .zero, size: size),
-            avoiding: controlsFrame
+    private func viewportControlsFrame(in size: CGSize) -> CGRect {
+        CGRect(
+            x: max(size.width - Self.viewportControlsAvoidanceSize.width, 0),
+            y: 0,
+            width: min(Self.viewportControlsAvoidanceSize.width, size.width),
+            height: min(Self.viewportControlsAvoidanceSize.height, size.height)
         )
-        return CGSize(width: origin.x, height: origin.y)
     }
 
     private func handleClick(
@@ -492,12 +477,6 @@ struct TreemapChartView: View {
               let nodeID = segment.nodeID,
               let session = fileDragController.prepare(nodeIDs: [nodeID]) else { return nil }
         return TreemapFileDragItem(session: session, segment: segment)
-    }
-
-    private func summaryStatus(for node: FileNodeRecord) -> String {
-        DiskMapFreeSpaceVisualization.isFreeSpaceNodeID(node.id)
-            ? String(localized: "Available Space", comment: "Chart status for free capacity on a volume.")
-            : node.itemKind(activeTarget: activeTarget)
     }
 
     private func zoomViewport(
@@ -605,6 +584,7 @@ private struct TreemapHoverTooltip: View {
                         .frame(width: Self.iconColumnWidth)
 
                     Text(content.location)
+                        .lineLimit(1)
                         .truncationMode(.middle)
                 }
 
@@ -614,7 +594,6 @@ private struct TreemapHoverTooltip: View {
             }
             .font(.caption)
             .foregroundStyle(.primary.opacity(0.76))
-            .lineLimit(1)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .topLeading)

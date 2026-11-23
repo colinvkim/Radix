@@ -10,7 +10,6 @@ nonisolated struct DiscardPileVisualizationPresentation: Sendable {
         snapshot: ScanSnapshot,
         focusNode: FileNodeRecord,
         showFreeSpace: Bool,
-        availableCapacity: Int64?,
         maxRenderedDepth: Int,
         discardPileRootNodeIDs: Set<FileNodeRecord.ID>,
         movingToTrashRootNodeIDs: Set<FileNodeRecord.ID> = []
@@ -18,8 +17,7 @@ nonisolated struct DiscardPileVisualizationPresentation: Sendable {
         let visualizationInput = DiskMapFreeSpaceVisualization.input(
             snapshot: snapshot,
             focusNode: focusNode,
-            showFreeSpace: showFreeSpace,
-            availableCapacity: availableCapacity
+            showFreeSpace: showFreeSpace
         )
         self.visualizationInput = visualizationInput
         layoutID = [

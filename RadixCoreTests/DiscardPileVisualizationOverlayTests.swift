@@ -197,7 +197,7 @@ struct DiscardPileVisualizationOverlayTests {
         ) -> DiscardPileVisualizationPresentation {
             DiscardPileVisualizationPresentation(
                 snapshot: snapshot, focusNode: fixture.root,
-                showFreeSpace: false, availableCapacity: nil, maxRenderedDepth: depth,
+                showFreeSpace: false, maxRenderedDepth: depth,
                 discardPileRootNodeIDs: queued, movingToTrashRootNodeIDs: moving
             )
         }

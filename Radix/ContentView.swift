@@ -46,9 +46,6 @@ struct ContentView: View {
                 movingToTrashRootNodeIDs: appModel.movingToTrashRootNodeIDs,
                 startupDiskTarget: appModel.startupDiskTarget,
                 fullDiskAccessStatus: appModel.fullDiskAccessStatus,
-                freeSpaceAvailableCapacity: { snapshot, focusNode in
-                    appModel.cachedFreeSpaceAvailableCapacity(for: snapshot, focusNode: focusNode)
-                },
                 closeScanComparison: {
                     appModel.closeScanComparison()
                 },
@@ -660,7 +657,6 @@ private struct WorkspaceDetailView: View {
     let movingToTrashRootNodeIDs: Set<FileNodeRecord.ID>
     let startupDiskTarget: ScanTarget?
     let fullDiskAccessStatus: FullDiskAccessStatus
-    let freeSpaceAvailableCapacity: (ScanSnapshot, FileNodeRecord) -> Int64?
     let closeScanComparison: () -> Void
     let comparisonRowActions: ScanComparisonRowActions
     let actions: WorkspaceActions
@@ -685,7 +681,6 @@ private struct WorkspaceDetailView: View {
                 movingToTrashRootNodeIDs: movingToTrashRootNodeIDs,
                 startupDiskTarget: startupDiskTarget,
                 fullDiskAccessStatus: fullDiskAccessStatus,
-                freeSpaceAvailableCapacity: freeSpaceAvailableCapacity,
                 actions: actions
             )
                 .toolbar {

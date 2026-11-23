@@ -221,17 +221,21 @@ struct SystemIntegrationTests {
             ])
     }
 
-    @Test
-    func testCapacityDescriptionPrefersGeneralAvailableCapacityWhenImportantUsageIsZero() {
-        let description = SystemIntegration.capacityDescription(
-            totalCapacity: 2_000_000_000_000,
-            availableCapacity: 512_000_000_000,
-            availableCapacityForImportantUsage: 0
-        )
-
-        let available = ByteCountFormatter.string(fromByteCount: 512_000_000_000, countStyle: .file)
-        let total = ByteCountFormatter.string(fromByteCount: 2_000_000_000_000, countStyle: .file)
-        #expect(description == String(localized: "\(available) free of \(total)"))
+    @Test(arguments: [
+        (100, 20, 50, "20 bytes free of 100 bytes"),
+        (100, 0, 50, "\(RadixFormatters.size(0)) free of 100 bytes"),
+        (100, nil, 50, "50 bytes available of 100 bytes"),
+        (100, nil, nil, "100 bytes total"),
+        (nil, 20, 50, "20 bytes free"),
+        (nil, nil, 50, "50 bytes available"),
+        (nil, nil, nil, nil)
+    ] as [(Int?, Int?, Int64?, String?)])
+    func testSidebarLabelsAvailableCapacityReadings(total: Int?, free: Int?, available: Int64?, expected: String?) {
+        #expect(SystemIntegration.capacityDescription(
+            totalCapacity: total,
+            freeCapacity: free,
+            availableCapacityForImportantUsage: available
+        ) == expected)
     }
 
     @Test

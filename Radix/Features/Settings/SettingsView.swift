@@ -93,7 +93,7 @@ private struct DiskMapSettingsPane: View {
 
                 SettingsToggle(
                     "Show free space in volume scans",
-                    detail: "Uses macOS available capacity, which may include purgeable space.",
+                    detail: "Uses the free space recorded when the volume was scanned.",
                     isOn: $appModel.showFreeSpaceInDiskMaps
                 )
             }

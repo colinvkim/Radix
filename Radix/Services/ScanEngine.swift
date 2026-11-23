@@ -1095,7 +1095,6 @@ nonisolated final class ScanEngine: Sendable {
 
         let treeStore = try await scanDirectory(
             target: target,
-            includeVolumeDetails: true,
             options: options,
             preservingMaterializedDirectoriesIn: materializedTree,
             behavior: behavior,
@@ -1172,7 +1171,6 @@ nonisolated final class ScanEngine: Sendable {
     /// Scans a directory iteratively (no recursion) and returns a fully assembled flat tree.
     private func scanDirectory(
         target: ScanTarget,
-        includeVolumeDetails: Bool,
         options: ScanOptions,
         preservingMaterializedDirectoriesIn materializedTree: FileTreeStore?,
         behavior: ScanBehavior,
@@ -1189,7 +1187,7 @@ nonisolated final class ScanEngine: Sendable {
             diagnostics: diagnostics,
             linkCountCapabilityCache: linkCountCapabilityCache
         )
-        let rootMetadata = try scanMetadataLoader.metadata(for: target.url, includeVolumeDetails: includeVolumeDetails)
+        let rootMetadata = try scanMetadataLoader.metadata(for: target.url, includeVolumeDetails: target.kind == .volume)
         guard !rootMetadata.isDataless else {
             throw ScanEngineError.cloudOnlyRoot
         }
@@ -1199,7 +1197,7 @@ nonisolated final class ScanEngine: Sendable {
             mountedFileSystems: Self.defaultMountedFileSystems()
         )
         metrics.discoveredItems = 1
-        metrics.volumeCapacity = target.kind == .volume ? rootMetadata.volumeCapacity : nil
+        metrics.volumeCapacity = rootMetadata.volumeCapacity
         metrics.estimatedTotalBytes = estimatedTotalBytes(for: target, metadata: rootMetadata)
         metrics.currentPath = target.url.path
         metrics.recalculateProgress()

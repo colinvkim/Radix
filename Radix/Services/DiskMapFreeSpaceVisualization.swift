@@ -28,6 +28,7 @@ nonisolated struct DiskMapTreeStore: DiskMapTreeReading {
     private struct VolumeCapacityOverlay: Sendable {
         let visualRootID: String
         let freeSpaceNode: FileNodeRecord
+        let estimatedReclaimableCapacity: Int64?
     }
 
     private let base: FileTreeStore
@@ -41,13 +42,23 @@ nonisolated struct DiskMapTreeStore: DiskMapTreeReading {
     fileprivate init(
         base: FileTreeStore,
         visualRootID: String,
-        freeSpaceNode: FileNodeRecord
+        freeSpaceNode: FileNodeRecord,
+        estimatedReclaimableCapacity: Int64?
     ) {
         self.base = base
         volumeCapacityOverlay = VolumeCapacityOverlay(
             visualRootID: visualRootID,
-            freeSpaceNode: freeSpaceNode
+            freeSpaceNode: freeSpaceNode,
+            estimatedReclaimableCapacity: estimatedReclaimableCapacity
         )
+    }
+
+    func freeSpaceDetail(for nodeID: String) -> String? {
+        guard let overlay = volumeCapacityOverlay, nodeID == overlay.freeSpaceNode.id else { return nil }
+        let detail = String(localized: "Free space at scan time", comment: "Disk map detail for free space recorded in a volume scan.")
+        guard let bytes = overlay.estimatedReclaimableCapacity else { return detail }
+        let estimate = String(localized: "About \(RadixFormatters.size(bytes)) reclaimable", comment: "Estimated additional disk space macOS could reclaim at scan time.")
+        return detail + "\n" + estimate
     }
 
     var contentID: UUID { base.contentID }
@@ -145,14 +156,14 @@ enum DiskMapFreeSpaceVisualization {
     nonisolated static func input(
         snapshot: ScanSnapshot,
         focusNode: FileNodeRecord,
-        showFreeSpace: Bool,
-        availableCapacity: Int64?
+        showFreeSpace: Bool
     ) -> DiskMapVisualizationInput {
         guard showFreeSpace,
               snapshot.target.kind == .volume,
               focusNode.id == snapshot.root.id,
-              let availableCapacity,
-              availableCapacity > 0 else {
+              let freeSpace = snapshot.volumeCapacity?.availableCapacity,
+              freeSpace > 0,
+              snapshot.overlappingAllocatedBytes == nil else {
             return DiskMapVisualizationInput(
                 rootNode: focusNode,
                 treeStore: DiskMapTreeStore(snapshot.treeStore),
@@ -170,8 +181,8 @@ enum DiskMapFreeSpaceVisualization {
             name: String(localized: "Free Space", comment: "Disk map category for available volume capacity."),
             isDirectory: false,
             isSymbolicLink: false,
-            allocatedSize: availableCapacity,
-            logicalSize: availableCapacity,
+            allocatedSize: freeSpace,
+            logicalSize: freeSpace,
             descendantFileCount: 0,
             lastModified: nil,
             isPackage: false,
@@ -183,14 +194,15 @@ enum DiskMapFreeSpaceVisualization {
         let treeStore = DiskMapTreeStore(
             base: snapshot.treeStore,
             visualRootID: visualRootID,
-            freeSpaceNode: freeSpaceNode
+            freeSpaceNode: freeSpaceNode,
+            estimatedReclaimableCapacity: snapshot.volumeCapacity?.estimatedReclaimableCapacity
         )
 
         return DiskMapVisualizationInput(
             rootNode: treeStore.root,
             treeStore: treeStore,
             treeContentID: snapshot.treeStore.contentID,
-            layoutIDComponent: "free-space:\(availableCapacity)"
+            layoutIDComponent: "free-space:\(freeSpace)"
         )
     }
 

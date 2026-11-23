@@ -94,7 +94,6 @@ extension AppSystemActions {
         fullDiskAccessStatus: { .unknown },
         defaultTargets: { [] },
         targetCapacityDescriptions: { [:] },
-        volumeAvailableCapacityForImportantUsage: { _ in nil },
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },

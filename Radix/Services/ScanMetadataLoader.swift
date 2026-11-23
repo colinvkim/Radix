@@ -541,7 +541,10 @@ nonisolated struct ScanMetadataLoader: Sendable {
            let availableCapacity = values.volumeAvailableCapacity {
             volumeCapacity = VolumeCapacitySnapshot(
                 totalCapacity: Int64(totalCapacity),
-                availableCapacity: Int64(availableCapacity)
+                availableCapacity: Int64(availableCapacity),
+                availableCapacityForImportantUsage: try? url.resourceValues(
+                    forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+                ).volumeAvailableCapacityForImportantUsage
             )
         } else {
             volumeCapacity = nil

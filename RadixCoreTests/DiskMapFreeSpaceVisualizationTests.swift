@@ -6,27 +6,28 @@ import Testing
 @MainActor
 struct DiskMapFreeSpaceVisualizationTests {
     @Test
-    func testVolumeRootAddsFreeSpaceUsingAvailableCapacityDenominator() throws {
+    func testVolumeRootAddsRecordedFreeSpaceToScannedAllocation() throws {
         let used = makeTestFileNode(id: "/volume/used.bin", name: "used.bin", size: 60)
         let root = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [used])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [used]])
-        let snapshot = makeTestSnapshot(
-            target: ScanTarget(url: root.url, kind: .volume),
-            root: root,
-            store: store
+        let snapshot = makeSnapshot(
+            store: store,
+            capacity: VolumeCapacitySnapshot(totalCapacity: 100, availableCapacity: 40, availableCapacityForImportantUsage: 70)
+        )
+        let largerFreeSpaceSnapshot = makeSnapshot(
+            store: store,
+            capacity: VolumeCapacitySnapshot(totalCapacity: 140, availableCapacity: 80)
         )
 
         let input = DiskMapFreeSpaceVisualization.input(
             snapshot: snapshot,
             focusNode: root,
-            showFreeSpace: true,
-            availableCapacity: 40
+            showFreeSpace: true
         )
         let largerFreeSpaceInput = DiskMapFreeSpaceVisualization.input(
-            snapshot: snapshot,
+            snapshot: largerFreeSpaceSnapshot,
             focusNode: root,
-            showFreeSpace: true,
-            availableCapacity: 80
+            showFreeSpace: true
         )
         let segments = SunburstLayout.segments(in: input.treeStore, rootID: input.rootNode.id, depthLimit: 1)
         let freeSegment = try #require(segments.first { DiskMapFreeSpaceVisualization.isFreeSpaceNodeID($0.nodeID) })
@@ -47,6 +48,9 @@ struct DiskMapFreeSpaceVisualizationTests {
             SunburstColorResolver.components(for: usedSegment.colorToken)
                 == SunburstColorResolver.components(for: largerFreeSpaceUsedSegment.colorToken))
         #expect(freeSegment.label == "Free Space")
+        let freeNodeID = try #require(freeSegment.nodeID)
+        #expect(input.treeStore.freeSpaceDetail(for: freeNodeID) == "Free space at scan time\nAbout 30 bytes reclaimable")
+        #expect(largerFreeSpaceInput.treeStore.freeSpaceDetail(for: freeNodeID) == "Free space at scan time")
         #expect(freeSegment.totalSize == 40)
         #expect(freeSegment.colorToken.role == .freeSpace)
         #expect(abs((segmentFraction(freeSegment)) - (0.4)) <= 0.0001)
@@ -54,17 +58,17 @@ struct DiskMapFreeSpaceVisualizationTests {
     }
 
     @Test
-    func testFreeSpaceOnlyAppliesToFocusedVolumeRoot() {
+    func testFreeSpaceRequiresSettingAndFocusedVolumeRoot() {
         let file = makeTestFileNode(id: "/folder/file.txt", name: "file.txt", size: 10)
         let folderRoot = makeTestDirectoryNode(id: "/folder", name: "folder", children: [file])
         let folderStore = FileTreeStore(root: folderRoot, childrenByID: [folderRoot.id: [file]])
-        let folderSnapshot = makeTestSnapshot(root: folderRoot, store: folderStore)
+        let capacity = VolumeCapacitySnapshot(totalCapacity: 100, availableCapacity: 90)
+        let folderSnapshot = makeSnapshot(store: folderStore, capacity: capacity, kind: .folder)
 
         let folderInput = DiskMapFreeSpaceVisualization.input(
             snapshot: folderSnapshot,
             focusNode: folderRoot,
-            showFreeSpace: true,
-            availableCapacity: 90
+            showFreeSpace: true
         )
 
         #expect(folderInput.rootNode.id == folderRoot.id)
@@ -73,17 +77,18 @@ struct DiskMapFreeSpaceVisualizationTests {
         let child = makeTestDirectoryNode(id: "/volume/child", name: "child", children: [file])
         let volumeRoot = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [child])
         let volumeStore = FileTreeStore(root: volumeRoot, childrenByID: [volumeRoot.id: [child]])
-        let volumeSnapshot = makeTestSnapshot(
-            target: ScanTarget(url: volumeRoot.url, kind: .volume),
-            root: volumeRoot,
-            store: volumeStore
+        let volumeSnapshot = makeSnapshot(store: volumeStore, capacity: capacity)
+        let disabledInput = DiskMapFreeSpaceVisualization.input(
+            snapshot: volumeSnapshot,
+            focusNode: volumeRoot,
+            showFreeSpace: false
         )
+        #expect(disabledInput.rootNode.id == volumeRoot.id)
 
         let focusedChildInput = DiskMapFreeSpaceVisualization.input(
             snapshot: volumeSnapshot,
             focusNode: child,
-            showFreeSpace: true,
-            availableCapacity: 90
+            showFreeSpace: true
         )
 
         #expect(focusedChildInput.rootNode.id == child.id)
@@ -94,21 +99,45 @@ struct DiskMapFreeSpaceVisualizationTests {
         #expect(!(DiskMapFreeSpaceVisualization.isFreeSpaceNodeID("/tmp/file#radix-free-space")))
     }
 
+    @Test(arguments: [
+        nil,
+        VolumeCapacitySnapshot(totalCapacity: 500_000_000, availableCapacity: 0),
+        VolumeCapacitySnapshot(totalCapacity: 500_000_000, availableCapacity: 400_000_000)
+    ] as [VolumeCapacitySnapshot?])
+    func testFreeSpaceOmittedForMissingOrZeroCapacityAndOverlappingAllocations(
+        capacity: VolumeCapacitySnapshot?
+    ) {
+        let file = makeTestFileNode(id: "/volume/file.bin", name: "file.bin", size: 200_000_000)
+        let root = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [file])
+        let snapshot = makeSnapshot(
+            store: FileTreeStore(root: root, childrenByID: [root.id: [file]]),
+            capacity: capacity
+        )
+
+        let input = DiskMapFreeSpaceVisualization.input(
+            snapshot: snapshot,
+            focusNode: root,
+            showFreeSpace: true
+        )
+
+        #expect(input.rootNode.id == root.id)
+        #expect(input.treeStore.children(of: root.id).map(\.id) == [file.id])
+    }
+
     @Test
     func testUpdatedVolumeContentsRequestANewChartLayout() throws {
         let used = makeTestFileNode(id: "/volume/used.bin", name: "used.bin", size: 60)
         let root = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [used])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [used]])
-        let snapshot = makeTestSnapshot(
-            target: ScanTarget(url: root.url, kind: .volume),
-            root: root,
-            store: store
+        let snapshot = makeSnapshot(
+            store: store,
+            capacity: VolumeCapacitySnapshot(totalCapacity: 130, availableCapacity: 40)
         )
 
         func layoutID(for scan: ScanSnapshot) -> String {
             DiscardPileVisualizationPresentation(
                 snapshot: scan, focusNode: scan.root, showFreeSpace: true,
-                availableCapacity: 40, maxRenderedDepth: 6, discardPileRootNodeIDs: []
+                maxRenderedDepth: 6, discardPileRootNodeIDs: []
             ).layoutID
         }
 
@@ -126,16 +155,14 @@ struct DiskMapFreeSpaceVisualizationTests {
         let used = makeTestFileNode(id: "/volume/used.bin", name: "used.bin", size: 60)
         let root = makeTestDirectoryNode(id: "/volume", name: "Volume", children: [used])
         let store = FileTreeStore(root: root, childrenByID: [root.id: [used]])
-        let snapshot = makeTestSnapshot(
-            target: ScanTarget(url: root.url, kind: .volume),
-            root: root,
-            store: store
+        let snapshot = makeSnapshot(
+            store: store,
+            capacity: VolumeCapacitySnapshot(totalCapacity: 100, availableCapacity: 40)
         )
         let input = DiskMapFreeSpaceVisualization.input(
             snapshot: snapshot,
             focusNode: root,
-            showFreeSpace: true,
-            availableCapacity: 40
+            showFreeSpace: true
         )
         let freeNode = try #require(
             input.treeStore.children(of: input.rootNode.id).first {
@@ -159,6 +186,22 @@ struct DiskMapFreeSpaceVisualizationTests {
 
         #expect(navigation.selectedNodeID == nil)
         #expect(navigation.selectedNodeIDs.isEmpty)
+    }
+
+    private func makeSnapshot(
+        store: FileTreeStore,
+        capacity: VolumeCapacitySnapshot?,
+        kind: ScanTargetKind = .volume
+    ) -> ScanSnapshot {
+        ScanSnapshot(
+            target: ScanTarget(url: store.root.url, kind: kind),
+            treeStore: store,
+            startedAt: .distantPast,
+            finishedAt: .distantPast,
+            scanWarnings: [],
+            isComplete: true,
+            volumeCapacity: capacity
+        )
     }
 
     private func segmentFraction(_ segment: SunburstSegment) -> Double {

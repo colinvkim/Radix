@@ -2008,7 +2008,7 @@ struct ScanArchiveServiceTests {
             ],
             isComplete: true,
             scanOptions: scanOptions,
-            volumeCapacity: VolumeCapacitySnapshot(totalCapacity: 1_000, availableCapacity: 400)
+            volumeCapacity: VolumeCapacitySnapshot(totalCapacity: 1_000, availableCapacity: 400, availableCapacityForImportantUsage: 500)
         )
     }
 
