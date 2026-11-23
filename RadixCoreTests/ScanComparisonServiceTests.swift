@@ -29,6 +29,33 @@ struct ScanComparisonServiceTests {
         #expect(comparison.summary.fileCountDelta == 0)
     }
 
+    @Test(arguments: ["/", "/Volumes/Test"])
+    func testLegacyCapacityRecordDoesNotHideARealFileInComparison(otherRoot: String) async throws {
+        let name = "#system-unattributed"
+        let legacyRemainder = makeTestFileNode(id: "/" + name, name: "System & Unattributed", size: 100, isSynthetic: true)
+        let oldRoot = makeTestDirectoryNode(id: "/", name: "Volume", children: [legacyRemainder])
+        let old = makeTestSnapshot(
+            root: oldRoot, store: FileTreeStore(root: oldRoot, childrenByID: [oldRoot.id: [legacyRemainder]])
+        )
+        let file = makeTestFileNode(id: URL(filePath: otherRoot).appending(path: name).path, name: name, size: 25)
+        let newRoot = makeTestDirectoryNode(id: otherRoot, name: "Volume", children: [file])
+        let new = makeTestSnapshot(root: newRoot, store: FileTreeStore(root: newRoot, childrenByID: [newRoot.id: [file]]))
+
+        let service = ScanComparisonService()
+        let added = try await service.compare(before: old, after: new)
+        #expect(added.rows.map(\.kind) == [.added])
+        #expect(added.rows.map(\.relativePath) == [name])
+        #expect(added.summary.grossIncreasedAllocatedSize == 25)
+        #expect(added.summary.grossReclaimedAllocatedSize == 0)
+        #expect(added.summary.allocatedDelta == -75)
+
+        let removed = try await service.compare(before: new, after: old)
+        #expect(removed.rows.map(\.kind) == [.removed])
+        #expect(removed.rows.map(\.relativePath) == [name])
+        #expect(removed.summary.grossReclaimedAllocatedSize == 25)
+        #expect(removed.summary.grossIncreasedAllocatedSize == 0)
+    }
+
     @Test
     func testComparesSnapshotsByRelativePathAcrossDifferentRoots() async throws {
         let beforeFile = makeTestFileNode(id: "/before/shared.bin", name: "shared.bin", size: 10)
