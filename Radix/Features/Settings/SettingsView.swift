@@ -125,6 +125,7 @@ private struct DiskMapSettingsPane: View {
 private struct GeneralSettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
     @ObservedObject var softwareUpdates: SoftwareUpdateModel
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system
     @State private var resetAction = SettingsResetAction.settings
     @State private var confirmsReset = false
 
@@ -138,6 +139,19 @@ private struct GeneralSettingsPane: View {
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Appearance") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 215)
+                }
+            }
+
             Section("Software Updates") {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
@@ -260,6 +274,7 @@ private struct GeneralSettingsPane: View {
         case .settings:
             appModel.restoreDefaultPreferences()
             softwareUpdates.restoreDefaultPreferences()
+            appearance = .system
         case .stats:
             appModel.clearUsageStats()
         case .recents:

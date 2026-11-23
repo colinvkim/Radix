@@ -6,6 +6,7 @@ import SwiftUI
 struct RadixApp: App {
     @StateObject private var appModel = AppModel()
     @StateObject private var softwareUpdates: SoftwareUpdateModel
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system
     private let updaterController: SPUStandardUpdaterController
     private let issueReportURL = URL(string: "https://github.com/colinvkim/Radix/issues/new/choose")
 
@@ -25,6 +26,7 @@ struct RadixApp: App {
                 .environmentObject(appModel)
                 .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 620, maxHeight: .infinity)
         }
+        .onChange(of: appearance, initial: true) { appearance.apply() }
         .defaultSize(width: 1480, height: 820)
         .windowResizability(.contentMinSize)
         .commands {
