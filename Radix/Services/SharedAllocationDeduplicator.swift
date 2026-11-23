@@ -49,7 +49,7 @@ nonisolated struct SharedAllocationDeduplicator {
                 try cancellationCheck()
             }
             if let node = store.node(at: nodeIndex) {
-                allocations.include(node, at: nodeIndex, from: store)
+                allocations.include(node, at: nodeIndex, summaries: store.summarizedAllocations)
             }
         }
         return try allocations.rebalancedStore(store, cancellationCheck: cancellationCheck)
@@ -72,8 +72,13 @@ nonisolated struct SharedAllocationDeduplicator {
         private var claimNodeIndices: [FileTreeNodeIndex] = []
         private(set) var summaries: [String: Summary] = [:]
 
-        mutating func include(_ node: FileNodeRecord, at index: FileTreeNodeIndex, from source: FileTreeStore? = nil) {
-            if node.isDirectory, let summary = source?.summarizedAllocations[node.id] {
+        mutating func include(
+            _ node: FileNodeRecord,
+            at index: FileTreeNodeIndex,
+            summaries sourceSummaries: [String: Summary] = [:]
+        ) {
+            if node.isDirectory {
+                guard let summary = sourceSummaries[node.id] else { return }
                 accumulator.merge(summary.claims)
                 summaries[node.id] = summary
             } else if let claim = SharedAllocationDeduplicator.claim(for: node) {

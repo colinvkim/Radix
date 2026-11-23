@@ -1200,6 +1200,34 @@ struct IncrementalScanServiceTests {
         #expect(removed.treeStore.node(id: changedDirectoryURL.path) == siblingScan.root)
     }
 
+    @Test
+    func testOrdinaryDirectoryEventIgnoresUnrelatedPackageHardLinks() async throws {
+        let root = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ordinary = root.appending(path: "Ordinary", directoryHint: .isDirectory)
+        let package = root.appending(path: "Opaque.app", directoryHint: .isDirectory)
+        for directory in [ordinary, package] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            let file = directory.appending(path: "first.dat")
+            try Data([1]).write(to: file)
+            try FileManager.default.linkItem(at: file, to: directory.appending(path: "second.dat"))
+        }
+
+        let target = ScanTarget(url: root)
+        let options = ScanOptions()
+        let service = IncrementalScanService(eventHistoryProvider: IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20)],
+            events: [FileSystemEventRecord(path: ordinary.path, eventID: 15, flags: [.itemIsDirectory, .itemMetadataModified])]
+        ))
+        let baseline = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: ordinary.path)
+
+        let result = try await incrementalScanResult(from: service.rescan(target: target, options: options, from: baseline))
+        let fresh = try await finishedIncrementalSnapshot(from: ScanEngine().scan(target: target, options: options))
+        #expect(result.executionModes == [.incremental])
+        try assertEquivalent(result.snapshot, fresh)
+    }
+
     @Test(arguments: [true, false])
     func testChangingPackageHardLinkRefreshesVisibleAlias(existingLink: Bool) async throws {
         let root = try makeIncrementalTemporaryDirectory()

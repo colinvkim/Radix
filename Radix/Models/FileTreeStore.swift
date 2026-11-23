@@ -901,7 +901,7 @@ nonisolated struct FileTreeStore: Sendable {
             parentRawIndices.append(entry.parentRawIndex)
             orderedNodeIndices.append(nodeIndex)
             statsAccumulator.include(node, hasMaterializedChildren: !children.isEmpty)
-            allocations.include(node, at: nodeIndex, from: source.store)
+            allocations.include(node, at: nodeIndex, summaries: source.store?.summarizedAllocations ?? [:])
 
             for childIndex in children.reversed() {
                 stack.append((entry.sourceOrdinal, childIndex, nodeIndex.rawValue))
@@ -1677,7 +1677,7 @@ nonisolated struct FileTreeStore: Sendable {
     nonisolated func subtreeContainsSharedAllocationMetadata(
         rootedAt nodeID: String,
         cancellationCheck: () throws -> Void
-    ) rethrows -> Bool {
+    ) throws -> Bool {
         guard let rootIndex = nodeIndex(id: nodeID) else { return false }
         var stack = [rootIndex]
         var visitedCount = 0
@@ -1961,7 +1961,7 @@ nonisolated struct FileTreeStore: Sendable {
             allocations.include(
                 compactedNodes[newOffset],
                 at: FileTreeNodeIndex(rawValue: UInt32(newOffset)),
-                from: self
+                summaries: summarizedAllocations
             )
         }
 
@@ -2183,7 +2183,7 @@ nonisolated struct FileTreeStore: Sendable {
             parentRawIndices.append(entry.parentRawIndex)
             orderedNodeIndices.append(compactedIndex)
             statsAccumulator.include(node, hasMaterializedChildren: !sourceChildren.isEmpty)
-            allocations.include(node, at: compactedIndex, from: sourceStore)
+            allocations.include(node, at: compactedIndex, summaries: sourceStore.summarizedAllocations)
 
             let isReplacementRoot = entry.sourceOrdinal != baselineSourceOrdinal
                 && entry.sourceIndex == sourceStore.activeRootIndex
@@ -2273,7 +2273,7 @@ nonisolated struct FileTreeStore: Sendable {
             membership.insert(nodeIndex)
             orderedNodeIndices.append(nodeIndex)
             statsAccumulator.include(node, hasMaterializedChildren: !children.isEmpty)
-            allocations.include(node, at: nodeIndex, from: self)
+            allocations.include(node, at: nodeIndex, summaries: summarizedAllocations)
             guard !children.isEmpty else { continue }
             stack.reserveCapacity(stack.count + children.count)
             for (offset, childIndex) in children.reversed().enumerated() {
@@ -2575,7 +2575,7 @@ nonisolated struct FileTreeStore: Sendable {
                 affectedScopedIndices.append(scopedIndex)
             }
             statsAccumulator.include(node, hasMaterializedChildren: !sourceChildren.isEmpty)
-            allocations.include(node, at: scopedIndex, from: self)
+            allocations.include(node, at: scopedIndex, summaries: summarizedAllocations)
             for (childOffset, childIndex) in sourceChildren.reversed().enumerated() {
                 if childOffset.isMultiple(of: 256) {
                     try cancellationCheck()

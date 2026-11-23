@@ -54,13 +54,18 @@ nonisolated struct IncrementalRescanPlanner: Sendable {
             if !event.flags.intersection([.itemIsHardLink, .itemIsLastHardLink]).isEmpty {
                 return .fullScan(reason: .sharedAllocationTopologyChanged)
             }
+            if event.flags.contains(.mustScanSubdirectories), !treeStore.summarizedAllocations.isEmpty {
+                // Coalesced changes can update an ordinary alias of a hidden member.
+                return .fullScan(reason: .sharedAllocationTopologyChanged)
+            }
             if let existingNode = treeStore.node(id: eventPath) {
                 if !event.flags.intersection([.itemModified, .itemRemoved, .itemRenamed]).isEmpty,
                    existingNode.cloneIdentity != nil {
                     return .fullScan(reason: .cloneTopologyChanged)
                 }
-                if existingNode.isDirectory, !treeStore.summarizedAllocations.isEmpty,
-                   treeStore.subtreeContainsSharedAllocationMetadata(rootedAt: existingNode.id, cancellationCheck: {}) {
+                if existingNode.isDirectory, treeStore.summarizedAllocations.keys.contains(where: {
+                    Self.path($0, isEqualToOrDescendantOf: eventPath)
+                }) {
                     return .fullScan(reason: .sharedAllocationTopologyChanged)
                 }
                 if !existingNode.isDirectory,
