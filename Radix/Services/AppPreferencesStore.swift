@@ -18,6 +18,7 @@ nonisolated struct AppScanPreferences: Equatable {
     var exclusionPatterns: [String]
     var automaticallyRefreshFocusedFolder = true
     var snapshotAutosaveFolder: URL?
+    var autosaveVolumesOnly = false
 
     static let defaults = AppScanPreferences(
         showHiddenFiles: true,
@@ -72,6 +73,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         static let exclusionPatterns = "exclusionPatterns"
         static let automaticallyRefreshFocusedFolder = "automaticallyRefreshFocusedFolder"
         static let snapshotAutosaveFolder = "snapshotAutosaveFolder"
+        static let autosaveVolumesOnly = "autosaveVolumesOnly"
     }
 
     private let defaults: UserDefaults
@@ -136,7 +138,8 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
                     : defaults.bool(forKey: Key.automaticallyRefreshFocusedFolder),
                 snapshotAutosaveFolder: defaults.string(forKey: Key.snapshotAutosaveFolder).map {
                     URL(filePath: $0, directoryHint: .isDirectory)
-                }
+                },
+                autosaveVolumesOnly: defaults.bool(forKey: Key.autosaveVolumesOnly)
             ),
             didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding),
             onboardingPage: defaults.string(forKey: Key.onboardingPage)
@@ -153,6 +156,7 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         defaults.set(preferences.autoSummarizeDirectories, forKey: Key.autoSummarizeDirectories)
         defaults.set(preferences.automaticallyRefreshFocusedFolder, forKey: Key.automaticallyRefreshFocusedFolder)
         defaults.set(preferences.snapshotAutosaveFolder?.path, forKey: Key.snapshotAutosaveFolder)
+        defaults.set(preferences.autosaveVolumesOnly, forKey: Key.autosaveVolumesOnly)
         defaults.set(preferences.showFreeSpaceInDiskMaps, forKey: Key.showFreeSpaceInDiskMaps)
         defaults.set(preferences.visualizationMode.rawValue, forKey: Key.visualizationMode)
         defaults.set(preferences.useScanExclusions, forKey: Key.useScanExclusions)

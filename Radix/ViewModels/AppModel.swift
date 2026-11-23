@@ -114,6 +114,7 @@ final class AppModel: ObservableObject {
     @Published var autoSummarizeDirectories = true
     @Published var automaticallyRefreshFocusedFolder = true
     @Published var snapshotAutosaveFolder: URL?
+    @Published var autosaveVolumesOnly = false
     @Published var showFreeSpaceInDiskMaps = false
     @Published var scanVisualizationMode = ScanVisualizationMode.sunburst
     @Published var useScanExclusions = false
@@ -337,6 +338,7 @@ final class AppModel: ObservableObject {
         autoSummarizeDirectories = preferences.scan.autoSummarizeDirectories
         automaticallyRefreshFocusedFolder = preferences.scan.automaticallyRefreshFocusedFolder
         snapshotAutosaveFolder = preferences.scan.snapshotAutosaveFolder
+        autosaveVolumesOnly = preferences.scan.autosaveVolumesOnly
         showFreeSpaceInDiskMaps = preferences.scan.showFreeSpaceInDiskMaps
         scanVisualizationMode = preferences.scan.visualizationMode
         useScanExclusions = preferences.scan.useScanExclusions
@@ -850,6 +852,7 @@ final class AppModel: ObservableObject {
         autoSummarizeDirectories = AppScanPreferences.defaults.autoSummarizeDirectories
         automaticallyRefreshFocusedFolder = AppScanPreferences.defaults.automaticallyRefreshFocusedFolder
         snapshotAutosaveFolder = nil
+        autosaveVolumesOnly = AppScanPreferences.defaults.autosaveVolumesOnly
         showFreeSpaceInDiskMaps = AppScanPreferences.defaults.showFreeSpaceInDiskMaps
         scanVisualizationMode = AppScanPreferences.defaults.visualizationMode
         useScanExclusions = AppScanPreferences.defaults.useScanExclusions
@@ -998,7 +1001,8 @@ final class AppModel: ObservableObject {
     }
 
     private func autosaveSnapshot(_ snapshot: ScanSnapshot) {
-        guard let folder = snapshotAutosaveFolder, snapshot.isComplete, !tourSession.isActive else { return }
+        guard let folder = snapshotAutosaveFolder, snapshot.isComplete, !tourSession.isActive,
+              !autosaveVolumesOnly || snapshot.target.kind == .volume else { return }
         let destination = folder.appendingPathComponent(defaultExportFileName(for: snapshot))
             .appendingPathExtension(ScanArchiveService.fileExtension)
         let service = dependencies.scanArchiveService
@@ -3391,10 +3395,11 @@ final class AppModel: ObservableObject {
     }
 
     private func observePreferences() {
-        Publishers.CombineLatest3(
+        Publishers.CombineLatest4(
             $showHiddenFiles,
             $treatPackagesAsDirectories,
-            $maxRenderedDepth
+            $maxRenderedDepth,
+            $scanVisualizationMode
         )
             .combineLatest(Publishers.CombineLatest4(
                 $autoSummarizeDirectories,
@@ -3402,7 +3407,7 @@ final class AppModel: ObservableObject {
                 $useScanExclusions,
                 $exclusionPatterns
             ))
-            .combineLatest($scanVisualizationMode, $automaticallyRefreshFocusedFolder, $snapshotAutosaveFolder)
+            .combineLatest($automaticallyRefreshFocusedFolder, $snapshotAutosaveFolder, $autosaveVolumesOnly)
             .dropFirst()
             .debounce(for: Self.scanPreferencePersistenceDebounce, scheduler: RunLoop.main)
             .sink { [weak self] _ in
@@ -3422,7 +3427,8 @@ final class AppModel: ObservableObject {
             useScanExclusions: useScanExclusions,
             exclusionPatterns: exclusionPatterns,
             automaticallyRefreshFocusedFolder: automaticallyRefreshFocusedFolder,
-            snapshotAutosaveFolder: snapshotAutosaveFolder
+            snapshotAutosaveFolder: snapshotAutosaveFolder,
+            autosaveVolumesOnly: autosaveVolumesOnly
         )
     }
 

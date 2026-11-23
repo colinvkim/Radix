@@ -63,7 +63,8 @@ struct AppPreferencesStoreTests {
             useScanExclusions: true,
             exclusionPatterns: ["node_modules", "*.log"],
             automaticallyRefreshFocusedFolder: false,
-            snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory)
+            snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory),
+            autosaveVolumesOnly: true
         )
 
         store.saveScanPreferences(preferences)

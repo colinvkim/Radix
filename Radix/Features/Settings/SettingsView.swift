@@ -76,6 +76,7 @@ private struct ScanningSettingsPane: View {
                     }
                 ))
                 if let folder = appModel.snapshotAutosaveFolder {
+                    Toggle("Only save volume scans", isOn: $appModel.autosaveVolumesOnly)
                     LabeledContent {
                         Button("Choose Folder…") { chooseSnapshotFolder() }
                     } label: {

@@ -472,7 +472,8 @@ struct AppModelDependencyTests {
                     maxRenderedDepth: 10, autoSummarizeDirectories: false,
                     showFreeSpaceInDiskMaps: true, visualizationMode: .treemap,
                     useScanExclusions: true, exclusionPatterns: ["custom/**"],
-                    snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory)
+                    snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory),
+                    autosaveVolumesOnly: true
                 ),
                 didCompleteOnboarding: true,
                 onboardingPage: .access,
@@ -505,6 +506,7 @@ struct AppModelDependencyTests {
             preferences.savedScanPreferences == [.defaults]
         }
         #expect(model.snapshotAutosaveFolder == nil)
+        #expect(!model.autosaveVolumesOnly)
         #expect(model.recentTargets == [recent])
         #expect(recentPersistence.loadRecentTargets() == [recent])
         #expect(model.usageStats == stats)
@@ -3062,6 +3064,32 @@ struct AppModelDependencyTests {
             sizes.append(result.snapshot.root.allocatedSize)
         }
         #expect(sizes.sorted() == [42, 100])
+    }
+
+    @Test
+    func testVolumeOnlyAutosaveSkipsFoldersAndSavesVolumeScans() async throws {
+        let scanner = ControlledAppModelScanService()
+        let archive = SpyScanArchiveService()
+        var preferences = AppPreferences.defaults
+        preferences.scan.snapshotAutosaveFolder = FileManager.default.temporaryDirectory
+        preferences.scan.autosaveVolumesOnly = true
+        let model = AppModel(dependencies: makeDependencies(
+            preferences: SpyAppPreferencesStore(preferences: preferences),
+            scanService: scanner,
+            scanArchiveService: archive
+        ))
+        let folder = makeComparisonSnapshot(rootPath: "/Volumes/Backup/Photos", fileSize: 42)
+        let volume = makeComparisonSnapshot(rootPath: "/Volumes/Backup", fileSize: 100, targetKind: .volume)
+        for (index, snapshot) in [folder, volume].enumerated() {
+            model.startScan(snapshot.target)
+            try await waitUntil("scan started") { scanner.requests.count == index + 1 }
+            scanner.yield(.finished(snapshot), scanIndex: index)
+            scanner.finish(scanIndex: index)
+            try await waitUntil("scan displayed") { model.scanState.snapshot?.id == snapshot.id }
+        }
+
+        try await waitUntil("volume archived") { await archive.exportRequests.contains { $0.snapshotID == volume.id } }
+        #expect(await archive.exportRequests.map(\.snapshotID) == [volume.id])
     }
 
     @Test
