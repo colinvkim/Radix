@@ -141,7 +141,7 @@ actor FileSearchService: FileSearching {
         }
         guard let index = cachedIndex?.index else { return [] }
         let entries = index.entries
-        let normalizedTextCount = preparedQuery.normalizedText.count
+        let queryCharacterCount = UInt32(clamping: preparedQuery.normalizedText.count)
 
         let pathQuery = preparedQuery.includesPath
             ? ParentPathQuery(normalizedPathText: preparedQuery.normalizedPathText)
@@ -168,7 +168,7 @@ actor FileSearchService: FileSearching {
             }
 
             if !preparedQuery.hasText ||
-                (entry.normalizedNameKindHaystack.count >= normalizedTextCount &&
+                (entry.nameKindCharacterCount >= queryCharacterCount &&
                     entry.normalizedNameKindHaystack.contains(preparedQuery.normalizedText)) {
                 if let node = treeStore.node(at: entry.nodeIndex) {
                     matchedNodes.append(node)
@@ -318,13 +318,15 @@ actor FileSearchService: FileSearching {
             hasCanonicalPathByEntry.append(
                 nodePath[...] == childPathPrefix(for: node.id)
             )
+            let nameKindHaystack = SearchNormalizer.normalizedNameKindHaystack(for: node)
             entries.append(FileSearchEntry(
                 nodeIndex: nodeIndex,
                 parentPathSlot: parentPathSlot,
                 normalizedPathComponent: pathComponent.map(SearchNormalizer.normalizePathComponent),
-                normalizedNameKindHaystack: SearchNormalizer.normalizedNameKindHaystack(for: node),
+                normalizedNameKindHaystack: nameKindHaystack,
                 allocatedSize: node.allocatedSize,
-                itemKind: FileBrowserItemKindFilter.classification(for: node)
+                itemKind: FileBrowserItemKindFilter.classification(for: node),
+                nameKindCharacterCount: UInt32(clamping: nameKindHaystack.count)
             ))
         }
 
@@ -622,4 +624,5 @@ private struct FileSearchEntry {
     let normalizedNameKindHaystack: String
     let allocatedSize: Int64
     let itemKind: FileBrowserItemKindFilter?
+    let nameKindCharacterCount: UInt32
 }
