@@ -1143,12 +1143,14 @@ struct IncrementalScanServiceTests {
         #expect(provider.historyRequestCount == 1)
     }
 
-    @Test
-    func testIncrementalRescanMatchesFullScanForHardLinksAcrossSubtrees() async throws {
+    @Test(arguments: [("", ""), (".app", ".app"), (".app", ""), ("", ".app")])
+    func testIncrementalRescanMatchesFullScanForHardLinksAcrossSubtrees(
+        ownerSuffix: String, changedSuffix: String
+    ) async throws {
         let rootURL = try makeIncrementalTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }
-        let ownerDirectoryURL = rootURL.appending(path: "A-Owner", directoryHint: .isDirectory)
-        let changedDirectoryURL = rootURL.appending(path: "Z-Changed", directoryHint: .isDirectory)
+        let ownerDirectoryURL = rootURL.appending(path: "A-Owner" + ownerSuffix, directoryHint: .isDirectory)
+        let changedDirectoryURL = rootURL.appending(path: "Z-Changed" + changedSuffix, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: ownerDirectoryURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: changedDirectoryURL, withIntermediateDirectories: true)
 
@@ -1175,14 +1177,96 @@ struct IncrementalScanServiceTests {
         )
 
         try Data([0x1]).write(to: changedDirectoryURL.appending(path: "new.dat"))
-        let incremental = try await finishedIncrementalSnapshot(
+        let incremental = try await incrementalScanResult(
             from: service.rescan(target: target, options: options, from: baseline)
         )
         let full = try await finishedIncrementalSnapshot(
             from: ScanEngine().scan(target: target, options: options)
         )
+        #expect(incremental.executionModes == [.incremental])
+        try assertEquivalent(incremental.snapshot, full)
 
-        try assertEquivalent(incremental, full)
+        // Removing the winner or scoping to its sibling gives the surviving link its allocation back.
+        let sibling = ScanTarget(url: changedDirectoryURL)
+        let siblingScan = try await finishedIncrementalSnapshot(
+            from: ScanEngine().scan(target: sibling, options: options)
+        )
+        let scoped = try #require(try incremental.snapshot.scoped(to: sibling, cancellationCheck: {}))
+        try assertEquivalent(scoped, siblingScan)
+        let removed = try #require(try incremental.snapshot.removingNodes(
+            ids: [ownerDirectoryURL.path], cancellationCheck: {}
+        ))
+        #expect(removed.root.allocatedSize == siblingScan.root.allocatedSize)
+        #expect(removed.treeStore.node(id: changedDirectoryURL.path) == siblingScan.root)
+    }
+
+    @Test
+    func testOrdinaryDirectoryEventIgnoresUnrelatedPackageHardLinks() async throws {
+        let root = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ordinary = root.appending(path: "Ordinary", directoryHint: .isDirectory)
+        let package = root.appending(path: "Opaque.app", directoryHint: .isDirectory)
+        for directory in [ordinary, package] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            let file = directory.appending(path: "first.dat")
+            try Data([1]).write(to: file)
+            try FileManager.default.linkItem(at: file, to: directory.appending(path: "second.dat"))
+        }
+
+        let target = ScanTarget(url: root)
+        let options = ScanOptions()
+        let service = IncrementalScanService(eventHistoryProvider: IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20)],
+            events: [FileSystemEventRecord(path: ordinary.path, eventID: 15, flags: [.itemIsDirectory, .itemMetadataModified])]
+        ))
+        let baseline = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: ordinary.path)
+
+        let result = try await incrementalScanResult(from: service.rescan(target: target, options: options, from: baseline))
+        let fresh = try await finishedIncrementalSnapshot(from: ScanEngine().scan(target: target, options: options))
+        #expect(result.executionModes == [.incremental])
+        try assertEquivalent(result.snapshot, fresh)
+    }
+
+    enum PackageLinkChange: CaseIterable {
+        case writeHidden, createHidden, createVisible
+    }
+
+    @Test(arguments: PackageLinkChange.allCases)
+    func testChangingPackageHardLinkRefreshesAliases(change: PackageLinkChange) async throws {
+        let root = try makeIncrementalTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = root.appending(path: "Z.app", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: false)
+        let visible = root.appending(path: "A.dat")
+        let hidden = package.appending(path: "shared.dat")
+        let original = change == .createVisible ? hidden : visible
+        let alias = change == .createVisible ? visible : hidden
+        try Data(repeating: 1, count: change == .writeHidden ? 0 : 4096).write(to: original)
+        if change == .writeHidden { try FileManager.default.linkItem(at: original, to: alias) }
+
+        let target = ScanTarget(url: root)
+        let options = ScanOptions()
+        let service = IncrementalScanService(eventHistoryProvider: IncrementalHistoryStub(
+            checkpoints: [checkpoint(10), checkpoint(20), checkpoint(30)],
+            events: [FileSystemEventRecord(
+                path: alias.path,
+                eventID: 15,
+                flags: change == .writeHidden ? [.itemModified, .itemIsFile] : [.itemCreated, .itemIsFile]
+            )]
+        ))
+        let baseline = try await finishedIncrementalSnapshot(from: service.scan(target: target, options: options))
+        if change == .writeHidden {
+            let handle = try FileHandle(forWritingTo: alias)
+            try handle.write(contentsOf: Data(repeating: 2, count: 32_768))
+            try handle.close()
+        } else {
+            try FileManager.default.linkItem(at: original, to: alias)
+        }
+
+        let updated = try await incrementalScanResult(from: service.rescan(target: target, options: options, from: baseline))
+        let fresh = try await finishedIncrementalSnapshot(from: ScanEngine().scan(target: target, options: options))
+        try assertEquivalent(updated.snapshot, fresh)
     }
 
     @Test

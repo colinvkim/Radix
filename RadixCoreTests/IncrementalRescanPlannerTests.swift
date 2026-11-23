@@ -222,6 +222,7 @@ struct IncrementalRescanPlannerTests {
         for flags: FileSystemEventFlags in [
             [.itemModified, .itemIsFile],
             [.itemRemoved, .itemIsFile],
+            [.itemRenamed, .itemIsFile],
         ] {
             let plan = IncrementalRescanPlanner().plan(
                 history: history([event(clone.id, flags: flags)]),

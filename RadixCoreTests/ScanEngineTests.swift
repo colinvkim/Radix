@@ -3178,6 +3178,56 @@ struct ScanEngineTests {
     }
 
     @Test(.enabled(if: try TestFileSystem.supportsCloning(), "Requires file cloning on the fixture volume"))
+    func testOpaquePackageReownsCloneDataAndKeepsResourceForks() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let owner = root.appending(path: "A", directoryHint: .isDirectory)
+        let other = root.appending(path: "Z", directoryHint: .isDirectory)
+        let package = other.appending(path: "Files.app", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: owner, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let original = owner.appending(path: "original.bin")
+        try Data(repeating: 0xAB, count: 1024 * 1024).write(to: original)
+        let loader = ScanMetadataLoader()
+        var forkBytes: Int64 = 0
+        for index in 1...2 {
+            let clone = package.appending(path: "clone-\(index).bin")
+            try cloneFile(at: original, to: clone)
+            try setExtendedAttribute(
+                named: "com.apple.ResourceFork", data: Data(repeating: 0xCD, count: index * 65_536), at: clone
+            )
+            let metadata = try loader.metadata(for: clone)
+            let identity = try #require(metadata.cloneIdentity)
+            let sourceMetadata = try loader.metadata(for: original)
+            try #require(identity == sourceMetadata.cloneIdentity)
+            try #require(metadata.allocatedSize > metadata.dataAllocatedSize)
+            forkBytes += metadata.allocatedSize - metadata.dataAllocatedSize
+        }
+        let originalMetadata = try loader.metadata(for: original)
+        let packageBytes = originalMetadata.dataAllocatedSize + forkBytes
+        let ownerScan = try await finishedSnapshot(target: ScanTarget(url: owner), options: ScanOptions())
+        let otherScan = try await finishedSnapshot(target: ScanTarget(url: other), options: ScanOptions())
+        let combinedRoot = makeTestDirectoryNode(id: root.path, name: root.lastPathComponent, children: [
+            ownerScan.root, otherScan.root,
+        ])
+        let combined = try FileTreeStore.combining(
+            root: combinedRoot, childSubtrees: [
+                try #require(FileTreeStore.SubtreeSource(store: ownerScan.treeStore, rootedAt: owner.path)),
+                try #require(FileTreeStore.SubtreeSource(store: otherScan.treeStore, rootedAt: other.path)),
+            ], cancellationCheck: {}
+        )
+        #expect(combined.root.allocatedSize == originalMetadata.allocatedSize + forkBytes)
+        #expect(combined.node(id: package.path)?.allocatedSize == forkBytes)
+        #expect(combined.childIDs(of: package.path).isEmpty)
+
+        let scope = try #require(try combined.logicalScope(rootedAt: package.path, cancellationCheck: {}))
+        #expect(scope.root.allocatedSize == packageBytes)
+        let remaining = try #require(try combined.removingSubtree(id: owner.path, cancellationCheck: {}))
+        #expect(remaining.root.allocatedSize == packageBytes)
+        #expect(remaining.node(id: package.path)?.allocatedSize == packageBytes)
+    }
+
+    @Test(.enabled(if: try TestFileSystem.supportsCloning(), "Requires file cloning on the fixture volume"))
     func testAPFSClonePreservesUniqueResourceForkAllocation() async throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

@@ -412,6 +412,7 @@ nonisolated struct FileTreeStore: Sendable {
     private let topologyArena: FileTreeTopologyArena
     private let precomputedAggregateStats: ScanAggregateStats?
     private let logicalScope: LogicalScope?
+    var summarizedAllocations: [String: SharedAllocationDeduplicator.Summary] = [:]
 
     private nonisolated var activeRootIndex: FileTreeNodeIndex {
         logicalScope?.rootIndex ?? topologyArena.rootIndex
@@ -833,6 +834,7 @@ nonisolated struct FileTreeStore: Sendable {
         nodeRecords: [FileNodeRecord],
         topologyArena: FileTreeTopologyArena,
         aggregateStats: ScanAggregateStats,
+        summarizedAllocations: [String: SharedAllocationDeduplicator.Summary] = [:],
         logicalScope: LogicalScope? = nil,
         backingStorageID: UUID? = nil
     ) {
@@ -842,6 +844,7 @@ nonisolated struct FileTreeStore: Sendable {
         self.nodeRecords = nodeRecords
         self.topologyArena = topologyArena
         self.precomputedAggregateStats = aggregateStats
+        self.summarizedAllocations = summarizedAllocations
         self.logicalScope = logicalScope
     }
 
@@ -857,13 +860,9 @@ nonisolated struct FileTreeStore: Sendable {
         var parentRawIndices = [UInt32.max]
         var orderedNodeIndices = [FileTreeNodeIndex(rawValue: 0)]
         var statsAccumulator = ScanAggregateStats.Accumulator()
-        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
+        var allocations = SharedAllocationDeduplicator.Rebalancer()
         statsAccumulator.include(root, hasMaterializedChildren: true)
-        if let claim = SharedAllocationDeduplicator.claim(for: root) {
-            sharedAllocationAccumulator.record(claim)
-            sharedAllocationClaimIndices.append(FileTreeNodeIndex(rawValue: 0))
-        }
+        allocations.include(root, at: FileTreeNodeIndex(rawValue: 0))
 
         typealias TraversalEntry = (
             sourceOrdinal: Int,
@@ -902,10 +901,7 @@ nonisolated struct FileTreeStore: Sendable {
             parentRawIndices.append(entry.parentRawIndex)
             orderedNodeIndices.append(nodeIndex)
             statsAccumulator.include(node, hasMaterializedChildren: !children.isEmpty)
-            if let claim = SharedAllocationDeduplicator.claim(for: node) {
-                sharedAllocationAccumulator.record(claim)
-                sharedAllocationClaimIndices.append(nodeIndex)
-            }
+            allocations.include(node, at: nodeIndex, summaries: source.store?.summarizedAllocations ?? [:])
 
             for childIndex in children.reversed() {
                 stack.append((entry.sourceOrdinal, childIndex, nodeIndex.rawValue))
@@ -921,12 +917,7 @@ nonisolated struct FileTreeStore: Sendable {
             statsAccumulator: &statsAccumulator,
             cancellationCheck: cancellationCheck
         )
-        return try SharedAllocationDeduplicator.rebalancedStore(
-            combinedStore,
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: sharedAllocationClaimIndices,
-            cancellationCheck: cancellationCheck
-        )
+        return try allocations.rebalancedStore(combinedStore, cancellationCheck: cancellationCheck)
     }
 
     nonisolated static func sortedChildren(_ children: [FileNodeRecord]) -> [FileNodeRecord] {
@@ -1274,7 +1265,8 @@ nonisolated struct FileTreeStore: Sendable {
             rootID: rootID,
             nodeRecords: updatedRecords,
             topologyArena: updatedTopology,
-            aggregateStats: aggregateStats
+            aggregateStats: aggregateStats,
+            summarizedAllocations: summarizedAllocations
         )
     }
 
@@ -1389,7 +1381,7 @@ nonisolated struct FileTreeStore: Sendable {
         }
         guard orderedNodeIndices.count == updatedRecords.count else { return nil }
 
-        return FileTreeStore(
+        var result = FileTreeStore(
             verifiedRootIndex: updatedRootIndex,
             nodes: updatedRecords,
             childIndicesByIndex: childIndicesByIndex,
@@ -1397,6 +1389,8 @@ nonisolated struct FileTreeStore: Sendable {
             orderedNodeIndices: orderedNodeIndices,
             aggregateStats: aggregateStats
         )
+        result.summarizedAllocations = summarizedAllocations
+        return result
     }
 
     nonisolated func replacingAllocatedSizes(
@@ -1456,7 +1450,8 @@ nonisolated struct FileTreeStore: Sendable {
                 updatedChildIndices,
                 cancellationCheck: cancellationCheck
             ),
-            aggregateStats: updatedStats
+            aggregateStats: updatedStats,
+            summarizedAllocations: summarizedAllocations
         )
     }
 
@@ -1483,8 +1478,8 @@ nonisolated struct FileTreeStore: Sendable {
                 "Allocated-size replacement index is out of range."
             )
             precondition(
-                !nodes[offset].isDirectory,
-                "Allocated-size replacement cannot target a directory."
+                childSpans[offset].count == 0,
+                "Allocated-size replacement must target a leaf."
             )
             guard nodes[offset].allocatedSize != replacement.allocatedSize else { continue }
             nodes[offset] = nodes[offset].replacingAllocatedSize(replacement.allocatedSize)
@@ -1519,6 +1514,7 @@ nonisolated struct FileTreeStore: Sendable {
         let repairs = try Self.repairedAffectedDirectories(
             postorder: changedNodeIndices,
             isChanged: { changedByOffset[Int($0.rawValue)] },
+            shouldRepair: { childSpans[Int($0.rawValue)].count > 0 },
             baseRecordAt: { nodes[Int($0.rawValue)] },
             currentChildren: { nodeIndex in
                 let span = childSpans[Int(nodeIndex.rawValue)]
@@ -1680,6 +1676,8 @@ nonisolated struct FileTreeStore: Sendable {
 
     nonisolated func subtreeContainsSharedAllocationMetadata(
         rootedAt nodeID: String,
+        changedFrom baseline: FileTreeStore? = nil,
+        skipping preservedSubtreeIDs: Set<String> = [],
         cancellationCheck: () throws -> Void
     ) throws -> Bool {
         guard let rootIndex = nodeIndex(id: nodeID) else { return false }
@@ -1690,14 +1688,26 @@ nonisolated struct FileTreeStore: Sendable {
                 try cancellationCheck()
             }
             visitedCount += 1
-            if let node = node(at: nodeIndex),
-               !node.isDirectory,
-               !node.isSymbolicLink,
-               !node.isSynthetic,
-               node.cloneIdentity != nil || node.linkCount > 1 {
-                return true
+            guard let node = node(at: nodeIndex) else { continue }
+            if node.isDirectory {
+                guard !preservedSubtreeIDs.contains(node.id) else { continue }
+                if let summary = summarizedAllocations[node.id] {
+                    guard let previous = baseline?.summarizedAllocations[node.id],
+                          summary.claims.summarizedMemberPaths.isSubset(of: previous.claims.summarizedMemberPaths) else {
+                        return true
+                    }
+                }
+                stack.append(contentsOf: activeChildren(of: nodeIndex))
+            } else if !node.isSymbolicLink, !node.isSynthetic, node.cloneIdentity != nil || node.linkCount > 1 {
+                guard let previous = baseline?.node(id: node.id),
+                      previous.fileIdentity == node.fileIdentity,
+                      previous.linkCount == node.linkCount,
+                      previous.cloneIdentity == node.cloneIdentity,
+                      previous.unduplicatedAllocatedSize == node.unduplicatedAllocatedSize,
+                      previous.dataAllocatedSize == node.dataAllocatedSize,
+                      previous.logicalSize == node.logicalSize,
+                      previous.lastModified == node.lastModified else { return true }
             }
-            stack.append(contentsOf: activeChildren(of: nodeIndex))
         }
         return false
     }
@@ -1928,8 +1938,7 @@ nonisolated struct FileTreeStore: Sendable {
         var compactedChildIndices: [FileTreeNodeIndex] = []
         compactedChildIndices.reserveCapacity(max(retainedCount - 1, 0))
         var statsAccumulator = ScanAggregateStats.Accumulator()
-        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var sharedAllocationClaimNodeIndices: [FileTreeNodeIndex] = []
+        var allocations = SharedAllocationDeduplicator.Rebalancer()
 
         for oldOffset in nodeRecords.indices where !removed[oldOffset] {
             let newOffset = Int(oldToNewRawIndex[oldOffset])
@@ -1964,15 +1973,14 @@ nonisolated struct FileTreeStore: Sendable {
                 compactedNodes[newOffset],
                 hasMaterializedChildren: childCount > 0
             )
-            if let claim = SharedAllocationDeduplicator.claim(for: compactedNodes[newOffset]) {
-                sharedAllocationAccumulator.record(claim)
-                sharedAllocationClaimNodeIndices.append(FileTreeNodeIndex(rawValue: UInt32(newOffset)))
-            }
+            allocations.include(
+                compactedNodes[newOffset],
+                at: FileTreeNodeIndex(rawValue: UInt32(newOffset)),
+                summaries: summarizedAllocations
+            )
         }
 
-        let sharedAllocationReplacements = try SharedAllocationDeduplicator.rebalancedAllocatedSizeReplacements(
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: sharedAllocationClaimNodeIndices,
+        let sharedAllocationReplacements = try allocations.allocatedSizeReplacements(
             nodeAt: { compactedNodes[Int($0.rawValue)] },
             cancellationCheck: cancellationCheck
         )
@@ -2011,7 +2019,8 @@ nonisolated struct FileTreeStore: Sendable {
             rootID: rootID,
             nodeRecords: compactedNodes,
             topologyArena: compactedTopology,
-            aggregateStats: compactedStats
+            aggregateStats: compactedStats,
+            summarizedAllocations: allocations.summaries
         )
         return compactedStore
     }
@@ -2148,8 +2157,7 @@ nonisolated struct FileTreeStore: Sendable {
         var affectedCompactedIndices: [FileTreeNodeIndex] = []
         var replacementRootCompactedIndices: [FileTreeNodeIndex] = []
         var statsAccumulator = ScanAggregateStats.Accumulator()
-        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
+        var allocations = SharedAllocationDeduplicator.Rebalancer()
         compactedNodes.reserveCapacity(finalNodeCount)
         compactedIndexByNodeID.reserveCapacity(finalNodeCount)
         parentRawIndices.reserveCapacity(finalNodeCount)
@@ -2190,10 +2198,7 @@ nonisolated struct FileTreeStore: Sendable {
             parentRawIndices.append(entry.parentRawIndex)
             orderedNodeIndices.append(compactedIndex)
             statsAccumulator.include(node, hasMaterializedChildren: !sourceChildren.isEmpty)
-            if let claim = SharedAllocationDeduplicator.claim(for: node) {
-                sharedAllocationAccumulator.record(claim)
-                sharedAllocationClaimIndices.append(compactedIndex)
-            }
+            allocations.include(node, at: compactedIndex, summaries: sourceStore.summarizedAllocations)
 
             let isReplacementRoot = entry.sourceOrdinal != baselineSourceOrdinal
                 && entry.sourceIndex == sourceStore.activeRootIndex
@@ -2233,12 +2238,7 @@ nonisolated struct FileTreeStore: Sendable {
             statsAccumulator: &statsAccumulator,
             cancellationCheck: cancellationCheck
         )
-        return try SharedAllocationDeduplicator.rebalancedStore(
-            compactedStore,
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: sharedAllocationClaimIndices,
-            cancellationCheck: cancellationCheck
-        )
+        return try allocations.rebalancedStore(compactedStore, cancellationCheck: cancellationCheck)
     }
 
     /// Returns an independently mutable compact store for the visible scope.
@@ -2276,8 +2276,7 @@ nonisolated struct FileTreeStore: Sendable {
             ))
         }
         var statsAccumulator = ScanAggregateStats.Accumulator()
-        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
+        var allocations = SharedAllocationDeduplicator.Rebalancer()
         var stack = [targetIndex]
 
         while let nodeIndex = stack.popLast() {
@@ -2289,10 +2288,7 @@ nonisolated struct FileTreeStore: Sendable {
             membership.insert(nodeIndex)
             orderedNodeIndices.append(nodeIndex)
             statsAccumulator.include(node, hasMaterializedChildren: !children.isEmpty)
-            if let claim = SharedAllocationDeduplicator.claim(for: node) {
-                sharedAllocationAccumulator.record(claim)
-                sharedAllocationClaimIndices.append(nodeIndex)
-            }
+            allocations.include(node, at: nodeIndex, summaries: summarizedAllocations)
             guard !children.isEmpty else { continue }
             stack.reserveCapacity(stack.count + children.count)
             for (offset, childIndex) in children.reversed().enumerated() {
@@ -2303,9 +2299,7 @@ nonisolated struct FileTreeStore: Sendable {
             }
         }
 
-        let allocationReplacements = try SharedAllocationDeduplicator.rebalancedAllocatedSizeReplacements(
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: sharedAllocationClaimIndices,
+        let allocationReplacements = try allocations.allocatedSizeReplacements(
             nodeAt: { nodeRecords[Int($0.rawValue)] },
             cancellationCheck: cancellationCheck
         )
@@ -2386,6 +2380,7 @@ nonisolated struct FileTreeStore: Sendable {
             nodeRecords: nodeRecords,
             topologyArena: topologyArena,
             aggregateStats: scope.aggregateStats,
+            summarizedAllocations: allocations.summaries,
             logicalScope: scope,
             backingStorageID: backingStorageID
         )
@@ -2572,8 +2567,7 @@ nonisolated struct FileTreeStore: Sendable {
         var orderedNodeIndices: [FileTreeNodeIndex] = []
         var affectedScopedIndices: [FileTreeNodeIndex] = []
         var statsAccumulator = ScanAggregateStats.Accumulator()
-        var sharedAllocationAccumulator = SharedAllocationOwnerAccumulator()
-        var sharedAllocationClaimIndices: [FileTreeNodeIndex] = []
+        var allocations = SharedAllocationDeduplicator.Rebalancer()
         var stack = [(sourceIndex: targetIndex, scopedParentRawIndex: UInt32.max)]
         affectedScopedIndices.reserveCapacity(affectedAncestorCount)
 
@@ -2596,10 +2590,7 @@ nonisolated struct FileTreeStore: Sendable {
                 affectedScopedIndices.append(scopedIndex)
             }
             statsAccumulator.include(node, hasMaterializedChildren: !sourceChildren.isEmpty)
-            if let claim = SharedAllocationDeduplicator.claim(for: node) {
-                sharedAllocationAccumulator.record(claim)
-                sharedAllocationClaimIndices.append(scopedIndex)
-            }
+            allocations.include(node, at: scopedIndex, summaries: summarizedAllocations)
             for (childOffset, childIndex) in sourceChildren.reversed().enumerated() {
                 if childOffset.isMultiple(of: 256) {
                     try cancellationCheck()
@@ -2619,12 +2610,7 @@ nonisolated struct FileTreeStore: Sendable {
             statsAccumulator: &statsAccumulator,
             cancellationCheck: cancellationCheck
         )
-        return try SharedAllocationDeduplicator.rebalancedStore(
-            scopedStore,
-            sharedAllocationAccumulator: sharedAllocationAccumulator,
-            claimNodeIndices: sharedAllocationClaimIndices,
-            cancellationCheck: cancellationCheck
-        )
+        return try allocations.rebalancedStore(scopedStore, cancellationCheck: cancellationCheck)
     }
 
     private nonisolated static func sanitizedTopology(

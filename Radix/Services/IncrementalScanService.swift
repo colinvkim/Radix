@@ -23,6 +23,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
         let directoryID: String
         let treeStore: FileTreeStore
         let warnings: [ScanWarning]
+        let preservedSubtreeIDs: Set<String>
     }
 
     private let engine: ScanEngine
@@ -246,6 +247,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
     ) async throws {
         let startedAt = Date()
         var replacements: [String: FileTreeStore] = [:]
+        var preservedSubtreeIDs: Set<String> = []
         var replacementWarnings: [ScanWarning] = []
         let updateCount = relistDirectoryIDs.count + rescanSubtreeIDs.count
         var completedRelists = 0
@@ -285,6 +287,7 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 }
                 while let replacement = try await group.next() {
                     replacements[replacement.directoryID] = replacement.treeStore
+                    preservedSubtreeIDs.formUnion(replacement.preservedSubtreeIDs)
                     replacementWarnings.append(contentsOf: replacement.warnings)
                     completedRelists += 1
                     var metrics = ScanMetrics()
@@ -398,20 +401,20 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
         }
 
         try Task.checkCancellation()
-        if validatesSharedAllocation {
-            for replacement in replacements.values {
-                if try replacement.subtreeContainsSharedAllocationMetadata(
-                    rootedAt: replacement.rootID,
-                    cancellationCheck: { try Task.checkCancellation() }
-                ) {
-                    try await forwardFullScan(
-                        target: target,
-                        options: options,
-                        reason: .sharedAllocationTopologyChanged,
-                        continuation: continuation
-                    )
-                    return
-                }
+        for replacement in replacements.values {
+            if try replacement.subtreeContainsSharedAllocationMetadata(
+                rootedAt: replacement.rootID,
+                changedFrom: validatesSharedAllocation ? nil : baseline.treeStore,
+                skipping: validatesSharedAllocation ? [] : preservedSubtreeIDs,
+                cancellationCheck: { try Task.checkCancellation() }
+            ) {
+                try await forwardFullScan(
+                    target: target,
+                    options: options,
+                    reason: .sharedAllocationTopologyChanged,
+                    continuation: continuation
+                )
+                return
             }
         }
         let spliced: ScanSnapshot?
@@ -592,7 +595,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
                 childSubtrees: childSubtrees,
                 cancellationCheck: { try Task.checkCancellation() }
             ),
-            warnings: replacementWarnings
+            warnings: replacementWarnings,
+            preservedSubtreeIDs: preservedSubtreeIDs
         )
     }
 
@@ -620,7 +624,8 @@ nonisolated final class IncrementalScanService: ScanEventStreaming, Sendable {
         return ShallowReplacement(
             directoryID: originalRoot.id,
             treeStore: replacement.treeStore,
-            warnings: replacement.scanWarnings
+            warnings: replacement.scanWarnings,
+            preservedSubtreeIDs: []
         )
     }
 
