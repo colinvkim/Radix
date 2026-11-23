@@ -289,6 +289,9 @@ struct SelectionInspectorView: View {
         if scanState.trashSafetyPolicy.blockReason(for: node.url) != nil {
             return .protectedLocation
         }
+        if isReadOnlyMode && node.supportsFileActions {
+            return .readOnlyMode
+        }
         return nil
     }
 
