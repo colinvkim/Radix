@@ -9,7 +9,7 @@ struct StatsSettingsPane: View {
     var body: some View {
         Form {
             if appModel.usageStats.totalScansRun == 0 {
-                StatsEmptyState {
+                StatsEmptyState(scanState: appModel.scanState) {
                     appModel.presentScanPanel(.folder, from: scanPanelSource.window)
                 }
             } else {
@@ -117,28 +117,41 @@ struct StatsSettingsPane: View {
 }
 
 private struct StatsEmptyState: View {
+    @ObservedObject var scanState: ScanCoordinator
     let startScan: () -> Void
 
     var body: some View {
+        let isScanning = scanState.isForegroundScanOperationInProgress
+
         Section {
             VStack(spacing: 12) {
-                Image(systemName: "chart.bar.doc.horizontal")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
+                Group {
+                    if isScanning {
+                        ProgressView()
+                            .controlSize(.large)
+                    } else {
+                        Image(systemName: "chart.bar.doc.horizontal")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
 
                 VStack(spacing: 4) {
-                    Text("No Stats Yet")
+                    (isScanning ? Text("Scan in progress") : Text("No Stats Yet"))
                         .font(.headline)
 
-                    Text("Run your first scan to start building local usage stats.")
+                    (isScanning
+                        ? Text("Stats will appear when your first scan finishes.")
+                        : Text("Run your first scan to start building local usage stats."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
 
-                Button("Start First Scan") {
-                    startScan()
+                if !isScanning {
+                    Button("Start First Scan", action: startScan)
                 }
             }
             .frame(maxWidth: .infinity)
