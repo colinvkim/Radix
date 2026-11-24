@@ -60,7 +60,7 @@ private struct ScanningSettingsPane: View {
                 )
                 SettingsToggle(
                     "Keep the current folder updated",
-                    detail: "Refresh the folder you’re browsing when files change. Whole-disk views and saved scans aren’t refreshed automatically.",
+                    detail: "When possible, automatically refresh the folder you’re browsing as its contents change.",
                     isOn: $appModel.automaticallyRefreshFocusedFolder
                 )
             }
@@ -68,7 +68,7 @@ private struct ScanningSettingsPane: View {
             Section("Snapshots") {
                 SettingsToggle(
                     "Save a snapshot after each scan",
-                    detail: "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped.",
+                    detail: "Partial rescans and automatic refreshes are skipped.",
                     isOn: Binding(
                         get: { appModel.snapshotAutosaveFolder != nil },
                         set: { enabled in
@@ -129,11 +129,7 @@ private struct DiskMapSettingsPane: View {
                 }
                 .pickerStyle(.menu)
 
-                SettingsToggle(
-                    "Show free space in volume scans",
-                    detail: "Uses the free space recorded when the volume was scanned.",
-                    isOn: $appModel.showFreeSpaceInDiskMaps
-                )
+                Toggle("Show free space in volume scans", isOn: $appModel.showFreeSpaceInDiskMaps)
             }
 
             Section("Live Preview") {

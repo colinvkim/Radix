@@ -93,48 +93,48 @@
         }
       }
     },
-    "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped." : {
+    "Partial rescans and automatic refreshes are skipped." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped."
+            "value" : "Partial rescans and automatic refreshes are skipped."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sichert eine .radixscan-Datei mit Zeitstempel. Bei Teilscans und automatischen Aktualisierungen wird keine Datei gesichert."
+            "value" : "Bei Teilscans und automatischen Aktualisierungen wird kein Snapshot gesichert."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Guarda un archivo .radixscan con fecha y hora. Se omiten los análisis parciales y las actualizaciones automáticas."
+            "value" : "Se omiten los análisis parciales y las actualizaciones automáticas."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enregistre un fichier .radixscan horodaté. Les analyses partielles et les actualisations automatiques sont ignorées."
+            "value" : "Les analyses partielles et les actualisations automatiques sont ignorées."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Salva un file .radixscan con data e ora. Le scansioni parziali e gli aggiornamenti automatici vengono ignorati."
+            "value" : "Le scansioni parziali e gli aggiornamenti automatici vengono ignorati."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сохраняет файл .radixscan с датой и временем. При частичном повторном сканировании и автоматическом обновлении файл не создаётся."
+            "value" : "При частичном повторном сканировании и автоматическом обновлении снимок не создаётся."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "保存带时间戳的 .radixscan 文件。局部重新扫描和自动刷新时不会保存。"
+            "value" : "局部重新扫描和自动刷新时不会保存快照。"
           }
         }
       }
@@ -21959,48 +21959,48 @@
         }
       }
     },
-    "Refresh the folder you’re browsing when files change. Whole-disk views and saved scans aren’t refreshed automatically." : {
+    "When possible, automatically refresh the folder you’re browsing as its contents change." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aktualisiert den geöffneten Ordner, wenn sich Dateien ändern. Ansichten ganzer Festplatten und gespeicherte Scans werden nicht automatisch aktualisiert."
+            "value" : "Den geöffneten Ordner nach Möglichkeit automatisch aktualisieren, wenn sich sein Inhalt ändert."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Refresh the folder you’re browsing when files change. Whole-disk views and saved scans aren’t refreshed automatically."
+            "value" : "When possible, automatically refresh the folder you’re browsing as its contents change."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Actualiza la carpeta que estás viendo cuando cambian los archivos. Las vistas de discos completos y los análisis guardados no se actualizan automáticamente."
+            "value" : "Si es posible, actualiza automáticamente la carpeta que estás viendo cuando cambie su contenido."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Actualise le dossier que vous consultez lorsque les fichiers changent. Les vues de disques entiers et les analyses enregistrées ne sont pas actualisées automatiquement."
+            "value" : "Si possible, actualiser automatiquement le dossier que vous consultez lorsque son contenu change."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aggiorna la cartella che stai visualizzando quando i file cambiano. Le viste dell’intero disco e le scansioni salvate non vengono aggiornate automaticamente."
+            "value" : "Se possibile, aggiorna automaticamente la cartella che stai visualizzando quando cambia il suo contenuto."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Обновляет открытую папку при изменении файлов. Просмотр всего диска и сохранённые результаты сканирования не обновляются автоматически."
+            "value" : "По возможности автоматически обновлять открытую папку при изменении её содержимого."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "文件发生变化时，刷新你正在浏览的文件夹。整个磁盘视图和已保存的扫描不会自动刷新。"
+            "value" : "正在浏览的文件夹内容发生变化时，尽可能自动刷新。"
           }
         }
       }
@@ -30890,52 +30890,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已用"
-          }
-        }
-      }
-    },
-    "Uses the free space recorded when the volume was scanned." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zeigt den freien Speicherplatz zum Zeitpunkt des Volume-Scans."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uses the free space recorded when the volume was scanned."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Usa el espacio libre registrado al analizar el volumen."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Utilise l’espace libre relevé lors de l’analyse du volume."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Usa lo spazio libero rilevato durante la scansione del volume."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Использует объём свободного места на момент сканирования тома."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用扫描宗卷时记录的空闲空间。"
           }
         }
       }
