@@ -770,10 +770,10 @@ nonisolated struct ScanArchiveService: ScanArchiveServicing {
         warnings: [ScanArchiveWarningV1]
     ) throws {
         guard nodeCount == manifest.snapshot.nodeCount else {
-            throw ScanArchiveError.nodes(localized: "manifest expected \(manifest.snapshot.nodeCount) nodes, found \(nodeCount)")
+            throw ScanArchiveError.nodes(localized: "node count in manifest: \(manifest.snapshot.nodeCount), actual count: \(nodeCount)")
         }
         guard warnings.count == manifest.snapshot.warningCount else {
-            throw ScanArchiveError.manifest(localized: "manifest expected \(manifest.snapshot.warningCount) warnings, found \(warnings.count)")
+            throw ScanArchiveError.manifest(localized: "warning count in manifest: \(manifest.snapshot.warningCount), actual count: \(warnings.count)")
         }
     }
 

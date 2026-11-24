@@ -250,10 +250,7 @@ struct ScanComparisonView: View {
         case .limited:
             let warningCount = comparison.coverage.beforeWarningCount + comparison.coverage.afterWarningCount
             if warningCount > 0 {
-                if warningCount == 1 {
-                    return String(localized: "Limited coverage: \(warningCount) unreadable location. Missing entries below it are not necessarily deleted.", comment: "Comparison coverage message when one location could not be read.")
-                }
-                return String(localized: "Limited coverage: \(warningCount) unreadable locations. Missing entries below them are not necessarily deleted.", comment: "Comparison coverage message when multiple locations could not be read.")
+                return String(localized: "Limited coverage: \(warningCount) unreadable locations. Missing entries below them are not necessarily deleted.", comment: "Comparison coverage warning. The number of unreadable locations determines the plural form.")
             }
             return String(localized: "Limited coverage: scan settings are unavailable for one or both scans.", comment: "Comparison coverage message when scan settings are missing.")
         case .low:
@@ -332,7 +329,7 @@ struct ScanComparisonView: View {
         if selectedKinds.isEmpty {
             return String(localized: "No change types selected", comment: "Accessibility description when no comparison change filters are selected.")
         }
-        return selectedKinds.map(\.title).joined(separator: ", ")
+        return selectedKinds.map(\.title).formatted(.list(type: .and))
     }
 
     private var changeKindSelectionTitle: String {
@@ -344,7 +341,7 @@ struct ScanComparisonView: View {
         }
         let selectedKinds = ScanComparisonChangeKind.allCases.filter(selectedChangeKinds.contains)
         if selectedKinds.count <= 2 {
-            return selectedKinds.map(\.title).joined(separator: ", ")
+            return selectedKinds.map(\.title).formatted(.list(type: .and))
         }
         return String(localized: "\(selectedKinds.count) Types", comment: "Comparison filter menu title showing the number of selected change types.")
     }
@@ -394,7 +391,7 @@ struct ScanComparisonView: View {
             if effectiveDisplayMode == .significant {
                 Text(significantStatusText)
             } else {
-                Text("Showing \(displayedRows.count.formatted()) of \(comparison.rows.count.formatted()) filesystem changes.")
+                Text("Filesystem changes shown: \(displayedRows.count.formatted()) of \(comparison.rows.count.formatted())")
                 if !searchText.isEmpty, displayMode == .significant {
                     Text("Search uses All Changes.")
                         .foregroundStyle(.secondary)
@@ -415,7 +412,7 @@ struct ScanComparisonView: View {
         if projection.hiddenRootCount == 0 {
             return String(localized: "Showing all meaningful contributors; expand folders to trace their source.", comment: "Comparison status when all meaningful contributors are visible.")
         }
-        return String(localized: "Named contributors represent \(percentage) of selected impact; \(projection.groupedAffectedCount.formatted()) smaller changes are grouped under Other.", comment: "Comparison status explaining that smaller changes are grouped under Other.")
+        return String(localized: "Listed items account for \(percentage) of the selected impact. Other smaller changes: \(projection.groupedAffectedCount.formatted())", comment: "Comparison status explaining that smaller changes are grouped under Other.")
     }
 
     private var significantTable: some View {
@@ -586,7 +583,7 @@ struct ScanComparisonView: View {
                 Button {
                     actions.showNodeInBrowser(node)
                 } label: {
-                    Label("Show in Browser", systemImage: "sidebar.squares.left")
+                    Label("Show in File Browser", systemImage: "sidebar.squares.left")
                 }
                 .disabled(!actions.canShowNodeInBrowser(node))
 
@@ -623,7 +620,7 @@ struct ScanComparisonView: View {
             Button {
                 actions.showInBrowser(row)
             } label: {
-                Label("Show in Browser", systemImage: "sidebar.squares.left")
+                Label("Show in File Browser", systemImage: "sidebar.squares.left")
             }
             .disabled(!actions.canShowInBrowser(row))
 
@@ -654,7 +651,7 @@ struct ScanComparisonView: View {
             }
             .disabled(!actions.canReveal(row))
 
-            Button("Show in Browser") {
+            Button("Show in File Browser") {
                 actions.showInBrowser(row)
             }
             .disabled(!actions.canShowInBrowser(row))
@@ -682,7 +679,7 @@ struct ScanComparisonView: View {
                 }
                 .disabled(!actions.canRevealNode(node))
 
-                Button("Show in Browser") {
+                Button("Show in File Browser") {
                     actions.showNodeInBrowser(node)
                 }
                 .disabled(!actions.canShowNodeInBrowser(node))

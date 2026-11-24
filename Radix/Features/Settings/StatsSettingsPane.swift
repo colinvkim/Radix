@@ -64,14 +64,14 @@ struct StatsSettingsPane: View {
                 Section("Trash") {
                     StatValueRow(
                         String(
-                            localized: "Files deleted",
+                            localized: "Files moved to Trash",
                             comment: "Stats pane label for the number of files moved to Trash."
                         ),
                         value: countText(appModel.usageStats.filesDeleted)
                     )
                     StatValueRow(
                         String(
-                            localized: "Folders deleted",
+                            localized: "Folders moved to Trash",
                             comment: "Stats pane label for the number of folders moved to Trash."
                         ),
                         value: countText(appModel.usageStats.foldersDeleted)
@@ -112,7 +112,8 @@ struct StatsSettingsPane: View {
             return Self.emptyValueText
         }
 
-        return sizeText(Int64(bytesPerSecond.rounded())) + "/s"
+        let size = RadixFormatters.size(Int64(bytesPerSecond.rounded()))
+        return String(localized: "\(size)/s", comment: "Scan speed. The argument is a formatted data size, such as 42 MB.")
     }
 }
 

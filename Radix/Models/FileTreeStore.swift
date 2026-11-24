@@ -531,9 +531,9 @@ nonisolated struct FileTreeStore: Sendable {
         var errorDescription: String? {
             switch self {
             case .replacementIDCollision(let id):
-                return "The replacement tree reuses an existing node ID outside the replaced subtree: \(id)."
+                return String(localized: "The replacement tree reuses an existing node ID outside the replaced subtree: \(id).")
             case .overlappingReplacementTargets(let ancestorID, let descendantID):
-                return "Batch replacements must be disjoint, but \(ancestorID) contains \(descendantID)."
+                return String(localized: "Batch replacements must be disjoint, but \(ancestorID) contains \(descendantID).")
             }
         }
     }

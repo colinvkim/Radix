@@ -1211,7 +1211,7 @@ struct AppModelDependencyTests {
         ),
         (
             .missingScannedIdentity,
-            "Radix could not verify the scanned identity for /selection/file.txt. Rescan before moving it to Trash."
+            "Radix could not verify the scanned identity for /selection/file.txt. Rescan the item and try again."
         ),
     ])
     func testConfirmPendingTrashPreservesNodeAfterIdentityRejection(

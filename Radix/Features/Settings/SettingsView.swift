@@ -345,7 +345,7 @@ private enum SettingsResetAction {
     var message: LocalizedStringKey {
         switch self {
         case .settings:
-            "Restores scan, disk map, read-only mode, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
+            "Restores default settings, including appearance, snapshot autosave, and exclusion patterns. Recent scans, stats, and Full Disk Access are kept."
         case .stats:
             "Clears the aggregate usage stats stored on this Mac. Preferences and recent scans are kept."
         case .recents:

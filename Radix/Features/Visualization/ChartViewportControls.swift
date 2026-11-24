@@ -128,7 +128,7 @@ struct ChartViewportControls: View {
     @State private var showsControls = false
 
     private var zoomText: String {
-        "\(Int((transform.scale * 100).rounded()))%"
+        Double(transform.scale).formatted(.percent.precision(.fractionLength(0)))
     }
 
     var body: some View {

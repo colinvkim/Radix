@@ -75,7 +75,7 @@ struct DiscardPileReviewSheet: View {
             Divider()
 
             HStack {
-                Button("Clear All…") {
+                Button("Remove All Marks…") {
                     isConfirmingClear = true
                 }
                 .disabled(summary.isEmpty)
@@ -104,7 +104,7 @@ struct DiscardPileReviewSheet: View {
             isPresented: $isConfirmingClear,
             titleVisibility: .visible
         ) {
-            Button("Clear All", role: .destructive) {
+            Button("Remove All Marks", role: .destructive) {
                 selection.removeAll()
                 actions.clear()
             }

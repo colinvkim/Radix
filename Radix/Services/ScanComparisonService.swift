@@ -200,7 +200,7 @@ nonisolated struct ScanComparisonRow: Identifiable, Equatable, Sendable {
         self.beforeLogicalSize = beforeNode?.logicalSize
         self.afterLogicalSize = afterNode?.logicalSize
         self.isDirectory = displayNode?.isDirectory ?? false
-        self.itemKind = displayNode?.itemKind ?? "Item"
+        self.itemKind = displayNode?.itemKind ?? String(localized: "Item")
         self.beforeDescendantFileCount = beforeNode?.descendantFileCount
         self.afterDescendantFileCount = afterNode?.descendantFileCount
         self.lastModified = afterNode?.lastModified ?? beforeNode?.lastModified
@@ -263,10 +263,6 @@ nonisolated struct ScanComparisonAggregateChange: Identifiable, Equatable, Senda
 
     var isDirectory: Bool {
         (afterNode ?? beforeNode)?.isDirectory ?? !childPaths.isEmpty
-    }
-
-    var itemKind: String {
-        (afterNode ?? beforeNode)?.itemKind ?? (isDirectory ? "Folder" : "Item")
     }
 
     var fileURL: URL? {

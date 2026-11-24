@@ -672,7 +672,7 @@ extension ScanArchiveService {
             finishImportProfile(.readAndMaterializeNodes, startedAt: nodeReadingStartedAt)
             guard records.count == expectedNodeCount else {
                 throw ScanArchiveError.nodes(localized:
-                    "manifest expected \(expectedNodeCount) nodes, found \(records.count)"
+                    "node count in manifest: \(expectedNodeCount), actual count: \(records.count)"
                 )
             }
             let treeFinalizationStartedAt = importProfileStart()
@@ -760,7 +760,7 @@ extension ScanArchiveService {
 
         guard nodes.count == expectedNodeCount else {
             throw ScanArchiveError.nodes(localized:
-                "manifest expected \(expectedNodeCount) nodes, found \(nodes.count)"
+                "node count in manifest: \(expectedNodeCount), actual count: \(nodes.count)"
             )
         }
         let rootIndex = FileTreeNodeIndex(rawValue: UInt32(topology.rootOrdinal))

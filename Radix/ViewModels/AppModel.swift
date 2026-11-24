@@ -66,7 +66,7 @@ nonisolated enum FileActionError: LocalizedError, Sendable {
         case .changedSinceScan(let path):
             return String(localized: "The item at \(path) changed since this scan. Rescan and select it again.", comment: "Safety error shown when a selected item changed after scanning.")
         case .missingScannedIdentity(let path):
-            return String(localized: "Radix could not verify the scanned identity for \(path). Rescan before moving it to Trash.", comment: "Safety error shown when a scanned file identity cannot be verified.")
+            return String(localized: "Radix could not verify the scanned identity for \(path). Rescan the item and try again.", comment: "Safety error shown when a scanned file identity cannot be verified.")
         case .currentIdentityUnavailable(let path, let reason):
             return String(localized: "Radix could not verify the current identity for \(path): \(reason)", comment: "Safety error shown when the current file identity cannot be verified.")
         case .unsupported:

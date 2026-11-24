@@ -242,7 +242,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Snapshot-Ordner „%@“ ist nicht verfügbar. Schließe das Laufwerk wieder an oder wähle in den Einstellungen einen anderen Ordner."
+            "value" : "Der Snapshot-Ordner „%@“ ist nicht verfügbar. Schließen Sie das Laufwerk wieder an oder wählen Sie in den Einstellungen einen anderen Ordner."
           }
         },
         "es" : {
@@ -2275,7 +2275,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 个层级，包含可用空间"
+            "value" : "%lld 个层级，包含空闲空间"
           }
         }
       }
@@ -4056,7 +4056,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Action échouée"
+            "value" : "Échec de l’action"
           }
         },
         "it" : {
@@ -4115,143 +4115,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "实际大小"
-          }
-        }
-      }
-    },
-    "Add %lld Items to Discard Pile" : {
-      "comment" : "Action for marking multiple selected items for possible deletion.\nAction for marking one or more effective top-level selected items for possible deletion.",
-      "localizations" : {
-        "de" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Element zur Löschliste hinzufügen"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Elemente zur Löschliste hinzufügen"
-                }
-              }
-            }
-          }
-        },
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Add %lld Item to Discard Pile"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Add %lld Items to Discard Pile"
-                }
-              }
-            }
-          }
-        },
-        "es" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Añadir %lld elemento a la pila de descarte"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Añadir %lld elementos a la pila de descarte"
-                }
-              }
-            }
-          }
-        },
-        "fr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Ajouter %lld élément à la pile de suppression"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Ajouter %lld éléments à la pile de suppression"
-                }
-              }
-            }
-          }
-        },
-        "it" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Aggiungi %lld elemento all'elenco di eliminazione"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Aggiungi %lld elementi all'elenco di eliminazione"
-                }
-              }
-            }
-          }
-        },
-        "ru" : {
-          "variations" : {
-            "plural" : {
-              "few" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Добавить %lld объекта в список на удаление"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Добавить %lld объектов в список на удаление"
-                }
-              },
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Добавить %lld объект в список на удаление"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Добавить %lld объекта в список на удаление"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "将 %lld 个项目加入待处理列表"
-                }
-              }
-            }
           }
         }
       }
@@ -6895,7 +6758,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wählen Sie Scans desselben Standorts aus."
+            "value" : "Wählen Sie Scans desselben Speicherorts aus."
           }
         },
         "es" : {
@@ -6976,7 +6839,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wählen Sie zwei Scans desselben Standorts aus. Unterschiede in der Abdeckung werden gekennzeichnet."
+            "value" : "Wählen Sie zwei Scans desselben Speicherorts aus. Unterschiede im Scanumfang werden angezeigt."
           }
         },
         "es" : {
@@ -7132,83 +6995,83 @@
         }
       }
     },
-    "Clear All" : {
+    "Remove All Marks" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alles löschen"
+            "value" : "Alle Markierungen entfernen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Borrar todo"
+            "value" : "Quitar todas las marcas"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tout effacer"
+            "value" : "Retirer toutes les marques"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cancella tutto"
+            "value" : "Rimuovi tutti i contrassegni"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Очистить всё"
+            "value" : "Снять все отметки"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "全部清除"
+            "value" : "移除所有标记"
           }
         }
       }
     },
-    "Clear All…" : {
+    "Remove All Marks…" : {
       "comment" : "Discard Pile action that opens a confirmation before removing every marked item.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alles löschen…"
+            "value" : "Alle Markierungen entfernen…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Borrar todo…"
+            "value" : "Quitar todas las marcas…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tout effacer…"
+            "value" : "Retirer toutes les marques…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cancella tutto…"
+            "value" : "Rimuovi tutti i contrassegni…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Очистить всё…"
+            "value" : "Снять все отметки…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "全部清除…"
+            "value" : "移除所有标记…"
           }
         }
       }
@@ -7313,19 +7176,19 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Löschliste löschen?"
+            "value" : "Löschliste leeren?"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "¿Borrar la pila de descarte?"
+            "value" : "¿Vaciar la pila de descarte?"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Effacer la pile de suppression ?"
+            "value" : "Vider la pile de suppression ?"
           }
         },
         "it" : {
@@ -7343,7 +7206,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "清除待处理列表？"
+            "value" : "清空待处理列表？"
           }
         }
       }
@@ -7434,7 +7297,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Standortfilter löschen"
+            "value" : "Speicherortfilter zurücksetzen"
           }
         },
         "es" : {
@@ -7910,7 +7773,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vergleichbar: gleicher Standort, übereinstimmende Scan-Einstellungen und vollständige Scans."
+            "value" : "Vergleichbar: gleicher Speicherort, übereinstimmende Scan-Einstellungen und vollständige Scans."
           }
         },
         "es" : {
@@ -8845,7 +8708,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aktueller Standort, %@"
+            "value" : "Aktueller Speicherort: %@"
           }
         },
         "es" : {
@@ -11789,31 +11652,31 @@
         }
       }
     },
-    "Files deleted" : {
+    "Files moved to Trash" : {
       "comment" : "Stats pane label for the number of files moved to Trash.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gelöschte Dateien"
+            "value" : "In den Papierkorb verschobene Dateien"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archivos eliminados"
+            "value" : "Archivos enviados a la papelera"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fichiers supprimés"
+            "value" : "Fichiers placés dans la corbeille"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "File eliminati"
+            "value" : "File spostati nel Cestino"
           }
         },
         "ru" : {
@@ -11825,7 +11688,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已删除文件"
+            "value" : "移入废纸篓的文件数"
           }
         }
       }
@@ -11963,7 +11826,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schließen Sie zuerst die Auswahl des Exportstandorts ab, bevor Sie Snapshots vergleichen."
+            "value" : "Wählen Sie zuerst einen Speicherort für den Export, bevor Sie Snapshots vergleichen."
           }
         },
         "es" : {
@@ -12004,7 +11867,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schließen Sie zuerst die Auswahl des Exportstandorts ab, bevor Sie einen Snapshot importieren."
+            "value" : "Wählen Sie zuerst einen Speicherort für den Export, bevor Sie einen Snapshot importieren."
           }
         },
         "es" : {
@@ -12373,31 +12236,31 @@
         }
       }
     },
-    "Folders deleted" : {
+    "Folders moved to Trash" : {
       "comment" : "Stats pane label for the number of folders moved to Trash.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gelöschte Ordner"
+            "value" : "In den Papierkorb verschobene Ordner"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Carpetas eliminadas"
+            "value" : "Carpetas enviadas a la papelera"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dossiers supprimés"
+            "value" : "Dossiers placés dans la corbeille"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cartelle eliminate"
+            "value" : "Cartelle spostate nel Cestino"
           }
         },
         "ru" : {
@@ -12409,7 +12272,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已删除文件夹"
+            "value" : "移入废纸篓的文件夹数"
           }
         }
       }
@@ -12537,7 +12400,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "扫描时的剩余空间"
+            "value" : "扫描时的空闲空间"
           }
         }
       }
@@ -12584,7 +12447,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "可用空间"
+            "value" : "空闲空间"
           }
         }
       }
@@ -14365,7 +14228,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aktuellen Ordner aktuell halten"
+            "value" : "Aktuellen Ordner automatisch aktualisieren"
           }
         },
         "en" : {
@@ -14993,72 +14856,79 @@
         }
       }
     },
-    "Limited coverage: %lld unreadable location. Missing entries below it are not necessarily deleted." : {
-      "comment" : "Comparison coverage message when one location could not be read.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eingeschränkte Abdeckung: %lld Standort war nicht lesbar. Darunter fehlende Einträge wurden nicht unbedingt gelöscht."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cobertura limitada: %lld ubicación ilegible. Las entradas que faltan debajo no se han eliminado necesariamente."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couverture limitée : %lld emplacement illisible. Les éléments manquants ne sont pas nécessairement supprimés."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copertura limitata: %lld posizione illeggibile. Le voci mancanti al di sotto di essa non sono necessariamente state eliminate."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ограниченный охват: не удалось прочитать %lld расположение. Отсутствующие в нём объекты не обязательно были удалены."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "覆盖范围有限：%lld 个位置无法读取。其下缺失的项目不一定已删除。"
-          }
-        }
-      }
-    },
     "Limited coverage: %lld unreadable locations. Missing entries below them are not necessarily deleted." : {
-      "comment" : "Comparison coverage message when multiple locations could not be read.",
+      "comment" : "Comparison coverage warning. The number of unreadable locations determines the plural form.",
       "localizations" : {
         "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eingeschränkte Abdeckung: %lld nicht lesbare Standorte. Darunter fehlende Einträge wurden nicht unbedingt gelöscht."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Eingeschränkte Abdeckung: %lld Speicherort konnte nicht gelesen werden. Dort fehlende Einträge wurden möglicherweise nicht gelöscht."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Eingeschränkte Abdeckung: %lld Speicherorte konnten nicht gelesen werden. Dort fehlende Einträge wurden möglicherweise nicht gelöscht."
+                }
+              }
+            }
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cobertura limitada: %lld ubicaciones ilegibles. Las entradas que faltan debajo no se han eliminado necesariamente."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cobertura limitada: %lld ubicación ilegible. Las entradas que faltan debajo no se han eliminado necesariamente."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cobertura limitada: %lld ubicaciones ilegibles. Las entradas que faltan debajo no se han eliminado necesariamente."
+                }
+              }
+            }
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couverture limitée : %lld emplacements illisibles. Les éléments manquants ne sont pas nécessairement supprimés."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Couverture limitée : %lld emplacement illisible. Les éléments manquants ne sont pas nécessairement supprimés."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Couverture limitée : %lld emplacements illisibles. Les éléments manquants ne sont pas nécessairement supprimés."
+                }
+              }
+            }
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copertura limitata: %lld posizioni illeggibili. Le voci mancanti al di sotto di esse non sono necessariamente state eliminate."
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Copertura limitata: %lld posizione illeggibile. Le voci mancanti al di sotto di essa non sono necessariamente state eliminate."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Copertura limitata: %lld posizioni illeggibili. Le voci mancanti al di sotto di esse non sono necessariamente state eliminate."
+                }
+              }
+            }
           }
         },
         "ru" : {
@@ -15095,6 +14965,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "覆盖范围有限：%lld 个位置无法读取。其下缺失的项目不一定已删除。"
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Limited coverage: %lld unreadable location. Missing entries below it are not necessarily deleted."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Limited coverage: %lld unreadable locations. Missing entries below them are not necessarily deleted."
+                }
+              }
+            }
           }
         }
       }
@@ -15272,7 +15160,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Standort"
+            "value" : "Speicherort"
           }
         },
         "es" : {
@@ -15312,7 +15200,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Standorte"
+            "value" : "Speicherorte"
           }
         },
         "es" : {
@@ -15558,30 +15446,30 @@
         }
       }
     },
-    "manifest expected %lld nodes, found %lld" : {
+    "node count in manifest: %lld, actual count: %lld" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Manifest erwartete %lld Knoten, gefunden wurden %lld"
+            "value" : "Knoten im Manifest: %1$lld, gefunden: %2$lld"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El manifiesto esperaba %lld nodos; se encontraron %lld"
+            "value" : "Nodos en el manifiesto: %1$lld. Nodos encontrados: %2$lld"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le manifeste attendait %lld nœuds ; %lld ont été trouvés"
+            "value" : "Nombre de nœuds dans le manifeste : %1$lld. Nombre trouvé : %2$lld"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "il manifesto si aspettava %lld nodi, trovati %lld"
+            "value" : "Numero di nodi nel manifesto: %1$lld. Numero rilevato: %2$lld"
           }
         },
         "ru" : {
@@ -15593,35 +15481,35 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "清单应有 %lld 个节点，实际找到 %lld 个"
+            "value" : "清单中的节点数：%1$lld，实际节点数：%2$lld"
           }
         }
       }
     },
-    "manifest expected %lld warnings, found %lld" : {
+    "warning count in manifest: %lld, actual count: %lld" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Manifest erwartete %lld Warnungen, gefunden wurden %lld"
+            "value" : "Warnungen im Manifest: %1$lld, gefunden: %2$lld"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El manifiesto esperaba %lld advertencias; se encontraron %lld"
+            "value" : "Advertencias en el manifiesto: %1$lld. Advertencias encontradas: %2$lld"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le manifeste attendait %lld avertissements ; %lld ont été trouvés"
+            "value" : "Nombre d’avertissements dans le manifeste : %1$lld. Nombre trouvé : %2$lld"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "il manifesto si aspettava %lld avvisi, trovati %lld"
+            "value" : "Numero di avvisi nel manifesto: %1$lld. Numero rilevato: %2$lld"
           }
         },
         "ru" : {
@@ -15633,7 +15521,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "清单应有 %lld 条警告，实际找到 %lld 条"
+            "value" : "清单中的警告数：%1$lld，实际警告数：%2$lld"
           }
         }
       }
@@ -17112,49 +17000,49 @@
         }
       }
     },
-    "Named contributors represent %@ of selected impact; %@ smaller changes are grouped under Other." : {
+    "Listed items account for %@ of the selected impact. Other smaller changes: %@" : {
       "comment" : "Comparison status explaining that smaller changes are grouped under Other.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die benannten Verursacher machen %@ der ausgewählten Auswirkung aus; %@ kleinere Änderungen sind unter „Andere“ gruppiert."
+            "value" : "Die aufgeführten Elemente machen %1$@ der ausgewählten Speicheränderungen aus. Weitere kleinere Änderungen: %2$@"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Named contributors represent %1$@ of selected impact; %2$@ smaller changes are grouped under Other."
+            "value" : "Listed items account for %@ of the selected impact. Other smaller changes: %@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los elementos identificados representan %@ del impacto seleccionado; %@ cambios menores se agrupan en Otros."
+            "value" : "Los elementos de la lista representan el %1$@ del impacto seleccionado. Otros cambios menores: %2$@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les contributeurs nommés représentent %@ de l’impact sélectionné ; %@ changements mineurs sont regroupés sous Autres."
+            "value" : "Les éléments de la liste représentent %1$@ de l’impact sélectionné. Autres changements mineurs : %2$@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I contributori identificati rappresentano %1$@ dell'impatto selezionato; %2$@ modifiche minori sono raggruppate sotto Altro."
+            "value" : "Gli elementi elencati rappresentano il %1$@ della variazione selezionata. Altre modifiche minori: %2$@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Показанные объекты составляют %1$@ выбранного изменения; в группе «Другие небольшие изменения» — %2$@."
+            "value" : "На перечисленные объекты приходится %1$@ выбранного объёма изменений. Другие небольшие изменения: %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已命名的贡献项占所选影响的 %@；%@ 个较小变化已归入“其他”。"
+            "value" : "列出的项目占所选空间变化量的 %1$@。其他较小变化：%2$@ 项"
           }
         }
       }
@@ -17205,7 +17093,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Navigiert zu diesem Standort."
+            "value" : "Öffnet diesen Speicherort."
           }
         },
         "es" : {
@@ -20910,43 +20798,43 @@
         }
       }
     },
-    "Radix could not verify the scanned identity for %@. Rescan before moving it to Trash." : {
+    "Radix could not verify the scanned identity for %@. Rescan the item and try again." : {
       "comment" : "Safety error shown when a scanned file identity cannot be verified.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix konnte die Identität des Scans für %@ nicht überprüfen. Scannen Sie erneut, bevor Sie das Element in den Papierkorb bewegen."
+            "value" : "Radix konnte die beim Scan erfasste Identität von %@ nicht bestätigen. Scannen Sie das Element erneut und versuchen Sie es noch einmal."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix no pudo verificar la identidad analizada de %@. Vuelve a analizarlo antes de moverlo a la papelera."
+            "value" : "Radix no pudo verificar la identidad de %@ registrada durante el análisis. Vuelve a analizar el elemento e inténtalo de nuevo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix n’a pas pu vérifier l’identité analysée de %@. Réanalysez-le avant de le placer dans la corbeille."
+            "value" : "Radix n’a pas pu vérifier l’identité de %@ enregistrée lors de l’analyse. Analysez à nouveau l’élément, puis réessayez."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix non ha potuto verificare l'identità scansionata per %@. Esegui nuovamente la scansione prima di spostarlo nel Cestino."
+            "value" : "Radix non ha potuto verificare l’identità di %@ registrata durante la scansione. Scansiona di nuovo l’elemento e riprova."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix не удалось проверить идентичность %@, зафиксированную при сканировании. Выполните повторное сканирование перед перемещением в Корзину."
+            "value" : "Radix не удалось подтвердить идентификатор %@, полученный при сканировании. Просканируйте объект ещё раз и повторите попытку."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix 无法验证 %@ 的扫描身份。移到废纸篓前请重新扫描。"
+            "value" : "Radix 无法验证扫描时记录的 %@ 的标识。请重新扫描该项目后再试。"
           }
         }
       }
@@ -21254,7 +21142,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix hat dieses Paket gescannt, bevor sein Inhalt erweitert wurde. Scannen Sie diesen Standort erneut, um den Inhalt zu vergrößern."
+            "value" : "Beim Scan dieses Pakets war „Pakete aufklappen“ noch deaktiviert. Scannen Sie diesen Speicherort erneut, um den Paketinhalt anzuzeigen."
           }
         },
         "es" : {
@@ -21407,7 +21295,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Radix wird den geschützten Standort unter %@ nicht in den Papierkorb bewegen."
+            "value" : "Radix kann den geschützten Speicherort %@ nicht in den Papierkorb bewegen."
           }
         },
         "es" : {
@@ -23307,48 +23195,48 @@
         }
       }
     },
-    "Restores scan, disk map, read-only mode, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept." : {
+    "Restores default settings, including appearance, snapshot autosave, and exclusion patterns. Recent scans, stats, and Full Disk Access are kept." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Setzt die Einstellungen für Scans, Datenträgerkarten, den Nur-Lese-Modus und Updates auf die Standardwerte zurück und ersetzt benutzerdefinierte Ausschlussmuster durch die integrierten Vorgaben. Letzte Scans, Statistiken und Festplattenvollzugriff bleiben erhalten."
+            "value" : "Setzt die Einstellungen auf ihre Standardwerte zurück, einschließlich Erscheinungsbild, automatischer Snapshot-Sicherung und Ausschlussmustern. Letzte Scans, Statistiken und Festplattenvollzugriff bleiben erhalten."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restores scan, disk map, read-only mode, and update preferences to their defaults, and replaces custom exclusion patterns with the built-in presets. Recent scans, stats, and Full Disk Access are kept."
+            "value" : "Restores default settings, including appearance, snapshot autosave, and exclusion patterns. Recent scans, stats, and Full Disk Access are kept."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restablece las preferencias de análisis, mapas de disco, modo de solo lectura y actualizaciones a sus valores predeterminados, y sustituye los patrones de exclusión personalizados por los preajustes integrados. Se conservan los análisis recientes, las estadísticas y el acceso total al disco."
+            "value" : "Restablece los ajustes predeterminados, incluidos la apariencia, el guardado automático de instantáneas y los patrones de exclusión. Se conservan los análisis recientes, las estadísticas y el acceso total al disco."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rétablit les réglages par défaut des analyses, des cartes de disque, du mode lecture seule et des mises à jour, et remplace les motifs d’exclusion personnalisés par les préréglages intégrés. Les analyses récentes, les statistiques et l’accès complet au disque sont conservés."
+            "value" : "Rétablit les réglages par défaut, notamment l’apparence, l’enregistrement automatique des instantanés et les motifs d’exclusion. Les analyses récentes, les statistiques et l’accès complet au disque sont conservés."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ripristina le preferenze di scansione, mappe del disco, modalità di sola lettura e aggiornamenti ai valori predefiniti e sostituisce i modelli di esclusione personalizzati con quelli integrati. Le scansioni recenti, le statistiche e l’accesso completo al disco vengono mantenuti."
+            "value" : "Ripristina le impostazioni predefinite, tra cui aspetto, salvataggio automatico delle istantanee e criteri di esclusione. Le scansioni recenti, le statistiche e l’accesso completo al disco vengono mantenuti."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Восстанавливает настройки сканирования, карт диска, режима только для чтения и обновлений по умолчанию, а также заменяет пользовательские шаблоны исключений встроенными. Недавние сканирования, статистика и полный доступ к диску сохраняются."
+            "value" : "Восстанавливает настройки по умолчанию, включая оформление, автосохранение снимков и шаблоны исключений. Недавние сканирования, статистика и полный доступ к диску сохраняются."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将扫描、磁盘图、只读模式和更新偏好设置恢复为默认值，并用内置预设替换自定义排除模式。保留最近扫描、统计数据和完全磁盘访问权限。"
+            "value" : "恢复默认设置，包括外观、快照自动保存和排除规则。最近扫描、统计数据和完全磁盘访问权限将保留。"
           }
         }
       }
@@ -25237,53 +25125,6 @@
         }
       }
     },
-    "Select an item" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ein Element auswählen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select an item"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selecciona un elemento"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sélectionner un élément"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seleziona un elemento"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выберите объект"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择项目"
-          }
-        }
-      }
-    },
     "Select an item first." : {
       "comment" : "Error shown when a file action is requested without a selection.",
       "localizations" : {
@@ -25812,35 +25653,35 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在宗卷扫描中显示可用空间"
+            "value" : "在宗卷扫描中显示空闲空间"
           }
         }
       }
     },
-    "Show in Browser" : {
+    "Show in File Browser" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Im Browser anzeigen"
+            "value" : "Im Dateibrowser anzeigen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mostrar en el navegador"
+            "value" : "Mostrar en el explorador de archivos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Afficher dans le navigateur"
+            "value" : "Afficher dans le navigateur de fichiers"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mostra nel browser"
+            "value" : "Mostra nel browser dei file"
           }
         },
         "ru" : {
@@ -25852,7 +25693,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在浏览器中显示"
+            "value" : "在文件浏览器中显示"
           }
         }
       }
@@ -26066,48 +25907,48 @@
         }
       }
     },
-    "Showing %@ of %@ filesystem changes." : {
+    "Filesystem changes shown: %@ of %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ von %@ Dateisystemänderungen werden angezeigt."
+            "value" : "Angezeigte Dateisystemänderungen: %1$@ von %2$@"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Showing %1$@ of %2$@ filesystem changes."
+            "value" : "Filesystem changes shown: %@ of %@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se muestran %@ de %@ cambios del sistema de archivos."
+            "value" : "Cambios del sistema de archivos visibles: %1$@ de %2$@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ changements du système de fichiers sur %@ sont affichés."
+            "value" : "Modifications du système de fichiers affichées : %1$@ sur %2$@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mostrate %1$@ di %2$@ modifiche al file system."
+            "value" : "Modifiche al file system visualizzate: %1$@ su %2$@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Показано %1$@ из %2$@ изменений файловой системы."
+            "value" : "Изменения файловой системы: показано %1$@ из %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在显示 %@ / %@ 个文件系统变化。"
+            "value" : "已显示的文件系统变化：%1$@ 项，共 %2$@ 项"
           }
         }
       }
@@ -26677,7 +26518,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Intelligente Standorte"
+            "value" : "Intelligente Speicherorte"
           }
         },
         "es" : {
@@ -27507,7 +27348,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Beginnen Sie in der Seitenleiste, legen Sie einen Ordner im Fenster ab oder wählen Sie einen Standort manuell aus."
+            "value" : "Wählen Sie einen Speicherort in der Seitenleiste aus, ziehen Sie einen Ordner in das Fenster oder wählen Sie einen Speicherort manuell aus."
           }
         },
         "es" : {
@@ -31094,7 +30935,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用扫描宗卷时记录的剩余空间。"
+            "value" : "使用扫描宗卷时记录的空闲空间。"
           }
         }
       }
@@ -31980,7 +31821,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Acércate a un directorio con contenido para llenar esta tabla."
+            "value" : "Abre una carpeta que contenga elementos para verlos en esta tabla."
           }
         },
         "fr" : {
@@ -31992,7 +31833,7 @@
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ingrandisci una cartella con contenuti per popolare questa tabella."
+            "value" : "Apri una cartella che contiene elementi per visualizzarli nella tabella."
           }
         },
         "ru" : {
@@ -32004,7 +31845,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "放大查看包含内容的目录以填充此表格。"
+            "value" : "打开一个非空文件夹，即可在表格中查看其内容。"
           }
         }
       }
@@ -32270,6 +32111,127 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "深色"
+          }
+        }
+      }
+    },
+    "%@/s" : {
+      "comment" : "Scan speed. The argument is a formatted data size, such as 42 MB.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/s"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/s"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/s"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/s"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/с"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/秒"
+          }
+        }
+      }
+    },
+    "The replacement tree reuses an existing node ID outside the replaced subtree: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der neue Teilbaum verwendet eine Knoten-ID, die außerhalb des ersetzten Teilbaums bereits vorkommt: %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El árbol de reemplazo usa un identificador de nodo que ya existe fuera del subárbol reemplazado: %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’arbre de remplacement utilise un identifiant de nœud qui existe déjà hors du sous-arbre remplacé : %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’albero sostitutivo usa un ID di nodo già presente al di fuori del sottoalbero sostituito: %@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В новом поддереве используется идентификатор узла, который уже существует за пределами заменяемого поддерева: %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "替换树使用了一个在被替换子树之外已存在的节点标识：%@。"
+          }
+        }
+      }
+    },
+    "Batch replacements must be disjoint, but %@ contains %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die gemeinsam zu ersetzenden Teilbäume dürfen sich nicht überschneiden, aber %1$@ enthält %2$@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los subárboles que se reemplazan a la vez no deben solaparse, pero %1$@ contiene %2$@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les sous-arbres à remplacer ensemble doivent être disjoints, mais %1$@ contient %2$@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I sottoalberi da sostituire insieme devono essere disgiunti, ma %1$@ contiene %2$@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заменяемые одновременно поддеревья не должны пересекаться, но %1$@ содержит %2$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同一批次中要替换的子树不能重叠，但 %1$@ 包含 %2$@。"
           }
         }
       }

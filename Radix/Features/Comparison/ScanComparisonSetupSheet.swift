@@ -307,7 +307,7 @@ private struct ScanComparisonCandidateGroup: View {
         .disabled(actionsDisabled)
     }
 
-    private func metric(_ title: String, _ value: String) -> some View {
+    private func metric(_ title: LocalizedStringKey, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption)
