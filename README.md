@@ -39,6 +39,7 @@ Add items from the disk map, file browser, or inspector to the **Discard Pile**.
 ### Save and Reopen Results
 
 Export completed scans as compact, losslessly compressed `.radixscan` snapshots and reopen them later as read-only results.
+To keep a history of full scans and rescans, [turn on snapshot autosave](docs/snapshot-autosave.md).
 
 ## More Features
 

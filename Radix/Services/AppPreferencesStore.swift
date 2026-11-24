@@ -17,6 +17,8 @@ nonisolated struct AppScanPreferences: Equatable {
     var useScanExclusions: Bool
     var exclusionPatterns: [String]
     var automaticallyRefreshFocusedFolder = true
+    var snapshotAutosaveFolder: URL?
+    var autosaveVolumesOnly = false
 
     static let defaults = AppScanPreferences(
         showHiddenFiles: true,
@@ -70,6 +72,8 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         static let useScanExclusions = "useScanExclusions"
         static let exclusionPatterns = "exclusionPatterns"
         static let automaticallyRefreshFocusedFolder = "automaticallyRefreshFocusedFolder"
+        static let snapshotAutosaveFolder = "snapshotAutosaveFolder"
+        static let autosaveVolumesOnly = "autosaveVolumesOnly"
     }
 
     private let defaults: UserDefaults
@@ -131,7 +135,12 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
                 exclusionPatterns: exclusionPatterns,
                 automaticallyRefreshFocusedFolder: defaults.object(forKey: Key.automaticallyRefreshFocusedFolder) == nil
                     ? AppScanPreferences.defaults.automaticallyRefreshFocusedFolder
-                    : defaults.bool(forKey: Key.automaticallyRefreshFocusedFolder)
+                    : defaults.bool(forKey: Key.automaticallyRefreshFocusedFolder),
+                snapshotAutosaveFolder: defaults.string(forKey: Key.snapshotAutosaveFolder).flatMap { path in
+                    guard path.hasPrefix("/") else { return nil }
+                    return URL(filePath: path, directoryHint: .isDirectory)
+                },
+                autosaveVolumesOnly: defaults.bool(forKey: Key.autosaveVolumesOnly)
             ),
             didCompleteOnboarding: defaults.bool(forKey: Key.didCompleteOnboarding),
             onboardingPage: defaults.string(forKey: Key.onboardingPage)
@@ -147,6 +156,8 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesPersisting {
         defaults.set(preferences.maxRenderedDepth, forKey: Key.maxRenderedDepth)
         defaults.set(preferences.autoSummarizeDirectories, forKey: Key.autoSummarizeDirectories)
         defaults.set(preferences.automaticallyRefreshFocusedFolder, forKey: Key.automaticallyRefreshFocusedFolder)
+        defaults.set(preferences.snapshotAutosaveFolder?.path, forKey: Key.snapshotAutosaveFolder)
+        defaults.set(preferences.autosaveVolumesOnly, forKey: Key.autosaveVolumesOnly)
         defaults.set(preferences.showFreeSpaceInDiskMaps, forKey: Key.showFreeSpaceInDiskMaps)
         defaults.set(preferences.visualizationMode.rawValue, forKey: Key.visualizationMode)
         defaults.set(preferences.useScanExclusions, forKey: Key.useScanExclusions)

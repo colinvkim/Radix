@@ -471,7 +471,9 @@ struct AppModelDependencyTests {
                     showHiddenFiles: false, treatPackagesAsDirectories: true,
                     maxRenderedDepth: 10, autoSummarizeDirectories: false,
                     showFreeSpaceInDiskMaps: true, visualizationMode: .treemap,
-                    useScanExclusions: true, exclusionPatterns: ["custom/**"]
+                    useScanExclusions: true, exclusionPatterns: ["custom/**"],
+                    snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory),
+                    autosaveVolumesOnly: true
                 ),
                 didCompleteOnboarding: true,
                 onboardingPage: .access,
@@ -503,6 +505,8 @@ struct AppModelDependencyTests {
         try await waitUntil("default preferences persisted") {
             preferences.savedScanPreferences == [.defaults]
         }
+        #expect(model.snapshotAutosaveFolder == nil)
+        #expect(!model.autosaveVolumesOnly)
         #expect(model.recentTargets == [recent])
         #expect(recentPersistence.loadRecentTargets() == [recent])
         #expect(model.usageStats == stats)
@@ -3023,6 +3027,91 @@ struct AppModelDependencyTests {
         model.importScanSnapshot(from: URL(filePath: "/tmp/opened.radixscan", directoryHint: .isDirectory))
 
         #expect(model.lastErrorMessage == "Stop the current scan before importing a snapshot.")
+    }
+
+    @Test
+    func testAutosavePreservesSnapshotsFromFullScanAndRescanWithSameTimestamp() async throws {
+        let folder = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let scanService = ControlledAppModelScanService()
+        let model = AppModel(dependencies: makeDependencies(scanService: scanService))
+        model.snapshotAutosaveFolder = folder
+        let first = makeComparisonSnapshot(rootPath: "/autosave", fileSize: 42)
+        let second = makeComparisonSnapshot(rootPath: "/autosave", fileSize: 100)
+        var confirmedArchives: [URL] = []
+        let observer = model.$exportConfirmation.compactMap { $0?.archiveURL }.sink { url in
+            #expect(FileManager.default.fileExists(atPath: url.path))
+            confirmedArchives.append(url)
+        }
+        defer { observer.cancel() }
+
+        model.startScan(first.target)
+        try await waitUntil("full scan started") { scanService.requests.count == 1 }
+        scanService.yield(.finished(first), scanIndex: 0)
+        scanService.finish(scanIndex: 0)
+        try await waitUntil("first result displayed") { model.scanState.snapshot?.id == first.id }
+        model.rescanEntireScan()
+        try await waitUntil("full rescan started") { scanService.requests.count == 2 }
+        scanService.yield(.finished(second), scanIndex: 1)
+        scanService.finish(scanIndex: 1)
+
+        try await waitUntil("both autosaves confirmed") { confirmedArchives.count == 2 }
+        let archiveNames = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(archiveNames.sorted() == confirmedArchives.map(\.lastPathComponent).sorted())
+        var sizes: [Int64] = []
+        for url in confirmedArchives {
+            let result = try await ScanArchiveService().importSnapshot(from: url)
+            sizes.append(result.snapshot.root.allocatedSize)
+        }
+        #expect(sizes.sorted() == [42, 100])
+    }
+
+    @Test
+    func testVolumeOnlyAutosaveSkipsFoldersAndSavesVolumeScans() async throws {
+        let scanner = ControlledAppModelScanService()
+        let archive = SpyScanArchiveService()
+        var preferences = AppPreferences.defaults
+        preferences.scan.snapshotAutosaveFolder = FileManager.default.temporaryDirectory
+        preferences.scan.autosaveVolumesOnly = true
+        let model = AppModel(dependencies: makeDependencies(
+            preferences: SpyAppPreferencesStore(preferences: preferences),
+            scanService: scanner,
+            scanArchiveService: archive
+        ))
+        let folder = makeComparisonSnapshot(rootPath: "/Volumes/Backup/Photos", fileSize: 42)
+        let volume = makeComparisonSnapshot(rootPath: "/Volumes/Backup", fileSize: 100, targetKind: .volume)
+        for (index, snapshot) in [folder, volume].enumerated() {
+            model.startScan(snapshot.target)
+            try await waitUntil("scan started") { scanner.requests.count == index + 1 }
+            scanner.yield(.finished(snapshot), scanIndex: index)
+            scanner.finish(scanIndex: index)
+            try await waitUntil("scan displayed") { model.scanState.snapshot?.id == snapshot.id }
+        }
+
+        try await waitUntil("volume archived") { await archive.exportRequests.contains { $0.snapshotID == volume.id } }
+        #expect(await archive.exportRequests.map(\.snapshotID) == [volume.id])
+    }
+
+    @Test
+    func testUnavailableAutosaveFolderReportsErrorAndKeepsScanAvailable() async throws {
+        let scanner = ControlledAppModelScanService()
+        let model = AppModel(dependencies: makeDependencies(scanService: scanner))
+        let missingFolder = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        model.snapshotAutosaveFolder = missingFolder
+        let snapshot = makeComparisonSnapshot(rootPath: "/autosave", fileSize: 42)
+        model.startScan(snapshot.target)
+        try await waitUntil("scan started") { scanner.requests.count == 1 }
+        scanner.yield(.finished(snapshot), scanIndex: 0)
+        scanner.finish(scanIndex: 0)
+
+        try await waitUntil("autosave error presented") { model.lastErrorMessage != nil }
+        let message = try #require(model.lastErrorMessage)
+        #expect(message.contains(missingFolder.path))
+        #expect(!message.contains(".tmp"))
+        #expect(model.exportConfirmation == nil)
+        #expect(model.scanState.snapshot?.id == snapshot.id)
+        #expect(model.canExportCurrentScan)
     }
 
     @Test

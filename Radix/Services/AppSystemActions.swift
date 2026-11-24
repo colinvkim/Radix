@@ -146,7 +146,7 @@ struct AppSystemActions {
         ]
     }
 
-    private static func isExistingDirectoryURL(_ url: URL) -> Bool {
+    nonisolated static func isExistingDirectoryURL(_ url: URL) -> Bool {
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             return false

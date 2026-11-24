@@ -121,6 +121,7 @@ final class ScanProgressState: ObservableObject {
 
 @MainActor
 final class ScanCoordinator: ObservableObject {
+    typealias ScanCompletion = (ScanSnapshot) -> Void
     struct WorkspaceState {
         let snapshot: ScanSnapshot?
         let completedSnapshot: ScanSnapshot?
@@ -162,9 +163,13 @@ final class ScanCoordinator: ObservableObject {
     private var completionNoticeDismissTask: Task<Void, Never>?
     private var activeScanID: UUID? {
         didSet {
-            if oldValue != nil, activeScanID == nil { notifyWhenIdle() }
+            if oldValue != nil, activeScanID == nil {
+                activeScanCompletion = nil
+                notifyWhenIdle()
+            }
         }
     }
+    private(set) var activeScanCompletion: ScanCompletion?
     private var activeExpansionID: UUID?
     private var expansionCompletion: ((ScanExpansionResult) -> Void)?
     private var pendingProgressMetrics: ScanMetrics?
@@ -292,6 +297,7 @@ final class ScanCoordinator: ObservableObject {
         options: ScanOptions,
         baseline: ScanSnapshot? = nil,
         isRescan: Bool = false,
+        onCompletion: ScanCompletion? = nil,
         prepare: () -> Void = {}
     ) {
         stopScan(resetState: false)
@@ -309,6 +315,7 @@ final class ScanCoordinator: ObservableObject {
 
         let scanID = UUID()
         activeScanID = scanID
+        activeScanCompletion = onCompletion
         let stream: AsyncThrowingStream<ScanProgressEvent, Error>
         if let baseline {
             stream = scanService.rescan(target: target, options: options, from: baseline)
@@ -656,7 +663,16 @@ final class ScanCoordinator: ObservableObject {
         do {
             for try await event in stream {
                 guard activeScanID == scanID else { break }
-                handle(event, scanID: scanID)
+                switch event {
+                case .executionMode(let mode):
+                    handleExecutionMode(mode)
+                case .progress(let metrics):
+                    handleProgress(metrics, operationID: scanID)
+                case .warning:
+                    break
+                case .finished(let snapshot):
+                    finishScan(with: snapshot, scanID: scanID)
+                }
             }
         } catch is CancellationError {
             completeCancelledScan(scanID: scanID)
@@ -981,21 +997,6 @@ final class ScanCoordinator: ObservableObject {
         }
     }
 
-    private func handle(_ event: ScanProgressEvent, scanID: UUID) {
-        guard activeScanID == scanID else { return }
-
-        switch event {
-        case .executionMode(let mode):
-            handleExecutionMode(mode)
-        case .progress(let metrics):
-            handleProgress(metrics, operationID: scanID)
-        case .warning:
-            break
-        case .finished(let snapshot):
-            finishScan(with: snapshot, scanID: scanID)
-        }
-    }
-
     private func handleExecutionMode(_ mode: ScanExecutionMode) {
         if case .fullFallback = mode,
            progress.executionMode == .incremental || progress.executionMode == .incrementalNoChanges {
@@ -1069,6 +1070,7 @@ final class ScanCoordinator: ObservableObject {
     private func finishScan(with snapshot: ScanSnapshot, scanID: UUID) {
         guard activeScanID == scanID else { return }
 
+        let onCompletion = activeScanCompletion
         let folderNodeID = folderRescanState?.origin.nodeID
         flushPendingProgress(operationID: scanID)
         apply(snapshot: snapshot)
@@ -1087,6 +1089,7 @@ final class ScanCoordinator: ObservableObject {
         if let folderNodeID {
             onFolderRescanFinished?(folderNodeID, .updated)
         }
+        onCompletion?(snapshot)
     }
 
     func dismissScanCompletionNotice() {

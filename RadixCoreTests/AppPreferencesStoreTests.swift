@@ -16,6 +16,16 @@ struct AppPreferencesStoreTests {
     }
 
     @Test
+    func testAutosaveNeedsAnAbsoluteDestinationPath() throws {
+        let defaults = try temporaryDefaults.make()
+        let store = UserDefaultsAppPreferencesStore(defaults: defaults)
+        for invalidPath in ["", "Snapshots"] {
+            defaults.set(invalidPath, forKey: "snapshotAutosaveFolder")
+            #expect(store.loadPreferences().scan.snapshotAutosaveFolder == nil)
+        }
+    }
+
+    @Test
     func testReadOnlyModeSurvivesReloadWithoutChangingScanPreferences() throws {
         let defaults = try temporaryDefaults.make()
         let store = UserDefaultsAppPreferencesStore(defaults: defaults)
@@ -62,12 +72,16 @@ struct AppPreferencesStoreTests {
             visualizationMode: .treemap,
             useScanExclusions: true,
             exclusionPatterns: ["node_modules", "*.log"],
-            automaticallyRefreshFocusedFolder: false
+            automaticallyRefreshFocusedFolder: false,
+            snapshotAutosaveFolder: URL(filePath: "/tmp/Snapshots", directoryHint: .isDirectory),
+            autosaveVolumesOnly: true
         )
 
         store.saveScanPreferences(preferences)
 
         #expect(store.loadPreferences().scan == preferences)
+        store.saveScanPreferences(.defaults)
+        #expect(store.loadPreferences().scan.snapshotAutosaveFolder == nil)
         #expect(!(store.loadPreferences().didCompleteOnboarding))
 
         store.markOnboardingComplete()

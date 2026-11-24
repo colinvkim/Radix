@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     let softwareUpdates: SoftwareUpdateModel
@@ -37,6 +38,7 @@ private enum SettingsTab: String {
 
 private struct ScanningSettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
+    @State private var choosingSnapshotFolder = false
 
     var body: some View {
         Form {
@@ -63,6 +65,35 @@ private struct ScanningSettingsPane: View {
                 )
             }
 
+            Section("Snapshots") {
+                SettingsToggle(
+                    "Save a snapshot after each scan",
+                    detail: "Saves a timestamped .radixscan file. Partial rescans and automatic refreshes are skipped.",
+                    isOn: Binding(
+                        get: { appModel.snapshotAutosaveFolder != nil },
+                        set: { enabled in
+                            if enabled {
+                                choosingSnapshotFolder = true
+                            } else {
+                                appModel.snapshotAutosaveFolder = nil
+                            }
+                        }
+                    )
+                )
+                if let folder = appModel.snapshotAutosaveFolder {
+                    Toggle("Only save volume scans", isOn: $appModel.autosaveVolumesOnly)
+                        .controlSize(.mini)
+                    LabeledContent {
+                        Button("Choose Folder…") { choosingSnapshotFolder = true }
+                    } label: {
+                        Text(verbatim: folder.path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(folder.path)
+                    }
+                }
+            }
+
             Section("Exclusions") {
                 SettingsToggle(
                     "Use exclusions",
@@ -74,6 +105,13 @@ private struct ScanningSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .fileImporter(isPresented: $choosingSnapshotFolder, allowedContentTypes: [.folder]) { result in
+            guard case .success(let folder) = result else { return }
+            appModel.snapshotAutosaveFolder = folder
+        }
+        .fileDialogDefaultDirectory(appModel.snapshotAutosaveFolder)
+        .fileDialogMessage("Snapshot Folder")
+        .fileDialogConfirmationLabel("Choose")
     }
 }
 
