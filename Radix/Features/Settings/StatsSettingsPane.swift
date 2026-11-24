@@ -3,13 +3,14 @@ import SwiftUI
 struct StatsSettingsPane: View {
     private static let emptyValueText = "—"
 
+    @State private var scanPanelSource = WindowAnchor.Source()
     @EnvironmentObject private var appModel: AppModel
 
     var body: some View {
         Form {
             if appModel.usageStats.totalScansRun == 0 {
                 StatsEmptyState {
-                    appModel.presentOpenPanelAndScan()
+                    appModel.presentScanPanel(.folder, from: scanPanelSource.window)
                 }
             } else {
                 Section {
@@ -93,6 +94,7 @@ struct StatsSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .background { WindowAnchor(source: scanPanelSource).frame(width: 0, height: 0) }
     }
 
     private func countText(_ value: Int) -> String {

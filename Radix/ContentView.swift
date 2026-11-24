@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
+    @State private var scanPanelSource = WindowAnchor.Source()
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -52,6 +53,7 @@ struct ContentView: View {
                 comparisonRowActions: comparisonRowActions,
                 actions: workspaceActions
             )
+            .background { WindowAnchor(source: scanPanelSource).frame(width: 0, height: 0) }
             .id(appModel.workspaceTourSessionID)
             .overlay(alignment: .topTrailing) {
                 WorkspaceTourCard(tour: appModel.workspaceTour, presentation: tourPresentation)
@@ -754,7 +756,7 @@ private extension ContentView {
             fileDragController: appModel.fileDragController,
             makeFileBrowserModel: { appModel.makeFileBrowserModel() },
             quickLook: { appModel.handleQuickLookShortcut() },
-            chooseFolder: { appModel.presentOpenPanelAndScan() },
+            chooseFolder: { appModel.presentScanPanel(.folder, from: scanPanelSource.window) },
             startScan: { appModel.startScan($0) },
             stopScan: { appModel.stopScan() },
             rescan: { appModel.rescan() },

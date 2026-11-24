@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -274,7 +275,7 @@ final class AppModel: ObservableObject {
     private var deferredCleanupRescan: (targetID: String, snapshotID: UUID?)?
     private var isWorkspaceActive = true
     private var isWorkspaceDragging = false
-    private var isScanPanelPresented = false
+    private var openScanPanelCount = 0
     private var lastPersistedScanPreferences: AppScanPreferences?
 
     private static let viewUpdateDeferralDelay: Duration = .milliseconds(1)
@@ -525,7 +526,7 @@ final class AppModel: ObservableObject {
         automaticallyRefreshFocusedFolder && isWorkspaceActive && !isWorkspaceDragging && !showsOnboarding
             && !tourSession.isActive && scanComparison == nil
             && presentationCoordinator.activeDestination == nil
-            && !isArchiveOperationInProgress && !isExportPanelPresented && !isScanPanelPresented
+            && !isArchiveOperationInProgress && !isExportPanelPresented && openScanPanelCount == 0
             && deferredWorkBoxes[.scanStart] == nil && deferredWorkBoxes[.sidebarSelection] == nil
             && !fileDragController.isDragging
             && !trashFlow.isMovingFiles && quickLookController.session == nil
@@ -537,15 +538,30 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func presentScanPanel<Result>(_ present: () -> Result) -> Result {
-        isScanPanelPresented = true
+    func presentScanPanel(_ kind: ScanOpenPanel, from window: NSWindow?) {
+        switch kind {
+        case .folder:
+            guard !scanCoordinator.isForegroundScanOperationInProgress else { return }
+        case .snapshot:
+            guard canImportScanSnapshot else { return }
+        }
+
+        // Settings and the workspace can each have a sheet open.
+        openScanPanelCount += 1
         updateAutomaticFolderRefresh()
         preemptAutomaticFolderRefresh()
-        defer {
-            isScanPanelPresented = false
-            updateAutomaticFolderRefresh()
+        dependencies.systemActions.presentScanPanel(kind, window) { [weak self] url in
+            guard let self else { return }
+            openScanPanelCount -= 1
+            defer { updateAutomaticFolderRefresh() }
+            guard let url else { return }
+            switch kind {
+            case .folder:
+                startScan(ScanTarget(url: url))
+            case .snapshot:
+                importScanSnapshot(from: url)
+            }
         }
-        return present()
     }
 
     private func updateAutomaticFolderRefresh() {
@@ -904,13 +920,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func presentOpenPanelAndScan() {
-        guard !scanCoordinator.isForegroundScanOperationInProgress else { return }
-        if let target = presentScanPanel(dependencies.systemActions.presentOpenPanel) {
-            startScan(target)
-        }
-    }
-
     var canExportCurrentScan: Bool {
         !tourSession.isActive && scanCoordinator.snapshot?.isComplete == true &&
             !scanCoordinator.isForegroundScanOperationInProgress &&
@@ -1053,15 +1062,6 @@ final class AppModel: ObservableObject {
             self?.exportConfirmation = nil
             self?.exportConfirmationDismissTask = nil
         }
-    }
-
-    func importScanSnapshot() {
-        guard canImportScanSnapshot else { return }
-        guard let sourceURL = presentScanPanel(dependencies.systemActions.presentImportScanPanel) else {
-            return
-        }
-
-        importScanSnapshot(from: sourceURL)
     }
 
     func importScanSnapshot(from sourceURL: URL) {

@@ -97,13 +97,13 @@ struct RadixCommands: Commands {
 
         CommandGroup(replacing: .newItem) {
             Button("Scan Folder…") {
-                appModel.presentOpenPanelAndScan()
+                appModel.presentScanPanel(.folder, from: NSApp.keyWindow)
             }
             .keyboardShortcut("o")
             .disabled(isWorkspaceWindowFocused != true || scanState.isForegroundScanOperationInProgress)
 
             Button("Import Snapshot…", systemImage: "square.and.arrow.down") {
-                appModel.importScanSnapshot()
+                appModel.presentScanPanel(.snapshot, from: NSApp.keyWindow)
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(isWorkspaceWindowFocused != true || !appModel.canImportScanSnapshot)
