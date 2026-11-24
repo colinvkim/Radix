@@ -1,5 +1,5 @@
-import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     let softwareUpdates: SoftwareUpdateModel
@@ -38,6 +38,7 @@ private enum SettingsTab: String {
 
 private struct ScanningSettingsPane: View {
     @EnvironmentObject private var appModel: AppModel
+    @State private var choosingSnapshotFolder = false
 
     var body: some View {
         Form {
@@ -72,19 +73,18 @@ private struct ScanningSettingsPane: View {
                         get: { appModel.snapshotAutosaveFolder != nil },
                         set: { enabled in
                             if enabled {
-                                chooseSnapshotFolder()
+                                choosingSnapshotFolder = true
                             } else {
                                 appModel.snapshotAutosaveFolder = nil
                             }
                         }
                     )
                 )
-                .controlSize(.regular)
                 if let folder = appModel.snapshotAutosaveFolder {
                     Toggle("Only save volume scans", isOn: $appModel.autosaveVolumesOnly)
                         .controlSize(.mini)
                     LabeledContent {
-                        Button("Choose Folder…") { chooseSnapshotFolder() }
+                        Button("Choose Folder…") { choosingSnapshotFolder = true }
                     } label: {
                         Text(verbatim: folder.path)
                             .lineLimit(1)
@@ -105,21 +105,13 @@ private struct ScanningSettingsPane: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    private func chooseSnapshotFolder() {
-        guard let settingsWindow = NSApp.keyWindow else { return }
-        let panel = NSOpenPanel()
-        panel.title = String(localized: "Snapshot Folder", comment: "Title of the folder picker for automatic snapshot saves.")
-        panel.prompt = String(localized: "Choose")
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = appModel.snapshotAutosaveFolder
-        panel.beginSheetModal(for: settingsWindow) { response in
-            guard response == .OK, let folder = panel.url else { return }
+        .fileImporter(isPresented: $choosingSnapshotFolder, allowedContentTypes: [.folder]) { result in
+            guard case .success(let folder) = result else { return }
             appModel.snapshotAutosaveFolder = folder
         }
+        .fileDialogDefaultDirectory(appModel.snapshotAutosaveFolder)
+        .fileDialogMessage("Snapshot Folder")
+        .fileDialogConfirmationLabel("Choose")
     }
 }
 
