@@ -97,9 +97,8 @@ extension AppSystemActions {
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },
-        presentOpenPanel: { nil },
+        presentScanPanel: { _, _, complete in complete(nil) },
         presentExportScanPanel: { _ in nil },
-        presentImportScanPanel: { nil },
         presentComparisonSnapshotPanel: { nil },
         fileExists: { _ in false },
         verifyTrashIdentity: { _ in .matches },

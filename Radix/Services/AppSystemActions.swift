@@ -20,6 +20,10 @@ nonisolated struct TrashMoveOutcome: Sendable {
     }
 }
 
+enum ScanOpenPanel {
+    case folder, snapshot
+}
+
 @MainActor
 struct AppSystemActions {
     typealias DeletePermanently = @MainActor (
@@ -40,9 +44,8 @@ struct AppSystemActions {
     var defaultTargets: () -> [ScanTarget]
     var targetCapacityDescriptions: @MainActor () async -> [String: String]
     var trashSafetyPolicy: () -> TrashSafetyPolicy
-    var presentOpenPanel: () -> ScanTarget?
+    var presentScanPanel: @MainActor (ScanOpenPanel, NSWindow?, @escaping @MainActor (URL?) -> Void) -> Void
     var presentExportScanPanel: (String) async -> URL?
-    var presentImportScanPanel: () -> URL?
     var presentComparisonSnapshotPanel: () async -> URL?
     var fileExists: (URL) -> Bool
     var verifyTrashIdentity: @Sendable (FileNodeRecord) -> TrashIdentityVerificationResult
@@ -99,14 +102,9 @@ struct AppSystemActions {
         trashSafetyPolicy: {
             TrashSafetyPolicy.live()
         },
-        presentOpenPanel: {
-            SystemIntegration.presentScanPanel()
-        },
+        presentScanPanel: SystemIntegration.presentScanPanel,
         presentExportScanPanel: { defaultFileName in
             await SystemIntegration.presentExportScanPanel(defaultFileName: defaultFileName)
-        },
-        presentImportScanPanel: {
-            SystemIntegration.presentImportScanPanel()
         },
         presentComparisonSnapshotPanel: {
             await SystemIntegration.presentComparisonSnapshotPanel()

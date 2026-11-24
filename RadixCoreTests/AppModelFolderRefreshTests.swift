@@ -183,16 +183,16 @@ struct AppModelFolderRefreshTests {
         let fixture = AppFolderRefreshFixture()
         var panelRequests = 0
         var actions = AppSystemActions.inert
-        actions.presentOpenPanel = {
+        actions.presentScanPanel = { _, _, complete in
             panelRequests += 1
-            return ScanTarget(url: fixture.documents.url)
+            complete(fixture.documents.url)
         }
         let harness = AppFolderRefreshHarness(systemActions: actions)
         defer { harness.model.cleanup() }
         let model = harness.model
         let pending = try await stageAppFolderBackgroundReplacement(harness, fixture: fixture)
         defer { pending.gate.restore() }
-        model.presentOpenPanelAndScan()
+        model.presentScanPanel(.folder, from: nil)
         try await waitForFolderRefresh("chosen folder scan starts") {
             harness.scanner.requests.count == 2
         }
@@ -211,6 +211,43 @@ struct AppModelFolderRefreshTests {
         }
         #expect(model.navigation.focusedNodeID == fixture.documents.id)
         #expect(model.scanState.scanErrorMessage == nil)
+    }
+
+    @Test
+    func pendingFolderChangeWaitsUntilBothScanPickersClose() async throws {
+        var dismissFolderPicker: ((URL?) -> Void)?
+        var dismissImportPicker: ((URL?) -> Void)?
+        var actions = AppSystemActions.inert
+        actions.presentScanPanel = { kind, _, complete in
+            switch kind {
+            case .folder: dismissFolderPicker = complete
+            case .snapshot: dismissImportPicker = complete
+            }
+        }
+
+        let fixture = AppFolderRefreshFixture()
+        let clock = ManualTestClock()
+        let harness = AppFolderRefreshHarness(systemActions: actions, clock: clock)
+        let model = harness.model
+        defer { model.cleanup() }
+        model.scanState.restoreCompletedSnapshot(fixture.snapshot)
+        model.focus(nodeID: fixture.downloads.id)
+        try await waitForFolderRefresh("folder is watched") { harness.watcher.requests.count == 1 }
+
+        model.presentScanPanel(.folder, from: nil)
+        model.presentScanPanel(.snapshot, from: nil)
+        let cancelFolder = try #require(dismissFolderPicker)
+        let cancelImport = try #require(dismissImportPicker)
+        try await harness.watcher.emitAndWaitUntilProcessed([changedAppFolderFile(fixture.keptDownload.id)])
+        clock.advance(by: .seconds(6))
+        cancelImport(nil)
+        try await harness.watcher.emitAndWaitUntilProcessed([])
+        #expect(harness.scanner.requests.isEmpty)
+
+        cancelFolder(nil)
+        try await waitForFolderRefresh("pending change resumes after the last picker closes") {
+            harness.scanner.requests.map(\.id) == [fixture.downloads.id]
+        }
     }
 
     @Test

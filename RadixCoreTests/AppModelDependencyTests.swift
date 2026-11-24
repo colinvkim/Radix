@@ -2832,10 +2832,10 @@ struct AppModelDependencyTests {
             )
         )
         var actions = AppSystemActions.inert
-        actions.presentImportScanPanel = { archiveURL }
+        actions.presentScanPanel = { _, _, complete in complete(archiveURL) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
 
-        model.importScanSnapshot()
+        model.presentScanPanel(.snapshot, from: nil)
 
         try await waitUntil("import preview presented") {
             model.pendingImportPreview?.archiveURL == archiveURL
@@ -2910,10 +2910,10 @@ struct AppModelDependencyTests {
             )
         )
         var actions = AppSystemActions.inert
-        actions.presentImportScanPanel = { archiveURL }
+        actions.presentScanPanel = { _, _, complete in complete(archiveURL) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
 
-        model.importScanSnapshot()
+        model.presentScanPanel(.snapshot, from: nil)
         try await waitUntil("import preview presented") {
             model.pendingImportPreview?.archiveURL == archiveURL
         }
@@ -2980,7 +2980,7 @@ struct AppModelDependencyTests {
             )
         )
         var actions = AppSystemActions.inert
-        actions.presentImportScanPanel = { archiveURL }
+        actions.presentScanPanel = { _, _, complete in complete(archiveURL) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
         var tableNodeCountAtSnapshotPublish: Int?
         let snapshotCancellable = model.scanState.$snapshot.sink { snapshot in
@@ -2988,7 +2988,7 @@ struct AppModelDependencyTests {
             tableNodeCountAtSnapshotPublish = model.navigation.tableNodes.count
         }
 
-        model.importScanSnapshot()
+        model.presentScanPanel(.snapshot, from: nil)
         try await waitUntil("wide import preview presented") {
             model.pendingImportPreview?.archiveURL == archiveURL
         }
@@ -3332,10 +3332,10 @@ struct AppModelDependencyTests {
         let previewProbe = AsyncValueProbe<Void>()
         let archiveService = SpyScanArchiveService(previewWaitProbe: previewProbe)
         var actions = AppSystemActions.inert
-        actions.presentImportScanPanel = { archiveURL }
+        actions.presentScanPanel = { _, _, complete in complete(archiveURL) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
 
-        model.importScanSnapshot()
+        model.presentScanPanel(.snapshot, from: nil)
         try await waitUntil("preview request waiting") {
             await previewProbe.isWaiting
         }
@@ -3475,10 +3475,10 @@ struct AppModelDependencyTests {
             importWaitProbe: importProbe
         )
         var actions = AppSystemActions.inert
-        actions.presentImportScanPanel = { archiveURL }
+        actions.presentScanPanel = { _, _, complete in complete(archiveURL) }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions, scanArchiveService: archiveService))
 
-        model.importScanSnapshot()
+        model.presentScanPanel(.snapshot, from: nil)
         try await waitUntil("import preview presented") {
             model.pendingImportPreview?.archiveURL == archiveURL
         }
@@ -3549,7 +3549,7 @@ struct AppModelDependencyTests {
             importWaitProbe: importProbe
         )
         var actions = AppSystemActions.inert
-        actions.presentImportScanPanel = { archiveURL }
+        actions.presentScanPanel = { _, _, complete in complete(archiveURL) }
         let scanService = NeverFinishingScanService()
         let model = AppModel(
             dependencies: makeDependencies(
@@ -3558,7 +3558,7 @@ struct AppModelDependencyTests {
                 scanArchiveService: archiveService
             ))
 
-        model.importScanSnapshot()
+        model.presentScanPanel(.snapshot, from: nil)
         try await waitUntil("import preview presented") {
             model.pendingImportPreview?.archiveURL == archiveURL
         }

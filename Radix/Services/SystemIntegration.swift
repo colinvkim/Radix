@@ -87,20 +87,35 @@ enum SystemIntegration {
     }
 
     @MainActor
-    static func presentScanPanel() -> ScanTarget? {
+    static func presentScanPanel(
+        _ kind: ScanOpenPanel,
+        from window: NSWindow?,
+        completion: @escaping @MainActor (URL?) -> Void
+    ) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
         panel.canCreateDirectories = false
-        panel.prompt = String(localized: "Scan", comment: "Open panel action button for choosing a folder or volume to scan.")
-        panel.message = String(localized: "Choose a folder or mounted volume to analyze.", comment: "Open panel instruction for selecting a scan location.")
-
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return nil
+        switch kind {
+        case .folder:
+            panel.canChooseFiles = false
+            panel.prompt = String(localized: "Scan", comment: "Open panel action button for choosing a folder or volume to scan.")
+            panel.message = String(localized: "Choose a folder or mounted volume to analyze.", comment: "Open panel instruction for selecting a scan location.")
+        case .snapshot:
+            panel.canChooseFiles = true
+            panel.allowedContentTypes = [radixScanArchiveContentType]
+            panel.prompt = String(localized: "Import", comment: "Open panel action button for importing a scan snapshot.")
         }
 
-        return ScanTarget(url: url)
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            panel.orderOut(nil)
+            completion(response == .OK ? panel.url : nil)
+        }
+        if let parent = window ?? NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: parent, completionHandler: finish)
+        } else {
+            panel.begin(completionHandler: finish)
+        }
     }
 
     @MainActor
@@ -128,22 +143,6 @@ enum SystemIntegration {
             }
         }
         return normalizedExportPanelURL(selectedURL)
-    }
-
-    @MainActor
-    static func presentImportScanPanel() -> URL? {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [radixScanArchiveContentType]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.canCreateDirectories = false
-        panel.prompt = String(localized: "Import", comment: "Open panel action button for importing a scan snapshot.")
-
-        guard panel.runModal() == .OK else {
-            return nil
-        }
-        return panel.url
     }
 
     @MainActor
