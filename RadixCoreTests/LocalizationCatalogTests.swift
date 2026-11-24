@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 struct LocalizationCatalogTests {
-    private let supportedLocales = ["de", "es", "fr", "it", "ru", "zh-Hans"]
+    private let supportedLocales = ["de", "es", "fr", "it", "ja", "ru", "zh-Hans"]
 
     private struct LocalizedSourceLiteral {
         let value: String

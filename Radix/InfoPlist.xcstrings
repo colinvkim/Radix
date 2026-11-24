@@ -1,244 +1,271 @@
 {
-  "sourceLanguage": "en",
-  "strings": {
-    "CFBundleDisplayName": {
-      "comment": "The application name shown by macOS in Finder, menus, and system settings.",
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "The application name shown by macOS in Finder, menus, and system settings.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         }
       }
     },
-    "CFBundleName": {
-      "comment": "Bundle name",
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+    "CFBundleName" : {
+      "comment" : "Bundle name",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix"
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix"
           }
         }
       }
     },
-    "NSHumanReadableCopyright": {
-      "comment": "Copyright (human-readable)",
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+    "NSHumanReadableCopyright" : {
+      "comment" : "Copyright (human-readable)",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copyright © 2026 Colin Kim."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copyright © 2026 Colin Kim."
           }
         }
       }
     },
-    "Radix Discard Pile Drag Payload": {
-      "comment": "Exported drag payload type description",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix-Ziehdaten der Löschliste"
+    "Radix Discard Pile Drag Payload" : {
+      "comment" : "Exported drag payload type description",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix-Ziehdaten der Löschliste"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix Discard Pile Drag Payload"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix Discard Pile Drag Payload"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Datos de arrastre de la pila de descarte de Radix"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datos de arrastre de la pila de descarte de Radix"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Données de glissement de la pile de suppression de Radix"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Données de glissement de la pile de suppression de Radix"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dati di trascinamento dell'elenco di eliminazione Radix"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dati di trascinamento dell'elenco di eliminazione Radix"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix 待处理列表拖放数据"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radixの削除候補のドラッグデータ"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Данные перетаскивания списка на удаление Radix"
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Данные перетаскивания списка на удаление Radix"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix 待处理列表拖放数据"
           }
         }
       }
     },
-    "Radix Scan Snapshot": {
-      "comment": "Exported scan snapshot type description",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix-Scan-Snapshot"
+    "Radix Scan Snapshot" : {
+      "comment" : "Exported scan snapshot type description",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix-Scan-Snapshot"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix Scan Snapshot"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix Scan Snapshot"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instantánea de análisis de Radix"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instantánea de análisis de Radix"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instantané d’analyse Radix"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instantané d’analyse Radix"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Istantanea di scansione Radix"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Istantanea di scansione Radix"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radix 扫描快照"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radixスキャンスナップショット"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Снимок сканирования Radix"
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимок сканирования Radix"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radix 扫描快照"
           }
         }
       }
     }
   },
-  "version": "1.0"
+  "version" : "1.0"
 }

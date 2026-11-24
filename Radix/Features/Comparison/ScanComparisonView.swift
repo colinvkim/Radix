@@ -305,7 +305,7 @@ struct ScanComparisonView: View {
         HStack(spacing: 14) {
             comparisonMetric(String(localized: "Files", comment: "Comparison metric label for files."), signedCount(comparison.summary.fileCountDelta))
             comparisonMetric(String(localized: "Folders", comment: "Comparison metric label for folders."), signedCount(comparison.summary.directoryCountDelta))
-            comparisonMetric(String(localized: "Modified", comment: "Comparison metric label for items whose tracked size changed."), comparison.summary.changedCount.formatted())
+            comparisonMetric(String(localized: "Size Changed", comment: "Comparison metric label for items whose tracked size changed."), comparison.summary.changedCount.formatted())
                 .help("Items present in both scans whose tracked size changed")
             comparisonMetric(String(localized: "Warnings", comment: "Comparison metric label for scan warnings."), signedCount(comparison.summary.warningCountDelta))
         }

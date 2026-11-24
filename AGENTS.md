@@ -41,7 +41,7 @@ builds the complete app.
 ## Change guidelines
 
 - Add new user-facing text to the appropriate `.xcstrings` catalog for every
-  supported locale: `en`, `de`, `es`, `fr`, `it`, `ru`, and `zh-Hans`.
+  supported locale: `en`, `de`, `es`, `fr`, `it`, `ja`, `ru`, and `zh-Hans`.
 - Avoid new dependencies unless clearly justified. `RadixCore` has none.
 - Sparkle is managed through Xcode Swift Package Manager; never vendor it.
 - Use current documentation for version-sensitive Apple or external APIs.

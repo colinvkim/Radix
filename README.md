@@ -56,7 +56,7 @@ To keep a history of full scans and rescans, [turn on snapshot autosave](docs/sn
 - Drag and drop a folder into the window to start scanning
 - APFS-aware storage accounting that avoids double-counting full clones and detects partial clones
 - Welcome flow with an onboarding and an interactive tour of the app
-- Available in English, German, Spanish, French, Italian, Russian, and Simplified Chinese
+- Available in English, German, Spanish, French, Italian, Japanese, Russian, and Simplified Chinese
 - Automatic updates powered by [Sparkle](https://sparkle-project.org/)
 
 ### Privacy & Permissions

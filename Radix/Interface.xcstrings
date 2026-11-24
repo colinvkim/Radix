@@ -28,6 +28,12 @@
             "value": "Tenta di caricare nuovamente la mappa del disco."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクマップを再度読み込みます。"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -67,6 +73,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile caricare la mappa del disco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクマップを読み込めませんでした"
           }
         },
         "zh-Hans": {
@@ -110,6 +122,12 @@
             "value": "Layout della mappa del disco non riuscito"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクマップのレイアウトに失敗しました"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -149,6 +167,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Caricamento delle modifiche…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を読み込み中…"
           }
         },
         "zh-Hans": {
@@ -192,6 +216,12 @@
             "value": "Nessuna variazione netta"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正味の増減なし"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -231,6 +261,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiornamento del confronto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較結果を更新中"
           }
         },
         "zh-Hans": {
@@ -274,6 +310,12 @@
             "value": "Riprova"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -310,6 +352,12 @@
           }
         },
         "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "–"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "–"
@@ -362,6 +410,12 @@
             "value": "Modalità di sola lettura"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用モード"
+          }
+        },
         "ru": {
           "stringUnit": {
             "state": "translated",
@@ -407,6 +461,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Disabilita le azioni di pulizia dei file durante la navigazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閲覧中はファイルの整理機能を無効にします。"
           }
         },
         "ru": {
@@ -456,6 +516,12 @@
             "value": "Pulizia dei file"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの整理"
+          }
+        },
         "ru": {
           "stringUnit": {
             "state": "translated",
@@ -503,6 +569,12 @@
             "value": "Sola lettura"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用"
+          }
+        },
         "ru": {
           "stringUnit": {
             "state": "translated",
@@ -548,6 +620,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Le azioni di pulizia dei file sono disabilitate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの整理機能は無効です。"
           }
         },
         "ru": {
