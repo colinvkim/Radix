@@ -1891,7 +1891,7 @@ struct AppModelDependencyTests {
     }
 
     @Test
-    func testDiscardPileAddsResolvedNodeIDs() {
+    func testDiscardPileMarksBothDraggedFiles() throws {
         var actions = AppSystemActions.inert
         actions.fileExists = { _ in true }
         let model = AppModel(dependencies: makeDependencies(systemActions: actions))
@@ -1903,7 +1903,11 @@ struct AppModelDependencyTests {
         model.scanState.restoreCompletedSnapshot(snapshot)
         model.navigation.reconcileAfterSnapshotApplied(snapshot)
 
-        let didAdd = model.addNodeIDsToDiscardPile([first.id, second.id], snapshotID: snapshot.id)
+        let session = try #require(model.fileDragController.prepare(nodeIDs: [first.id, second.id]))
+        session.begin()
+        let drop = try #require(model.fileDragController.acceptDiscardPileDrop())
+        let didAdd = model.addNodeIDsToDiscardPile(drop.nodeIDs, snapshotID: drop.snapshotID)
+        session.end(operation: .copy)
 
         #expect(didAdd)
         #expect(model.discardPile.nodeIDs == [first.id, second.id])

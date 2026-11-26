@@ -605,9 +605,9 @@ private extension ContentView {
             revealInFinder: { appModel.revealTargetInFinder($0) },
             removeRecentTarget: { appModel.removeRecentTarget($0) },
             reviewDiscardPile: { appModel.presentDiscardPileReview() },
-            addDroppedNodesToDiscardPile: { nodeIDs, snapshotID in
-                defer { discardPileDragDidEnd() }
-                return appModel.addNodeIDsToDiscardPile(nodeIDs, snapshotID: snapshotID)
+            acceptDiscardPileDrop: {
+                guard let drop = appModel.fileDragController.acceptDiscardPileDrop() else { return false }
+                return appModel.addNodeIDsToDiscardPile(drop.nodeIDs, snapshotID: drop.snapshotID)
             }
         )
     }

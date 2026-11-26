@@ -810,6 +810,11 @@ nonisolated enum BulkDirectoryEnumerator {
                 Date.timeIntervalBetween1970AndReferenceDate +
                 Double(metadata.modificationTime.tv_nsec) / 1_000_000_000
         )
+        // A firmlink's directory entry describes the sealed volume. File actions
+        // open the visible path, which resolves to the directory on the Data volume.
+        let fileIdentity = parsed.isDirectory && TrashSafetyPolicy.isStartupVolumeFirmlinkRoot(url, named: parsed.decodedName)
+            ? try? metadataLoader.fileSystemIdentity(at: url)
+            : metadata.fileIdentity
         let classifiedMetadata = NodeMetadata(
             isDirectory: parsed.isDirectory,
             isPackage: isPackage,
@@ -820,7 +825,7 @@ nonisolated enum BulkDirectoryEnumerator {
             lastModified: lastModified,
             isReadable: metadata.isReadable,
             volumeCapacity: nil,
-            fileIdentity: metadata.fileIdentity,
+            fileIdentity: fileIdentity,
             linkCount: metadata.linkCount,
             cloneIdentity: metadata.cloneIdentity,
             mayShareDataBlocks: metadata.mayShareDataBlocks

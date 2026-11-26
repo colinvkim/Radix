@@ -69,6 +69,9 @@ nonisolated struct TrashSafetyPolicy: Sendable {
     private nonisolated static let defaultFirmlinkRootPaths = Set(
         defaultFirmlinkEntries.map { standardizedPath(forPath: $0.visiblePath) }
     )
+    private nonisolated static let firmlinkRootNames = Set(defaultFirmlinkEntries.map {
+        URL(filePath: $0.visiblePath).lastPathComponent
+    })
     private nonisolated static let startupVolumePathPairs = defaultFirmlinkEntries.compactMap { entry in
         dataVolumePath(forRelativePath: entry.dataRelativePath).map { (visible: entry.visiblePath, data: $0) }
     }
@@ -132,6 +135,11 @@ nonisolated struct TrashSafetyPolicy: Sendable {
     /// identity, so scanners cannot compare those identities directly.
     nonisolated static func isStartupVolumeFirmlinkRoot(_ url: URL) -> Bool {
         defaultFirmlinkRootPaths.contains(standardizedPath(for: url))
+    }
+
+    /// Bulk enumeration already has the name. Most directories need no path normalization.
+    nonisolated static func isStartupVolumeFirmlinkRoot(_ url: URL, named name: String) -> Bool {
+        firmlinkRootNames.contains(name) && isStartupVolumeFirmlinkRoot(url)
     }
 
     nonisolated static func alternateStartupVolumePath(for path: String) -> String? {

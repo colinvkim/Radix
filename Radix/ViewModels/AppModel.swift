@@ -2324,7 +2324,6 @@ final class AppModel: ObservableObject {
         _ nodeIDs: [FileNodeRecord.ID],
         snapshotID: UUID
     ) -> Bool {
-        fileDragController.markInternalDrop()
         guard scanCoordinator.snapshot?.id == snapshotID else {
             presentError(FileActionError.unsupported)
             return false

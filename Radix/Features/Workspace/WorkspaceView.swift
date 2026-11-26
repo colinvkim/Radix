@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WorkspaceActions {
     let fileDragController: FileDragController
@@ -13,7 +14,7 @@ struct WorkspaceActions {
     let canRescanCurrentFolder: () -> Bool
     let compareScans: () -> Void
     let canCompareScans: () -> Bool
-    let handleDroppedURLs: ([URL]) -> Bool
+    let handleDroppedURLs: @MainActor ([URL]) -> Bool
     let selectNodeImmediately: (String?) -> Void
     let selectNode: (String?) -> Void
     let selectNodesImmediately: (Set<String>, String?) -> Void
@@ -207,10 +208,28 @@ struct WorkspaceView: View {
                 }
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !actions.fileDragController.isDragging else { return false }
-            return actions.handleDroppedURLs(urls)
+        .onDrop(of: [.fileURL], delegate: WorkspaceFolderDrop(
+            controller: actions.fileDragController, handleURLs: actions.handleDroppedURLs
+        ))
+    }
+}
+
+private struct WorkspaceFolderDrop: DropDelegate {
+    let controller: FileDragController
+    let handleURLs: @MainActor ([URL]) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !controller.isDragging && info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info),
+              let provider = info.itemProviders(for: [.fileURL]).first else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url else { return }
+            Task { @MainActor in _ = handleURLs([url]) }
         }
+        return true
     }
 }
 

@@ -161,7 +161,7 @@ class ChartViewportInteractionView: ChartKeyboardInteractionView, NSDraggingSour
         fileDragSession = nil
         gesture = .idle
         onDragActiveChange(false)
-        completedSession?.end(operation: operation)
+        completedSession?.end(at: screenPoint, operation: operation)
     }
 
     private func updatePointerFeedback(at location: CGPoint) {

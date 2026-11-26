@@ -131,7 +131,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
 
         @objc private func beginDrag(_ pan: NSPanGestureRecognizer) {
             let presentation = adapter.presentation
-            guard pan.state == .began, let press, let table,
+            guard pan.state == .began, session == nil, let press, let table,
                   press.context == presentation.context,
                   presentation.nodes.indices.contains(press.row),
                   table.numberOfRows == presentation.nodes.count else { return }
@@ -139,6 +139,9 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
             let rows = selection.contains(press.row) ? selection : IndexSet(integer: press.row)
             let ids = rows.map { presentation.nodes[$0].id }
             guard let session = adapter.controller.prepare(nodeIDs: ids) else { return }
+            if rows != selection {
+                table.selectRowIndexes(rows, byExtendingSelection: false)
+            }
             let visible = table.rows(in: table.visibleRect)
             var previewRows = IndexSet()
             let items = rows.compactMap { row -> NSDraggingItem? in
@@ -155,7 +158,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
                 image = NSWorkspace.shared.icon(for: session.nodes.first?.isDirectory == true ? .folder : .data)
             } else {
                 image = table.dragImageForRows(
-                    with: previewRows, tableColumns: table.tableColumns, event: press.event, offset: &offset
+                    with: previewRows, tableColumns: Array(table.tableColumns.prefix(1)), event: press.event, offset: &offset
                 )
             }
             let point = table.convert(press.event.locationInWindow, from: nil)
@@ -171,7 +174,15 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
             self.session = session
             session.begin()
             adapter.onDragActiveChange(session.canCollect)
-            table.beginDraggingSession(with: items, event: press.event, source: self)
+            if #available(macOS 27, *) {
+                if table.beginDraggingSession(items: items, gesture: pan, source: self) == nil {
+                    session.end(operation: [])
+                    self.session = nil
+                    adapter.onDragActiveChange(false)
+                }
+            } else {
+                table.beginDraggingSession(with: items, event: press.event, source: self)
+            }
         }
 
         func draggingSession(
@@ -189,7 +200,7 @@ struct FileBrowserTableAdapter: NSViewRepresentable {
             let completed = session
             session = nil
             adapter.onDragActiveChange(false)
-            completed?.end(operation: operation)
+            completed?.end(at: screenPoint, operation: operation)
         }
     }
 }

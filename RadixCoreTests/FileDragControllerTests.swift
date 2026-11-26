@@ -27,7 +27,7 @@ struct FileDragControllerTests {
     }
 
     @Test
-    func nativeItemsPreserveInternalPayloadAndOriginalURLs() throws {
+    func nativeItemsAdvertiseDiscardPileAndOriginalURL() throws {
         let snapshot = fixture()
         var verified: [String] = []
         let controller = FileDragController(
@@ -42,10 +42,7 @@ struct FileDragControllerTests {
         #expect(session.pasteboardWriter(for: childID) == nil)
         let writer = try #require(session.pasteboardWriter(for: folderID))
         #expect(writer.string(forType: .fileURL) == URL(filePath: folderID, directoryHint: .isDirectory).absoluteString)
-        let data = try #require(writer.data(forType: .init(DiscardPileDragPayload.contentType.identifier)))
-        let payload = try JSONDecoder().decode(DiscardPileDragPayload.self, from: data)
-        #expect(payload.snapshotID == snapshot.id)
-        #expect(payload.nodeIDs == [folderID])
+        #expect(writer.types.contains(.init(DiscardPileDrop.contentType.identifier)))
         #expect(session.operationMask(for: .withinApplication) == .copy)
         #expect(session.operationMask(for: .outsideApplication).contains(.move))
     }
@@ -64,8 +61,7 @@ struct FileDragControllerTests {
         for id in [childID, siblingID] {
             let writer = try #require(session.pasteboardWriter(for: id))
             #expect(writer.string(forType: .fileURL) == (stale ? nil : URL(filePath: id).absoluteString))
-            let data = try #require(writer.data(forType: .init(DiscardPileDragPayload.contentType.identifier)))
-            #expect(try JSONDecoder().decode(DiscardPileDragPayload.self, from: data).nodeIDs == [id])
+            #expect(writer.types.contains(.init(DiscardPileDrop.contentType.identifier)))
         }
     }
 
@@ -79,25 +75,38 @@ struct FileDragControllerTests {
         let session = try #require(controller.prepare(nodeIDs: [snapshot.root.id + "/Folder"]))
         let writer = try #require(session.pasteboardWriter(for: session.nodes[0].id))
         #expect(writer.string(forType: .fileURL) == nil)
-        #expect(writer.data(forType: .init(DiscardPileDragPayload.contentType.identifier)) != nil)
+        #expect(writer.types.contains(.init(DiscardPileDrop.contentType.identifier)))
         #expect(session.operationMask(for: .outsideApplication).isEmpty)
         session.begin()
         session.end(operation: .copy)
     }
 
     @Test
-    func protectedLocationsExportOnlyCopyWithoutCollectorPayload() throws {
-        let snapshot = fixture(path: "/Applications")
-        let controller = FileDragController(
-            context: { .init(snapshot: snapshot, target: snapshot.target, trashSafetyPolicy: .live()) },
-            verifyIdentity: { _ in .matches }, refresh: { _ in }
+    func protectedVolumeFoldersExportOnlyCopies() async throws {
+        let target = ScanTarget(url: URL(filePath: "/"), kind: .volume)
+        let engine = ScanEngine()
+        let listing = try await engine.shallowDirectoryListing(at: target.url, scanTarget: target, options: ScanOptions())
+        let root = engine.makeFileNode(url: target.url, metadata: listing.directoryMetadata)
+        let folders = try ["/Users", "/System"].map { path in
+            let entry = try #require(listing.entries.first { $0.url.path == path })
+            return try engine.makeFileNode(url: entry.url, metadata: #require(entry.metadata))
+        }
+        let snapshot = ScanSnapshot(
+            target: target, treeStore: FileTreeStore(root: root, childrenByID: [root.id: folders]),
+            startedAt: Date(), finishedAt: Date(), scanWarnings: [], isComplete: true, scanOptions: ScanOptions()
         )
-        let session = try #require(controller.prepare(nodeIDs: [snapshot.root.id]))
-        let writer = try #require(session.pasteboardWriter(for: snapshot.root.id))
-        #expect(writer.string(forType: .fileURL) != nil)
-        #expect(writer.data(forType: .init(DiscardPileDragPayload.contentType.identifier)) == nil)
-        #expect(session.operationMask(for: .outsideApplication) == .copy)
-        #expect(session.operationMask(for: .withinApplication).isEmpty)
+        let controller = FileDragController(
+            context: { .init(snapshot: snapshot, target: target, trashSafetyPolicy: .live()) },
+            verifyIdentity: SystemIntegration.verifyTrashIdentity, refresh: { _ in }
+        )
+        for folder in folders {
+            let session = try #require(controller.prepare(nodeIDs: [folder.id]))
+            let writer = try #require(session.pasteboardWriter(for: folder.id))
+            #expect(writer.string(forType: .fileURL) == folder.url.absoluteString)
+            #expect(!writer.types.contains(.init(DiscardPileDrop.contentType.identifier)))
+            #expect(session.operationMask(for: .outsideApplication) == .copy)
+            #expect(session.operationMask(for: .withinApplication).isEmpty)
+        }
     }
 
     @Test(arguments: [false, true])
@@ -117,7 +126,7 @@ struct FileDragControllerTests {
             let session = try #require(controller.prepare(nodeIDs: [nodeID]))
             let writer = try #require(session.pasteboardWriter(for: nodeID))
             #expect(writer.string(forType: .fileURL) != nil)
-            #expect(writer.data(forType: .init(DiscardPileDragPayload.contentType.identifier)) == nil)
+            #expect(!writer.types.contains(.init(DiscardPileDrop.contentType.identifier)))
             #expect(session.operationMask(for: .outsideApplication) == .copy)
             #expect(session.operationMask(for: .withinApplication).isEmpty)
         }
@@ -137,9 +146,14 @@ struct FileDragControllerTests {
         #expect(controller.isDragging)
         cancelled.end(operation: [])
         #expect(!controller.isDragging)
+        let browserDrop = try #require(controller.prepare(nodeIDs: ids))
+        browserDrop.begin()
+        browserDrop.end(operation: .copy, endedInRadix: true)
         let internalDrop = try #require(controller.prepare(nodeIDs: ids))
         internalDrop.begin()
-        controller.markInternalDrop()
+        let drop = try #require(controller.acceptDiscardPileDrop())
+        #expect(drop.snapshotID == snapshot.id)
+        #expect(drop.nodeIDs == ids)
         internalDrop.end(operation: .copy)
         #expect(refreshed.isEmpty)
         let external = try #require(controller.prepare(nodeIDs: ids))

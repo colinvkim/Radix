@@ -5,7 +5,7 @@ struct SidebarActions {
     let revealInFinder: (ScanTarget) -> Void
     let removeRecentTarget: (ScanTarget) -> Void
     let reviewDiscardPile: () -> Void
-    let addDroppedNodesToDiscardPile: ([FileNodeRecord.ID], UUID) -> Bool
+    let acceptDiscardPileDrop: () -> Bool
 }
 
 struct SidebarView: View {
@@ -69,7 +69,7 @@ struct SidebarView: View {
                     isDropHintActive: discardPileDragIsActive && !isReadOnlyMode,
                     allowsDrop: scanState.snapshot != nil && !isReadOnlyMode,
                     isDropTargeted: $discardPileDropIsTargeted,
-                    addDroppedPayloads: addDroppedPayloadsToDiscardPile
+                    acceptDrop: actions.acceptDiscardPileDrop
                 ) {
                     actions.reviewDiscardPile()
                 }
@@ -78,17 +78,6 @@ struct SidebarView: View {
         .navigationTitle("Locations")
         .focusSection()
     }
-
-    private func addDroppedPayloadsToDiscardPile(_ payloads: [DiscardPileDragPayload]) -> Bool {
-        let snapshotIDs = Set(payloads.map(\.snapshotID))
-        guard payloads.isEmpty == false,
-              snapshotIDs.count == 1,
-              let snapshotID = snapshotIDs.first else { return false }
-        return actions.addDroppedNodesToDiscardPile(
-            payloads.flatMap(\.nodeIDs),
-            snapshotID
-        )
-    }
 }
 
 private struct DiscardPileSidebarButton: View {
@@ -96,7 +85,7 @@ private struct DiscardPileSidebarButton: View {
     let isDropHintActive: Bool
     let allowsDrop: Bool
     @Binding var isDropTargeted: Bool
-    let addDroppedPayloads: ([DiscardPileDragPayload]) -> Bool
+    let acceptDrop: () -> Bool
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -151,10 +140,8 @@ private struct DiscardPileSidebarButton: View {
         )
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .dropDestination(for: DiscardPileDragPayload.self) { payloads, _ in
-            allowsDrop && addDroppedPayloads(payloads)
-        } isTargeted: { isTargeted in
-            isDropTargeted = allowsDrop && isTargeted
+        .onDrop(of: [DiscardPileDrop.contentType], isTargeted: $isDropTargeted) { _ in
+            allowsDrop && acceptDrop()
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isDropHintActive)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isDropTargeted)

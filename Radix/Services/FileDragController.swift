@@ -1,15 +1,10 @@
 import AppKit
-import CoreTransferable
 import UniformTypeIdentifiers
 
-struct DiscardPileDragPayload: Codable, Hashable, Transferable {
+struct DiscardPileDrop {
     static let contentType = UTType(exportedAs: "dev.colinkim.radix.discard-pile-drag-payload")
     let snapshotID: UUID
     let nodeIDs: [FileNodeRecord.ID]
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: contentType)
-    }
 }
 
 /// The origin and scanned identities survive navigation while a native drag is active.
@@ -98,7 +93,11 @@ final class FileDragController {
         )
     }
 
-    func markInternalDrop() { activeSession?.wasDroppedInternally = true }
+    func acceptDiscardPileDrop() -> DiscardPileDrop? {
+        guard let session = activeSession, session.canCollect else { return nil }
+        session.wasDroppedInternally = true
+        return DiscardPileDrop(snapshotID: session.snapshotID, nodeIDs: session.nodes.map(\.id))
+    }
 }
 
 @MainActor
@@ -129,9 +128,8 @@ final class FileDragSession {
     func pasteboardWriter(for nodeID: FileNodeRecord.ID) -> NSPasteboardItem? {
         guard let node = nodesByID[nodeID] else { return nil }
         let item = NSPasteboardItem()
-        if canCollect,
-           let data = try? JSONEncoder().encode(DiscardPileDragPayload(snapshotID: snapshotID, nodeIDs: [nodeID])) {
-            item.setData(data, forType: NSPasteboard.PasteboardType(DiscardPileDragPayload.contentType.identifier))
+        if canCollect {
+            item.setData(Data(), forType: .init(DiscardPileDrop.contentType.identifier))
         }
         if exportsURLs {
             item.setString(node.url.absoluteString, forType: .fileURL)
@@ -147,5 +145,15 @@ final class FileDragSession {
     }
 
     func begin() { onBegin(self) }
-    func end(operation: NSDragOperation) { onEnd(self, operation) }
+    func end(at screenPoint: NSPoint, operation: NSDragOperation) {
+        // AppKit can report a successful operation over our own file browser.
+        // Hit-test across applications so a Finder window covering Radix still counts.
+        let windowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
+        let isLocal = NSApp.window(withWindowNumber: windowNumber) != nil
+        end(operation: operation, endedInRadix: isLocal)
+    }
+
+    func end(operation: NSDragOperation, endedInRadix: Bool = false) {
+        onEnd(self, endedInRadix ? [] : operation)
+    }
 }
